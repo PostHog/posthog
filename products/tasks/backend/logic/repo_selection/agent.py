@@ -518,15 +518,18 @@ context and repo names alone.
 {schema_json}
 </jsonschema>"""
 
-# The reason a selection carries when the request named its own repository. Read by tests and by
-# anyone reading a stored `repo_selection` artefact to tell a pinned pick from an agent's pick.
+
+# Tells a pinned pick from an agent's pick when reading a stored `repo_selection` artefact.
 PINNED_REPOSITORY_REASON = "The request names this repository as its source."
 
 
 def _pinned_selection(pinned_repository: str, candidate_repos: list[str]) -> RepoSelectionResult:
     """Honor a repository the request names, or refuse to select a different one.
 
-    Candidates are lowercased, so the pin is too before matching.
+    Matched against the eligible candidates rather than the raw connected list, so the pin and the
+    agent agree on what is reachable: a repository the agent could not have picked is not one a pin
+    may reach either. That is what puts this check after the cache hydration above, whose result the
+    pinned path otherwise does not need. Candidates are lowercased, so the pin is too.
     """
     pinned = pinned_repository.strip().lower()
     if pinned in candidate_repos:

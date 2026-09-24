@@ -6,6 +6,7 @@ from asgiref.sync import async_to_sync
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
+    PINNED_REPOSITORY_REASON,
     _build_repo_selection_prompt,
     _routing_rules_block,
     select_repository,
@@ -148,7 +149,9 @@ def test_pinned_repository_answers_without_running_the_agent(pinned: str, expect
         )
 
     assert selected.repository == expected_repository
-    if expected_repository is None:
+    if expected_repository:
+        assert selected.reason == PINNED_REPOSITORY_REASON
+    else:
         assert "acme/gone" in selected.reason
     start.assert_not_awaited()
 

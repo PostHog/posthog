@@ -91,15 +91,21 @@ async def select_repository_for_team(
     returns it when the team can reach it, and ``repository=None`` with the mismatch when it
     cannot — it never substitutes a different repository for one the request named.
     """
-    # Resolved at the single repo-selection chokepoint so both callers (custom agent +
-    # report flow) pick it up.
-    agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
-        team_id, STEP_REPO_SELECTION
+    # Both inputs below only ever reach the agent, and a pin answers without it, so neither is
+    # resolved on that path — the corrections block alone scans hundreds of artefact rows.
+    agent_runtime = (
+        None
+        if pinned_repository is not None
+        else await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_REPO_SELECTION)
     )
-    # Same chokepoint reasoning: every signals selection (report pipeline, custom agents, scout
-    # emit) should see the project's past wrong-repo corrections, so the block is built here
-    # rather than per caller. Best-effort inside (None on failure or no corrections).
-    past_corrections = await database_sync_to_async(wrong_repo_corrections_block, thread_sensitive=False)(team_id)
+    # Resolved at the single repo-selection chokepoint so every signals selection (report pipeline,
+    # custom agents, scout emit) sees the project's past wrong-repo corrections, rather than per
+    # caller. Best-effort inside (None on failure or no corrections).
+    past_corrections = (
+        None
+        if pinned_repository is not None
+        else await database_sync_to_async(wrong_repo_corrections_block, thread_sensitive=False)(team_id)
+    )
     try:
         return await select_repository(
             team_id=team_id,
@@ -111,10 +117,10 @@ async def select_repository_for_team(
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
             output_fn=output_fn,
-            model=agent_runtime.model,
-            runtime_adapter=agent_runtime.runtime_adapter,
-            reasoning_effort=agent_runtime.reasoning_effort,
-            service_tier=agent_runtime.service_tier,
+            model=agent_runtime.model if agent_runtime else None,
+            runtime_adapter=agent_runtime.runtime_adapter if agent_runtime else None,
+            reasoning_effort=agent_runtime.reasoning_effort if agent_runtime else None,
+            service_tier=agent_runtime.service_tier if agent_runtime else None,
             past_corrections=past_corrections,
             pinned_repository=pinned_repository,
         )
@@ -151,8 +157,7 @@ async def select_repository_for_report(
     """Select the most relevant repository for a set of signals.
 
     Signals that name their own repository pin it, so a report built from a GitHub issue targets
-    the repository the issue was filed against rather than whichever candidate the agent finds the
-    closest match.
+    the repository the issue was filed against.
     """
     from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
 
