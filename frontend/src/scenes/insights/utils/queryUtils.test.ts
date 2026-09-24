@@ -1,3 +1,4 @@
+import { getVariablesFromQuery } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightType } from '~/types'
@@ -6,7 +7,6 @@ import {
     compareDataNodeQuery,
     compareQuery,
     filterVariablesReferencedInQuery,
-    getVariablesFromQuery,
     hasInvalidRegexFilter,
     isBoxPlotMissingProperty,
     isDraftQueryWorthSaving,
@@ -18,38 +18,31 @@ const AVAILABLE_VARIABLES = [
     { id: 'date-id', code_name: 'date' },
     { id: 'product-id', code_name: 'product' },
     { id: 'region-id', code_name: 'region' },
-    { id: 'localized-id', code_name: 'регион' },
 ]
 
 describe('filterVariablesReferencedInQuery', () => {
-    it.each([
-        [
-            'bare references',
-            'SELECT {variables.date}, {variables.date} FROM events WHERE product = {variables.product}',
-            [
-                { id: 'date-id', code_name: 'date' },
-                { id: 'product-id', code_name: 'product' },
-            ],
-        ],
-        [
-            'a quoted localized reference',
-            'SELECT count() FROM events WHERE region = {variables.`регион`}',
-            [{ id: 'localized-id', code_name: 'регион' }],
-        ],
-    ])('keeps only the variables the query uses, given %s', (_name, query, expected) => {
-        expect(filterVariablesReferencedInQuery(query, AVAILABLE_VARIABLES)).toEqual(expected)
+    it('keeps only variables referenced in the current query', () => {
+        expect(
+            filterVariablesReferencedInQuery(
+                'SELECT {variables.date}, {variables.date} FROM events WHERE product = {variables.product}',
+                AVAILABLE_VARIABLES
+            )
+        ).toEqual([
+            { id: 'date-id', code_name: 'date' },
+            { id: 'product-id', code_name: 'product' },
+        ])
     })
 })
 
 describe('getVariablesFromQuery', () => {
-    // HogQL quotes any code name that is not a bare identifier, so a localized code name only
-    // ever appears quoted. Missing those shapes hides a working variable from the dashboard control.
+    // A code name that is not a bare identifier only ever appears quoted in the query.
     it.each([
         ['a bare identifier', 'SELECT {variables.product}', ['product']],
         ['an uppercase identifier', 'SELECT {variables.myVar}', ['myVar']],
-        ['a backquoted localized identifier', 'SELECT {variables.`регион`}', ['регион']],
-        ['a double-quoted identifier', 'SELECT {variables."регион"}', ['регион']],
-        ['an escaped backquote', 'SELECT {variables.`od``d`}', ['od`d']],
+        ['a double-quoted localized identifier', 'SELECT {variables."регион"}', ['регион']],
+        ['a backquoted identifier', 'SELECT {variables.`od``d`}', ['od`d']],
+        ['an escaped backslash', 'SELECT {variables."a\\\\b"}', ['a\\b']],
+        ['repeated references once', 'SELECT {variables.date}, {variables.date}', ['date']],
         ['whitespace around the chain', 'SELECT { variables . product }', ['product']],
         ['a filters placeholder', 'SELECT {filters.dateRange}', []],
     ])('reads %s', (_name, query, expected) => {

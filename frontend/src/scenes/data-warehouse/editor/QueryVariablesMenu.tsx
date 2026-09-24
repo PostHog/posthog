@@ -20,6 +20,7 @@ import { NewVariableModal } from '~/queries/nodes/DataVisualization/Components/V
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import { VariableInput } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
+import { formatVariableReference } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
@@ -71,7 +72,7 @@ const buildVariableMenuItems = (
     options?: { showSettingsButton?: boolean; insertOnClick?: boolean }
 ): LemonMenuItem[] => {
     return variables.map((variable): LemonMenuItem => {
-        const variableAsHogQL = `{variables.${variable.code_name}}`
+        const variableAsHogQL = formatVariableReference(variable.code_name)
         const showSettingsButton = options?.showSettingsButton ?? false
         const insertOnClick = options?.insertOnClick ?? false
 

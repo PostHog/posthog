@@ -1,8 +1,8 @@
 import {
-    formatVariableReference as sharedFormatVariableReference,
     getCodeName as sharedGetCodeName,
     VARIABLE_TYPE_OPTIONS as sharedVariableTypeOptions,
 } from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
+import { formatVariableReference as sharedFormatVariableReference } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { VariableType } from '~/queries/nodes/DataVisualization/types'
 
 // Re-export from shared location

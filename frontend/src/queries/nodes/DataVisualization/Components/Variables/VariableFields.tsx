@@ -41,7 +41,7 @@ import {
 } from './variableUtils'
 import { getStaticVariableOptions, getValuesQueryKey, variableValuesLogic } from './variableValuesLogic'
 
-export { coerceListVariableValue, formatVariableReference, getListVariableValues } from './variableUtils'
+export { coerceListVariableValue, getListVariableValues } from './variableUtils'
 
 export const VARIABLE_TYPE_OPTIONS: Array<{ value: VariableType; label: string }> = [
     { value: 'String', label: 'String' },

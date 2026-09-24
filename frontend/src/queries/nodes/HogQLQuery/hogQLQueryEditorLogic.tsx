@@ -30,10 +30,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/savedQueryNameValidation'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { getVariablesFromQuery } from 'scenes/insights/utils/queryUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { getVariablesFromQuery } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
@@ -194,12 +194,13 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
             actions.setQueryInput(query)
 
+            const referencedCodeNames = new Set(getVariablesFromQuery(query))
             props.setQuery?.({
                 ...props.query,
                 query: queryOverride ?? query,
                 variables: Object.fromEntries(
                     Object.entries(props.query.variables ?? {}).filter(([_, variable]) =>
-                        getVariablesFromQuery(query).includes(variable.code_name)
+                        referencedCodeNames.has(variable.code_name)
                     )
                 ),
             })

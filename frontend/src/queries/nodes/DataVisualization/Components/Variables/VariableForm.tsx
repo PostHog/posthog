@@ -14,9 +14,9 @@ import {
     NumberField,
     StringField,
     VARIABLE_TYPE_OPTIONS,
-    formatVariableReference,
     getCodeName,
 } from './VariableFields'
+import { formatVariableReference } from './variableUtils'
 
 function renderField<T extends Variable>(
     Field: React.ComponentType<DirectFieldProps<T>>,

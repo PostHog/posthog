@@ -1,7 +1,7 @@
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 
-import { getVariableCodeNamesInQuery } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
+import { getVariablesFromQuery } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -41,8 +41,6 @@ import {
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
-export const getVariablesFromQuery = getVariableCodeNamesInQuery
-
 export const filterVariablesReferencedInQuery = <T extends { code_name: string }>(
     query: string | null | undefined,
     variables: T[]
@@ -57,7 +55,7 @@ export const syncSelectedVariablesToQuery = (
     variables: Pick<Variable, 'id' | 'code_name'>[],
     selectedVariables: HogQLVariable[]
 ): HogQLVariable[] => {
-    const queryCodeNames = Array.from(new Set(getVariablesFromQuery(query ?? '')))
+    const queryCodeNames = getVariablesFromQuery(query ?? '')
     const queryCodeNamesSet = new Set(queryCodeNames)
     const variablesByCodeName = new Map(variables.map((variable) => [variable.code_name, variable]))
 

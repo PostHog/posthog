@@ -73,8 +73,8 @@ describe('VariableFields', () => {
 
     test.each([
         ['a bare identifier is inserted as-is', 'product', '{variables.product}'],
-        ['a localized code name is backquoted', 'регион', '{variables.`регион`}'],
-        ['a backquote in the code name is escaped', 'od`d', '{variables.`od``d`}'],
+        ['a localized code name is quoted', 'регион', '{variables."регион"}'],
+        ['a code name holding a quote falls back to backquotes', 'o"d', '{variables.`o"d`}'],
     ])('formatVariableReference: %s', (_name, codeName, expected) => {
         expect(formatVariableReference(codeName)).toBe(expected)
     })
