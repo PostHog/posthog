@@ -77,10 +77,10 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
 class TestHogQLThresholdTruncation(APIBaseTest):
     @parameterized.expand(
         [
-            ("last_row", "", AlertExtractionError, "result is incomplete"),
-            ("any_row", "", AlertExtractionError, "result is incomplete"),
-            ("last_row", " LIMIT 100", AlertExtractionError, "result is incomplete"),
-            ("any_row", " LIMIT 3", AlertExtractionError, "result is incomplete"),
+            ("last_row", "", AlertExtractionError, "newest rows are missing and the alert would check the wrong row"),
+            ("any_row", "", AlertExtractionError, "a breach could go unnoticed"),
+            ("last_row", " LIMIT 100", AlertExtractionError, "newest rows are missing"),
+            ("any_row", " LIMIT 3", AlertExtractionError, "a breach could go unnoticed"),
         ]
     )
     def test_a_capped_threshold_result_fails_loud(self, evaluation, sql_limit, expected_exception, expected_error):
@@ -106,19 +106,28 @@ class TestHogQLThresholdTruncation(APIBaseTest):
 class TestHogQLDetectorPagination(APIBaseTest):
     @parameterized.expand(
         [
+            # last_row: scores the newest row, so a cut tail is a configuration error, and the
+            # detector's requirement is window + 1 (the history plus the point it scores).
             ("last_row", 99, 30, None, None, None),
-            ("last_row", 169, 168, None, AlertExtractionError, "result is incomplete"),
-            ("last_row", 501, 168, None, AlertExtractionError, "result is incomplete"),
-            ("last_row", 140, 168, None, AlertExtractionError, "result is incomplete"),
-            ("first_row", 501, 30, None, None, None),
-            ("first_row", 501, 168, None, AlertExtractionError, "row limit cut the result"),
-            ("first_row", 501, 500, None, AlertExtractionError, "row limit cut the result"),
-            ("last_row", 169, 168, 100, AlertExtractionError, "at least 169 rows"),
-            ("last_row", 150, 30, 100, AlertExtractionError, "result is incomplete"),
+            (
+                "last_row",
+                169,
+                168,
+                None,
+                AlertExtractionError,
+                "newest rows are missing and the alert would check the wrong row",
+            ),
+            ("last_row", 169, 168, 100, AlertExtractionError, "Raise the LIMIT to at least 169"),
+            ("last_row", 150, 30, 100, AlertExtractionError, "newest rows are missing"),
             ("last_row", 501, 168, 501, None, None),
-            ("first_row", 501, 30, 100, None, None),
-            ("first_row", 10, 168, 100, AlertExtractionError, "at least 169 rows"),
             ("last_row", 501, 168, 502, None, None),
+            # first_row: reads the head, immune to a cut tail, but still needs enough history.
+            ("first_row", 501, 30, None, None, None),
+            ("first_row", 501, 30, 100, None, None),
+            ("first_row", 501, 168, None, AlertExtractionError, "row limit cut the result"),
+            ("first_row", 10, 168, 100, AlertExtractionError, "Raise the LIMIT to at least 169"),
+            # any_row: rows are unrelated entities, not a time series, so detectors refuse it.
+            ("any_row", 99, 30, None, AlertExtractionError, "isn't supported for any-row"),
         ]
     )
     def test_detector_checks_paginated_history(

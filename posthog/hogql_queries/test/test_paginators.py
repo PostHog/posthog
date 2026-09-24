@@ -565,18 +565,24 @@ class TestAlertPaginator(SimpleTestCase):
         ]
     )
     def test_unsupported_limits_do_not_claim_completeness(self, sql):
-        assert HogQLHasMorePaginator.for_alert_query(parse_select(sql), limit_context=LimitContext.SQL_ALERT) is None
+        # None means the runner attaches no paginator, has_more stays unset, and the alert path
+        # raises its retryable "could not confirm the query returned every row" error with the
+        # fix in the message. The alert stays enabled.
+        assert HogQLHasMorePaginator.from_alert_query(parse_select(sql), limit_context=LimitContext.SQL_ALERT) is None
 
     def test_only_the_outer_limit_is_changed(self):
         query = cast(
             SelectQuery, parse_select("SELECT value FROM (SELECT 1 AS value LIMIT 2) ORDER BY value LIMIT 3 OFFSET 1")
         )
-        paginator = HogQLHasMorePaginator.for_alert_query(query, limit_context=LimitContext.SQL_ALERT)
+        paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=LimitContext.SQL_ALERT)
         assert paginator is not None
         paginated = cast(SelectQuery, paginator.paginate(query))
-        assert paginated.limit == Constant(value=4)
-        assert paginated.offset == Constant(value=1)
+        outer_limit = paginated.limit
+        assert outer_limit == Constant(value=4), "outer LIMIT 3 gains the +1 probe row"
+        assert paginated.offset == Constant(value=1), "outer OFFSET is preserved"
         assert paginated.select_from is not None
-        assert isinstance(paginated.select_from.table, SelectQuery)
-        assert isinstance(paginated.select_from.table.limit, Constant)
-        assert paginated.select_from.table.limit.value == 2
+        subquery = paginated.select_from.table
+        assert isinstance(subquery, SelectQuery)
+        inner_limit = subquery.limit
+        assert isinstance(inner_limit, Constant)
+        assert inner_limit.value == 2, "the subquery's own LIMIT is left untouched"

@@ -16,7 +16,12 @@ from posthog.hogql.query import execute_hogql_query
 
 
 def get_query_limit(query: ast.SelectQuery | ast.SelectSetQuery) -> int | None:
-    """Return a constant row limit, excluding percentage and WITH TIES limits."""
+    """Return a constant row limit, or None when the query has no usable one.
+
+    A percentage limit resolves to a row count only after the result size is known, and WITH TIES
+    can return more rows than the stated limit, so neither gives a hard cap a caller could pad or
+    compare row counts against.
+    """
     if query.limit_percent or query.limit_with_ties:
         return None
     limit = query.limit
@@ -50,23 +55,25 @@ class HogQLHasMorePaginator:
         return cls(limit=limit, offset=offset, limit_context=limit_context)
 
     @classmethod
-    def for_alert_query(
+    def from_alert_query(
         cls, query: ast.SelectQuery | ast.SelectSetQuery, *, limit_context: LimitContext
     ) -> "HogQLHasMorePaginator | None":
         if not isinstance(query, ast.SelectQuery) or query.limit_percent or query.limit_with_ties:
             return None
         limit = get_query_limit(query) if query.limit is not None else get_default_limit_for_context(limit_context)
-        # The extra row must fit under the execution cap to prove completeness.
-        if limit is None or not 0 < limit < get_max_limit_for_context(limit_context):
+        if limit is None or limit <= 0:
+            return None
+        # The extra probe row must fit under the execution cap to prove completeness.
+        if limit >= get_max_limit_for_context(limit_context):
             return None
         offset = query.offset
-        if offset is not None and not (
-            isinstance(offset, ast.Constant) and type(offset.value) is int and offset.value >= 0
-        ):
+        if offset is None:
+            return cls(limit=limit, offset=None, limit_context=limit_context)
+        valid_offset = isinstance(offset, ast.Constant) and type(offset.value) is int and offset.value >= 0
+        if not valid_offset:
             return None
-        return cls(
-            limit=limit, offset=offset.value if isinstance(offset, ast.Constant) else None, limit_context=limit_context
-        )
+        assert isinstance(offset, ast.Constant)
+        return cls(limit=limit, offset=offset.value, limit_context=limit_context)
 
     def paginate(self, query: Union[ast.SelectQuery, ast.SelectSetQuery]) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         if isinstance(query, ast.SelectQuery):

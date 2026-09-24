@@ -376,6 +376,7 @@ def test_any_row_rejects_relative_conditions():
         ("first_row", True, False),
         ("last_row", False, False),
         ("any_row", False, False),
+        ("first_row", False, False),
     ],
 )
 def test_completeness_uses_the_extra_row_evidence(evaluation, has_more, raises):
@@ -383,7 +384,7 @@ def test_completeness_uses_the_extra_row_evidence(evaluation, has_more, raises):
     with patch(CALC_PATH, return_value=MagicMock(result=[[1.0], [2.0], [3.0]], columns=["value"], has_more=has_more)):
         alert = _alert(config={"evaluation": evaluation, "column": "value"})
         if raises:
-            with pytest.raises(AlertExtractionError, match="result is incomplete") as exc:
+            with pytest.raises(AlertExtractionError, match="more rows than its row limit") as exc:
                 HogQLExtractor().extract(alert, insight, insight.query, _IF_STALE)
             assert type(exc.value) is AlertExtractionError
         else:
@@ -394,5 +395,5 @@ def test_completeness_uses_the_extra_row_evidence(evaluation, has_more, raises):
 def test_unproven_completeness_stays_retryable():
     insight = MagicMock(query={"kind": "HogQLQuery", "query": "SELECT 1 AS value LIMIT {n}"})
     with patch(CALC_PATH, return_value=MagicMock(result=[[1.0]], columns=["value"], has_more=None)):
-        with pytest.raises(AlertDataUnavailableError, match="completeness could not be checked"):
+        with pytest.raises(AlertDataUnavailableError, match="could not confirm the query returned every row"):
             HogQLExtractor().extract(_alert(), insight, insight.query, _IF_STALE)

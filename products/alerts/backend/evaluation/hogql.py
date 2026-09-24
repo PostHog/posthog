@@ -63,9 +63,6 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
     return HogQLAlertConfig.model_validate(raw or _DEFAULT_HOGQL_CONFIG)
 
 
-_TRUNCATION_FIX = "Add an explicit SQL LIMIT that covers the full history, or reduce the detector window."
-
-
 def _explicit_limit(insight: Insight) -> int | None:
     """Read the saved query's constant row limit for detector validation."""
     query = insight.query or {}
@@ -92,7 +89,7 @@ def _calculate_rows_and_columns(
     *,
     user: Any,
     execution_mode: ExecutionMode,
-    require_complete_result: bool = False,
+    complete_for: HogQLAlertEvaluation | None = None,
 ) -> _FetchedRows:
     """Run a SQL insight — the fetch-and-validate prologue shared by the threshold and detector
     extractors. A ``None`` result means the query layer swallowed an error (raise to avoid a
@@ -112,19 +109,25 @@ def _calculate_rows_and_columns(
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not isinstance(rows, list):
         raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
-    if require_complete_result:
+    if complete_for is not None:
         if truncated:
             # Missing tail rows can change last-row and any-row results. The owner must adjust
             # the query before checks can safely resume.
+            if complete_for == HogQLAlertEvaluation.LAST_ROW:
+                raise AlertExtractionError(
+                    "The query returns more rows than its row limit, so the newest rows are missing and the "
+                    "alert would check the wrong row. Raise the SQL LIMIT to cover every row the alert needs, "
+                    "or order newest first and use first-row evaluation."
+                )
             raise AlertExtractionError(
-                "The query returns more rows than its row limit, so the result is incomplete. "
-                "Missing rows could cause this alert to evaluate the wrong data. "
-                "Increase the SQL LIMIT to include all rows the alert needs, or adjust the query to return fewer rows."
+                "The query returns more rows than its row limit, so rows this alert should check are missing "
+                "and a breach could go unnoticed. Raise the SQL LIMIT to cover every row the alert needs, or "
+                "aggregate the query to return fewer rows."
             )
         if calculation_result.has_more is not False:
             raise AlertDataUnavailableError(
-                "The query's completeness could not be checked. Use a simple SELECT with a constant LIMIT "
-                f"below {MAX_SELECT_RETURNED_ROWS}, or use first-row evaluation if only the first rows matter."
+                "The alert could not confirm the query returned every row. Use a plain SELECT with a constant "
+                f"LIMIT under {MAX_SELECT_RETURNED_ROWS}, or use first-row evaluation if only the first rows matter."
             )
     columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
     column_names = [str(c) for c in columns] if columns else None
@@ -199,7 +202,9 @@ class HogQLExtractor:
             alert.team,
             user=alert.created_by,
             execution_mode=execution_mode,
-            require_complete_result=evaluation in (HogQLAlertEvaluation.LAST_ROW, HogQLAlertEvaluation.ANY_ROW),
+            complete_for=(
+                evaluation if evaluation in (HogQLAlertEvaluation.LAST_ROW, HogQLAlertEvaluation.ANY_ROW) else None
+            ),
         )
         rows = fetched.rows
         column_names = fetched.column_names
@@ -289,8 +294,8 @@ def extract_hogql_detector_series(
     explicit_limit = _explicit_limit(insight)
     if explicit_limit is not None and explicit_limit < required_samples:
         raise AlertExtractionError(
-            f"The query's LIMIT of {explicit_limit} rows cannot supply the detector's required history "
-            f"of at least {required_samples} rows. " + _TRUNCATION_FIX
+            f"The query's LIMIT of {explicit_limit} rows is below the {required_samples} rows the detector "
+            f"needs. Raise the LIMIT to at least {required_samples}, or reduce the detector window."
         )
 
     fetched = _calculate_rows_and_columns(
@@ -298,7 +303,7 @@ def extract_hogql_detector_series(
         team,
         user=user,
         execution_mode=execution_mode,
-        require_complete_result=config.evaluation == HogQLAlertEvaluation.LAST_ROW,
+        complete_for=HogQLAlertEvaluation.LAST_ROW if config.evaluation == HogQLAlertEvaluation.LAST_ROW else None,
     )
     rows = fetched.rows
     column_names = fetched.column_names
@@ -330,12 +335,13 @@ def extract_hogql_detector_series(
             # is young, so waiting never heals it — same configuration-error routing as the
             # last-row guard.
             raise AlertExtractionError(
-                f"The detector needs at least {required_samples} rows, but the row limit cut the result to {len(values)}. "
-                + _TRUNCATION_FIX
+                f"The detector needs at least {required_samples} rows, but the row limit cut the result to "
+                f"{len(values)}. Raise the SQL LIMIT to cover the full history, or reduce the detector window."
             )
         raise AlertDataUnavailableError(
-            f"The SQL anomaly alert needs at least {required_samples} rows, but the query returned {len(values)}. "
-            "Expand the query history or reduce the detector window."
+            f"The anomaly alert needs at least {required_samples} rows, but the query returned {len(values)}. "
+            "The alert retries as more data arrives. To evaluate sooner, expand the query history or reduce "
+            "the detector window."
         )
 
     # Score only the most recent window the detector needs (current stays last). A SQL query can

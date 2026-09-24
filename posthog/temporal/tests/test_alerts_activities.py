@@ -682,8 +682,9 @@ class TestEvaluateAlert:
     @pytest.mark.parametrize(
         "rows,has_more,sql_limit,expected_error,expect_disabled",
         [
-            ([[f"hour-{i}", float(i)] for i in range(100)], True, "", "result is incomplete", True),
-            ([[f"hour-{i}", float(i)] for i in range(100)], True, " LIMIT 200", "result is incomplete", True),
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, "", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, " LIMIT 200", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(200)], True, " LIMIT 200", "newest rows are missing", True),
             ([[f"hour-{i}", float(i)] for i in range(50)], False, " LIMIT 100", "at least 169", True),
             ([[f"hour-{i}", float(i)] for i in range(50)], False, "", "at least", False),
         ],

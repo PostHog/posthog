@@ -276,7 +276,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         paginator = None
         if self.limit_context == LimitContext.SQL_ALERT:
-            paginator = HogQLHasMorePaginator.for_alert_query(query, limit_context=self.limit_context)
+            paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=self.limit_context)
         elif isinstance(query, ast.SelectQuery) and not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
         func = cast(
