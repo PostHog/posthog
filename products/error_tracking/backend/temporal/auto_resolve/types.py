@@ -5,20 +5,13 @@ from posthog.dataclasses import frozen
 class AutoResolveInputs:
     # Max teams per batch activity.
     batch_size: int = 50
-    # How many batch activities run at once (bounds ClickHouse/Postgres load).
+    # Concurrent batches must stay bounded to limit database load.
     max_concurrent_batches: int = 3
 
 
 @frozen
-class TeamAutoResolveConfig:
-    team_id: int
-    # Kept on the wire for workflow history compatibility. Each activity reloads the setting.
-    days: int | None
-
-
-@frozen
 class AutoResolveBatchInputs:
-    teams: list[TeamAutoResolveConfig]
+    team_ids: list[int]
 
 
 @frozen

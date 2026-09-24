@@ -47,11 +47,11 @@ class ErrorTrackingAutoResolveWorkflow(PostHogWorkflow):
 
         semaphore = asyncio.Semaphore(inputs.max_concurrent_batches)
 
-        async def run_batch(batch) -> AutoResolveBatchResult:
+        async def run_batch(batch: list[int]) -> AutoResolveBatchResult:
             async with semaphore:
                 return await workflow.execute_activity(
                     auto_resolve_batch_activity,
-                    AutoResolveBatchInputs(teams=batch),
+                    AutoResolveBatchInputs(team_ids=batch),
                     start_to_close_timeout=BATCH_START_TO_CLOSE_TIMEOUT,
                     heartbeat_timeout=BATCH_HEARTBEAT_TIMEOUT,
                     retry_policy=BATCH_RETRY_POLICY,

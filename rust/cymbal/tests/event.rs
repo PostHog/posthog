@@ -930,6 +930,40 @@ async fn new_issue_stores_event_timestamp_as_fingerprint_first_seen(db: PgPool) 
     .await
     .unwrap();
     assert!(recent_receipt);
+
+    let issue_id = harness.get_issue_id().await;
+    sqlx::query(
+        "INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version) VALUES ($1, 1, $2, 'secondary-fingerprint', 0)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(issue_id)
+    .execute(&harness.db)
+    .await
+    .unwrap();
+
+    for fingerprint in [None, Some("secondary-fingerprint")] {
+        sqlx::query("UPDATE posthog_errortrackingissue SET last_received_at = now() - interval '2 days' WHERE id = $1")
+            .bind(issue_id).execute(&harness.db).await.unwrap();
+        let mut occurrence = input.clone();
+        occurrence.uuid = Uuid::now_v7();
+        if let Some(fingerprint) = fingerprint {
+            occurrence.properties["$exception_fingerprint"] = json!(fingerprint);
+        }
+        let (status, body): (_, SuccessResponse) = harness.post_event(&occurrence).await;
+        assert!(status.is_success());
+        assert_eq!(
+            body.first_event().as_ref().unwrap().properties["$exception_issue_id"],
+            json!(issue_id)
+        );
+        let recent_receipt: bool = sqlx::query_scalar(
+            "SELECT last_received_at >= now() - interval '1 minute' FROM posthog_errortrackingissue WHERE id = $1",
+        )
+        .bind(issue_id)
+        .fetch_one(&harness.db)
+        .await
+        .unwrap();
+        assert!(recent_receipt);
+    }
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

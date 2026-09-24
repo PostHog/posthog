@@ -103,7 +103,7 @@ class TestAutoResolveSync(BaseTest):
             producer = get_producer.return_value
             producer.produce.side_effect = RuntimeError("Kafka unavailable")
             with self.captureOnCommitCallbacks(execute=True), self.assertRaisesRegex(RuntimeError, "Kafka unavailable"):
-                auto_resolve_issues(self.team.id, [issue.id], cutoff=timezone.now() - timedelta(days=3), days=3)
+                auto_resolve_issues(self.team.id, limit=1000)
 
             issue = ErrorTrackingIssue.objects.get(team_id=self.team.id, id=issue.id)
             assert issue.status == ErrorTrackingIssue.Status.RESOLVED

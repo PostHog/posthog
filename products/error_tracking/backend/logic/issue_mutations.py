@@ -6,12 +6,12 @@ can stay thin (parse -> facade -> serialize).
 """
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import DateTimeField
+from django.db.models import DateTimeField, Exists, OuterRef
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -42,6 +42,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
+    ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueMergeResult,
     ErrorTrackingSettings,
     sync_issues_to_clickhouse,
@@ -113,9 +114,9 @@ def update_issue(
     name_updated = "name" in fields and name_after != name_before
     state_updated = _has_clickhouse_visible_state_change(issue, fields)
 
-    for key in ("status", "severity", "name", "description"):
-        if key in fields:
-            setattr(issue, key, fields[key])
+    update_fields = [key for key in _CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS if key in fields]
+    for key in update_fields:
+        setattr(issue, key, fields[key])
 
     changes = []
     if status_updated:
@@ -146,7 +147,9 @@ def update_issue(
     with transaction.atomic():
         if state_updated:
             issue.state_updated_at = timezone.now()
-        issue.save()
+            update_fields.append("state_updated_at")
+        # Ingestion can update receipt and pending-delivery fields after this instance was loaded.
+        issue.save(update_fields=update_fields)
 
         if changes:
             log_activity(
@@ -372,25 +375,27 @@ def _set_issues_status(
     return changed_issue_ids
 
 
-def auto_resolve_issues(team_id: int, issue_ids: list[UUID], *, cutoff: datetime, days: int) -> list[UUID]:
+def auto_resolve_issues(team_id: int, *, limit: int) -> list[UUID]:
     """Resolve only issues whose setting, state and receipt age still qualify under locks."""
     with transaction.atomic():
         current_settings = ErrorTrackingSettings.objects.select_for_update().filter(team_id=team_id).first()
-        if current_settings is None or current_settings.auto_resolve_after_days != days:
+        if current_settings is None or current_settings.auto_resolve_after_days is None:
             return []
+        cutoff = timezone.now() - timedelta(days=current_settings.auto_resolve_after_days)
 
+        # State age gives new and manually reactivated issues a complete grace period.
         issues = list(
             ErrorTrackingIssue.objects.select_for_update(of=("self",))
             .filter(
+                Exists(ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=OuterRef("id"))),
                 team_id=team_id,
-                id__in=issue_ids,
                 status=ErrorTrackingIssue.Status.ACTIVE,
                 last_received_at__lt=cutoff - AUTO_RESOLVE_RECEIPT_GRACE_PERIOD,
             )
             .annotate(last_state_change=Coalesce("state_updated_at", "created_at", output_field=DateTimeField()))
             .filter(last_state_change__lt=cutoff)
             .select_related("team__organization")
-            .order_by("id")
+            .order_by("id")[:limit]
         )
         changed_issue_ids = _set_issues_status(
             team_id,

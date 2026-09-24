@@ -54,7 +54,7 @@ BATCH_QUERY = """
 """
 
 
-def exception_fingerprint_expr() -> str:
+def _fingerprint_expr() -> str:
     column = get_materialized_column_for_property("events", "properties", "$exception_fingerprint")
     if column is None:
         return "JSONExtractString(events.properties, '$exception_fingerprint')"
@@ -75,7 +75,7 @@ class LongRunningIssuesRecommendation(Recommendation):
         )
 
         rows = sync_execute(
-            BATCH_QUERY.format(fingerprint_expr=exception_fingerprint_expr()),
+            BATCH_QUERY.format(fingerprint_expr=_fingerprint_expr()),
             {"team_ids": team_ids, "issue_limit": ISSUE_LIMIT},
             workload=Workload.OFFLINE,
         )
