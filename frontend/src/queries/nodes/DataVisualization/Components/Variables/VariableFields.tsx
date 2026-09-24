@@ -41,7 +41,7 @@ import {
 } from './variableUtils'
 import { getStaticVariableOptions, getValuesQueryKey, variableValuesLogic } from './variableValuesLogic'
 
-export { coerceListVariableValue, getListVariableValues } from './variableUtils'
+export { coerceListVariableValue, formatVariableReference, getListVariableValues } from './variableUtils'
 
 export const VARIABLE_TYPE_OPTIONS: Array<{ value: VariableType; label: string }> = [
     { value: 'String', label: 'String' },
@@ -67,10 +67,6 @@ export const sanitizeCodeName = (name: string): string => {
         .trim()
         .replace(/[^a-zA-Z0-9\s_]/g, '')
         .replace(/\s/g, '_')
-}
-
-export const formatVariableReference = (codeName: string): string => {
-    return `{variables.${codeName}}`
 }
 
 // Field components for direct prop binding (used in modal)

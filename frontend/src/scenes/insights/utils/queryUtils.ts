@@ -1,6 +1,7 @@
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 
+import { getVariableCodeNamesInQuery } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -40,23 +41,7 @@ import {
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
-export const getVariablesFromQuery = (query: string): string[] => {
-    const re = /\{variables\.([a-z0-9_]+)\}/gm
-    const results: string[] = []
-
-    for (;;) {
-        const reResult = re.exec(query)
-        if (!reResult) {
-            break
-        }
-
-        if (reResult[1]) {
-            results.push(reResult[1])
-        }
-    }
-
-    return results
-}
+export const getVariablesFromQuery = getVariableCodeNamesInQuery
 
 export const filterVariablesReferencedInQuery = <T extends { code_name: string }>(
     query: string | null | undefined,

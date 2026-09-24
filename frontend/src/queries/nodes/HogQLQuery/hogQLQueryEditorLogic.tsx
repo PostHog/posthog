@@ -30,6 +30,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/savedQueryNameValidation'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
+import { getVariablesFromQuery } from 'scenes/insights/utils/queryUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -198,7 +199,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 query: queryOverride ?? query,
                 variables: Object.fromEntries(
                     Object.entries(props.query.variables ?? {}).filter(([_, variable]) =>
-                        query.includes(`{variables.${variable.code_name}}`)
+                        getVariablesFromQuery(query).includes(variable.code_name)
                     )
                 ),
             })

@@ -92,3 +92,37 @@ export const formatRelativeDateValue = (value: string): string => {
     const unit = unitLabels[parsedValue.unit]
     return `${parsedValue.amount} ${unit}${parsedValue.amount === 1 ? '' : 's'} ago`
 }
+
+// HogQL lexes a bare identifier as `[A-Za-z_$][A-Za-z0-9_$]*`. A code name outside that set
+// (a localized one, for example) is still valid, but only when it is quoted in the query.
+const BARE_HOGQL_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+// Matches `{variables.x}` in all the identifier shapes HogQL accepts: bare, backquoted and
+// double-quoted. Keep this the same grammar the query engine uses, or a variable the query
+// resolves goes undiscovered and its control disappears.
+const VARIABLE_REFERENCE =
+    /\{\s*variables\s*\.\s*(?:([A-Za-z_$][A-Za-z0-9_$]*)|`((?:[^`]|``)*)`|"((?:[^"]|"")*)")\s*\}/g
+
+export const isBareHogQLIdentifier = (codeName: string): boolean => BARE_HOGQL_IDENTIFIER.test(codeName)
+
+export const formatVariableReference = (codeName: string): string => {
+    const reference = isBareHogQLIdentifier(codeName) ? codeName : `\`${codeName.replace(/`/g, '``')}\``
+    return `{variables.${reference}}`
+}
+
+export const getVariableCodeNamesInQuery = (query: string): string[] => {
+    const codeNames: string[] = []
+
+    for (const match of query.matchAll(VARIABLE_REFERENCE)) {
+        const [, bare, backquoted, doubleQuoted] = match
+        if (bare !== undefined) {
+            codeNames.push(bare)
+        } else if (backquoted !== undefined) {
+            codeNames.push(backquoted.replace(/``/g, '`'))
+        } else if (doubleQuoted !== undefined) {
+            codeNames.push(doubleQuoted.replace(/""/g, '"'))
+        }
+    }
+
+    return codeNames
+}

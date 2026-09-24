@@ -28,7 +28,12 @@ import { NewVariableModal } from './NewVariableModal'
 import { DateField, ListVariableSelect } from './VariableFields'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
-import { formatRelativeDateValue, getListVariableSelectedValues, isRelativeDateValue } from './variableUtils'
+import {
+    formatRelativeDateValue,
+    formatVariableReference,
+    getListVariableSelectedValues,
+    isRelativeDateValue,
+} from './variableUtils'
 
 const getVariableDisplayValue = (variable: Variable): string => {
     const value = variable.value ?? variable.default_value
@@ -160,7 +165,7 @@ export const VariableInput = ({
         closePopover()
     }
 
-    const variableAsHogQL = `{variables.${variable.code_name}}`
+    const variableAsHogQL = formatVariableReference(variable.code_name)
 
     return (
         <div className="min-w-80">
@@ -389,7 +394,7 @@ export const VariableComponent = ({
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
-    const variableAsHogQL = `{variables.${variable.code_name}}`
+    const variableAsHogQL = formatVariableReference(variable.code_name)
 
     const tooltip =
         insightsUsingVariable && insightsUsingVariable.length > 0 ? (
