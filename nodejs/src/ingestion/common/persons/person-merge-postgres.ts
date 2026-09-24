@@ -402,8 +402,11 @@ export class PostgresPersonMerge {
         const mergeIntoDistinctId = this.targetDistinctId
         const teamId = this.teamId
 
+        // Each pending copy is taken right after its fetch, before anything else can clear the entry.
         const otherPerson = await this.store.fetchForUpdate(teamId, otherPersonDistinctId, this.batchId)
+        const otherParticipant = otherPerson === null ? null : this.participant(otherPerson)
         const mergeIntoPerson = await this.store.fetchForUpdate(teamId, mergeIntoDistinctId, this.batchId)
+        const mergeIntoParticipant = mergeIntoPerson === null ? null : this.participant(mergeIntoPerson)
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
@@ -493,9 +496,9 @@ export class PostgresPersonMerge {
             }
 
             return await this.mergePeople({
-                mergeInto: mergeIntoPerson,
+                mergeInto: mergeIntoParticipant!,
                 mergeIntoDistinctId: mergeIntoDistinctId,
-                otherPerson: otherPerson,
+                otherPerson: otherParticipant!,
                 otherPersonDistinctId: otherPersonDistinctId,
             })
         } else {
@@ -655,6 +658,8 @@ export class PostgresPersonMerge {
             sourcesToFold = this.request.sources.filter((source) => source !== bootstrapSource)
         }
 
+        // Taken before the sources fetch, so nothing can clear the target's entry in between.
+        const targetParticipant = this.participant(target)
         const sources = await this.store.fetchPersonsForUpdateByDistinctIds(
             teamId,
             sourcesToFold.map((source) => source.distinctId),
@@ -713,7 +718,6 @@ export class PostgresPersonMerge {
         const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
 
         const currentTarget = target
-        const targetParticipant = this.participant(target)
         const sourceParticipants = mergeSources.map((source) => this.participant(source))
         this.discardOverrideCounts()
         const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
@@ -827,16 +831,18 @@ export class PostgresPersonMerge {
     }
 
     private async mergePeople({
-        mergeInto,
+        mergeInto: target,
         mergeIntoDistinctId,
-        otherPerson,
+        otherPerson: source,
         otherPersonDistinctId,
     }: {
-        mergeInto: InternalPerson
+        mergeInto: MergeParticipant
         mergeIntoDistinctId: string
-        otherPerson: InternalPerson
+        otherPerson: MergeParticipant
         otherPersonDistinctId: string
     }): Promise<MergePersonsResult> {
+        const mergeInto = target.person
+        const otherPerson = source.person
         // $merge_dangerously has no restrictions; $create_alias and $identify
         // will not merge a user who's already identified into anyone else.
         const mergeAllowed = this.request.allowIdentifiedSources || !otherPerson.is_identified
@@ -867,12 +873,7 @@ export class PostgresPersonMerge {
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
-        const result = await this.handleMergeTransaction(
-            mergeInto,
-            mergeIntoDistinctId,
-            otherPerson,
-            otherPersonDistinctId
-        )
+        const result = await this.handleMergeTransaction(target, mergeIntoDistinctId, source, otherPersonDistinctId)
 
         if (result.success) {
             return {
@@ -1222,20 +1223,17 @@ export class PostgresPersonMerge {
     }
 
     private async handleMergeTransaction(
-        targetPerson: InternalPerson,
+        target: MergeParticipant,
         targetDistinctId: string,
-        sourcePerson: InternalPerson,
+        source: MergeParticipant,
         sourceDistinctId: string,
         maxRetries: number = 5
     ): Promise<PersonMergeResult> {
-        let currentTargetPerson = targetPerson
-        let currentSourcePerson = sourcePerson
+        let currentTarget = target
+        let currentSource = source
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const result = await this.executeTransaction(
-                this.participant(currentTargetPerson),
-                this.participant(currentSourcePerson)
-            )
+            const result = await this.executeTransaction(currentTarget, currentSource)
 
             if (result.success) {
                 return result
@@ -1249,7 +1247,7 @@ export class PostgresPersonMerge {
                 ) {
                     const refreshedPerson = await this.refreshPersonData(
                         sourceDistinctId,
-                        currentSourcePerson.id,
+                        currentSource.person.id,
                         attempt,
                         'source'
                     )
@@ -1258,15 +1256,15 @@ export class PostgresPersonMerge {
                         // A concurrent merge absorbed the source; re-emit in case its
                         // produce was lost to a crash.
                         const { kafkaAck } = await this.reemitSatisfiedMappings([sourceDistinctId, targetDistinctId])
-                        return mergeSuccess(currentTargetPerson, kafkaAck, true)
+                        return mergeSuccess(currentTarget.person, kafkaAck, true)
                     }
 
-                    currentSourcePerson = refreshedPerson
+                    currentSource = this.participant(refreshedPerson)
                     continue
                 } else if (result.error instanceof TargetPersonNotFoundError) {
                     const refreshedPerson = await this.refreshPersonData(
                         targetDistinctId,
-                        currentTargetPerson.id,
+                        currentTarget.person.id,
                         attempt,
                         'target'
                     )
@@ -1274,10 +1272,10 @@ export class PostgresPersonMerge {
                     if (!refreshedPerson) {
                         // Same as the source case above.
                         const { kafkaAck } = await this.reemitSatisfiedMappings([sourceDistinctId, targetDistinctId])
-                        return mergeSuccess(currentTargetPerson, kafkaAck, true)
+                        return mergeSuccess(currentTarget.person, kafkaAck, true)
                     }
 
-                    currentTargetPerson = refreshedPerson
+                    currentTarget = this.participant(refreshedPerson)
                     continue
                 } else {
                     // Non-retryable error, return the failure result
@@ -1293,7 +1291,7 @@ export class PostgresPersonMerge {
         return mergeError(
             new PersonMergeRaceConditionError(
                 `Failed to merge persons due to concurrent merges, ` +
-                    `source person: ${sourcePerson.id}, target person: ${targetPerson.id}, team: ${this.teamId} ` +
+                    `source person: ${source.person.id}, target person: ${target.person.id}, team: ${this.teamId} ` +
                     `source distinct id: ${sourceDistinctId}, target distinct id: ${targetDistinctId}`
             )
         )

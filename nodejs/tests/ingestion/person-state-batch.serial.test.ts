@@ -2222,7 +2222,10 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 2, pending: 'yes' } })
         })
 
-        it(`merge keeps the source's pending set when its cache entry is dropped before the transaction`, async () => {
+        it.each([
+            ['before the transaction', 'inTransaction'],
+            ['while the target is fetched', 'fetchForUpdate'],
+        ])(`merge keeps the source's pending set when its cache entry is dropped %s`, async (_when, boundary) => {
             await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,
             })
@@ -2240,10 +2243,25 @@ describe('PersonState.processEvent()', () => {
                 0
             )
 
-            jest.spyOn(personRepository, 'inTransaction').mockImplementationOnce(async (description, body) => {
-                batchStore.clearAllCachesForPersonId(teamId, source!.id)
-                return await PostgresPersonRepository.prototype.inTransaction.call(personRepository, description, body)
-            })
+            // A sibling merge on this pod clears the source's entry after the merge fetched it.
+            if (boundary === 'inTransaction') {
+                jest.spyOn(personRepository, 'inTransaction').mockImplementationOnce(async (description, body) => {
+                    batchStore.clearAllCachesForPersonId(teamId, source!.id)
+                    return await PostgresPersonRepository.prototype.inTransaction.call(
+                        personRepository,
+                        description,
+                        body
+                    )
+                })
+            } else {
+                const fetchForUpdate = batchStore.fetchForUpdate.bind(batchStore)
+                jest.spyOn(batchStore, 'fetchForUpdate').mockImplementation(async (team, distinctId, batchId) => {
+                    if (distinctId === newUserDistinctId) {
+                        batchStore.clearAllCachesForPersonId(teamId, source!.id)
+                    }
+                    return await fetchForUpdate(team, distinctId, batchId)
+                })
+            }
 
             const mergeService = personMergeService(
                 {

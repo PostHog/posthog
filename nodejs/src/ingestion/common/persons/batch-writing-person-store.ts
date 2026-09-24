@@ -2105,6 +2105,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      * pod's snapshot. A missing row throws, which withMergeRetry treats as a merge.
      */
     private async updatePersonNoAssert(personUpdate: PersonUpdate): Promise<PersonUpdateResult> {
+        const operation = 'updatePersonNoAssert'
+        this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
+
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
