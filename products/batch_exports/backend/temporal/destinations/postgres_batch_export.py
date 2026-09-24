@@ -621,6 +621,16 @@ class PostgreSQLClient:
                         lock_timeout,
                     )
                     raise
+                except psycopg.errors.QueryCanceled as e:
+                    if "statement timeout" in (e.diag.message_primary or ""):
+                        self.external_logger.exception(
+                            "Final merge into '%s.%s' was canceled by the 'statement_timeout' of the destination database, and will be retried. "
+                            "The merge can be slow, or it can wait for a lock held by another session. "
+                            "Increase 'statement_timeout' for this user, or query 'pg_stat_activity' together with 'pg_blocking_pids()' to find a blocking session.",
+                            schema,
+                            final_table_name,
+                        )
+                    raise
                 except TimeoutError as e:
                     self.external_logger.exception(
                         "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
