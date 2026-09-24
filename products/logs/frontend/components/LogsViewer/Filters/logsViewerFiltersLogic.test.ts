@@ -78,6 +78,30 @@ describe('logsViewerFiltersLogic', () => {
             })
         })
 
+        it.each([
+            [
+                'the outer group',
+                { type: FilterLogicalOperator.And, values: [null, messageFilter] },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }],
+                },
+            ],
+            [
+                'the inner group',
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter, null] }],
+                },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }],
+                },
+            ],
+        ])('drops an empty entry from %s', (_name, input, expected) => {
+            expect(normalizeFilterGroup(input)).toEqual(expected)
+        })
+
         it('leaves a two-level group as it is', () => {
             const group = {
                 type: FilterLogicalOperator.And,

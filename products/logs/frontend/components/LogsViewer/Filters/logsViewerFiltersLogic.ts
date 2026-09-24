@@ -69,6 +69,15 @@ export interface LogsViewerFiltersLogicProps {
     sessionId?: string
 }
 
+// An empty entry survives the group check and then reads `.type` in the chip renderer, which is the
+// same crash the shape repair exists to prevent. The original array comes back when it holds none,
+// so a group that needs no repair keeps its identity and the components do not re-render for it.
+function withoutEmptyEntries(values: UniversalFiltersGroupValue[]): UniversalFiltersGroupValue[] {
+    return values.some((value) => value === null || value === undefined)
+        ? values.filter((value) => value !== null && value !== undefined)
+        : values
+}
+
 // The viewer works in a two-level group: an outer group whose first entry is the inner group that
 // holds the chips. A filterGroup reaches the viewer from a URL param, a saved view, an alert rule or
 // a metric deep link, so a wrong shape is untrusted input rather than a bug — repair it here, before
@@ -78,12 +87,17 @@ export function normalizeFilterGroup(filterGroup: unknown): UniversalFiltersGrou
     if (!isUniversalGroupFilterLike(group) || !Array.isArray(group.values)) {
         return DEFAULT_UNIVERSAL_GROUP_FILTER
     }
-    const inner = group.values[0]
+    const values = withoutEmptyEntries(group.values)
+    const inner = values[0]
     if (inner !== undefined && isUniversalGroupFilterLike(inner) && Array.isArray(inner.values)) {
-        return group
+        const innerValues = withoutEmptyEntries(inner.values)
+        if (values === group.values && innerValues === inner.values) {
+            return group
+        }
+        return { ...group, values: [{ ...inner, values: innerValues }, ...values.slice(1)] }
     }
     // A one-level group: every entry is a filter, so move them all into the inner group.
-    return { ...group, values: [{ type: FilterLogicalOperator.And, values: group.values }] }
+    return { ...group, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
 export function innerFilterGroup(filterGroup: UniversalFiltersGroup): UniversalFiltersGroup {
