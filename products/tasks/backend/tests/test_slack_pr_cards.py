@@ -50,7 +50,7 @@ class TestPostPrClosedSlackUpdate(TestCase):
             "mentioning_slack_user_id": "U_MENTIONER",
         }
         footer_patcher = patch(
-            "products.tasks.backend.logic.services.slack_pr_cards.load_run_footer",
+            "products.slack_app.backend.slack_thread.load_run_footer",
             return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/1"),
         )
         footer_patcher.start()
