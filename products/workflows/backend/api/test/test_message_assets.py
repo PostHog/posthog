@@ -95,14 +95,6 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert len(results) == 1
         assert results[0]["subject"] == "second"
 
-    def test_status_filter_matches_the_latest_version(self):
-        self._seed("inv-opened", asset_status="sent", version=1)
-        self._seed("inv-opened", asset_status="opened", version=2)
-        self._seed("inv-bounced", asset_status="bounced")
-        self._seed("inv-sent", asset_status="sent")
-        assert {r["invocation_id"] for r in self._list({"status": "sent"}).json()} == {"inv-sent"}
-        assert {r["invocation_id"] for r in self._list({"status": "opened"}).json()} == {"inv-opened"}
-
     def test_excludes_deleted_assets(self):
         self._seed("inv-1", version=1)
         self._seed("inv-1", version=2, is_deleted=1)

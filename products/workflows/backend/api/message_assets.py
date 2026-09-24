@@ -115,11 +115,6 @@ class MessageAssetsRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Case-insensitive substring match on recipient email or subject.",
     )
-    status = serializers.CharField(
-        required=False,
-        help_text="Only return assets whose latest status matches, e.g. 'sent', 'delivered', 'opened', 'clicked', "
-        "'bounced' or 'failed'.",
-    )
     after = serializers.CharField(
         required=False,
         default="-30d",
@@ -208,7 +203,6 @@ def fetch_message_assets(
     invocation_id: Optional[str] = None,
     distinct_id: Optional[str] = None,
     search: Optional[str] = None,
-    status: Optional[str] = None,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
 ) -> list[MessageAsset]:
@@ -249,13 +243,6 @@ def fetch_message_assets(
         where.append("sent_at <= toDateTime64(%(before)s, 6)")
         kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
 
-    # Status moves on with each version (sent, then delivered, then opened), so like `is_deleted` it
-    # is matched after the collapse, against the latest version.
-    outer_where = ["latest_is_deleted = 0"]
-    if status:
-        outer_where.append("latest_status = %(status)s")
-        kwargs["status"] = status
-
     # Sends can share a sent_at down to the millisecond. The (invocation_id, action_id) tiebreak gives
     # them a stable order, so offset pages neither repeat a send nor skip one at a page boundary.
     query = f"""
@@ -266,7 +253,7 @@ def fetch_message_assets(
             WHERE {" AND ".join(where)}
             GROUP BY invocation_id, action_id
         )
-        WHERE {" AND ".join(outer_where)}
+        WHERE latest_is_deleted = 0
         ORDER BY latest_sent_at DESC, invocation_id, action_id
         LIMIT %(limit)s OFFSET %(offset)s
     """

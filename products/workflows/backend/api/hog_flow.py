@@ -5339,7 +5339,6 @@ class HogFlowViewSet(
             invocation_id=params.get("invocation_id"),
             distinct_id=params.get("distinct_id"),
             search=params.get("search"),
-            status=params.get("status"),
             after=after_date,
             before=before_date,
         )

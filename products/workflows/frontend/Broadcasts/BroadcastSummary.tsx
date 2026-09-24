@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconArrowLeft, IconExternal, IconLetter } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -18,7 +18,7 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
-import { SEND_STATUSES, broadcastSentLogic } from './broadcastSentLogic'
+import { broadcastSentLogic } from './broadcastSentLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
@@ -28,17 +28,6 @@ const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     completed: 'success',
     cancelled: 'muted',
     failed: 'danger',
-}
-
-const SEND_STATUS_TAG: Record<string, LemonTagType> = {
-    sent: 'default',
-    delivered: 'success',
-    opened: 'success',
-    clicked: 'success',
-    bounced: 'danger',
-    failed: 'danger',
-    unsubscribed: 'warning',
-    spam: 'danger',
 }
 
 /**
@@ -68,15 +57,13 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
         sends,
         sendsLoading,
         sendsFailed,
-        statusFilter,
         selectedSend,
         recipientCount,
         recipientSearch,
         hasMoreRecipients,
         runPastRetention,
     } = useValues(broadcastSentLogic)
-    const { loadSends, loadMoreSends, setStatusFilter, selectInvocation, setRecipientSearch } =
-        useActions(broadcastSentLogic)
+    const { loadSends, loadMoreSends, selectInvocation, setRecipientSearch } = useActions(broadcastSentLogic)
 
     useEffect(() => {
         loadSends()
@@ -103,16 +90,6 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
             render: (_, row) => <span className="font-mono text-xs">{row.recipient}</span>,
         },
         {
-            title: 'Status',
-            key: 'status',
-            width: 0,
-            render: (_, row) => (
-                <LemonTag type={SEND_STATUS_TAG[row.status] ?? 'default'}>
-                    {capitalizeFirstLetter(row.status || 'unknown')}
-                </LemonTag>
-            ),
-        },
-        {
             title: '',
             key: 'actions',
             width: 0,
@@ -132,7 +109,7 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
         },
     ]
 
-    if (!sendsLoading && recipientCount === 0 && !recipientSearch && !statusFilter) {
+    if (!sendsLoading && recipientCount === 0 && !recipientSearch) {
         return (
             <span className="text-sm text-muted">
                 {sendsFailed ? "Couldn't load recipients. Refresh the page to try again." : noSendsMessage}
@@ -150,7 +127,7 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                           ? 'Loading recipients'
                           : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
                                 recipientCount === 1 ? 'recipient' : 'recipients'
-                            }${recipientSearch || statusFilter ? ' matching' : ''}`}
+                            }${recipientSearch ? ' matching' : ''}`}
                 </span>
                 <LemonDivider vertical />
                 <LemonInput
@@ -162,19 +139,6 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                     className="w-full min-w-40 max-w-64 flex-1"
                     data-attr="broadcast-sent-search"
                 />
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted whitespace-nowrap">Filter by</span>
-                    <LemonSelect
-                        size="small"
-                        value={statusFilter}
-                        onChange={(value) => setStatusFilter(value)}
-                        data-attr="broadcast-sent-status-filter"
-                        options={[
-                            { value: null, label: 'All statuses' },
-                            ...SEND_STATUSES.map((status) => ({ value: status, label: capitalizeFirstLetter(status) })),
-                        ]}
-                    />
-                </div>
             </div>
             <LemonTable
                 // The loader keeps the previous rows on failure, and they no longer match the search.
@@ -185,9 +149,9 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                 nouns={['recipient', 'recipients']}
                 emptyState={
                     sendsFailed
-                        ? "Couldn't load recipients. Change the search or filter to try again, or refresh the page."
-                        : recipientSearch || statusFilter
-                          ? 'No recipients match. Clear the search or filter to see everyone.'
+                        ? "Couldn't load recipients. Change the search to try again, or refresh the page."
+                        : recipientSearch
+                          ? 'No recipients match. Clear the search to see everyone.'
                           : noSendsMessage
                 }
             />
