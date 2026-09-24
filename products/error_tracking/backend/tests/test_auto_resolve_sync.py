@@ -46,7 +46,7 @@ class TestAutoResolveSync(BaseTest):
         ErrorTrackingSettings.objects.create(team=self.team, auto_resolve_after_days=None)
         failed_result = ProduceResult(topic="test")
         if failure == "delivery":
-            failed_result.set_result(KafkaError(KafkaError._MSG_TIMED_OUT), None)
+            failed_result.set_result(KafkaError(KafkaError._VALUE_SERIALIZATION), None)
 
         with (
             self.settings(TEST=False),
@@ -62,7 +62,7 @@ class TestAutoResolveSync(BaseTest):
             with self.assertRaises(error_type):
                 retry_auto_resolve_sync(self.team.id)
 
-            issue.refresh_from_db()
+            issue = ErrorTrackingIssue.objects.get(team_id=self.team.id, id=issue.id)
             assert issue.status == ErrorTrackingIssue.Status.RESOLVED
             assert issue.auto_resolve_sync_requested_at is not None
 
@@ -76,7 +76,7 @@ class TestAutoResolveSync(BaseTest):
             retry_auto_resolve_sync(self.team.id)
             retry_auto_resolve_sync(self.team.id)
 
-            issue.refresh_from_db()
+            issue = ErrorTrackingIssue.objects.get(team_id=self.team.id, id=issue.id)
             assert issue.status == ErrorTrackingIssue.Status.ACTIVE
             assert issue.auto_resolve_sync_requested_at is None
             producer.produce.assert_called_once()
@@ -105,7 +105,7 @@ class TestAutoResolveSync(BaseTest):
             with self.captureOnCommitCallbacks(execute=True), self.assertRaisesRegex(RuntimeError, "Kafka unavailable"):
                 auto_resolve_issues(self.team.id, [issue.id], cutoff=timezone.now() - timedelta(days=3), days=3)
 
-            issue.refresh_from_db()
+            issue = ErrorTrackingIssue.objects.get(team_id=self.team.id, id=issue.id)
             assert issue.status == ErrorTrackingIssue.Status.RESOLVED
             assert issue.auto_resolve_sync_requested_at is not None
             produce_lifecycle.assert_called_once()
@@ -120,7 +120,7 @@ class TestAutoResolveSync(BaseTest):
                 retry_auto_resolve_sync(self.team.id)
                 retry_auto_resolve_sync(self.team.id)
 
-            issue.refresh_from_db()
+            issue = ErrorTrackingIssue.objects.get(team_id=self.team.id, id=issue.id)
             assert issue.status == ErrorTrackingIssue.Status.RESOLVED
             assert issue.auto_resolve_sync_requested_at is None
             producer.produce.assert_called_once()
