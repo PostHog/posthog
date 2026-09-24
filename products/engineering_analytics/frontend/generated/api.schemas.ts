@@ -47,9 +47,9 @@ export interface AuthorFrictionApi {
     pr_count: number
     /** Position by friction in the repository, 1 is the most. */
     rank: number
-    /** Best rank the author reaches when their pull requests are resampled. */
+    /** Low end of the rank band: the 10th percentile rank over resamples of the author's pull requests, and never above rank. */
     rank_low: number
-    /** Worst rank the author reaches when their pull requests are resampled. */
+    /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
     rank_high: number
 }
 

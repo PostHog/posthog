@@ -35,8 +35,14 @@ class AuthorFrictionSerializer(DataclassSerializer):
             },
             "pr_count": {"help_text": "The author's merged pull requests in the window."},
             "rank": {"help_text": "Position by friction in the repository, 1 is the most."},
-            "rank_low": {"help_text": "Best rank the author reaches when their pull requests are resampled."},
-            "rank_high": {"help_text": "Worst rank the author reaches when their pull requests are resampled."},
+            "rank_low": {
+                "help_text": "Low end of the rank band: the 10th percentile rank over resamples of the author's "
+                "pull requests, and never above rank."
+            },
+            "rank_high": {
+                "help_text": "High end of the rank band: the 90th percentile rank over the same resamples, and "
+                "never below rank."
+            },
         }
 
 
