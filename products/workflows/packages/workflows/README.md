@@ -84,7 +84,8 @@ posthog-workflows push flows/onboarding.ts    # create or update every workflow 
 `POSTHOG_CLI_API_KEY` also accepts the project's secret API key (`phs_...`), once PostHog accepts one on the workflows endpoint ([Silthus/posthog#106](https://github.com/Silthus/posthog/issues/106)).
 `--project <id>` and `--host <url>` win over both, so one file reaches another project without a change to the environment. The key is never a flag.
 
-A push writes nothing when nothing changed. `--force` pushes anyway, which is how a rotated secret lands, because the comparison never looks at a secret input.
+A push writes nothing when nothing changed. Removing a setting from the file is a change too: the push removes it from PostHog, or puts back the default where PostHog has one.
+The comparison sees a secret that is added to or removed from a step, but PostHog reads a stored secret back masked, so a new value for a secret it already holds looks unchanged. `--force` pushes anyway, which is how a rotated secret lands.
 A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path.
 
 Each push records the repository, path, and commit or branch when the CLI can resolve them from GitHub Actions, GitLab CI, or the local checkout. Outside all three the push still works and says that the version will not name a commit.

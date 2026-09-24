@@ -15,6 +15,64 @@ function push(workspace: Workspace, standIn: StandIn, args: readonly string[] = 
     })
 }
 
+// A workflow with one pass-through step, whose fields each case edits or removes.
+function passThroughFile(options: { step?: string; variables?: string } = {}): string {
+    const step =
+        options.step ??
+        `filters: { properties: [{ key: 'plan', value: ['pro'], operator: 'exact', type: 'person' }] },
+        on_error: 'continue',
+        output_variable: { key: 'window' },
+        config: { day: 'weekday', time: 'any', timezone: 'Europe/Berlin' },`
+    return `import { onEvent, path, step, workflow } from '@posthog/workflows'
+
+export const onboarding = workflow({
+    key: 'onboarding-nudge',
+    name: 'Onboarding nudge',
+    variables: [${options.variables ?? "{ key: 'plan', type: 'string', default: 'pro', label: 'Plan' }"}],
+    on: onEvent({ event: 'user signed up' }),
+    steps: path(
+        step({
+            type: 'wait_until_time_window',
+            name: 'Office hours',
+            ${step}
+        })
+    ),
+    exit: { reason: 'done' },
+})
+`
+}
+
+// A webhook that signs its request only when the file names a secret for it.
+function webhookFile(signed: boolean): string {
+    return `import { onEvent, path, secret, webhook, workflow } from '@posthog/workflows'
+
+export const onboarding = workflow({
+    key: 'onboarding-nudge',
+    name: 'Onboarding nudge',
+    on: onEvent({ event: 'user signed up' }),
+    steps: path(
+        webhook({
+            name: 'Tell the CRM',
+            url: 'https://example.com/hooks/onboarding',
+            ${signed ? "signingSecret: secret('CRM_WEBHOOK_SECRET')," : ''}
+        })
+    ),
+    exit: { reason: 'done' },
+})
+`
+}
+
+type SentAction = { id: string; config: Record<string, unknown> } & Record<string, unknown>
+
+function lastPatch(standIn: StandIn): { actions: SentAction[]; variables: Record<string, unknown>[] } {
+    const body = standIn.requests.filter((request) => request.method === 'PATCH').at(-1)?.body
+    return body as unknown as { actions: SentAction[]; variables: Record<string, unknown>[] }
+}
+
+function officeHours(standIn: StandIn): SentAction | undefined {
+    return lastPatch(standIn).actions.find((action) => action.id === 'office_hours')
+}
+
 describe('push', () => {
     it('creates a workflow PostHog does not have, sending the key and source fields', async (t) => {
         const standIn = await startStandIn()
@@ -109,6 +167,62 @@ describe('push', () => {
         assert.match(result.stdout, /^ {13}~ step "Wait a day"$/m)
     })
 
+    const edits: readonly {
+        readonly change: string
+        readonly file: string
+        readonly sent: (standIn: StandIn) => unknown
+        readonly expected: unknown
+    }[] = [
+        {
+            change: 'the step filters',
+            file: passThroughFile().replace("value: ['pro']", "value: ['free']"),
+            sent: (standIn) => officeHours(standIn)?.filters,
+            expected: { properties: [{ key: 'plan', value: ['free'], operator: 'exact', type: 'person' }] },
+        },
+        {
+            change: 'on_error',
+            file: passThroughFile().replace("on_error: 'continue'", "on_error: 'abort'"),
+            sent: (standIn) => officeHours(standIn)?.on_error,
+            expected: 'abort',
+        },
+        {
+            change: 'output_variable',
+            file: passThroughFile().replace("key: 'window'", "key: 'slot'"),
+            sent: (standIn) => officeHours(standIn)?.output_variable,
+            expected: { key: 'slot' },
+        },
+        {
+            change: 'a removed on_error',
+            file: passThroughFile().replace("on_error: 'continue',", ''),
+            sent: (standIn) => Object.hasOwn(officeHours(standIn) ?? {}, 'on_error'),
+            expected: false,
+        },
+        {
+            change: 'a removed config setting',
+            file: passThroughFile().replace(", timezone: 'Europe/Berlin'", ''),
+            sent: (standIn) => officeHours(standIn)?.config,
+            expected: { day: 'weekday', time: 'any' },
+        },
+        {
+            change: 'a removed variable label',
+            file: passThroughFile({ variables: "{ key: 'plan', type: 'string', default: 'pro' }" }),
+            sent: (standIn) => lastPatch(standIn).variables,
+            expected: [{ key: 'plan', type: 'string', default: 'pro' }],
+        },
+    ]
+    for (const { change, file, sent, expected } of edits) {
+        it(`writes ${change}`, async (t) => {
+            const standIn = await startStandIn()
+            t.after(() => standIn.close())
+            await push(makeWorkspace({ 'flows/onboarding.ts': passThroughFile() }), standIn)
+
+            const result = await push(makeWorkspace({ 'flows/onboarding.ts': file }), standIn)
+
+            assert.match(result.stdout, /^ {4}result {3}updated$/m)
+            assert.deepEqual(sent(standIn), expected)
+        })
+    }
+
     it('does not send or compare status when the file sets none', async (t) => {
         const standIn = await startStandIn()
         t.after(() => standIn.close())
@@ -200,6 +314,32 @@ describe('push', () => {
             actions.find((action) => action.id === 'tell_the_crm')?.config.inputs.signing_secret?.value,
             'second-value'
         )
+    })
+
+    it('writes a secret that is added to or removed from a step, though PostHog masks it', async (t) => {
+        const standIn = await startStandIn({
+            inject: (row) => {
+                const actions = row.actions as { id: string; config: { inputs?: Record<string, unknown> } }[]
+                const inputs = actions.find((action) => action.id === 'tell_the_crm')?.config.inputs
+                if (inputs?.signing_secret !== undefined) {
+                    inputs.signing_secret = { secret: true }
+                }
+            },
+        })
+        t.after(() => standIn.close())
+        await push(makeWorkspace({ 'flows/onboarding.ts': webhookFile(false) }), standIn)
+
+        const signed = makeWorkspace({ 'flows/onboarding.ts': webhookFile(true) })
+        const added = await push(signed, standIn, [], { CRM_WEBHOOK_SECRET: 'first-value' })
+        assert.match(added.stdout, /^ {4}result {3}updated$/m)
+        const sent = lastPatch(standIn).actions.find((action) => action.id === 'tell_the_crm')?.config.inputs
+        assert.deepEqual((sent as Record<string, unknown>).signing_secret, { value: 'first-value' })
+
+        const kept = await push(signed, standIn, [], { CRM_WEBHOOK_SECRET: 'first-value' })
+        assert.match(kept.stdout, /^ {4}result {3}unchanged$/m)
+
+        const removed = await push(makeWorkspace({ 'flows/onboarding.ts': webhookFile(false) }), standIn)
+        assert.match(removed.stdout, /^ {4}result {3}updated$/m)
     })
 
     it('redacts resolved secrets in one pass', async (t) => {
@@ -538,20 +678,27 @@ export const winback = workflow({
         assert.match(result.stderr, /^status: too_many_files$/m)
     })
 
-    it('reports no change when PostHog stores keys the CLI never sent', async (t) => {
+    it('reports no change when PostHog stores the definition in its own form', async (t) => {
         const standIn = await startStandIn({
             inject: (row) => {
-                const actions = row.actions as { type: string; config: Record<string, unknown> }[]
+                row.name = String(row.name).trim()
+                row.edges = [...(row.edges as unknown[])].reverse()
+                const actions = row.actions as Record<string, unknown>[]
                 for (const action of actions) {
-                    action.config.bytecode = ['_H', 1]
+                    const config = action.config as Record<string, unknown>
+                    config.bytecode = ['_H', 1]
+                    action.description ??= ''
+                    action.filters ??= null
+                    action.on_error ??= null
+                    action.output_variable ??= null
                     if (action.type === 'trigger') {
-                        action.config.filters = { ...(action.config.filters as object), bytecode: ['_H', 1] }
+                        config.filters = { ...(config.filters as object), bytecode: ['_H', 1], source: 'events' }
                     }
                 }
             },
         })
         t.after(() => standIn.close())
-        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ name: ' Onboarding nudge ' }) })
         await push(workspace, standIn)
 
         const again = await push(workspace, standIn)
