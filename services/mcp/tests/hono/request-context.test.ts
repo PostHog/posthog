@@ -309,6 +309,25 @@ describe('RequestContext', () => {
         })
     })
 
+    describe('getSessionUuid memoization', () => {
+        it('serves one lookup per key and retries after a failure', async () => {
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+            const spy = vi.spyOn(ctx.sessionManager, 'getSessionUuid')
+
+            const first = await ctx.getSessionUuid('sess-memo')
+            const second = await ctx.getSessionUuid('sess-memo')
+            expect(second).toBe(first)
+            expect(spy).toHaveBeenCalledTimes(1)
+
+            // A cached rejection would outlive the blip that caused it, and three tool-error
+            // paths await this outside a try.
+            spy.mockRejectedValueOnce(new Error('redis down'))
+            await expect(ctx.getSessionUuid('sess-retry')).rejects.toThrow('redis down')
+            spy.mockRestore()
+            await expect(ctx.getSessionUuid('sess-retry')).resolves.toMatch(/^[0-9a-f-]{36}$/)
+        })
+    })
+
     describe('getEffectiveSessionUuid', () => {
         it.each([
             { mcpConversationId: undefined, sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },

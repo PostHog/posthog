@@ -160,7 +160,13 @@ export class RequestContext {
         if (cached) {
             return cached
         }
-        const pending = this.sessionManager.getSessionUuid(sessionId)
+        // Evicted on failure so a later lookup can retry. Three tool-error paths await this
+        // outside a try, so a cached rejection would replace the tool's own error for the rest
+        // of the request.
+        const pending = this.sessionManager.getSessionUuid(sessionId).catch((error: unknown) => {
+            this.sessionUuidPromises.delete(sessionId)
+            throw error
+        })
         this.sessionUuidPromises.set(sessionId, pending)
         return pending
     }
