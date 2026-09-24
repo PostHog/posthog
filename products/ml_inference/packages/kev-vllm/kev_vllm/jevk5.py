@@ -11,6 +11,8 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from transformers import PreTrainedTokenizerBase
+
 from kev_vllm.kev_compat import JSONContent, Noul, Question, Score
 
 LETTERS = "ABCDEFGHIJKLMNOP"
@@ -57,7 +59,7 @@ def messages(state: JSONContent, question: Question) -> list[dict[str, str]]:
     ]
 
 
-def prompt_ids(tokenizer, state: JSONContent, question: Question) -> list[int]:
+def prompt_ids(tokenizer: PreTrainedTokenizerBase, state: JSONContent, question: Question) -> list[int]:
     prompt = tokenizer.apply_chat_template(messages(state, question), tokenize=False, add_generation_prompt=True, enable_thinking=False)
     ids = tokenizer.encode(prompt, add_special_tokens=False)
     if len(ids) > MAX_INPUT_TOKENS:
@@ -65,7 +67,7 @@ def prompt_ids(tokenizer, state: JSONContent, question: Question) -> list[int]:
     return ids
 
 
-def letter_token_ids(tokenizer) -> list[int]:
+def letter_token_ids(tokenizer: PreTrainedTokenizerBase) -> list[int]:
     ids = [tokenizer.encode(letter, add_special_tokens=False) for letter in LETTERS]
     if any(len(letter_ids) != 1 for letter_ids in ids):
         raise ValueError("every answer letter must be one token")
