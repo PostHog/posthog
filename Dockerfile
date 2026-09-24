@@ -83,7 +83,7 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
 # which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
 #
-# Two passes. The stable-name copies (`*-S<10 hex>.js`, see common/esbuilder/stableChunkNames.mjs) keep
+# Two passes. The stable-name copies (`*-S<10 hex>.js`, see frontend/bin/stableChunkNames.mjs) keep
 # one URL for as long as their code is unchanged, so they must not carry the per-release id that the
 # first pass injects. The second pass runs with no release flags and without GITHUB_ACTIONS, so the CLI
 # resolves no release and injects only the chunk id, which it derives from the file's own content.

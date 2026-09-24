@@ -14,8 +14,8 @@ import {
     reportTopChunks,
     startDevServer,
 } from '@posthog/esbuilder'
-import { writeStableChunks } from '@posthog/esbuilder/stableChunkNames.mjs'
 
+import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'

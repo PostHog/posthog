@@ -1,7 +1,7 @@
 import { CSS_LOAD_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
-import { chunkIdentity, shortHash } from '@posthog/esbuilder/stableChunkNames.mjs'
 
 import { BOOT_ENTRIES, ENTRY } from './bootEntries.mjs'
+import { chunkIdentity, shortHash } from './stableChunkNames.mjs'
 
 /**
  * Split stylesheets for the stable build.
