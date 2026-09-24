@@ -20,6 +20,11 @@ interface Interval {
     endMs: number
 }
 
+interface ParentCandidates {
+    byId: Map<string, Span>
+    intervals: (Interval & { span: Span })[]
+}
+
 function spanInterval(span: Span): Interval {
     const startMs = dayjs(span.timestamp).valueOf()
     return { startMs, endMs: startMs + span.duration_nano / 1_000_000 }
@@ -36,22 +41,33 @@ function aiEventInterval(event: TraceAiEvent): Interval {
  * so that wins when the span is loaded. Otherwise the narrowest real span whose time range
  * contains the event, so a model call lands under the turn or request that made it.
  */
-function findParentSpan(event: TraceAiEvent, spans: Span[], interval: Interval): Span | null {
+function findParentSpan(event: TraceAiEvent, candidates: ParentCandidates, interval: Interval): Span | null {
     const parentId = event.ai_parent_id?.toLowerCase()
-    const named = parentId ? spans.find((span) => span.span_id.toLowerCase() === parentId) : undefined
+    const named = parentId ? candidates.byId.get(parentId) : undefined
     if (named) {
         return named
     }
     let best: Span | null = null
     let bestDurationNano = Number.POSITIVE_INFINITY
-    for (const span of spans) {
-        const { startMs, endMs } = spanInterval(span)
+    for (const { span, startMs, endMs } of candidates.intervals) {
         if (startMs <= interval.startMs && endMs >= interval.endMs && span.duration_nano < bestDurationNano) {
             best = span
             bestDurationNano = span.duration_nano
         }
     }
     return best
+}
+
+// Parse each span once, not once per AI event, because a trace can load thousands of spans.
+function parentCandidates(spans: Span[]): ParentCandidates {
+    const byId = new Map<string, Span>()
+    for (const span of spans) {
+        const id = span.span_id.toLowerCase()
+        if (!byId.has(id)) {
+            byId.set(id, span)
+        }
+    }
+    return { byId, intervals: spans.map((span) => ({ span, ...spanInterval(span) })) }
 }
 
 /**
@@ -127,14 +143,14 @@ export function buildAiEventSpans(events: TraceAiEvent[], spans: Span[]): Span[]
         return []
     }
     const traceId = spans[0].trace_id
-    const realSpans = spans.filter((span) => !isAiEventSpan(span))
-    const aiParents = findAiParents(events, new Set(realSpans.map((span) => span.span_id.toLowerCase())))
+    const candidates = parentCandidates(spans.filter((span) => !isAiEventSpan(span)))
+    const aiParents = findAiParents(events, new Set(candidates.byId.keys()))
     return events.map((event): Span => {
         const interval = aiEventInterval(event)
         const aiParentUuid = aiParents.get(event.uuid)
         const parentSpanId = aiParentUuid
             ? `${AI_SPAN_ID_PREFIX}${aiParentUuid}`
-            : (findParentSpan(event, realSpans, interval)?.span_id ?? '')
+            : (findParentSpan(event, candidates, interval)?.span_id ?? '')
         return {
             uuid: event.uuid,
             trace_id: traceId,
