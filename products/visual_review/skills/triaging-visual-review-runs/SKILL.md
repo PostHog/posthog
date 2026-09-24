@@ -181,9 +181,8 @@ A story with no entry is quiet. Nothing is tolerated for it, and it did not fail
 
 **Did the baseline move?** Call
 `posthog:visual-review-runs-snapshot-history-list { id: <run_id>, identifier: <identifier> }`. It returns one row for
-each baseline transition on the default branch, not a run-by-run outcome list. It keeps only completed default-branch
-runs, and it collapses consecutive runs that share a baseline. You therefore cannot count outcomes with it, and it
-never shows a feature branch.
+each baseline transition on the default branch, not a run-by-run outcome list. It drops a feature branch, and it
+collapses consecutive runs that share a baseline. You therefore cannot count outcomes with it.
 
 Both parameters are required. Copy them from the snapshot row: its `run_id` goes in `id`, and its `identifier` goes in
 `identifier`. The snapshot's own `id` is not a run id, and a call that sends it fails.
