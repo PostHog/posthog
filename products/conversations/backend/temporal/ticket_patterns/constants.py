@@ -44,6 +44,9 @@ DETECTION_BATCHES_PER_RUN = math.ceil(MAX_TEAMS_PER_RUN / MAX_CONCURRENT_DETECTI
 DETECTION_BATCH_BUDGET_SECONDS = (
     RUN_BUDGET_SECONDS - COLLECTION_BUDGET_SECONDS - RUN_OVERHEAD_SECONDS
 ) // DETECTION_BATCHES_PER_RUN
+# The worker sends a heartbeat at most every 0.8 of this, so a cancel for a timed-out detection
+# reaches it within that time. Keep it well under the batch budget.
+DETECTION_HEARTBEAT_TIMEOUT_SECONDS = 30
 MAX_TICKETS_PER_TEAM = 150
 MAX_MESSAGE_CHARS = 500
 MAX_CLUSTERS_PER_RUN = 5

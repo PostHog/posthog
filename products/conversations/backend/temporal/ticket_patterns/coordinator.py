@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
         DEFAULT_MIN_REQUESTERS,
         DEFAULT_MIN_TICKETS,
         DETECTION_BATCH_BUDGET_SECONDS,
+        DETECTION_HEARTBEAT_TIMEOUT_SECONDS,
         LOOKBACK_MINUTES_RANGE,
         MAX_CONCURRENT_DETECTIONS,
         MAX_TEAMS_PER_RUN,
@@ -177,6 +178,11 @@ class TicketPatternsCoordinatorWorkflow:
                         # Retries included, so a team that keeps failing cannot spend the budget
                         # the batches after it need.
                         schedule_to_close_timeout=timedelta(seconds=DETECTION_BATCH_BUDGET_SECONDS),
+                        # The worker stops an attempt on its own only when start_to_close runs out,
+                        # counted from when it picked the task up. An attempt that waited in the
+                        # shared queue times out on the server first, and only a heartbeat brings
+                        # that cancel back, so without one it keeps its slot into the next batch.
+                        heartbeat_timeout=timedelta(seconds=DETECTION_HEARTBEAT_TIMEOUT_SECONDS),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                     for team in batch
