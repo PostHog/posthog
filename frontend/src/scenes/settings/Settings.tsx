@@ -42,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+import { getSettingKeys } from './settingKeys'
 import { SearchResult, settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
 
@@ -427,12 +428,13 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     const settingsInSidebar = !!selectedSetting && !!props.sectionId
 
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
+    const settingKeys = getSettingKeys(settings)
 
     const content = (
         <div className="flex flex-col gap-y-8">
             {settings.length ? (
                 settings.map((x, index) => (
-                    <div key={`${x.id}-${index}`} className="relative last:mb-4">
+                    <div key={settingKeys[index]} className="relative last:mb-4">
                         {!settingsInSidebar && x.title && (
                             <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
                                 {x.title}
