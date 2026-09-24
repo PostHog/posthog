@@ -280,6 +280,27 @@ export const ReportWithExpectedImpact: Story = {
     ),
 }
 
+export const ReportExpectedImpactPending: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    status: SignalReportStatus.IN_PROGRESS,
+                    summary: null,
+                    metrics: [],
+                })}
+            />
+        </Frame>
+    ),
+}
+
 export const ReportMinimal: Story = {
     render: () => (
         <Frame>

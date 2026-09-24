@@ -34,6 +34,7 @@ from products.signals.backend.report_metrics import (
     MAX_LIVE_METRIC_WINDOW_DAYS,
     MAX_METRIC_SERIES_POINTS,
     MAX_REPORT_METRICS,
+    REPORT_METRIC_GOAL_FIELDS,
     ReportMetric,
 )
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
@@ -600,11 +601,14 @@ When the solution has an Expected impact section and the research supports it, g
 """
 
 
-def _render_previous_metrics_context(previous_metrics: list[ReportMetric]) -> str:
+def _render_previous_metrics_context(previous_metrics: list[ReportMetric], *, include_goals: bool = True) -> str:
     if not previous_metrics:
         return ""
+    excluded_fields = {"comparison"}
+    if not include_goals:
+        excluded_fields.update(REPORT_METRIC_GOAL_FIELDS)
     rendered = json.dumps(
-        [metric.model_dump(mode="json", exclude={"comparison"}) for metric in previous_metrics], indent=2
+        [metric.model_dump(mode="json", exclude=excluded_fields) for metric in previous_metrics], indent=2
     )
     return (
         "## Impact metrics this report already shows\n\n"
@@ -933,6 +937,10 @@ def build_report_presentation_prompt(
         schema_dict.get("properties", {}).pop("metrics", None)
         schema_dict.get("$defs", {}).pop("ReportMetric", None)
         schema_dict.get("$defs", {}).pop("ReportMetricComparison", None)
+    elif not expected_impact_authoring_enabled:
+        metric_properties = schema_dict["$defs"]["ReportMetric"]["properties"]
+        for field_name in REPORT_METRIC_GOAL_FIELDS:
+            metric_properties.pop(field_name, None)
     schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
@@ -941,7 +949,9 @@ def build_report_presentation_prompt(
         visual_sections.append(_REPORT_METRICS_GUIDANCE)
         if expected_impact_authoring_enabled:
             visual_sections.append(_EXPECTED_IMPACT_GUIDANCE)
-        previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
+        previous_metrics_context = _render_previous_metrics_context(
+            previous_metrics or [], include_goals=expected_impact_authoring_enabled
+        )
         if previous_metrics_context:
             visual_sections.append(previous_metrics_context)
     visual_sections.append(_REPORT_CHARTS_GUIDANCE)

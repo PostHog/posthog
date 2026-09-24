@@ -355,6 +355,9 @@ class ReportMetricComparison(BaseModel):
         return normalized
 
 
+REPORT_METRIC_GOAL_FIELDS = ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
+
+
 class ReportMetric(BaseModel):
     """One impact measurement backed by a bounded live Trends query.
 
@@ -462,12 +465,11 @@ class ReportMetric(BaseModel):
             raise ValueError(f"must not exceed {MAX_METRIC_TITLE_LENGTH} characters")
         return value
 
-    @field_validator("value", mode="before")
+    @field_validator("value", "goal_value", mode="before")
     @classmethod
     def value_must_not_be_a_boolean(cls, value: object) -> object:
         # Pydantic's lax mode coerces a JSON boolean into a float (`true` becomes 1.0, `false`
-        # becomes 0.0), which would store a bogus snapshot that clears the finite, count, and rate
-        # guards below. A snapshot value is never a boolean, so reject it before that coercion runs.
+        # becomes 0.0), which would store a bogus measurement that clears the numeric guards below.
         if isinstance(value, bool):
             raise ValueError("must be a number, not a boolean")
         return value
@@ -596,6 +598,8 @@ class ReportMetric(BaseModel):
                 raise ValueError("a duration metric must use duration formatting")
             if self.unit not in {"ms", "s"}:
                 raise ValueError("a duration metric must use `ms` or `s` as its unit")
+            if self.goal_value is not None and self.goal_value < 0:
+                raise ValueError("a duration goal must be non-negative")
             if self.value is not None and self.value < 0:
                 raise ValueError("a duration snapshot must be non-negative")
             if self.comparison is not None and self.comparison.value < 0:

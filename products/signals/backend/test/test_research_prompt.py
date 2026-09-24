@@ -218,7 +218,33 @@ class TestBuildReportPresentationPrompt:
         assert "## Proposed impact measurement" not in off
         assert "## Proposed impact measurement" not in no_metrics
         assert "## Proposed impact measurement" in on
+        assert '"goal_value"' not in off
+        assert '"goal_value"' not in no_metrics
+        assert '"goal_value"' in on
         assert "Count qualifying opportunities, not failures" in on
+
+    def test_previous_goal_is_hidden_when_authoring_is_disabled(self):
+        metric = ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "value_format": "count",
+                "unit": "users",
+                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+                "goal_value": 5,
+                "goal_direction": "at_most",
+                "decision_window_days": 7,
+            }
+        )
+
+        off = build_report_presentation_prompt(2, metrics_enabled=True, previous_metrics=[metric])
+        on = build_report_presentation_prompt(
+            2, metrics_enabled=True, expected_impact_authoring_enabled=True, previous_metrics=[metric]
+        )
+
+        assert '"goal_value"' not in off
+        assert '"goal_value"' in on
 
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)

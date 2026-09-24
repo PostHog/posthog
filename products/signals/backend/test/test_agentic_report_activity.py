@@ -50,7 +50,7 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.report_metrics import ReportMetric
+from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
@@ -60,6 +60,7 @@ from products.signals.backend.temporal.agentic.report import (
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
+    _resolve_report_metrics_payload,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
@@ -203,6 +204,41 @@ _EXISTING_CHART = {
 }
 
 _EXISTING_METRIC = _metric("existing-affected-users").model_dump(mode="json")
+
+
+def test_automatic_metric_goal_requires_authoring_flag():
+    metric = _metric().model_copy(
+        update={"goal_value": 2, "goal_direction": "at_most", "decision_window_days": 7, "minimum_data_points": 30}
+    )
+
+    blocked = _resolve_report_metrics_payload([metric], True, report_id="report-1", team_id=2)
+    allowed = _resolve_report_metrics_payload(
+        [metric], True, expected_impact_authoring_enabled=True, report_id="report-1", team_id=2
+    )
+
+    assert blocked is not None and allowed is not None
+    assert all(blocked[0][field_name] is None for field_name in REPORT_METRIC_GOAL_FIELDS)
+    assert allowed[0]["goal_value"] == 2
+
+
+def test_disabled_authoring_preserves_existing_goal_only_for_the_same_measure():
+    previous = _metric().model_copy(update={"goal_value": 5, "goal_direction": "at_most", "decision_window_days": 7})
+    changed_goal = previous.model_copy(update={"goal_value": 0, "decision_window_days": 1})
+    changed_query = json.loads(json.dumps(changed_goal.query))
+    changed_query["source"]["series"][0]["event"] = "$pageview"
+    changed_measure = changed_goal.model_copy(update={"query": changed_query})
+
+    retained = _resolve_report_metrics_payload(
+        [changed_goal], True, previous_metrics=[previous], report_id="report-1", team_id=2
+    )
+    removed = _resolve_report_metrics_payload(
+        [changed_measure], True, previous_metrics=[previous], report_id="report-1", team_id=2
+    )
+
+    assert retained is not None and removed is not None
+    assert retained[0]["goal_value"] == 5
+    assert retained[0]["decision_window_days"] == 7
+    assert removed[0]["goal_value"] is None
 
 
 async def _run_activity_with_output(
