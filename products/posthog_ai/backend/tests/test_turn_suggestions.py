@@ -11,14 +11,24 @@ from django.test import SimpleTestCase
 import requests
 from parameterized import parameterized
 
-from posthog.egress.typesafe import Answer, ChoiceAnswer, NoulAnswer, SystemOneResult, TypeSafeRequestFailed
+from posthog.egress.typesafe import (
+    Answer,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    SystemOneResult,
+    TypeSafeRequestFailed,
+)
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.posthog_ai.backend.turn_suggestions.benchmark import (
     BenchmarkCase,
     CaseResult,
+    SystemOneEndpoint,
     best_threshold,
+    closest_to_offer_rate,
     load_cases,
+    parse_endpoints,
     score,
 )
 from products.posthog_ai.backend.turn_suggestions.classifier import classify_turn, pick_offer
@@ -384,7 +394,7 @@ def _judgment(**overrides: Any) -> TurnJudgment:
         show_probability=0.9,
         intent=TurnIntent.METRIC_STATE,
         offer=OfferKind.SCOUT,
-        offer_probabilities={"scout": 0.7, "none": 0.3},
+        offer_probabilities={"scout": 0.7, "notebook": 0.3},
         scout_mode=ScoutMode.REPORT,
         cadence=ScoutCadence.WEEKLY,
         notebook_template=NotebookTemplate.CONVERSATION,
@@ -428,6 +438,20 @@ class TestJudgeTurn(SimpleTestCase):
         assert isinstance(latest, dict)
         assert latest["question"] == transcript.last_human_message
         assert "<n>" in str(latest["answer"]) and not any(char.isdigit() for char in str(latest["answer"]))
+        # A "none" option would let the offer answer veto `show_offer` and cap the offer rate.
+        offer = questions["offer"]
+        assert isinstance(offer, ChoiceQuestion) and set(offer.criteria) == ALL_OFFERS
+
+    def test_a_turn_with_one_possible_offer_skips_the_offer_question(self):
+        transcript = build_turn_transcript(_metric_turn())
+        only_scout = frozenset({OfferKind.SCOUT})
+        answers = _answers({"show_offer": 0.8}, {"intent": "metric_state", "scout_mode": "report", "cadence": "weekly"})
+
+        with patch(f"{JUDGMENT}.system_one", return_value=answers):
+            judgment = judge_turn(transcript, available=only_scout)
+
+        assert "offer" not in build_judge_questions(transcript, only_scout)
+        assert judgment is not None and judgment.offer == OfferKind.SCOUT
 
     def test_option_keys_map_back_to_the_refs_they_stand_for(self):
         answers = _answers(
@@ -527,6 +551,31 @@ class TestBenchmark(SimpleTestCase):
         assert (low.false_offers, low.wrong_kind) == (1, 1)
         assert (high.offer_rate, high.precision, high.recall, high.missed) == (0.5, 0.5, 0.5, 1)
         assert best_threshold([low, high]) == low
+        # Every threshold from 0.61 to 0.90 offers on half the cases, and the tie goes to the highest.
+        closest = closest_to_offer_rate(results, 0.5)
+        assert closest is not None and (closest.threshold, closest.offer_rate) == (0.9, 0.5)
+
+    def test_endpoints_keep_credentials_out_of_the_url_and_label(self):
+        endpoints = parse_endpoints(
+            "http://judge:p%40ss@10.0.0.1:8080#candidate-2, https://api.example.com/v2/systemone"
+        )
+
+        assert endpoints == [
+            SystemOneEndpoint(
+                url="http://10.0.0.1:8080/v1/systemone", model="candidate-2", username="judge", password="p@ss"
+            ),
+            SystemOneEndpoint(url="https://api.example.com/v2/systemone"),
+        ]
+        assert [endpoint.label for endpoint in endpoints] == ["10.0.0.1:8080 candidate-2", "api.example.com default"]
+        assert "p@ss" not in repr(endpoints)
+
+    @parameterized.expand([("no_scheme", "judge:secret@10.0.0.1"), ("bad_port", "http://judge:secret@10.0.0.1:99999")])
+    def test_endpoint_errors_do_not_echo_the_entry(self, _name: str, entry: str):
+        with self.assertRaises(ValueError) as raised:
+            parse_endpoints(f"https://api.example.com {entry}")
+
+        assert str(raised.exception).startswith("Endpoint 2 ")
+        assert "secret" not in str(raised.exception)
 
 
 class TestClassifyTurn(SimpleTestCase):

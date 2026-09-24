@@ -25,6 +25,7 @@ from posthog.egress.typesafe import (
     NoulAnswer,
     NoulQuestion,
     Question,
+    SystemOneResult,
     TypeSafeEgressBudgetExhausted,
     TypeSafeNotConfigured,
     TypeSafeRequestFailed,
@@ -79,11 +80,13 @@ _SHOW_OFFER = NoulQuestion(
             "The turn failed, a tool errored, or the answer apologizes or says it found no data.",
             "The turn ran no PostHog tools, for example advice, brainstorming or planning.",
             "The answer asks the user a question or offers options to pick from.",
-            "The question satisfies a one-time curiosity: a breakdown such as top pages, referrers, browsers, countries or the device split, a list of users or accounts, or a search for recordings. Numbers in the answer do not make it recurring.",
+            "The question satisfies a one-time curiosity: a breakdown such as top pages, referrers, browsers, countries or the device split, a list of users or accounts, or a search for recordings, even when the answer points out something in them. Numbers in the answer do not make it recurring.",
             "The question is a basic count with no filters and no digging, such as how many events, people, users or daily active users there are.",
             "The question is a generic overview of the whole product, such as the most common error or the busiest page, and the user gives no sign they will ask again.",
+            "The turn found nothing worth keeping, and the user gives no sign they will want the answer again.",
             "The question is a small clarification of an earlier answer, or small talk.",
             "The turn explained documentation or a concept, or answered a how-to question.",
+            "The turn fixed or wrote a query the user asked for help with, such as a SQL error.",
             "The turn created or changed something, such as a feature flag, survey or dashboard, and nothing about it needs watching.",
         ],
     },
@@ -119,7 +122,7 @@ _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
     OfferKind.NOTEBOOK: {
         "what": "The investigation saved as a notebook, with its queries as cells the user can rerun.",
         "fits": "A diagnostic turn that found something worth keeping or sharing with the team, even when it will not happen again. Rank it first for any turn about performance, such as p95 or p99 latency, load times, web vitals or durations in milliseconds, since the notebook keeps the numbers and the queries behind them.",
-        "not_for": "A turn that built a new insight, funnel or dashboard, which is already saved.",
+        "not_for": "A turn that built a new insight, funnel or dashboard, which is already saved. A check of a metric over a window, such as a rate by hour or by day, that looked for no cause. A scheduled agent fits that better.",
     },
     OfferKind.ERROR_ALERT: {
         "what": "A Slack message when an error tracking issue from `error_issues` comes back.",
@@ -239,18 +242,15 @@ def build_judge_state(transcript: TurnTranscript) -> dict[str, JsonValue]:
 
 
 def build_judge_questions(transcript: TurnTranscript, available: frozenset[OfferKind]) -> dict[str, Question]:
-    offer_criteria: dict[str, JsonValue] = {kind: _OFFER_CRITERIA[kind] for kind in OfferKind if kind in available}
-    offer_criteria[OfferKind.NONE] = (
-        "None of the other options fits. The turn answered a one-time question, a basic count with no filters, or a generic overview of the whole product, found nothing worth keeping, and gave no sign the user will want it again."
-    )
-    questions: dict[str, Question] = {
-        "show_offer": _SHOW_OFFER,
-        "intent": _INTENT,
-        "offer": ChoiceQuestion(
-            instructions="Which follow-up would help the user most after `latest_turn`? Pick the lightest one that covers what they need next.",
-            criteria=offer_criteria,
-        ),
-    }
+    questions: dict[str, Question] = {"show_offer": _SHOW_OFFER, "intent": _INTENT}
+    # `show_offer` alone decides whether a card shows, so this question lists only the offers the turn
+    # can make and has no "none" option. With one offer there is nothing to pick, and a System One
+    # server can reject a choice with a single option.
+    if len(available) > 1:
+        questions["offer"] = ChoiceQuestion(
+            instructions="If PostHog AI showed a follow-up under the answer in `latest_turn`, which one would help the user most? Pick the lightest one that covers what they need next.",
+            criteria={kind: _OFFER_CRITERIA[kind] for kind in OfferKind if kind in available},
+        )
     if OfferKind.SCOUT in available:
         questions["scout_mode"] = _SCOUT_MODE
     if available & {OfferKind.SCOUT, OfferKind.SUBSCRIPTION}:
@@ -279,7 +279,8 @@ def build_judge_questions(transcript: TurnTranscript, available: frozenset[Offer
 
 
 def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -> TurnJudgment | None:
-    """One Jev request. ``None`` means the call failed, was shed, or the instance has no key."""
+    """One Jev request. ``None`` means the call failed, was shed, or the instance has no key.
+    ``available`` must hold at least one offer, because the offer question needs an option."""
     try:
         result = system_one(
             state=build_judge_state(transcript),
@@ -295,10 +296,21 @@ def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -
     except (TypeSafeRequestFailed, OSError):
         logger.warning("posthog_ai_turn_suggestion_judge_failed", exc_info=True)
         return None
+    return read_judgment(result, transcript, available)
 
+
+def read_judgment(result: SystemOneResult, transcript: TurnTranscript, available: frozenset[OfferKind]) -> TurnJudgment:
     answers = result.answers
     choices = {question_id: answer for question_id, answer in answers.items() if isinstance(answer, ChoiceAnswer)}
     nouls = {question_id: answer for question_id, answer in answers.items() if isinstance(answer, NoulAnswer)}
+
+    offer_answer = choices.get("offer")
+    if offer_answer is not None:
+        offer, offer_probabilities = OfferKind(offer_answer.choice), dict(offer_answer.probabilities)
+    else:
+        # Without an offer question the turn has exactly one offer. See `build_judge_questions`.
+        offer = next(iter(available))
+        offer_probabilities = {offer: 1.0}
 
     def picked(question_id: str, default: str) -> str:
         # Speculative questions are only asked when their offer is available, so an absent answer
@@ -308,8 +320,8 @@ def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -
     return TurnJudgment(
         show_probability=nouls["show_offer"].probability,
         intent=TurnIntent(choices["intent"].choice),
-        offer=OfferKind(choices["offer"].choice),
-        offer_probabilities=dict(choices["offer"].probabilities),
+        offer=offer,
+        offer_probabilities=offer_probabilities,
         scout_mode=ScoutMode(picked("scout_mode", ScoutMode.REPORT)),
         cadence=ScoutCadence(picked("cadence", ScoutCadence.WEEKLY)),
         notebook_template=NotebookTemplate(picked("notebook_template", NotebookTemplate.CONVERSATION)),

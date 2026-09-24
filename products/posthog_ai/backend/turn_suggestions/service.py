@@ -113,7 +113,7 @@ def _turn_has_substance(transcript: TurnTranscript) -> bool:
 
 
 def available_offers(transcript: TurnTranscript, *, scouts_available: bool) -> frozenset[OfferKind]:
-    """The offers this turn and project can act on; the classifier picks among these or none."""
+    """The offers this turn and project can act on. The classifier picks one of these, or shows nothing."""
     offers = set()
     if _turn_has_substance(transcript):
         offers.add(OfferKind.NOTEBOOK)
