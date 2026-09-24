@@ -22,7 +22,7 @@ type RoutePart = string | Record<string, any>
  */
 export type LinkPrimitiveProps = Pick<
     React.HTMLProps<HTMLAnchorElement>,
-    'target' | 'className' | 'children' | 'title'
+    'target' | 'className' | 'children' | 'title' | 'draggable'
 > & {
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]

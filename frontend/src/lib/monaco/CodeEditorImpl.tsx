@@ -22,9 +22,10 @@ import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
-import 'lib/monaco/monacoEnvironment'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
+import 'lib/monaco/monacoEnvironment'
 import { retriggerSuggestionsAfterDeletion } from 'lib/monaco/suggestionRetrigger'
+import { enablePlainTextDrop } from 'lib/monaco/textDrop'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -439,6 +440,8 @@ export function CodeEditor({
             overviewRulerLanes: 3,
             overflowWidgetsDomNode: monacoRoot,
             ...options,
+            // enablePlainTextDrop handles drops, and Monaco's handler would insert the text a second time
+            dropIntoEditor: { enabled: false },
             padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
             scrollbar: {
                 vertical: scrollbarRendering,
@@ -578,6 +581,7 @@ export function CodeEditor({
         // Fix Monaco's broken right-click "Paste" by overriding the command rather than adding a
         // second menu item (see enableClipboardPaste).
         monacoDisposables.current.push(enableClipboardPaste(editor))
+        monacoDisposables.current.push(enablePlainTextDrop(editor))
 
         if (autoFocus) {
             editor.focus()
