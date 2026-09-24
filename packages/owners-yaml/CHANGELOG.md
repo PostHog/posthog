@@ -21,6 +21,10 @@ the GitHub Release body, so add the entry here before you cut the tag.
 - Path normalization removes a trailing `/`. `products/new/` and `products/new` now resolve alike; before, the slash put the directory's own ownership file on the walk.
 - Every matching rule in a file now applies, and each replaces only the fields it sets. Before, the last matching rule replaced the earlier ones entirely, so a rule that set only `status` dropped the `owners` an earlier rule had set. `SPEC.md` section 3.4 records the amendment.
 
+### Docs
+
+- The PyPI project page links to the new website, [owners-yaml.posthog.dev](https://owners-yaml.posthog.dev), as its homepage. The README links to it too.
+
 ## 0.2.1
 
 ### Added
