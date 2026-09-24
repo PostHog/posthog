@@ -16,14 +16,10 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_identity import (
-    resolve_posthog_user_for_slack,
-    resolve_slack_avatar_by_email,
-    resolve_slack_user,
-)
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_avatar_by_email, resolve_slack_user
 from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge

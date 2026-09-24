@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
-from posthog.helpers.slack_identity import resolve_slack_user
+from posthog.slack.identity import resolve_slack_user
 
 
 def _client_returning(name: str, email: str) -> MagicMock:
