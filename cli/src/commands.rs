@@ -9,7 +9,10 @@ use crate::{
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{
+        endpoints::EndpointCommand, logs::command::LogsCommand, query::command::QueryCommand,
+        tasks::TaskCommand,
+    },
     invocation_context::{
         capture_command_run_without_context, context, init_context, set_telemetry_command_name,
         set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
@@ -229,6 +232,12 @@ pub enum ExpCommand {
         cmd: EndpointCommand,
     },
 
+    /// Import historical logs into PostHog from another log store
+    Logs {
+        #[command(subcommand)]
+        cmd: LogsCommand,
+    },
+
     // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
     #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
     Hermes {
@@ -305,6 +314,9 @@ impl Commands {
 impl ExpCommand {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
+            ExpCommand::Logs { cmd } => match cmd {
+                LogsCommand::Import { .. } => "logs_import",
+            },
             ExpCommand::Task { cmd, .. } => match cmd {
                 TaskCommand::List { .. } => "task_list",
                 TaskCommand::Progress { .. } => "task_progress",
@@ -525,6 +537,9 @@ impl Cli {
                     crate::experimental::query::command::query_command(&cmd)?
                 }
                 ExpCommand::Endpoints { cmd } => {
+                    cmd.run()?;
+                }
+                ExpCommand::Logs { cmd } => {
                     cmd.run()?;
                 }
                 // TODO(sept 2026): remove these backward-compat aliases
