@@ -11,7 +11,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.models.filters import Filter
-from posthog.models.property import Property, PropertyValidationError
+from posthog.models.property import Property, PropertyGroup, PropertyOperatorType, PropertyValidationError
 from posthog.models.team.team import Team
 from posthog.utils import safe_int
 
@@ -26,7 +26,8 @@ MAX_DEPENDENCY_DEPTH = 5
 MAX_DEPENDENCY_NODES = 50
 
 # The variant model re-embeds every earlier set's expression for each later set, so the emitted
-# expression can outgrow the dependency budget. Above this many AST nodes the weight is neutral.
+# expression can outgrow the dependency budget. The budget is charged while the expression is
+# built, so an oversized one is abandoned before it is cloned any further.
 MAX_WEIGHT_AST_NODES = 10_000
 
 # Probability used when a dependency cannot be sized per person: every person counts, which is
@@ -49,8 +50,8 @@ class _DependencyBudgetExceeded(Exception):
 class FlagDependencyEstimator:
     """
     Translates the flag-dependency filters of a condition (`type: "flag"`, `flag_evaluates_to`)
-    into a HogQL expression for the probability that every dependency flag evaluates to its
-    requested value for a person.
+    into a HogQL expression for the probability that the condition's dependencies hold for a
+    person the plain filters already matched.
 
     Flag matching hashes the distinct_id, so a person-grained query cannot say whether one
     person is in a rollout. It can say how likely they are, which is what a sizing estimate
@@ -65,6 +66,10 @@ class FlagDependencyEstimator:
     variant name, as the flags service does. The max over sets is exact when every non-rollout
     factor of a set is 0 or 1; a nested dependency inside a set makes it an approximation.
 
+    A condition is an AND tree in the flag editor. An OR group is sized as an inclusive or of
+    its branches, each carrying its own plain predicate, and treats the branches as independent,
+    which over-counts when two branches reference the same flag.
+
     Not modeled: holdouts, super conditions, feature enrollment, early exit and group-aggregated
     dependency flags, plus a dependency whose stored targeting cannot be compiled. Those fall
     back to the neutral estimate, which is the pre-existing behavior of counting every person.
@@ -76,19 +81,56 @@ class FlagDependencyEstimator:
         # must normalize the dependency's stored filters the same way as the condition being sized.
         self.clean_condition = clean_condition
         self._flags: dict[int, Optional[FeatureFlag]] = {}
-        self._nodes = 0
+        self._dependency_nodes = 0
+        self._ast_nodes = 0
 
-    def weight_expr(self, flag_properties: list[Property]) -> ast.Expr:
-        """Probability that every flag dependency in the condition evaluates to its requested value."""
-        references = [(str(prop.key), prop.value) for prop in flag_properties]
+    def weight_expr(self, group: PropertyGroup) -> ast.Expr:
+        """Probability that the condition's flag dependencies hold for a person its plain filters match."""
         try:
-            weight = self._conjunction_expr(references, depth=0, seen=frozenset(), assumed={})
-            if _count_nodes(weight) > MAX_WEIGHT_AST_NODES:
-                raise _DependencyBudgetExceeded()
+            return self._group_weight(group, assumed={}, inside_or=False)
         except _DependencyBudgetExceeded:
             # A partially expanded chain would give a misleading number, so the whole weight is neutral.
             return ast.Constant(value=NEUTRAL)
-        return weight
+
+    def _group_weight(self, group: PropertyGroup, assumed: dict[str, bool | str], inside_or: bool) -> ast.Expr:
+        """
+        Inside an AND the query's WHERE clause already applies the plain properties, so only the
+        flag dependencies weigh in. Inside an OR the WHERE clause only says that some branch
+        matched, so each branch carries its own plain predicate.
+        """
+        if _is_or(group):
+            misses = [_complement(self._branch_weight(value, assumed)) for value in group.values]
+            return _complement(_product(misses))
+
+        properties, or_groups = _and_members(group)
+        flags = [(str(prop.key), prop.value) for prop in properties if prop.type == "flag"]
+        plain = [prop for prop in properties if prop.type != "flag"]
+        requested_by_flag = _merge_requested_values(flags)
+        if requested_by_flag is None:
+            return ast.Constant(value=0.0)
+
+        factors: list[ast.Expr] = []
+        if plain and inside_or:
+            factors.append(self._predicate_factor(plain))
+        if flags:
+            factors.append(self._conjunction_expr(flags, depth=0, seen=frozenset(), assumed=assumed))
+        child_assumed = {**assumed, **requested_by_flag}
+        factors.extend(self._group_weight(or_group, child_assumed, inside_or=True) for or_group in or_groups)
+        return _product(factors) if factors else ast.Constant(value=1.0)
+
+    def _branch_weight(self, value: Property | PropertyGroup, assumed: dict[str, bool | str]) -> ast.Expr:
+        if isinstance(value, PropertyGroup):
+            return self._group_weight(value, assumed, inside_or=True)
+        if value.type == "flag":
+            return self._conjunction_expr([(str(value.key), value.value)], depth=0, seen=frozenset(), assumed=assumed)
+        return self._predicate_factor([value])
+
+    def _predicate_factor(self, properties: list[Property]) -> ast.Expr:
+        predicate = property_to_expr(
+            PropertyGroup(type=PropertyOperatorType.AND, values=properties), self.team, scope="person"
+        )
+        self._charge(predicate)
+        return ast.Call(name="if", args=[predicate, ast.Constant(value=1.0), ast.Constant(value=0.0)])
 
     def _conjunction_expr(
         self, references: list[tuple[str, Any]], depth: int, seen: frozenset[int], assumed: dict[str, bool | str]
@@ -115,8 +157,8 @@ class FlagDependencyEstimator:
     def _probability_expr(
         self, reference: str, requested: bool | str, depth: int, seen: frozenset[int], assumed: dict[str, bool | str]
     ) -> ast.Expr:
-        self._nodes += 1
-        if self._nodes > MAX_DEPENDENCY_NODES:
+        self._dependency_nodes += 1
+        if self._dependency_nodes > MAX_DEPENDENCY_NODES:
             raise _DependencyBudgetExceeded()
         if depth >= MAX_DEPENDENCY_DEPTH:
             return ast.Constant(value=NEUTRAL)
@@ -134,7 +176,7 @@ class FlagDependencyEstimator:
 
         if isinstance(requested, bool):
             return _from_true_probability(requested, _running_max(admitted_by_set))
-        return _variant_probability(flag, admitted_by_set, requested)
+        return self._variant_probability(flag, admitted_by_set, requested)
 
     def _find_flag(self, reference: str) -> Optional[FeatureFlag]:
         # The flags service resolves a dependency by id only, so a key reference never matches.
@@ -170,6 +212,7 @@ class FlagDependencyEstimator:
                     targeting = property_to_expr(cleaned.property_groups, self.team, scope="person")
                 except _TARGETING_BUILD_ERRORS:
                     return None
+                self._charge(targeting)
                 factors.append(ast.Call(name="if", args=[targeting, ast.Constant(value=1.0), ast.Constant(value=0.0)]))
             nested = [(str(prop.get("key")), prop.get("value")) for prop in properties if prop.get("type") == "flag"]
             if nested:
@@ -177,6 +220,62 @@ class FlagDependencyEstimator:
 
             admitted.append(_product(factors))
         return admitted
+
+    def _variant_probability(self, flag: FeatureFlag, admitted_by_set: list[ast.Expr], variant: str) -> ast.Expr:
+        variant_keys = {v.get("key") for v in flag.variants}
+        hashed_variant_share = next(
+            (float(v.get("rollout_percentage") or 0) / 100 for v in flag.variants if v.get("key") == variant), 0.0
+        )
+
+        terms: list[ast.Expr] = []
+        previous_max: ast.Expr = ast.Constant(value=0.0)
+        for condition, admitted in zip(flag.conditions, admitted_by_set):
+            pinned = condition.get("variant")
+            if pinned in variant_keys:
+                share = 1.0 if pinned == variant else 0.0
+            else:
+                share = hashed_variant_share
+            # previous_max is reused in `won` below, so every use needs its own copy of the node.
+            current_max = ast.Call(name="greatest", args=[self._clone(previous_max), admitted])
+            if share > 0:
+                # The set wins only for the slice of the hash range above every earlier admitted set.
+                won = ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub, left=self._clone(current_max), right=self._clone(previous_max)
+                )
+                terms.append(_product([won, ast.Constant(value=share)]))
+            previous_max = current_max
+        if not terms:
+            return ast.Constant(value=0.0)
+        return _sum(terms)
+
+    def _clone(self, expr: ast.Expr) -> ast.Expr:
+        self._charge(expr)
+        return clone_expr(expr)
+
+    def _charge(self, expr: ast.Expr) -> None:
+        self._ast_nodes += _count_nodes(expr)
+        if self._ast_nodes > MAX_WEIGHT_AST_NODES:
+            raise _DependencyBudgetExceeded()
+
+
+def _is_or(group: PropertyGroup) -> bool:
+    return group.type == PropertyOperatorType.OR and len(group.values) > 1
+
+
+def _and_members(group: PropertyGroup) -> tuple[list[Property], list[PropertyGroup]]:
+    """The properties an AND tree requires together, and the OR groups nested in it."""
+    properties: list[Property] = []
+    or_groups: list[PropertyGroup] = []
+    for value in group.values:
+        if isinstance(value, Property):
+            properties.append(value)
+        elif _is_or(value):
+            or_groups.append(value)
+        else:
+            nested_properties, nested_or_groups = _and_members(value)
+            properties.extend(nested_properties)
+            or_groups.extend(nested_or_groups)
+    return properties, or_groups
 
 
 def _merge_requested_values(references: list[tuple[str, Any]]) -> Optional[dict[str, bool | str]]:
@@ -230,37 +329,11 @@ def _count_nodes(expr: ast.Expr) -> int:
 def _from_true_probability(requested: bool, true_probability: ast.Expr) -> ast.Expr:
     if requested:
         return true_probability
-    return ast.ArithmeticOperation(
-        op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=1.0), right=true_probability
-    )
+    return _complement(true_probability)
 
 
-def _variant_probability(flag: FeatureFlag, admitted_by_set: list[ast.Expr], variant: str) -> ast.Expr:
-    variant_keys = {v.get("key") for v in flag.variants}
-    hashed_variant_share = next(
-        (float(v.get("rollout_percentage") or 0) / 100 for v in flag.variants if v.get("key") == variant), 0.0
-    )
-
-    terms: list[ast.Expr] = []
-    previous_max: ast.Expr = ast.Constant(value=0.0)
-    for condition, admitted in zip(flag.conditions, admitted_by_set):
-        pinned = condition.get("variant")
-        if pinned in variant_keys:
-            share = 1.0 if pinned == variant else 0.0
-        else:
-            share = hashed_variant_share
-        # previous_max is reused in `won` below, so every use needs its own copy of the node.
-        current_max = ast.Call(name="greatest", args=[clone_expr(previous_max), admitted])
-        if share > 0:
-            # The set wins only for the slice of the hash range above every earlier admitted set.
-            won = ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Sub, left=clone_expr(current_max), right=clone_expr(previous_max)
-            )
-            terms.append(_product([won, ast.Constant(value=share)]))
-        previous_max = current_max
-    if not terms:
-        return ast.Constant(value=0.0)
-    return _sum(terms)
+def _complement(probability: ast.Expr) -> ast.Expr:
+    return ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=1.0), right=probability)
 
 
 def _requested_value(value: Any) -> bool | str:

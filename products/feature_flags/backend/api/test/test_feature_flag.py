@@ -10294,17 +10294,23 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
 
-    def test_user_blast_radius_with_flag_dependency_in_an_or_group_stays_neutral(self):
+    @parameterized.expand(
+        [
+            # Three persons match the person branch; the rest only match through the flag's rollout.
+            ("never_served_flag", 0, 3),
+            ("partial_rollout_flag", 40, 6),
+        ]
+    )
+    def test_user_blast_radius_with_flag_dependency_in_an_or_group(self, _name, rollout, expected_affected):
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
         dependency_flag = FeatureFlag.objects.create(
             team=self.team,
             key="dependency-flag",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 0}]},
+            filters={"groups": [{"properties": [], "rollout_percentage": rollout}]},
         )
 
-        # The flag's 0% must not zero out the persons the other branch matches.
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
@@ -10327,7 +10333,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertLessEqual({"affected": 10, "total": 10}.items(), response.json().items())
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
 
     def test_user_blast_radius_with_flag_dependency_and_person_property(self):
         for i in range(10):

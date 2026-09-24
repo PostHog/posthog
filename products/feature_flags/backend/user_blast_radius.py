@@ -23,13 +23,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
-from posthog.models.property import (
-    GroupTypeIndex,
-    Property,
-    PropertyGroup,
-    PropertyOperatorType,
-    PropertyValidationError,
-)
+from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -270,21 +264,9 @@ def _flag_dependency_weight(team: Team, filter: Filter) -> Optional[ast.Expr]:
     lists everyone the plain filters match.
     """
     group = filter.property_groups
-    flag_properties = [prop for prop in group.flat if prop.type == "flag"]
-    if not flag_properties:
+    if not any(prop.type == "flag" for prop in group.flat):
         return None
-    # A weight applies to every matched person, which only means "every dependency holds" when
-    # the condition is an AND tree, the shape release conditions have. An OR shape would put the
-    # flag's probability on persons that matched another branch, so it keeps the neutral count.
-    if not _is_conjunction(group):
-        return None
-    return FlagDependencyEstimator(team, clean_condition=replace_proxy_properties).weight_expr(flag_properties)
-
-
-def _is_conjunction(group: PropertyGroup) -> bool:
-    if group.type != PropertyOperatorType.AND and len(group.values) > 1:
-        return False
-    return all(_is_conjunction(value) for value in group.values if isinstance(value, PropertyGroup))
+    return FlagDependencyEstimator(team, clean_condition=replace_proxy_properties).weight_expr(group)
 
 
 def _build_person_query(team: Team, filter: Filter, cursor: Optional[str] = None) -> ast.SelectQuery:
