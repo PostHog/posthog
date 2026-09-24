@@ -318,3 +318,22 @@ export const TerminalAiCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Sampling temperature.'),
 })
+
+/**
+ * @summary Record what the user did with a PostHog AI turn suggestion card
+ */
+export const turnSuggestionsResolveCreateBodyTurnIndexMin = 0
+
+export const TurnSuggestionsResolveCreateBody = /* @__PURE__ */ zod.object({
+    task_id: zod.uuid().describe('ID of the PostHog AI conversation (task) the suggestion card belongs to.'),
+    turn_index: zod
+        .number()
+        .min(turnSuggestionsResolveCreateBodyTurnIndexMin)
+        .describe('Zero-based index of the conversation turn the suggestion card was shown under.'),
+    resolution: zod
+        .enum(['dismissed', 'accepted'])
+        .describe('\* `dismissed` - Dismissed\n\* `accepted` - Accepted')
+        .describe(
+            'What the user did with the card: `dismissed` mutes suggestions for the rest of the conversation, `accepted` means the offered scout, notebook, alert or subscription was created.\n\n\* `dismissed` - Dismissed\n\* `accepted` - Accepted'
+        ),
+})

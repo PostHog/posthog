@@ -750,6 +750,38 @@ export interface TerminalAIRequestApi {
     temperature?: number | null
 }
 
+/**
+ * * `dismissed` - Dismissed
+ * * `accepted` - Accepted
+ */
+export type TurnSuggestionResolutionEnumApi =
+    (typeof TurnSuggestionResolutionEnumApi)[keyof typeof TurnSuggestionResolutionEnumApi]
+
+export const TurnSuggestionResolutionEnumApi = {
+    Dismissed: 'dismissed',
+    Accepted: 'accepted',
+} as const
+
+export interface ResolveTurnSuggestionApi {
+    /** ID of the PostHog AI conversation (task) the suggestion card belongs to. */
+    task_id: string
+    /**
+     * Zero-based index of the conversation turn the suggestion card was shown under.
+     * @minimum 0
+     */
+    turn_index: number
+    /** What the user did with the card: `dismissed` mutes suggestions for the rest of the conversation, `accepted` means the offered scout, notebook, alert or subscription was created.
+     *
+     * * `dismissed` - Dismissed
+     * * `accepted` - Accepted */
+    resolution: TurnSuggestionResolutionEnumApi
+}
+
+export interface ResolveTurnSuggestionResponseApi {
+    /** Whether a suggestion card existed for that turn and this call recorded its outcome. A card keeps the first outcome recorded for it. */
+    recorded: boolean
+}
+
 export type ConversationsListParams = {
     /**
      * Number of results to return per page.

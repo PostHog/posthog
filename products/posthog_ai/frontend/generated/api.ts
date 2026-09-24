@@ -24,6 +24,8 @@ import type {
     PaginatedMaxCoreMemoryListApi,
     PatchedConversationApi,
     PatchedMaxCoreMemoryApi,
+    ResolveTurnSuggestionApi,
+    ResolveTurnSuggestionResponseApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TerminalAIRequestApi,
@@ -474,5 +476,25 @@ export const terminalAiCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(terminalAIRequestApi),
+    })
+}
+
+export const getTurnSuggestionsResolveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/turn_suggestions/resolve/`
+}
+
+/**
+ * @summary Record what the user did with a PostHog AI turn suggestion card
+ */
+export const turnSuggestionsResolveCreate = async (
+    projectId: string,
+    resolveTurnSuggestionApi: ResolveTurnSuggestionApi,
+    options?: RequestInit
+): Promise<ResolveTurnSuggestionResponseApi> => {
+    return apiMutator<ResolveTurnSuggestionResponseApi>(getTurnSuggestionsResolveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(resolveTurnSuggestionApi),
     })
 }
