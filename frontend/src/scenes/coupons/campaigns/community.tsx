@@ -4,13 +4,13 @@ import { CampaignConfig } from './types'
 
 export const communityCampaign: CampaignConfig = {
     name: 'PostHog community',
-    heroTitle: 'Get $30 in PostHog credit',
+    heroTitle: 'Get PostHog credit',
     heroSubtitle: 'A reward for your points in the PostHog community forum',
     benefits: [
         {
-            title: '$30 in PostHog credit',
+            title: 'PostHog credit',
             description:
-                'The credit applies to your future invoices before your card is charged. It does not expire, and you can spend it on any product.',
+                'The amount depends on the code you got from the community store. The credit applies to your future invoices before your card is charged. It does not expire, and you can spend it on any product.',
         },
     ],
     eligibilityCriteria: [

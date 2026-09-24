@@ -40,6 +40,10 @@ test.describe('Community coupon', () => {
             await page.getByLabel('Coupon code').fill(code)
             await page.getByRole('button', { name: 'Redeem coupon' }).click()
             await expect(page.getByText('Coupon redeemed successfully!')).toBeVisible()
+            // The store sets each code's amount, so match any dollar amount.
+            await expect(
+                page.getByText(/^\$[\d,]+(\.\d{2})? of credit was added to your organization\.$/)
+            ).toBeVisible()
         })
 
         await test.step('the claim is still there after a reload, and another code can be entered', async () => {

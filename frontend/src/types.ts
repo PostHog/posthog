@@ -2494,10 +2494,21 @@ export interface ClaimedCouponInfo {
     claimed_at: string
     expires_at: string | null
     status: 'claimed' | 'expired'
+    /** Credit the code granted, e.g. "50.00". Null for campaigns without a fixed credit. */
+    credit_amount_usd?: string | null
 }
 
 export interface CouponsOverview {
     claimed_coupons: ClaimedCouponInfo[]
+}
+
+export interface CouponClaimResponse {
+    success: boolean
+    code: string
+    campaign: string
+    expires_at: string | null
+    /** Credit the code granted, e.g. "50.00". Null for campaigns without a fixed credit. */
+    credit_amount_usd?: string | null
 }
 
 export interface BillingPeriod {

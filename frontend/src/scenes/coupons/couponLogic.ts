@@ -11,7 +11,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ClaimedCouponInfo, CouponsOverview } from '~/types'
+import { ClaimedCouponInfo, CouponClaimResponse, CouponsOverview } from '~/types'
 
 import type { BillingType, OrganizationType, UserType } from '../../types'
 
@@ -33,7 +33,7 @@ export interface couponLogicValues {
     user: UserType | null // userLogic
     activeCoupons: ClaimedCouponInfo[]
     claimed: boolean
-    claimedDetails: any
+    claimedDetails: CouponClaimResponse | null
     coupon: CouponFormValues
     couponAllErrors: Record<string, any>
     couponChanged: boolean
@@ -88,8 +88,8 @@ export interface couponLogicActions {
     setClaimed: (claimed: boolean) => {
         claimed: boolean
     }
-    setClaimedDetails: (details: any) => {
-        details: any
+    setClaimedDetails: (details: CouponClaimResponse) => {
+        details: CouponClaimResponse
     }
     setCouponManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -153,7 +153,7 @@ export const couponLogic = kea<couponLogicType>([
     })),
     actions({
         setClaimed: (claimed: boolean) => ({ claimed }),
-        setClaimedDetails: (details: any) => ({ details }),
+        setClaimedDetails: (details: CouponClaimResponse) => ({ details }),
     }),
     loaders(({ values }) => ({
         couponsOverview: [
@@ -170,7 +170,7 @@ export const couponLogic = kea<couponLogicType>([
     })),
     reducers({
         claimed: [false, { setClaimed: (_, { claimed }) => claimed }],
-        claimedDetails: [null as any, { setClaimedDetails: (_, { details }) => details }],
+        claimedDetails: [null as CouponClaimResponse | null, { setClaimedDetails: (_, { details }) => details }],
     }),
     selectors({
         getClaimedCouponForCampaign: [
@@ -205,7 +205,7 @@ export const couponLogic = kea<couponLogicType>([
             },
             submit: async (formValues: CouponFormValues) => {
                 try {
-                    const res = await api.create('api/billing/coupons/claim', {
+                    const res = await api.create<CouponClaimResponse>('api/billing/coupons/claim', {
                         code: formValues.code,
                     })
                     actions.setClaimed(true)
