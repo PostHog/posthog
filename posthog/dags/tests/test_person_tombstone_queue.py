@@ -8,7 +8,8 @@ import dagster
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dags import clickhouse_cleanup
-from posthog.dags.person_tombstone_queue import QueueResolution, resolve_person_tombstone_queue
+from posthog.dags.person_tombstone_queue import QueueResolution, clickhouse_confirmed, resolve_person_tombstone_queue
+from posthog.models import Team
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
     publish_person_tombstone,
@@ -46,7 +47,7 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         )
         return bool(is_deleted)
 
-    def test_confirms_republishes_and_drops_queued_persons(self):
+    def test_confirms_republishes_and_drops_queued_persons(self) -> None:
         confirmed = self._tombstoned("queue-confirmed", published=True)
         behind = self._tombstoned("queue-behind", published=False)
         live = create_person(team_id=self.team.pk, distinct_ids=["queue-live"]).uuid
@@ -63,7 +64,7 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert self._ch_person_deleted(behind)
         assert not self._ch_person_deleted(live)
 
-    def test_a_live_distinct_id_keeps_the_person_queued(self):
+    def test_a_live_distinct_id_keeps_the_person_queued(self) -> None:
         person = create_person(team_id=self.team.pk, distinct_ids=["queue-did"])
         [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
         create_person_in_ch(uuid=str(person.uuid), team_id=self.team.pk, version=tombstone.version, is_deleted=True)
@@ -75,7 +76,7 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert [row.person_uuid for row in result.remaining] == [person.uuid]
         assert self._queued() == {person.uuid}
 
-    def test_dry_run_acks_and_publishes_nothing(self):
+    def test_dry_run_acks_and_publishes_nothing(self) -> None:
         confirmed = self._tombstoned("queue-dry-confirmed", published=True)
         behind = self._tombstoned("queue-dry-behind", published=False)
 
@@ -85,7 +86,7 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert self._queued() == {confirmed, behind}
         assert not self._ch_person_deleted(behind)
 
-    def test_leaves_teams_outside_the_range_alone(self):
+    def test_leaves_teams_outside_the_range_alone(self) -> None:
         behind = self._tombstoned("queue-range", published=False)
 
         result = self._resolve(min_team_id=self.team.pk + 1)
@@ -94,9 +95,52 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert self._queued() == {behind}
         assert not self._ch_person_deleted(behind)
 
+    def test_a_person_absent_from_clickhouse_is_republished_not_acked(self) -> None:
+        person_uuid = uuid4()
+        # Persons DB only: the ClickHouse rows for this person are still in flight.
+        get_active_fake().add_person(
+            team_id=self.team.pk, person_id=1_000_001, uuid=str(person_uuid), distinct_ids=["queue-absent"]
+        )
+        tombstone_persons_in_postgres(self.team.pk, [person_uuid])
+
+        result = self._resolve()
+
+        assert (result.republished, result.confirmed) == (1, 1)
+        assert result.remaining == []
+        assert self._queued() == set()
+        assert self._ch_person_deleted(person_uuid)
+
+    def test_polls_the_confirmation_in_chunks(self) -> None:
+        for i in range(3):
+            self._tombstoned(f"queue-chunk-{i}", published=False)
+
+        with (
+            patch("posthog.dags.person_tombstone_queue.CHUNK_SIZE", 2),
+            patch("posthog.dags.person_tombstone_queue.clickhouse_confirmed", wraps=clickhouse_confirmed) as confirm,
+        ):
+            result = self._resolve()
+
+        assert (result.republished, result.confirmed) == (3, 3)
+        assert self._queued() == set()
+        assert max(len(call.args[1]) for call in confirm.call_args_list) == 2
+
+    def test_remaining_rows_keep_their_own_team(self) -> None:
+        other = Team.objects.create(organization=self.organization)
+        shared = uuid4()
+        for team in (self.team, other):
+            person = create_person(team=team, distinct_ids=[f"queue-shared-{team.pk}"], uuid=shared)
+            tombstone_persons_in_postgres(team.pk, [person.uuid])
+
+        with patch("posthog.dags.person_tombstone_queue.publish_person_tombstone"):
+            result = self._resolve()
+
+        assert sorted((row.team_id, row.person_uuid) for row in result.remaining) == sorted(
+            [(self.team.pk, shared), (other.pk, shared)]
+        )
+
 
 @pytest.mark.parametrize("failing", ["resolve_person_tombstone_queue", "publish_queue_gauges"])
-def test_a_queue_failure_does_not_fail_the_sweep(failing):
+def test_a_queue_failure_does_not_fail_the_sweep(failing: str) -> None:
     run = clickhouse_cleanup.CleanupRun.for_run("run", clickhouse_cleanup.CleanupConfig(dry_run=False))
     context = dagster.build_op_context(op_config={"visibility_timeout_seconds": 0, "poll_interval_seconds": 0})
 

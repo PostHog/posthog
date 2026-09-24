@@ -48,8 +48,10 @@ def _list_queue(min_team_id: int, max_team_id: int) -> list[QueuedPersonTombston
 
 
 def _is_shown(row: tuple[int, int] | None, version: int) -> bool:
+    # A missing row is not confirmation: the live row can still be in flight through Kafka, and
+    # acking now would leave nothing queued to delete it when it lands.
     if row is None:
-        return True
+        return False
     is_deleted, max_version = row
     return max_version > version or (bool(is_deleted) and max_version >= version)
 
@@ -94,6 +96,21 @@ def clickhouse_confirmed(team_id: int, tombstones: Sequence[PersonTombstone]) ->
     }
 
 
+def _confirm_and_ack(team_id: int, tombstones: dict[UUID, PersonTombstone]) -> int:
+    """Ack the queued persons ClickHouse shows as deleted, a chunk at a time, and drop them from ``tombstones``."""
+    batch = list(tombstones.values())
+    acked = 0
+    for i in range(0, len(batch), CHUNK_SIZE):
+        confirmed = clickhouse_confirmed(team_id, batch[i : i + CHUNK_SIZE])
+        if not confirmed:
+            continue
+        ack_person_tombstones(team_id, [(uuid, tombstones[uuid].version) for uuid in confirmed])
+        acked += len(confirmed)
+        for uuid in confirmed:
+            del tombstones[uuid]
+    return acked
+
+
 def resolve_person_tombstone_queue(
     *,
     dry_run: bool,
@@ -111,7 +128,7 @@ def resolve_person_tombstone_queue(
         by_team[row.team_id].append(row)
 
     pending: dict[int, dict[UUID, PersonTombstone]] = defaultdict(dict)
-    row_for: dict[UUID, QueuedPersonTombstone] = {row.person_uuid: row for row in queued}
+    row_for: dict[tuple[int, UUID], QueuedPersonTombstone] = {(row.team_id, row.person_uuid): row for row in queued}
     for team_id, team_rows in by_team.items():
         for i in range(0, len(team_rows), CHUNK_SIZE):
             chunk = team_rows[i : i + CHUNK_SIZE]
@@ -128,7 +145,7 @@ def resolve_person_tombstone_queue(
 
     if dry_run:
         result.republished = sum(len(p) for p in pending.values())
-        result.remaining = [row_for[uuid] for p in pending.values() for uuid in p]
+        result.remaining = [row_for[(team_id, uuid)] for team_id, p in pending.items() for uuid in p]
         return result
 
     for team_id, tombstones in pending.items():
@@ -145,20 +162,14 @@ def resolve_person_tombstone_queue(
     deadline = time.monotonic() + visibility_timeout_seconds
     while True:
         for team_id in list(pending):
-            tombstones = pending[team_id]
-            confirmed = clickhouse_confirmed(team_id, list(tombstones.values()))
-            if confirmed:
-                ack_person_tombstones(team_id, [(uuid, tombstones[uuid].version) for uuid in confirmed])
-                result.confirmed += len(confirmed)
-                for uuid in confirmed:
-                    del tombstones[uuid]
-            if not tombstones:
+            result.confirmed += _confirm_and_ack(team_id, pending[team_id])
+            if not pending[team_id]:
                 del pending[team_id]
         if not pending or time.monotonic() >= deadline:
             break
         time.sleep(poll_interval_seconds)
 
-    result.remaining = [row_for[uuid] for tombstones in pending.values() for uuid in tombstones]
+    result.remaining = [row_for[(team_id, uuid)] for team_id, tombstones in pending.items() for uuid in tombstones]
     return result
 
 

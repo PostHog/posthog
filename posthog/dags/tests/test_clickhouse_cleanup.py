@@ -1102,7 +1102,9 @@ def test_the_job_carries_the_operational_tags():
         ("resolve_tombstone_queue", clickhouse_cleanup.TombstoneQueueConfig),
     ],
 )
-def test_the_scheduled_config_pins_every_setting_the_sweep_reads(op_name: str, config_class: type[dagster.Config]):
+def test_the_scheduled_config_pins_every_setting_the_sweep_reads(
+    op_name: str, config_class: type[dagster.Config]
+) -> None:
     # A field added to CleanupConfig without a scheduled value would run production on whatever
     # the code default happens to be, which is exactly what pinning this config prevents.
     pinned = set(SCHEDULED_RUN_CONFIG["ops"][op_name]["config"])
