@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -13,6 +14,7 @@ import { HOMEPAGE_SUGGESTION_TOPICS } from 'scenes/max/suggestionTopics'
 import { nextTypingDelayMs } from 'scenes/max/utils/typing'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -22,11 +24,18 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
-import { Conversation, ConversationType, SidePanelTab } from '~/types'
+import { SidePanelTab } from '~/types'
 
-import type { ConversationDetail, TeamPublicType, TeamType } from '../../../types'
+import { tasksList } from 'products/tasks/frontend/generated/api'
+import {
+    TaskListItemApi,
+    TaskOriginProductEnumApi,
+    TasksListOrdering,
+} from 'products/tasks/frontend/generated/api.schemas'
+
+import type { ConversationDetail, TeamPublicType, TeamType, UserType } from '../../../types'
 import { HOMEPAGE_IDLE_DRAFT_KEY, HOMEPAGE_TAB_ID } from './constants'
-import { buildSuggestionItems, topicSuggestionItems } from './homepageSuggestions'
+import { ResumableChat, buildSuggestionItems, pickLastChat, topicSuggestionItems } from './homepageSuggestions'
 
 export type HomepageMode = 'idle' | 'search' | 'ai'
 export type AnimationPhase = 'idle' | 'moving' | 'separator' | 'content'
@@ -51,6 +60,8 @@ export interface HomepageGridItem {
     prompt?: string
     /** Conversation opened when a continue-conversation suggestion is activated. */
     conversationId?: string
+    /** Sandbox task opened when a continue-conversation suggestion is activated. */
+    taskId?: string
     /** When set, activation types `prompt` into the input and waits for the user to complete it. */
     fillInHint?: string
     /** Where a suggestion came from, captured on click so the sources can be compared. */
@@ -106,6 +117,7 @@ export interface aiFirstHomepageLogicValues {
     conversationHistory: ConversationDetail[] // maxGlobalLogic
     conversationHistoryLoading: boolean // maxGlobalLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
+    isPhaiSandboxFlagOn: boolean // maxGlobalLogic
     conversationId: string | null // maxLogic
     threadLogicKey: string // maxLogic
     dashboardsLoading: boolean // pinnedDashboardsModel
@@ -115,11 +127,15 @@ export interface aiFirstHomepageLogicValues {
     homepage: SceneTab | null // sceneLogic
     chatDraftFor: (tabId: string | undefined) => string // tabUiStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     animationPhase: AnimationPhase
     displayedSuggestionItems: HomepageGridItem[]
     fillInHint: string | null
     gridItems: HomepageGridItem[]
-    lastConversation: Conversation | null
+    lastChat: ResumableChat | null
+    latestWebTask: TaskListItemApi | null
+    latestWebTaskLoading: boolean
     layoutState: LayoutState
     mode: HomepageMode
     pinnedDashboardItems: HomepageGridItem[]
@@ -166,6 +182,21 @@ export interface aiFirstHomepageLogicActions {
     gridItemClicked: (item: HomepageGridItem) => {
         item: HomepageGridItem
     }
+    loadLatestWebTask: (_: void) => void
+    loadLatestWebTaskFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLatestWebTaskSuccess: (
+        latestWebTask: TaskListItemApi | null,
+        payload?: void
+    ) => {
+        latestWebTask: TaskListItemApi | null
+        payload?: void
+    }
     returnToIdle: () => {
         value: true
     }
@@ -204,8 +235,11 @@ export interface aiFirstHomepageLogicMeta {
             dashboardsLoading: boolean
         ) => FileSystemEntry[]
         recentItemsLoading: (recentsHasLoaded: boolean) => boolean
-        lastConversation: (conversationHistory: ConversationDetail[]) => Conversation | null
-        suggestionItems: (lastConversation: Conversation | null, recentItems: FileSystemEntry[]) => HomepageGridItem[]
+        lastChat: (
+            conversationHistory: ConversationDetail[],
+            latestWebTask: TaskListItemApi | null
+        ) => ResumableChat | null
+        suggestionItems: (lastChat: ResumableChat | null, recentItems: FileSystemEntry[]) => HomepageGridItem[]
         displayedSuggestionItems: (
             selectedTopic: string | null,
             suggestionItems: HomepageGridItem[]
@@ -213,6 +247,7 @@ export interface aiFirstHomepageLogicMeta {
         suggestionItemsLoading: (
             conversationHistoryLoading: boolean,
             conversationHistory: ConversationDetail[],
+            latestWebTaskLoading: boolean,
             recentItemsLoading: boolean
         ) => boolean
         mode: (layoutState: LayoutState) => HomepageMode
@@ -241,7 +276,9 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             maxLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['threadLogicKey', 'conversationId'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamId'],
+            userLogic,
+            ['user'],
             sceneLogic,
             ['homepage'],
             pinnedDashboardsModel,
@@ -251,7 +288,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             tabUiStateLogic,
             ['chatDraftFor'],
             maxGlobalLogic,
-            ['effectivePhaiView', 'conversationHistory', 'conversationHistoryLoading'],
+            ['effectivePhaiView', 'isPhaiSandboxFlagOn', 'conversationHistory', 'conversationHistoryLoading'],
         ],
         actions: [
             maxLogic({ panelId: HOMEPAGE_TAB_ID }),
@@ -282,6 +319,29 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         // Capture plus perform: submit a suggestion prompt, continue a conversation, or navigate.
         activateGridItem: (item: HomepageGridItem) => ({ item }),
     }),
+
+    loaders(({ values }) => ({
+        latestWebTask: [
+            null as TaskListItemApi | null,
+            {
+                loadLatestWebTask: async (_: void, breakpoint) => {
+                    // Without the `created_by` pin the server answers with tasks other people shared.
+                    if (!values.currentTeamId || !values.user?.id) {
+                        return null
+                    }
+                    // `posthog_ai` keeps only chats started in the web UI, not Slack or desktop tasks.
+                    const response = await tasksList(String(values.currentTeamId), {
+                        origin_product: TaskOriginProductEnumApi.PosthogAi,
+                        created_by: values.user.id,
+                        ordering: TasksListOrdering.LastActivityAt,
+                        limit: 1,
+                    })
+                    breakpoint()
+                    return response.results[0] ?? null
+                },
+            },
+        ],
+    })),
 
     reducers({
         // Single reducer for mode + phase so transitions are atomic
@@ -362,19 +422,15 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             },
         ],
         recentItemsLoading: [(s) => [s.recentsHasLoaded], (recentsHasLoaded: boolean): boolean => !recentsHasLoaded],
-        lastConversation: [
-            (s) => [s.conversationHistory],
-            (conversationHistory: ConversationDetail[]): Conversation | null =>
-                // The API returns conversations newest-first. Tool-call and deep-research rows
-                // aren't resumable chats, and a conversation without a title has nothing to show.
-                conversationHistory.find(
-                    (conversation) => conversation.type === ConversationType.Assistant && !!conversation.title
-                ) ?? null,
+        lastChat: [
+            (s) => [s.conversationHistory, s.latestWebTask],
+            (conversationHistory: ConversationDetail[], latestWebTask: TaskListItemApi | null): ResumableChat | null =>
+                pickLastChat(conversationHistory, latestWebTask),
         ],
         suggestionItems: [
-            (s) => [s.lastConversation, s.recentItems],
-            (lastConversation: Conversation | null, recentItems: FileSystemEntry[]): HomepageGridItem[] =>
-                buildSuggestionItems(lastConversation, recentItems),
+            (s) => [s.lastChat, s.recentItems],
+            (lastChat: ResumableChat | null, recentItems: FileSystemEntry[]): HomepageGridItem[] =>
+                buildSuggestionItems(lastChat, recentItems),
         ],
         // What the suggestions list actually shows: a selected topic's suggestions, or the
         // personalized default. One shape, so both states render through the same component.
@@ -389,12 +445,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         // personalized sources resolve would swap the list under the user's cursor. A history
         // reload with cached conversations doesn't count as loading, so revisits render instantly.
         suggestionItemsLoading: [
-            (s) => [s.conversationHistoryLoading, s.conversationHistory, s.recentItemsLoading],
+            (s) => [s.conversationHistoryLoading, s.conversationHistory, s.latestWebTaskLoading, s.recentItemsLoading],
             (
                 conversationHistoryLoading: boolean,
                 conversationHistory: ConversationDetail[],
+                latestWebTaskLoading: boolean,
                 recentItemsLoading: boolean
-            ): boolean => (conversationHistoryLoading && conversationHistory.length === 0) || recentItemsLoading,
+            ): boolean =>
+                (conversationHistoryLoading && conversationHistory.length === 0) ||
+                latestWebTaskLoading ||
+                recentItemsLoading,
         ],
         mode: [(s) => [s.layoutState], (layoutState: LayoutState): HomepageMode => layoutState.mode],
         animationPhase: [
@@ -459,7 +519,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         },
         activateGridItem: ({ item }) => {
             reportGridItemClicked(item)
-            if (item.conversationId) {
+            if (item.taskId) {
+                // A sandbox task only renders on the new PostHog AI surface, whatever view is chosen.
+                router.actions.push(urls.aiTask(item.taskId))
+            } else if (item.conversationId) {
                 // The legacy homepage restores a conversation in place; the new PostHog AI surface
                 // owns its own route, so hand the conversation to /ai there (same split as submitQuery).
                 if (values.effectivePhaiView === 'new') {
@@ -679,6 +742,11 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
+        // Sandbox chats exist only for users with the flag, so everyone else skips the request.
+        if (values.isPhaiSandboxFlagOn) {
+            actions.loadLatestWebTask()
+        }
+
         // Capture the previous homepage on first visit so we can revert later
         const stored = loadPreviousHomepage()
         if (stored) {
