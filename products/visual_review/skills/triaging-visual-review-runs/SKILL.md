@@ -39,7 +39,8 @@ When the user asks for the rendered diff image itself, the [VR web UI](https://u
 is faster — direct them there. This skill is for everything around the diff: status, scope, history, triage.
 
 **First, check whether the PR comes from a fork.**
-A fork PR has no Visual Review run, so every VR tool below returns nothing for it.
+A fork PR has no Visual Review run, so every run-scoped VR tool below returns nothing for it.
+Only the repo-scoped flakiness tool still answers.
 Read the flag before you query the tools:
 
 ```bash
