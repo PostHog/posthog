@@ -308,7 +308,7 @@ def _detector_rows(
             rows, column_names = from_history
             # Assembled from cached buckets and tail scans that passed the completeness guard,
             # so a limit never cut it.
-            return _FetchedRows(rows=rows, column_names=column_names, truncated=False, at_explicit_limit=False)
+            return _FetchedRows(rows=rows, column_names=column_names, truncated=False)
     return _calculate_rows_and_columns(
         insight, team, user=user, execution_mode=execution_mode, evaluation=config.evaluation
     )
@@ -346,7 +346,13 @@ def extract_hogql_detector_series(
         )
 
     fetched = _detector_rows(
-        insight, team, config, required_samples, execution_mode=execution_mode, user=user, alert=alert
+        insight,
+        team,
+        config,
+        required_samples,
+        execution_mode=execution_mode,
+        user=user,
+        alert=alert,
     )
     rows = fetched.rows
     column_names = fetched.column_names
