@@ -45,6 +45,10 @@ EXPECTED_WARNINGS: dict[str, list[dict[str, str | None]]] = {
             "action_id": None,
             "message": "This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.",
         },
+        {
+            "action_id": "exit_node",
+            "message": 'The exit condition "exit_on_conversion" is not one @posthog/workflows can declare, so the file declares "exit_only_at_end" and the first push stores it. With no conversion goal, the two run the same.',
+        },
     ],
     "ui_built": [
         {
@@ -392,12 +396,43 @@ class TestCodeRenderer(SimpleTestCase):
                         "message": "The trigger leads to no step. The workflow has no steps.",
                     },
                     {
+                        "action_id": "exit_node",
+                        "message": 'The exit condition "exit_on_conversion" is not one @posthog/workflows can declare, so the file declares "exit_only_at_end" and the first push stores it. With no conversion goal, the two run the same.',
+                    },
+                    {
                         "action_id": None,
                         "message": "The workflow has no steps. A no-operation step is added so the file loads, but remove it before you push.",
                     },
                 ],
                 ["key: 'basic-workflow'"],
-                ["exitCondition", "conversion goal"],
+                ["exitCondition"],
+            ),
+            (
+                "exit_on_trigger_or_conversion_keeps_the_trigger_exit",
+                _basic_workflow(
+                    exit_condition="exit_on_trigger_not_matched_or_conversion",
+                    conversion={"window_minutes": None, "filters": [{"key": "plan", "type": "person"}]},
+                ),
+                [
+                    {
+                        "action_id": "trigger_node",
+                        "message": "The trigger leads to no step. The workflow has no steps.",
+                    },
+                    {
+                        "action_id": "exit_node",
+                        "message": 'The exit condition "exit_on_trigger_not_matched_or_conversion" needs a conversion goal, which @posthog/workflows cannot declare. The file declares "exit_on_trigger_not_matched", so a person who converts no longer leaves early.',
+                    },
+                    {
+                        "action_id": None,
+                        "message": "The conversion goal is dropped. @posthog/workflows cannot declare one.",
+                    },
+                    {
+                        "action_id": None,
+                        "message": "The workflow has no steps. A no-operation step is added so the file loads, but remove it before you push.",
+                    },
+                ],
+                ["exitCondition: 'exit_on_trigger_not_matched'"],
+                [],
             ),
         ]
     )

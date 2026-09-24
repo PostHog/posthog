@@ -1,5 +1,6 @@
 // @posthog/workflows cannot express everything in this workflow. Review these before you push:
 // - This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.
+// - exit_node: The exit condition "exit_on_conversion" is not one @posthog/workflows can declare, so the file declares "exit_only_at_end" and the first push stores it. With no conversion goal, the two run the same.
 
 import { delay, email, path, trigger, workflow } from '@posthog/workflows'
 

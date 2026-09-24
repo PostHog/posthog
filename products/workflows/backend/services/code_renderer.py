@@ -40,6 +40,12 @@ _WEBHOOK_METHODS = frozenset({"POST", "PUT", "PATCH", "GET", "DELETE"})
 _VARIABLE_TYPES = frozenset({"string", "number", "boolean"})
 _SDK_EXIT_CONDITIONS = frozenset({"exit_only_at_end", "exit_on_trigger_not_matched"})
 _DEFAULT_EXIT_CONDITION = "exit_only_at_end"
+# The condition the file declares in place of a stored one it cannot declare, which is the stored
+# condition without its conversion part.
+_EXIT_CONDITION_WITHOUT_CONVERSION = {
+    "exit_on_conversion": "exit_only_at_end",
+    "exit_on_trigger_not_matched_or_conversion": "exit_on_trigger_not_matched",
+}
 _HOISTABLE_TYPES = frozenset({"delay", "function", "function_email"})
 
 # The render walks every action, edge and branch arm once, and a request or a stored row can hold
@@ -1030,13 +1036,21 @@ class _Renderer:
         conversion = _dict(definition.get("conversion"))
         has_conversion_goal = _is_set(conversion.get("filters")) or _is_set(conversion.get("events"))
         exit_condition = definition.get("exit_condition") or _DEFAULT_EXIT_CONDITION
-        if exit_condition not in _SDK_EXIT_CONDITIONS and has_conversion_goal:
-            self.warn(
-                self.exit_id,
-                f'The exit condition "{exit_condition}" needs a conversion goal, which {PACKAGE} cannot declare. The workflow exits only at the end.',
-            )
-        elif exit_condition in _SDK_EXIT_CONDITIONS and exit_condition != _DEFAULT_EXIT_CONDITION:
-            options["exitCondition"] = exit_condition
+        declared_exit_condition = exit_condition
+        if exit_condition not in _SDK_EXIT_CONDITIONS:
+            declared_exit_condition = _EXIT_CONDITION_WITHOUT_CONVERSION.get(exit_condition, _DEFAULT_EXIT_CONDITION)
+            if has_conversion_goal:
+                self.warn(
+                    self.exit_id,
+                    f'The exit condition "{exit_condition}" needs a conversion goal, which {PACKAGE} cannot declare. The file declares "{declared_exit_condition}", so a person who converts no longer leaves early.',
+                )
+            else:
+                self.warn(
+                    self.exit_id,
+                    f'The exit condition "{exit_condition}" is not one {PACKAGE} can declare, so the file declares "{declared_exit_condition}" and the first push stores it. With no conversion goal, the two run the same.',
+                )
+        if declared_exit_condition != _DEFAULT_EXIT_CONDITION:
+            options["exitCondition"] = declared_exit_condition
         variables = self.render_variables()
         if variables:
             options["variables"] = variables
