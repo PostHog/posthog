@@ -9,7 +9,11 @@ from django.http import HttpResponse
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
+
+from products.access_control.backend.models.access_control import AccessControl
 
 DATE_FROM = "2026-06-02T06:00:00Z"
 DATE_TO = "2026-06-02T10:00:00Z"
@@ -119,3 +123,24 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         response = self._post(trace_id, **body)
 
         assert response.status_code == expected, response.content
+
+    @parameterized.expand([("viewer", status.HTTP_200_OK), ("none", status.HTTP_403_FORBIDDEN)])
+    def test_requires_llm_analytics_viewer_access(self, access_level: str, expected_status: int) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        user = User.objects.create_and_join(self.organization, "tracing-only@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+        self.client.force_login(user)
+
+        response = self._post(TRACE_A)
+
+        assert response.status_code == expected_status, response.content

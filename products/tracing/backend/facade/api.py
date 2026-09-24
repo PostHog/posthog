@@ -60,7 +60,7 @@ from products.tracing.backend.self_time import annotate_self_time as _annotate_s
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 # Allowlisted top-level span columns for the "span" breakdown type. Re-exported so the
@@ -246,9 +246,11 @@ def count_session_exceptions(
     return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)
 
 
-def fetch_trace_ai_events(*, team: "Team", trace_id: str, date_from: datetime, date_to: datetime) -> list[TraceAiEvent]:
-    """List the LLM analytics events whose `$ai_trace_id` is the hex trace id, inside the window,
-    earliest first. Case insensitive. The events side of the trace-to-AI-events join, which the
-    caller finishes.
+def fetch_trace_ai_events(
+    *, team: "Team", user: "User | None", trace_id: str, date_from: datetime, date_to: datetime
+) -> list[TraceAiEvent]:
+    """List the LLM analytics events whose `$ai_trace_id` is the lowercase hex trace id, inside the
+    window, earliest first. The events side of the trace-to-AI-events join, which the caller
+    finishes. The user's property access rules apply to the returned columns.
     """
-    return _fetch_trace_ai_events(team=team, trace_id=trace_id, date_from=date_from, date_to=date_to)
+    return _fetch_trace_ai_events(team=team, user=user, trace_id=trace_id, date_from=date_from, date_to=date_to)

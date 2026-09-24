@@ -13,6 +13,7 @@ No business logic here - that belongs in logic.py via the facade.
 import json
 import base64
 from collections.abc import Callable
+from typing import cast
 
 from django.db import models
 
@@ -45,6 +46,7 @@ from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 
 from ..facade.api import (
@@ -1899,11 +1901,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         _TracingTraceAiEventsRequestSerializer,
         responses={200: OpenApiResponse(response=_TracingTraceAiEventsResponseSerializer)},
     )
+    # Both scopes: the response is LLM analytics data, so a token scoped to tracing alone must
+    # not reach it. Scopes gate the token; the access-control check below gates the user.
     @action(
         detail=False,
         methods=["POST"],
         url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)/ai_events",
-        required_scopes=["tracing:read"],
+        required_scopes=["tracing:read", "llm_analytics:read"],
     )
     def trace_ai_events(self, request: ValidatedRequest, trace_id: str, *args, **kwargs) -> Response:
         """List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
@@ -1912,6 +1916,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         The spans and the AI events live on different ClickHouse clusters, so one query cannot join
         them; this returns the events half and the caller places them by time.
         """
+        if not self.user_access_control.check_access_level_for_resource("llm_analytics", "viewer"):
+            raise PermissionDenied("You do not have access to LLM analytics.")
+
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         try:
             bytes.fromhex(trace_id)
@@ -1920,7 +1927,11 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         data = request.validated_data
         events = fetch_trace_ai_events(
-            team=self.team, trace_id=trace_id, date_from=data["dateFrom"], date_to=data["dateTo"]
+            team=self.team,
+            user=cast(User, request.user),
+            trace_id=trace_id,
+            date_from=data["dateFrom"],
+            date_to=data["dateTo"],
         )
 
         self._report_usage(request, "tracing trace ai events fetched", {"ai_events_count": len(events)})

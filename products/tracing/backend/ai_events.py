@@ -8,7 +8,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 # A run rarely makes more than a few hundred model calls, and past this many rows the waterfall
 # stops being readable, so the lookup does not page.
@@ -36,7 +36,9 @@ class TraceAiEvent:
     is_error: bool
 
 
-def fetch_trace_ai_events(*, team: "Team", trace_id: str, date_from: datetime, date_to: datetime) -> list[TraceAiEvent]:
+def fetch_trace_ai_events(
+    *, team: "Team", user: "User | None", trace_id: str, date_from: datetime, date_to: datetime
+) -> list[TraceAiEvent]:
     """LLM analytics events whose `$ai_trace_id` is the OpenTelemetry trace id, inside the window,
     earliest first.
 
@@ -44,6 +46,9 @@ def fetch_trace_ai_events(*, team: "Team", trace_id: str, date_from: datetime, d
     events costs a primary-key miss rather than a scan. That is why the lookup does not fall back
     to the shared events table: most APM traces have no AI events, and a fallback would scan the
     team's events on every one of them. Rows older than the ai_events retention are not found.
+
+    The requesting user is passed through so property access rules mask restricted AI columns for
+    that user rather than falling back to the team default.
     """
     query = parse_select(
         """
@@ -82,7 +87,7 @@ def fetch_trace_ai_events(*, team: "Team", trace_id: str, date_from: datetime, d
             "limit": ast.Constant(value=MAX_AI_EVENTS_PER_TRACE),
         },
     )
-    response = execute_hogql_query(query=query, team=team, query_type="TracingTraceAiEventsQuery")
+    response = execute_hogql_query(query=query, team=team, user=user, query_type="TracingTraceAiEventsQuery")
     # The SELECT aliases differ from the column names they aggregate, because an alias equal to
     # a column name shadows it in WHERE and ClickHouse then rejects the aggregate there.
     columns = [{"event_name": "event", "ended_at": "timestamp"}.get(c, c) for c in response.columns or []]
