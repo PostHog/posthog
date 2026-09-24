@@ -43,22 +43,14 @@ _CACHE_TTL_SECONDS = 30 * 60
 _NEGATIVE_CACHE_TTL_SECONDS = 30
 _FETCH_TIMEOUT_SECONDS = 3.0
 
-# Runtime + effort labels are UI strings with no run-config equivalent. A model's display
-# name is resolved by `display_name_for_model`, so a new model names itself and the catalog
-# overrides that only for the ids the derivation gets wrong.
+# A runtime's name is a UI string with no run-config equivalent, so it is written here. A
+# model's comes from `display_name_for_model`, and an effort's from the catalog.
 RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude (Anthropic)",
     "codex": "Codex (OpenAI)",
 }
 
-REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = {
-    "low": "Low",
-    "medium": "Medium",
-    "high": "High",
-    "xhigh": "Extra high",
-    "max": "Max",
-    "ultracode": "Ultracode",
-}
+REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = model_catalog.REASONING_EFFORT_LABELS
 
 
 @dataclass(frozen=True)

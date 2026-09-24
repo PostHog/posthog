@@ -171,7 +171,7 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
  * The minimum interval between manual dashboard refreshes.
  * This is used to block the dashboard refresh button.
  */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -298,7 +298,7 @@ export async function getInsightWithRetry(
 
     while (attempt < maxAttempts) {
         try {
-            const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+            const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                 refresh,
                 from_dashboard: dashboardId, // needed to load insight in correct context
                 client_query_id: queryId,
@@ -317,7 +317,7 @@ export async function getInsightWithRetry(
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                             refresh: 'force_async',
                             from_dashboard: dashboardId,
                             client_query_id: queryId,
@@ -332,7 +332,7 @@ export async function getInsightWithRetry(
                         if (insightResponse?.query_status?.id) {
                             const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
                             if (finalStatus.complete && !finalStatus.error) {
-                                const cacheUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
                                     from_dashboard: dashboardId,
                                     client_query_id: queryId,

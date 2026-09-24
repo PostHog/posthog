@@ -36,10 +36,9 @@ on:
         # so every unrelated label re-ran these matrices against a commit CI had
         # already covered. A label here takes effect from the next push, or from
         # ready_for_review.
-        # The `test-new-events-schema` label opts a PR into the doubled matrices that
-        # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
-        # PRs run legacy-schema only (master coverage of the new schema is paused for
-        # CI cost — see build-product-test-matrix).
+        # Every run doubles the test matrices to cover both events schemas
+        # (CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA off and on); the switch is
+        # RUN_NEW_EVENTS_SCHEMA on the two matrix builders.
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
@@ -75,6 +74,9 @@ env:
     CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
+    # The root conftest ends a green pytest session with os._exit once every report is written.
+    # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
+    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
@@ -570,10 +572,17 @@ jobs:
             telemetry: ${{ steps.discover.outputs.telemetry }}
 
         steps:
+            # A deep checkout is slow with or without blob:none: the blobless one fetches every file of
+            # the tree in a second request. Check out at depth 1, then add the history the merge-base
+            # steps read, without file contents.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              # --depth, not --deepen: --deepen adds no history once GitHub has replaced the PR's
+              # merge ref, because no ref then points at GITHUB_SHA.
+              run: |
+                  git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
+                  echo "History depth: $(git rev-list --count HEAD)"
 
             - name: Verify PR merge for test selection
               id: verify-merge
@@ -582,7 +591,7 @@ jobs:
                   PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   set -euo pipefail
-                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and fetch depth before retrying." >&2' ERR
+                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and the history fetch before retrying." >&2' ERR
                   test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
                   test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
@@ -601,7 +610,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
+                  # The history fetch and the base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
                   MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
                   if [ -z "$MERGE_BASE" ]; then
@@ -668,11 +677,15 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+            # turbo-discover.js needs Node and the turbo binary, not the installed workspace.
+            - name: Set up pnpm and Node
+              uses: ./.github/actions/setup-pnpm
               with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # Needs pnpm from the step above.
+            - name: Install turbo
+              uses: ./.github/actions/setup-turbo
 
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
             # --no-project` for the dependent cascade; the script pins tach, so no
@@ -843,22 +856,28 @@ jobs:
               id: build
               env:
                   PRODUCT_MATRIX_JSON: ${{ needs.turbo-discover.outputs.matrix }}
-                  # The new-events-schema variants double the matrix, so they only run on
-                  # PRs opted in via the test-new-events-schema label and on manual dispatch.
-                  # Master skips them for CI cost until the schema nears prod testing;
-                  # re-enable master + PR coverage together when that starts.
-                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') || github.event_name == 'workflow_dispatch' }}
+                  # The new-events-schema variants double the matrix. They run on every PR
+                  # and master run so a change that breaks the native-JSON events table
+                  # fails before it merges; set this to 'false' to pause them.
+                  RUN_NEW_EVENTS_SCHEMA: 'true'
               run: |
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
                       schema_modes='[false, true]'
                   else
                       schema_modes='[false]'
-                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                   fi
+                  # Experiments reads flags from $feature/<key> properties. The native-JSON table keeps
+                  # them in the $feature_flags map, which HogQL does not read yet, so it runs legacy-only.
                   include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
                       $matrix[] as $entry
                       | $schema_modes[] as $new_events_schema
+                      | select(
+                          ($new_events_schema | not)
+                          or ([($entry.legs // [{"filters": ($entry.filters // "")}])[].filters]
+                              | any(contains("products-experiments")) | not)
+                        )
                       | $entry + {"new-events-schema": $new_events_schema}
                     ]
                   ')
@@ -1314,6 +1333,10 @@ jobs:
             - name: Verify new snapshots for flakiness
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
+              # The reruns must write the same schema mode's snapshot file as the main
+              # run, or the new-schema file removed before each rerun never comes back.
+              env:
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
@@ -2611,11 +2634,10 @@ jobs:
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
-                  # The new-events-schema variants double the matrix, so they only run on
-                  # PRs opted in via the test-new-events-schema label and on manual dispatch.
-                  # Master skips them for CI cost until the schema nears prod testing;
-                  # re-enable master + PR coverage together when that starts.
-                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') || github.event_name == 'workflow_dispatch' }}
+                  # The new-events-schema variants double the matrix. They run on every PR
+                  # and master run so a change that breaks the native-JSON events table
+                  # fails before it merges; set this to 'false' to pause them.
+                  RUN_NEW_EVENTS_SCHEMA: 'true'
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
@@ -2886,10 +2908,9 @@ jobs:
                   fi
 
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
-                      # Unlabeled PRs skip the doubled schema matrix; their snapshot
-                      # bot commits leave *.new_events_schema.ambr files untouched, so
-                      # those only refresh on labeled PRs / dispatch and stay stale between.
-                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      # With the schema copies paused, snapshot bot commits leave
+                      # *.new_events_schema.ambr files untouched, so those go stale.
+                      echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                       core_new_events_schema="[]"
                       core_persons_on_events_new_schema="[]"
                       temporal_new_events_schema="[]"
@@ -2994,7 +3015,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
@@ -3725,6 +3745,10 @@ jobs:
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
+              # The reruns must write the same schema mode's snapshot file as the main
+              # run, or the new-schema file removed before each rerun never comes back.
+              env:
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
@@ -4064,6 +4088,8 @@ jobs:
                   api="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=$DEPOT_APP_ID&check_name="
                   gate_url="$api$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')"
                   wait_url="$api$(jq -rn --arg n "$DEPOT_WAIT_CHECK" '$n | @uri')"
+                  # shellcheck disable=SC2016 # $since and $pr are jq variables
+                  latest_run='[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id)'
                   # Reads one Depot check run into the named variable: absent, a status, or a
                   # conclusion. A 304 leaves it as it was.
                   # shellcheck disable=SC2034 # the nameref writes the caller's variable
@@ -4077,7 +4103,7 @@ jobs:
                       case "$code" in
                           200)
                               mv "/tmp/relay-$2.etag.new" "/tmp/relay-$2.etag"
-                              slot=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$2")
+                              slot=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$2")
                               refusals=0
                               ;;
                           304) refusals=0 ;;
@@ -4114,7 +4140,33 @@ jobs:
                               esac
                               ;;
                           queued|in_progress|pending|waiting|requested) ;;
-                          *) echo "::error::Depot gate concluded $gate for $SHA"; exit 1 ;;
+                          *)
+                              depot_url=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | .details_url // ""' /tmp/relay-gate)
+                              echo "::error::Backend tests on Depot CI concluded $gate. This step's log lists the retry options."
+                              printf '%s\n' \
+                                  "Backend tests for $SHA ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same result." \
+                                  "Depot run: ${depot_url:-not found}" \
+                                  ""
+                              if [[ $depot_url =~ ^https://depot\.dev/orgs/([^/]+)/workflows/([a-z0-9]+) ]]; then
+                                  org=${BASH_REMATCH[1]}
+                                  workflow=${BASH_REMATCH[2]}
+                                  printf '%s\n' \
+                                      "Retry through the Depot CLI (needs access to the Depot org $org):" \
+                                      "  depot ci diagnose --org $org --workflow $workflow   # the failures, and the run ID on the 'Run:' line" \
+                                      "  depot ci retry <run ID> --org $org --workflow $workflow --failed" \
+                                      "  depot ci status <run ID> --org $org   # repeat until the run finishes" \
+                                      "  gh run rerun $GITHUB_RUN_ID --repo $REPO --failed   # relays the new Depot result" \
+                                      ""
+                              fi
+                              printf '%s\n' \
+                                  "Retry without Depot access: a new commit starts a fresh run." \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci' && git push" \
+                                  "" \
+                                  "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there." \
+                                  "  gh pr edit $PR_NUMBER --repo $REPO --add-label ci-backend-github" \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push"
+                              exit 1
+                              ;;
                       esac
                       # The gate check only appears when the matrix is done, so once Depot has
                       # started, a slower poll costs at most a minute of latency.

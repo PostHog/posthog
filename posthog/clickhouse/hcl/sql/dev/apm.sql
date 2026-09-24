@@ -87,8 +87,9 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   dropped_events_count Int32,
   links Array(String),
   dropped_links_count Int32,
-  status_code Int32
-) ENGINE = Kafka(warpstream_traces) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_flush_interval_ms = 10000, kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 4, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
+  status_code Int32,
+  retention_days Nullable(Int32)
+) ENGINE = Kafka(warpstream_traces) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
 CREATE TABLE posthog.metrics4_input (
   uuid String,
   team_id Int32,
@@ -443,7 +444,19 @@ FROM posthog.kafka_metrics_avro
 GROUP BY
   _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.writable_trace_spans (uuid String, trace_id String, span_id String, parent_span_id String, trace_state String, name String, kind Int8, flags UInt32, timestamp DateTime64(6), end_time DateTime64(6), observed_timestamp DateTime64(6), service_name String, resource_attributes Map(String, String), instrumentation_scope String, attributes_map_str Map(String, String), dropped_attributes_count UInt32, events Array(String), dropped_events_count UInt32, links Array(String), dropped_links_count UInt32, status_code Int16, team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64)) AS SELECT
-  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+  uuid,
+  trace_id,
+  span_id,
+  parent_span_id,
+  trace_state,
+  name,
+  timestamp,
+  end_time,
+  observed_timestamp,
+  service_name,
+  instrumentation_scope,
+  events,
+  links,
   toInt8(kind) AS kind,
   toUInt32(flags) AS flags,
   toUInt32(dropped_attributes_count) AS dropped_attributes_count,
@@ -455,7 +468,11 @@ CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.writable_t
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   observed_timestamp
   + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
   ) AS original_expiry_timestamp,
   _partition,
   _topic,
