@@ -70,11 +70,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.config_validation import (
-    ConfigValidationError,
-    ValidationLimits,
-    validate_config,
-)
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -140,6 +135,13 @@ def _validates_v2(filters: Mapping[str, Any]) -> bool:
     limit, the bound the Rust reader also applies. Rust may still reject what it cannot
     read; it then isolates that row with a failed record rather than failing the team.
     """
+    # Deferred: the validator imports posthog.hogql, which must stay off the django.setup() path.
+    from products.feature_flags.backend.facade.config_validation import (  # noqa: PLC0415
+        ConfigValidationError,
+        ValidationLimits,
+        validate_config,
+    )
+
     limits = ValidationLimits(
         max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES, max_metadata_bytes=sys.maxsize
     )
