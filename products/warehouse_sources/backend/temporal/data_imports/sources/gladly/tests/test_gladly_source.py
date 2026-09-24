@@ -124,8 +124,6 @@ class TestGladlySource:
         assert not any("Gladly returned no report" in key for key in self.source.get_non_retryable_errors())
 
     def test_a_report_gladly_never_served_stops_the_sync_instead_of_retrying(self):
-        # The retryable classification keeps the schema enabled and the next run repeats the same
-        # request, so a report Gladly has never built must not fall into it.
         observed_error = (
             "Gladly report unavailable for this account: metricSet=ContactTimestampsReport returned "
             "an error body instead of a CSV on every attempt, and this table has never completed a "

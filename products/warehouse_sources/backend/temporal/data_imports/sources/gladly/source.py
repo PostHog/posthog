@@ -75,8 +75,6 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
                 "account. Ask Gladly support to check the report is available for your account. If "
                 "Gladly confirms it is, contact PostHog support."
             ),
-            # Raised by `_report_rows`; see `GladlyReportNotAvailableForAccountError` for why this
-            # one cannot be retried into a success.
             "Gladly report unavailable for this account": (
                 "Gladly returned an error every time PostHog asked for the report this table syncs "
                 "from, and the table has never synced. Ask Gladly support to make the report "

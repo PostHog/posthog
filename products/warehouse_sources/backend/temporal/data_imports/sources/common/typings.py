@@ -137,8 +137,7 @@ class SourceInputs:
     history_start: Optional[datetime.datetime] = None
     # Start of the previous successful sync (the job's created_at), so a safe lower bound for "seen".
     last_synced_at: Optional[datetime.datetime] = None
-    # Whether any run of this schema has ever completed. Unlike `last_synced_at`, a reset or a
-    # delta rebuild does not clear it, so a source can tell "never worked" from "cursors dropped".
+    # Sync history survives cursor resets and table deletion.
     schema_has_ever_synced: bool = False
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None

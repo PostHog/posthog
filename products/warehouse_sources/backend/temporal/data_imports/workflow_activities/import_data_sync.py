@@ -138,6 +138,13 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+@database_sync_to_async_pool
+def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
+    return ExternalDataJob.objects.filter(
+        schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
+    ).exists()
+
+
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
 # streams the table with no dedupe state. Append keeps a row per sync and CDC keeps change
 # history, so either would fan the child out once per duplicate. Webhook qualifies because its
@@ -542,7 +549,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
                 last_synced_at=schema.last_synced_at if use_stored_cursors else None,
-                schema_has_ever_synced=schema.last_synced_at is not None,
+                schema_has_ever_synced=schema.last_synced_at is not None
+                or await _has_completed_schema_job(inputs.schema_id, inputs.team_id),
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,

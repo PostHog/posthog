@@ -67,13 +67,6 @@ class GladlyReportUnavailableError(Exception):
 
 
 class GladlyReportNotAvailableForAccountError(Exception):
-    """An error body for a report Gladly has never served this account.
-
-    Retrying an error body covers a window Gladly fails to build. A report it has
-    never built is reproduced exactly on the next run, so retrying it only fails
-    again. Keep the message matching the entry in the source's non-retryable errors.
-    """
-
     def __init__(self, metric_set: str, header: list[str]) -> None:
         super().__init__(
             f"Gladly report unavailable for this account: metricSet={metric_set} returned an error body "
@@ -479,7 +472,6 @@ def _report_rows(
             raise GladlyReportHeaderError(metric_set, missing, present)
         return reader
 
-    # No completed run and no resume state means Gladly has never served this report.
     report_never_served = not schema_has_ever_synced and (
         resume_config is None or resume_config.last_report_window_end is None
     )

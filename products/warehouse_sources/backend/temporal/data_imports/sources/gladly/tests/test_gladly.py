@@ -725,8 +725,6 @@ class TestGetReportRows:
         "schema_has_ever_synced, expected_error",
         [
             (False, GladlyReportNotAvailableForAccountError),
-            # A reset run drops the cursors of a table that has synced before. Gladly does serve
-            # the report to this account, so the error body is a window to retry, not a dead table.
             (True, GladlyReportUnavailableError),
         ],
         ids=["never_served", "reset_run_after_a_successful_sync"],
@@ -736,8 +734,6 @@ class TestGetReportRows:
     def test_an_error_body_stops_the_sync_only_when_gladly_never_served_the_report(
         self, mock_session, _sleep, schema_has_ever_synced, expected_error
     ):
-        # Retrying an error body waits out a window Gladly failed to build. A report it has never
-        # served comes back the same on the next run, so the sync stops instead of rescheduling.
         mock_session.return_value.post.side_effect = [_csv_response("Unexpected error occurred") for _ in range(5)]
 
         manager = _make_manager()
@@ -760,8 +756,6 @@ class TestGetReportRows:
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_an_error_body_after_a_window_landed_stays_retryable(self, mock_session, _sleep):
-        # The table has never completed a sync, but this run opened a report before the error body,
-        # so Gladly does serve the report and the failing window is transient.
         mock_session.return_value.post.side_effect = [
             _csv_response("Timestamp,Contact ID\n2024-03-14T09:00:00.000Z,ct-1\n"),
             *[_csv_response("Unexpected error occurred") for _ in range(5)],
