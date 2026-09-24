@@ -486,6 +486,8 @@ class UpdateFeatureFlagAction(BaseAction):
             # Per set, an absent key falls back to the flag-level value but null means person-level.
             if "aggregation_group_type_index" in group:
                 value["aggregation_group_type_index"] = group["aggregation_group_type_index"]
+            if group.get("variant") is not None:
+                value["variant"] = group["variant"]
 
             results.append({"path": f"groups[{idx}]", "value": value})
 
@@ -542,15 +544,12 @@ class UpdateFeatureFlagAction(BaseAction):
         return [path for path in all_paths if old_by_path.get(path) != new_by_path.get(path)]
 
     @classmethod
-    def _gates_release_conditions(cls, view, flag: Optional[FeatureFlag]) -> bool:
+    def _gates_release_conditions(cls, view) -> bool:
         """Release conditions are gated only when the policy selects them.
 
         A wider detect() changes outcomes for other policies: the gate rejects a change that more
         than one policy-backed action detects, and threshold conditions read every rollout value.
         """
-        if flag is None:
-            return False
-
         team = cls._get_team(view)
         if not isinstance(team, Team):
             return False
@@ -617,7 +616,7 @@ class UpdateFeatureFlagAction(BaseAction):
         # so a flag born with any rollout trips an "any change / >0" policy.
         old_filters = (flag.filters or {}) if flag is not None else {}
 
-        include_release_conditions = cls._gates_release_conditions(view, flag)
+        include_release_conditions = cls._gates_release_conditions(view)
         if not cls._has_gateable_field_changes(
             old_filters, new_filters, include_release_conditions=include_release_conditions
         ):
@@ -637,7 +636,7 @@ class UpdateFeatureFlagAction(BaseAction):
         old_filters = (flag.filters or {}) if flag is not None else {}
         new_filters = change.get("filters", {})
 
-        include_release_conditions = cls._gates_release_conditions(view, flag)
+        include_release_conditions = cls._gates_release_conditions(view)
         old_values = cls._extract_gateable_values(old_filters, include_release_conditions=include_release_conditions)
         new_values = cls._extract_gateable_values(new_filters, include_release_conditions=include_release_conditions)
 

@@ -155,6 +155,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
                 None,
                 False,
             ),
+            ("variant_override_set", [GROUP_KEY_FILTER], [GROUP_KEY_FILTER], None, True, "test"),
         ]
     )
     def test_detect_release_condition_changes(
@@ -164,6 +165,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         new_properties: list[dict[str, Any]],
         new_aggregation: int | None,
         expected: bool,
+        new_variant: str | None = None,
     ):
         ApprovalPolicy.objects.create(
             organization=self.organization,
@@ -178,7 +180,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         )
         new_filters = {
             "aggregation_group_type_index": 0 if new_aggregation is None else new_aggregation,
-            "groups": [{"properties": new_properties, "rollout_percentage": 100}],
+            "groups": [{"properties": new_properties, "rollout_percentage": 100, "variant": new_variant}],
         }
         request = self._mock_request("PATCH", {"filters": new_filters})
         view = self._mock_view(flag)

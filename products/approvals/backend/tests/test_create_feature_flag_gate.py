@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.approvals.backend.actions.feature_flags import (
     DisableFeatureFlagAction,
     EnableFeatureFlagAction,
@@ -60,11 +62,27 @@ class TestCreateDetection(APIBaseTest):
         result = UpdateFeatureFlagAction.detect(self._post_request(), view, validated_data)
         assert result is True
 
-    def test_update_does_not_fire_on_create_without_rollout(self):
+    @parameterized.expand(
+        [
+            ("no_policy", None, False),
+            ("rollout_policy", {"type": "any_change", "field": "rollout_percentage"}, False),
+            ("release_conditions_policy", {"type": "any_change", "field": "release_conditions"}, True),
+        ]
+    )
+    def test_update_on_create_without_rollout(self, _name: str, conditions: dict[str, Any] | None, expected: bool):
+        if conditions is not None:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key="feature_flag.update",
+                conditions=conditions,
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
         view = self._serializer_view()
         validated_data = {"key": "f", "get_filters": {"groups": [{"properties": []}]}}
         result = UpdateFeatureFlagAction.detect(self._post_request(), view, validated_data)
-        assert result is False
+        assert result is expected
 
     def test_enable_extract_intent_on_create_has_no_flag_id(self):
         view = self._serializer_view()

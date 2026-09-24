@@ -360,7 +360,8 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                             </div>
                         )}
 
-                        {availableFields.length > 0 && (
+                        {/* A policy stores one condition, so a second field would be dropped on save. */}
+                        {rules.length === 0 && availableFields.length > 0 && (
                             <LemonSelect
                                 placeholder="+ Add field"
                                 value={null}
