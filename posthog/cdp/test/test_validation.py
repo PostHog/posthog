@@ -152,6 +152,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert json.loads(json.dumps(validate_inputs(inputs_schema, inputs))) == {
             "url": {
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": [
                     "_H",
                     HOGQL_BYTECODE_VERSION,
@@ -168,6 +169,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "person": "{person}",
                     "event_url": "{f'{event.url}-test'}",
                 },
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": {
                     "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
                     "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
@@ -197,6 +199,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             },
             "headers": {
                 "value": {"version": "v={event.properties.$lib_version}"},
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": {
                     "version": [
                         "_H",
@@ -259,6 +262,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             )
         ) == {
             "html": {
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": [
                     "_H",
                     HOGQL_BYTECODE_VERSION,
@@ -802,6 +806,17 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["body"]["bytecode_contract"] == RUNTIME_CONTRACT
         assert "bytecode_contract" not in validated["liquid"]
 
+    def test_validate_inputs_refuses_a_call_the_runtime_would_reject(self):
+        # The stamp says "checked against this runtime", so a call with an argument count the runtime
+        # refuses must not compile, or it would later read as a compiler bug instead of a typo.
+        inputs_schema = [{"key": "amount", "type": "string", "required": False}]
+        with pytest.raises(Exception) as ctx:
+            validate_inputs(inputs_schema, {"amount": {"value": "{round(19.99, 2, 3)}"}})
+        assert "round" in str(ctx.value) and "2" in str(ctx.value)
+
+        validated = validate_inputs(inputs_schema, {"amount": {"value": "{round(19.99, 2)}"}})
+        assert validated["amount"]["bytecode_contract"] == RUNTIME_CONTRACT
+
     def test_validate_transformation_inputs_allows_stl_and_runtime_functions(self):
         # STL functions (e.g. now) and transformation runtime helpers (e.g. geoipLookup)
         # are valid root identifiers because the Hog VM falls back to STL/runtime lookups
@@ -916,6 +931,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
         assert value == {
+            "bytecode_contract": RUNTIME_CONTRACT,
             "source": "events",
             "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
@@ -986,6 +1002,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
         assert value == {
+            "bytecode_contract": RUNTIME_CONTRACT,
             "source": "person-updates",
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
             "bytecode": ["_H", 1, 32, "test@posthog.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],

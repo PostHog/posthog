@@ -18,6 +18,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import (
     DATA_WAREHOUSE_SOURCES,
+    FILTER_FUNCTIONS,
     RUNTIME_CONTRACT,
     TEMPLATE_CALLABLES,
     TEMPLATE_GLOBALS,
@@ -292,6 +293,9 @@ class TemplateGlobalsValidator(TraversingVisitor):
     """
 
     invalid_globals: set[str]
+    # Calls the Node runtime would refuse for their argument count, as messages. Only checked for
+    # names the runtime table knows, so a name it does not know is left to the globals check.
+    invalid_calls: list[str]
 
     def __init__(
         self,
@@ -303,6 +307,7 @@ class TemplateGlobalsValidator(TraversingVisitor):
     ):
         super().__init__()
         self.invalid_globals = set()
+        self.invalid_calls = []
         self._python_stl = python_stl
         self._declared: set[str] = set()
         self._available_globals = (
@@ -334,6 +339,20 @@ class TemplateGlobalsValidator(TraversingVisitor):
         ):
             return
         self.invalid_globals.add(root)
+
+    def visit_call(self, node: ast.Call):
+        super().visit_call(node)
+        if self._python_stl or node.name in self._declared:
+            return
+        arity = FILTER_FUNCTIONS.get(node.name)
+        if arity is None:
+            return
+        minimum, maximum = arity
+        count = len(node.args)
+        if count < minimum:
+            self.invalid_calls.append(f"{node.name} needs at least {minimum} argument(s), got {count}")
+        elif maximum is not None and count > maximum:
+            self.invalid_calls.append(f"{node.name} takes at most {maximum} argument(s), got {count}")
 
 
 class DeclaredNamesCollector(TraversingVisitor):
@@ -521,6 +540,10 @@ def generate_template_bytecode(
                     f"Variable not available in inputs: {names}. "
                     f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
                     f"also variables."
+                )
+            if template_validator.invalid_calls:
+                raise Exception(
+                    "This template would fail on every event: " + "; ".join(template_validator.invalid_calls)
                 )
         return create_bytecode(node).bytecode
     else:
