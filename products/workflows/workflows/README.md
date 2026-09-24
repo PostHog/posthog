@@ -71,3 +71,10 @@ The job reads these settings:
 - `POSTHOG_WORKFLOWS_HOST` (variable, optional): defaults to `https://us.posthog.com`.
 
 Without the secret or the email integration variable, the job prints a warning and succeeds.
+
+### Server support the push needs
+
+The push depends on two server changes, so they merge and deploy before anyone sets the secret:
+
+1. The workflow `key` ([#103849](https://github.com/PostHog/posthog/pull/103849)), which lets a push find the workflow that a file owns. A PostHog without it makes the CLI stop with `key_not_supported`, and the job prints a warning and succeeds.
+2. The `managed_by` and `source_*` fields ([#103540](https://github.com/PostHog/posthog/pull/103540)), which mark a workflow as managed by code and record the file it came from. A PostHog without them ignores the fields, so the push works but PostHog does not show the workflow as managed by code.

@@ -52,6 +52,10 @@ jobs:
             # these workflows run. The project and host variables exist so a fork can
             # point the push at its own project. The secret and the email integration
             # variable have to be set, because integration ids differ per project.
+            #
+            # A PostHog that does not store a workflow key yet makes the CLI stop with
+            # key_not_supported. That is a missing server feature rather than a broken
+            # file, so the step warns and succeeds.
             - name: Push workflows to PostHog
               env:
                   POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
@@ -67,4 +71,13 @@ jobs:
                       echo "::warning::Push skipped: set the POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID variable to the id of an email integration in project $POSTHOG_CLI_PROJECT_ID."
                       exit 0
                   fi
-                  pnpm --filter=@posthog/workflows repo:push
+                  log="$RUNNER_TEMP/workflows-push.log"
+                  set +e
+                  pnpm --filter=@posthog/workflows repo:push 2>&1 | tee "$log"
+                  status=${PIPESTATUS[0]}
+                  set -e
+                  if [[ "$status" -ne 0 ]] && grep -qx 'status: key_not_supported' "$log"; then
+                      echo "::warning::Push skipped: $POSTHOG_CLI_HOST does not store a workflow key yet, so the push stopped. It runs again on the next change to a workflow file or on a manual dispatch."
+                      exit 0
+                  fi
+                  exit "$status"
