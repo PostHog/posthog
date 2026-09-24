@@ -139,15 +139,17 @@ The recovery action depends on root cause, not just status. Match the user's sit
 - Prove the credential in the present instead. Pick a `Completed` schema on the same source, call
   `external-data-schemas-reload` on it, then poll `external-data-schemas-retrieve` until its `last_synced_at`
   advances. Reload is not destructive.
-  - **Sibling completes.** The credential is live, so the source is gating this one endpoint. Do not rotate.
+  - **Sibling completes.** The credential is live, so the source is gating this one endpoint. Do not rotate on the
+    403 alone. A scope gate can still need a new key, so let the source's message decide.
   - **Sibling fails the same way.** Treat it as case B, or as a plan gate over the whole API. Read the source's
     message.
   - **No sibling to test**, because the source syncs one table or every table is failing. You cannot separate the two
     causes from here. Ask the user whether their plan covers the endpoint before you send them for a new key. A new
     key on the same plan fails the same way.
-- Relay the source's own message to the user word for word. It names the remedy, either the plan tier or the exact
-  scopes the key needs, and you cannot reconstruct that from a status code. Do not compress it to "rotate your
-  credentials".
+- Relay the source's own message to the user word for word, and do not compress it to "rotate your credentials".
+  It carries what the status code cannot: the exact scopes a key needs, or which endpoint to ask for. Some messages
+  only report the refusal and name the plan as the likely cause. When the message gives no concrete remedy, have the
+  user ask the source which plan or scope covers the endpoint, rather than guess.
   - **Plan gate.** The user asks the source to enable the endpoint.
   - **Scope gate.** The user grants the missing scope on the key. Some sources cannot edit an existing key's scopes,
     so the user creates a correctly scoped key instead. That is a real credential change, so follow it with
