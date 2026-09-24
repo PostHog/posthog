@@ -74,21 +74,23 @@ export function resolveProjectCreationBlock({ org, scopedTeams }: ProjectCreatio
         return undefined
     }
 
-    const inUse = countProjectsInUse(org)
-    if (inUse !== undefined) {
-        const feature = findFeature(org, PROJECTS_FEATURE_KEY)
-        const allowance = feature ? feature.limit : UNENTITLED_PROJECT_ALLOWANCE
-        if (typeof allowance === 'number' && inUse >= allowance) {
-            return `Project creation is unavailable in this session: this organization's plan includes ${allowance} project${allowance === 1 ? '' : 's'} and ${inUse} ${inUse === 1 ? 'is' : 'are'} in use. Tell the user they need to upgrade the organization's plan first, and do not call this tool until they have.`
-        }
-    }
-
+    // Check membership before the plan allowance, in the same order as the backend, because a plan
+    // upgrade alone does not let a member without create access create a project.
     const level = org.membership_level
     if (typeof level === 'number' && level < ADMIN_MEMBERSHIP_LEVEL) {
         const membersMayCreate =
             !!findFeature(org, INVITE_SETTINGS_FEATURE_KEY) && org.members_can_create_projects === true
         if (!membersMayCreate) {
             return 'Project creation is unavailable in this session: only organization admins can create projects here. Tell the user to ask an organization admin, and do not call this tool.'
+        }
+    }
+
+    const inUse = countProjectsInUse(org)
+    if (inUse !== undefined) {
+        const feature = findFeature(org, PROJECTS_FEATURE_KEY)
+        const allowance = feature ? feature.limit : UNENTITLED_PROJECT_ALLOWANCE
+        if (typeof allowance === 'number' && inUse >= allowance) {
+            return `Project creation is unavailable in this session: this organization's plan includes ${allowance} project${allowance === 1 ? '' : 's'} and ${inUse} ${inUse === 1 ? 'is' : 'are'} in use. Tell the user they need to upgrade the organization's plan first, and do not call this tool until they have.`
         }
     }
 

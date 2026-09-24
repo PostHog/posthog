@@ -41,10 +41,14 @@ describe('resolveProjectCreationBlock', () => {
         expect(resolveProjectCreationBlock({ org: org(overrides), scopedTeams: [] })).toBeUndefined()
     })
 
-    it('reports the admin requirement for a member', () => {
-        const block = resolveProjectCreationBlock({ org: org({ membership_level: 1 }), scopedTeams: [] })
+    it.each([
+        ['with plan headroom', {}],
+        ['in an organization at its plan limit', { available_product_features: [], teams: [team(1)] }],
+    ])('reports the admin requirement for a member %s', (_name, overrides: ProjectCreationOrgFields) => {
+        const block = resolveProjectCreationBlock({ org: org({ membership_level: 1, ...overrides }), scopedTeams: [] })
 
         expect(block).toContain('admins')
+        expect(block).not.toContain('upgrade')
     })
 
     it('allows a member when the organization lets members create projects', () => {
