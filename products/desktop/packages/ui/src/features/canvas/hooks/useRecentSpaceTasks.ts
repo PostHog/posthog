@@ -299,12 +299,14 @@ export interface SpaceOverview {
    * nothing has been fetched yet.
    */
   total: number | null;
+  lastActivityAt: string | null;
 }
 
 const NO_OVERVIEW: SpaceOverview = {
   people: [],
   liveUuids: NO_LIVE_UUIDS,
   total: null,
+  lastActivityAt: null,
 };
 
 /**
@@ -348,6 +350,8 @@ export function useSpaceOverview(
       // server's total, which excludes archived tasks — bar any this device has
       // archived and not yet mirrored.
       total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
+      lastActivityAt:
+        live.find((task) => task.last_activity_at)?.last_activity_at ?? null,
     };
   }, [data, archivedTaskIds, createdBy, peopleLimit, now]);
 }

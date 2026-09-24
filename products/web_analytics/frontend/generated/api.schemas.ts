@@ -395,10 +395,12 @@ export interface SavedHeatmapCaptureRequestApi {
      */
     widths?: number[]
     /**
-     * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+     * Exact page URL the screenshot was captured on. Wildcards are not allowed.
      * @maxLength 2000
      */
     url: string
+    /** URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty. */
+    data_url?: string
     /**
      * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
      * @maxLength 400

@@ -54,6 +54,7 @@ class PRSnapshot:
     review_decision: str | None = None
     review_threads_complete: bool = False
     head_ref: str = ""
+    merge_queue_push_would_eject: bool = False
 
     @property
     def can_mark_ready(self) -> bool:
@@ -86,6 +87,7 @@ class PRSnapshot:
             review_decision=raw.get("review_decision"),
             review_threads_complete=raw.get("review_threads_complete") is True,
             head_ref=raw.get("head_ref") or "",
+            merge_queue_push_would_eject=raw.get("merge_queue_push_would_eject") is True,
             failing_checks=[
                 FailingCheck(key=check["key"], details_url=check.get("details_url"))
                 for check in raw.get("failing_checks") or []

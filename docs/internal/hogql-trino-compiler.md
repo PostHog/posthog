@@ -220,10 +220,9 @@ Trino enforces tenant capacity and query queueing.
 Model builds and alias passes submit work without application-level global or organization admission limits.
 Their synchronous client calls use a dedicated executor with Python's default pool size, separate from the general database thread pool.
 
-Build sessions set `query_max_run_time` to 15 minutes.
-The client also enforces a total execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
+The client enforces a 15-minute execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
 Activities heartbeat every second under a two-minute heartbeat timeout, and workflow cancellation waits for activity cleanup.
-Alias passes use a five-minute total deadline and cap each metadata statement at 30 seconds.
+Alias passes use a five-minute total deadline and cancel the active Trino cursor when the deadline expires.
 
 ### Readable model names
 

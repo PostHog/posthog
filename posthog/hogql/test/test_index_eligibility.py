@@ -578,6 +578,10 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         )
 
         [predicate] = report.predicates
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.quickfix is None
+            return
         assert predicate.verdict == PredicateIndexVerdict.BLOCKED
         assert predicate.quickfix is not None
         assert predicate.quickfix.text == "'120'"
@@ -595,6 +599,10 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         )
 
         [predicate] = report.predicates
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.quickfix is None
+            return
         assert predicate.quickfix is not None
         assert query[predicate.quickfix.start : predicate.quickfix.end] == "(120, 121)"
         assert predicate.quickfix.text == "('120', '121')"
@@ -609,6 +617,10 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         )
 
         [predicate] = report.predicates
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.quickfix is None
+            return
         assert predicate.verdict == PredicateIndexVerdict.BLOCKED
         assert predicate.quickfix is None
         assert predicate.editor_actionable is False
@@ -680,6 +692,11 @@ class TestIndexEligibilityAnalysis(BaseTest):
         ):
             response = self._metadata(query)
 
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert response.warnings == []
+            [predicate] = response.index_usage or []
+            assert predicate.quickfix is None
+            return
         [warning] = response.warnings
         assert warning.fix == "'120'"
         assert query[warning.start : warning.end] == "120"
