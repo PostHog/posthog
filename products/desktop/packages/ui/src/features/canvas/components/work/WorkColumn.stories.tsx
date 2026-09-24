@@ -123,14 +123,14 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Recent capped at five rows, spaces below it. */
 export const Default: Story = {};
 
-/**
- * The marks a row carries: a pin, and where a session came from. Recent has no
- * pinned run, so a pinned session keeps its place in the list and says so with
- * its badge alone.
- */
+export const WithPinned: Story = {
+  decorators: [
+    column(seededClient({ pinnedTaskIds: ["task-2", "task-5", "task-9"] })),
+  ],
+};
+
 export const WithBadges: Story = {
   decorators: [
     column(seededClient({ pinnedTaskIds: ["task-3"], tasks: MARKED_TASKS })),
