@@ -955,13 +955,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             let activated: HogFlowApi | null = null
             try {
                 // Save the latest edits (creating the draft if the user skipped ahead).
+                let saved: HogFlowApi
                 if (!broadcastId) {
-                    const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
-                    broadcastId = created.id
-                    actions.saveBroadcastFinished(created)
+                    saved = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+                    broadcastId = saved.id
                 } else {
-                    actions.saveBroadcastFinished(await saveWithoutClobbering(projectId, broadcastId, values))
+                    saved = await saveWithoutClobbering(projectId, broadcastId, values)
                 }
+                actions.saveBroadcastFinished(saved)
 
                 // A fresh audience preview mints the confirm token the batch dispatch expects.
                 const blastRadius = await hogFlowsUserBlastRadiusCreate(projectId, {
@@ -983,7 +984,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     return
                 }
 
-                activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
+                // The assistant can edit the draft during the audience request. Activate only the saved
+                // version, so the send never goes out with an email the user did not see.
+                activated = await patchWithoutClobbering(projectId, broadcastId, { status: 'active' }, saved.updated_at)
 
                 if (values.scheduleMode === 'now') {
                     await hogFlowsBatchJobsCreate(projectId, broadcastId, {
@@ -1077,10 +1080,24 @@ async function saveWithoutClobbering(
     broadcastId: string,
     values: Parameters<typeof buildBroadcastPayload>[0] & { broadcast: HogFlowApi | null }
 ): Promise<HogFlowApi> {
+    return await patchWithoutClobbering(
+        projectId,
+        broadcastId,
+        buildBroadcastPayload(values),
+        values.broadcast?.updated_at
+    )
+}
+
+async function patchWithoutClobbering(
+    projectId: string,
+    broadcastId: string,
+    payload: Record<string, any>,
+    baseUpdatedAt: string | undefined
+): Promise<HogFlowApi> {
     try {
         return await hogFlowsPartialUpdate(projectId, broadcastId, {
-            ...buildBroadcastPayload(values),
-            base_updated_at: values.broadcast?.updated_at,
+            ...payload,
+            base_updated_at: baseUpdatedAt,
         } as any)
     } catch (error: any) {
         if (error?.status === 409) {
