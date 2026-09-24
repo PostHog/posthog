@@ -6,7 +6,7 @@ from typing import ClassVar
 from unittest.mock import Mock, patch
 
 from django.apps import apps
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -25,7 +25,6 @@ from products.tasks.backend.models import SandboxSession, Task, TaskRun
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
 
 forward_pending_user_message = _module.forward_pending_user_message
-_resolve_trace_id = _module._resolve_trace_id
 
 
 def _command_result(**kwargs):
@@ -511,20 +510,3 @@ class TestExtractTextFromMessagePayload(TestCase):
     )
     def test_extract(self, _name: str, message: dict, expected: str | None) -> None:
         assert _extract_text_from_message_payload(message) == expected
-
-
-class TestResolveTraceId(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("codex_names_the_run", "codex", None, "run-1"),
-            ("claude_without_a_reported_id_names_nothing", "claude", None, None),
-            ("unset_adapter_names_nothing", None, None, None),
-            ("a_reported_id_wins_for_claude", "claude", "trace-abc", "trace-abc"),
-            ("a_reported_id_wins_for_codex", "codex", "trace-abc", "trace-abc"),
-        ]
-    )
-    def test_resolve(self, _name: str, adapter: str | None, reported: str | None, expected: str | None) -> None:
-        task_run = SimpleNamespace(id="run-1", state={"runtime_adapter": adapter} if adapter else {})
-        command_result_data = {"result": {"trace_id": reported}} if reported else {"result": {}}
-
-        assert _resolve_trace_id(task_run, command_result_data) == expected

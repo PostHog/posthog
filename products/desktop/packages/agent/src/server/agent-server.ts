@@ -267,6 +267,24 @@ export function isTurnCompleteNotification(message: unknown): boolean {
   );
 }
 
+/** Names `traceId` on a turn-complete notification that carries none. */
+export function withTurnTraceId(
+  message: unknown,
+  traceId: string | null,
+): unknown {
+  if (!traceId || typeof message !== "object" || message === null) {
+    return message;
+  }
+  const params = (message as { params?: unknown }).params;
+  if (typeof params !== "object" || params === null) {
+    return message;
+  }
+  if (typeof (params as { traceId?: unknown }).traceId === "string") {
+    return message;
+  }
+  return { ...message, params: { ...params, traceId } };
+}
+
 interface SseController {
   send: (data: unknown) => void;
   close: () => void;
@@ -509,6 +527,7 @@ export class AgentServer {
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
+  private stampedRunTraceId: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
@@ -1569,7 +1588,7 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          const turnTraceId = this.promptResultTraceId(result);
+          const turnTraceId = this.turnTraceId(result);
           this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
@@ -2024,6 +2043,11 @@ export class AgentServer {
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
     });
+
+    // Only that stamped header makes the run id a trace the generations land
+    // in. Unconditional so a re-init on this instance drops a stale run's id.
+    this.stampedRunTraceId =
+      gatewayEnv.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
       // Authed so this cache-warm matches the session's own authed fetch
@@ -2956,7 +2980,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -3352,7 +3376,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -4794,7 +4818,7 @@ export class AgentServer {
       // request and a run's generations each land in a trace of one. Codex-only:
       // this header outranks `traceparent`, so setting it for Claude would
       // replace the per-turn ids its CLI mints with one id for the whole run.
-      if (taskRunId) {
+      if (taskRunId && runtimeAdapter === "codex") {
         openaiCustomHeaders["X-PostHog-Trace-Id"] = taskRunId;
       }
     } else {
@@ -5594,17 +5618,21 @@ export class AgentServer {
       this.lastBudgetSnapshot = budget;
       this.persistBudgetSnapshotIfChanged(budget);
     }
+    let notification = message;
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {
         return;
       }
       this.adapterEmittedTurnComplete = true;
+      // The codex adapter mints this event itself and reports no trace id, so
+      // the Slack stream that reads it would rate a turn it cannot open.
+      notification = withTurnTraceId(message, this.stampedRunTraceId);
     }
     const event = {
       type: "notification",
       timestamp: new Date().toISOString(),
       ...(eventId ? { event_id: eventId } : {}),
-      notification: message,
+      notification,
     };
     if (!this.session) {
       this.preSessionEvents.push(event);
@@ -5613,11 +5641,12 @@ export class AgentServer {
     this.broadcastEvent(event);
   }
 
-  /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
-  private promptResultTraceId(result: PromptResponse): string | null {
+  /** The turn's gateway trace id: the one the Claude adapter reports via
+   * `PromptResponse._meta`, else the run id the codex headers stamped. */
+  private turnTraceId(result: PromptResponse): string | null {
     const traceId = (result._meta as { traceId?: unknown } | undefined)
       ?.traceId;
-    return typeof traceId === "string" ? traceId : null;
+    return typeof traceId === "string" ? traceId : this.stampedRunTraceId;
   }
 
   private broadcastTurnComplete(

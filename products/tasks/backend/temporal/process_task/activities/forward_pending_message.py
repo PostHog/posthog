@@ -12,7 +12,6 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
 from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
-    RuntimeAdapter,
     get_actor_distinct_id,
     get_task_run_credential_user,
     is_slack_interaction_state,
@@ -267,36 +266,17 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
             run_id=str(task_run.id),
             text=reply_text,
             user_message_ts=user_message_ts,
-            trace_id=_resolve_trace_id(task_run, command_result_data),
+            trace_id=_extract_trace_id_from_command_result(command_result_data),
         )
     except Exception:
         logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))
 
 
-def _resolve_trace_id(task_run: Any, command_result_data: Any) -> str | None:
-    """The answering turn's gateway trace id, for the rating to point at.
-
-    Claude's CLI mints one trace id per user turn and the agent-server reports it
-    back, so that value wins when it is there. Codex mints none, so the agent-server
-    stamps ``X-PostHog-Trace-Id`` with the run id and the run id is the trace id.
-
-    A Claude turn that ran without the traceparent hook still resolves to nothing:
-    its generations carry ids this side never learns, and naming the run id there
-    would point the rating at a trace that does not exist.
-    """
-    reported = _extract_trace_id_from_command_result(command_result_data)
-    if reported:
-        return reported
-    if (task_run.state or {}).get("runtime_adapter") == RuntimeAdapter.CODEX:
-        return str(task_run.id)
-    return None
-
-
 def _extract_trace_id_from_command_result(command_result_data: Any) -> str | None:
     """The answering turn's gateway trace id, as the agent-server reports it.
 
-    Absent for a turn that ran without the traceparent hook, and for any agent
-    other than Claude.
+    Absent for a turn that ran without the traceparent hook, and for any agent other
+    than Claude, which is what a rating with no ``$ai_trace_id`` then reflects.
     """
     result = command_result_data.get("result") if isinstance(command_result_data, dict) else None
     trace_id = result.get("trace_id") if isinstance(result, dict) else None
