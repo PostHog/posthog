@@ -147,6 +147,71 @@ function isReplayerDocumentUnavailable(replayer: Replayer | undefined): boolean 
     return !!replayer && !replayer.iframe?.contentDocument?.head
 }
 
+interface RenderedScrollDiagnostic {
+    rendered_doc_scroll_y: number | null
+    rendered_doc_scroll_x: number | null
+    rendered_max_scroll_y: number | null
+    rendered_max_scroll_x: number | null
+    rendered_scrolled_element_count: number | null
+    rendered_top_scroll_node_id: number | null
+    rendered_top_scroll_y: number | null
+    rendered_scroll_samples: string | null
+}
+
+const EMPTY_RENDERED_SCROLL: RenderedScrollDiagnostic = {
+    rendered_doc_scroll_y: null,
+    rendered_doc_scroll_x: null,
+    rendered_max_scroll_y: null,
+    rendered_max_scroll_x: null,
+    rendered_scrolled_element_count: null,
+    rendered_top_scroll_node_id: null,
+    rendered_top_scroll_y: null,
+    rendered_scroll_samples: null,
+}
+
+// Reads the scroll offsets the player actually rendered in the replay iframe. The event-derived
+// 'recording anchor diagnostic' proves two browsers receive identical scroll events; this reads the
+// resulting DOM, so a browser that restores a nested scroll container to a different offset from the
+// same events shows up as a different rendered_top_scroll_y. Node ids come from the rrweb mirror, so
+// they line up with primary_scroll_node_id in the event-side diagnostic.
+function readRenderedScroll(replayer: Replayer | undefined): RenderedScrollDiagnostic {
+    try {
+        const doc = replayer?.iframe?.contentDocument
+        if (!doc) {
+            return EMPTY_RENDERED_SCROLL
+        }
+        const mirror = (replayer as unknown as { getMirror?: () => { getId?: (node: Node) => number } }).getMirror?.()
+        const docEl = doc.scrollingElement || doc.documentElement
+
+        const scrolled: { id: number; y: number; x: number; sh: number; ch: number }[] = []
+        const all = doc.querySelectorAll('*')
+        for (let i = 0; i < all.length; i++) {
+            const el = all[i] as HTMLElement
+            const y = el.scrollTop
+            const x = el.scrollLeft
+            if (y > 0 || x > 0) {
+                scrolled.push({ id: mirror?.getId?.(el) ?? -1, y, x, sh: el.scrollHeight, ch: el.clientHeight })
+            }
+        }
+        scrolled.sort((a, b) => b.y - a.y)
+        const top = scrolled[0]
+
+        return {
+            rendered_doc_scroll_y: docEl?.scrollTop ?? null,
+            rendered_doc_scroll_x: docEl?.scrollLeft ?? null,
+            rendered_max_scroll_y: scrolled.reduce((m, s) => Math.max(m, s.y), 0),
+            rendered_max_scroll_x: scrolled.reduce((m, s) => Math.max(m, s.x), 0),
+            rendered_scrolled_element_count: scrolled.length,
+            rendered_top_scroll_node_id: top ? top.id : null,
+            rendered_top_scroll_y: top ? top.y : null,
+            // Bounded so the payload stays small on pages with many scroll containers
+            rendered_scroll_samples: JSON.stringify(scrolled.slice(0, 12)),
+        }
+    } catch {
+        return EMPTY_RENDERED_SCROLL
+    }
+}
+
 export enum SessionRecordingPlayerMode {
     Standard = 'standard',
     Sharing = 'sharing',
@@ -2764,6 +2829,32 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 cache.replayerRecoveryAttempts = 0
                 actions.clearPlayerError()
+
+                // TODO: temporary diagnostic for the cross-browser first-frame investigation.
+                // Reads the scroll the player actually rendered for the first frame, to pair with the
+                // event-derived 'recording anchor diagnostic'. Deferred so the rrweb fork's Flush
+                // scroll re-apply settles first. Remove this block and readRenderedScroll once the
+                // cause is found.
+                if (props.mode !== SessionRecordingPlayerMode.Preview && !cache.renderedAnchorDiagnosticSent) {
+                    cache.renderedAnchorDiagnosticSent = true
+                    const rrwebPlayerTime = values.toRRWebPlayerTime(timestamp) ?? null
+                    cache.disposables.add(() => {
+                        const timer = setTimeout(() => {
+                            try {
+                                posthog.capture('recording anchor diagnostic rendered', {
+                                    recording_id: props.sessionRecordingId,
+                                    is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
+                                    rrweb_player_time: rrwebPlayerTime,
+                                    current_timestamp: timestamp,
+                                    ...readRenderedScroll(values.player?.replayer),
+                                })
+                            } catch {
+                                // diagnostics must never break playback
+                            }
+                        }, 300)
+                        return () => clearTimeout(timer)
+                    }, 'renderedAnchorDiagnostic')
+                }
             } catch (error) {
                 // The same failure can still slip through mid-play — recover rather than report it.
                 if (recoverStaleReplayer()) {
@@ -2780,6 +2871,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.groupedAssetErrors = null
             cache.rrwebWarningSummary = null
             cache.rrwebWarningCount = 0
+            cache.renderedAnchorDiagnosticSent = false
             if (cache.diagnosticsFlushTimer) {
                 clearTimeout(cache.diagnosticsFlushTimer)
                 cache.diagnosticsFlushTimer = null
