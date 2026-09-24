@@ -34,6 +34,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
@@ -247,7 +248,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 False,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 PropertyGroupsMode.OPTIMIZED,
-                ("JSONExtractRaw(JSONDropKeys(", "JSONHas(JSONDropKeys("),
+                (f"JSONExtractRaw({JSON_DROP_KEYS_CLICKHOUSE_NAME}(", f"JSONHas({JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
                 ("properties_group_feature_flags", "mapFilter("),
             ),
             (
