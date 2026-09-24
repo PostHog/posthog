@@ -219,6 +219,12 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         self.flag_patcher.start()
         self.addCleanup(self.flag_patcher.stop)
 
+    def _grant_30d_retention(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.LOGS_RETENTION_30D, "name": AvailableFeature.LOGS_RETENTION_30D}
+        ]
+        self.organization.save()
+
     def test_default_period_matches_the_logs_default(self):
         # The tracing model deliberately duplicates the constant rather than importing it.
         self.assertEqual(DEFAULT_TRACES_RETENTION_DAYS, DEFAULT_LOGS_RETENTION_DAYS)
@@ -232,12 +238,17 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         config.refresh_from_db()
         self.assertEqual(config.retention_days, 14)
 
-    def test_30_days_needs_no_logs_entitlement(self):
-        response = self.client.patch(self.url, {"retention_days": 30}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json()["retention_days"], 30)
+    def test_paid_tier_requires_the_org_entitlement(self):
+        denied = self.client.patch(self.url, {"retention_days": 30}, format="json")
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN, denied.json())
+
+        self._grant_30d_retention()
+        allowed = self.client.patch(self.url, {"retention_days": 30}, format="json")
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK, allowed.json())
+        self.assertEqual(allowed.json()["retention_days"], 30)
 
     def test_changing_the_period_requires_the_flag(self):
+        self._grant_30d_retention()
         self.flag_patcher.stop()
         with patch("posthog.api.team.posthog_feature_flag_enabled", return_value=False):
             denied = self.client.patch(self.url, {"retention_days": 30}, format="json")
@@ -256,6 +267,7 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_second_change_within_24_hours_is_refused(self):
+        self._grant_30d_retention()
         self.assertEqual(self.client.patch(self.url, {"retention_days": 30}, format="json").status_code, 200)
 
         second = self.client.patch(self.url, {"retention_days": 14}, format="json")
@@ -263,6 +275,7 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         self.assertIn("once per 24 hours", str(second.json()))
 
     def test_an_unrelated_update_is_not_throttled(self):
+        self._grant_30d_retention()
         self.assertEqual(self.client.patch(self.url, {"retention_days": 30}, format="json").status_code, 200)
 
         # Sending the stored period back alongside another field must not trip the throttle.
@@ -273,27 +286,20 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         )
         self.assertEqual(unrelated.status_code, status.HTTP_200_OK, unrelated.json())
 
-    def test_revoking_the_logs_entitlement_leaves_traces_retention_untouched(self):
+    def test_revoking_the_entitlement_resets_traces_retention(self):
         config = get_or_create_team_extension(self.team, TeamTracingConfig)
         config.retention_days = 30
         config.save()
-        rules = {
-            source: LogsRetentionRule.objects.create(
-                team=self.team,
-                name=f"{source} rule",
-                source=source,
-                config={"retention_days": 30, "filter_group": {"type": "AND", "values": []}},
-            )
-            for source in (LogsRetentionRule.RecordSource.LOGS, LogsRetentionRule.RecordSource.SPANS)
-        }
+        span_rule = LogsRetentionRule.objects.create(
+            team=self.team,
+            name="span rule",
+            source=LogsRetentionRule.RecordSource.SPANS,
+            config={"retention_days": 30, "filter_group": {"type": "AND", "values": []}},
+        )
 
         reset_revoked_logs_retention(self.organization, {AvailableFeature.LOGS_RETENTION_30D.value})
 
         config.refresh_from_db()
-        self.assertEqual(config.retention_days, 30)
-        for rule in rules.values():
-            rule.refresh_from_db()
-        self.assertEqual(
-            rules[LogsRetentionRule.RecordSource.LOGS].config["retention_days"], DEFAULT_LOGS_RETENTION_DAYS
-        )
-        self.assertEqual(rules[LogsRetentionRule.RecordSource.SPANS].config["retention_days"], 30)
+        span_rule.refresh_from_db()
+        self.assertEqual(config.retention_days, DEFAULT_TRACES_RETENTION_DAYS)
+        self.assertEqual(span_rule.config["retention_days"], DEFAULT_LOGS_RETENTION_DAYS)

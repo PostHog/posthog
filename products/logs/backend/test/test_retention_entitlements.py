@@ -7,6 +7,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.logs.backend.models import LogsRetentionRule
 from products.logs.backend.temporal.retention_entitlements.activities import enforce_logs_retention_entitlements
@@ -14,6 +15,7 @@ from products.logs.backend.temporal.retention_entitlements.types import (
     EnforceLogsRetentionEntitlementsInput,
     EnforceLogsRetentionEntitlementsOutput,
 )
+from products.tracing.backend.facade.team_extension import TeamTracingConfig
 
 
 async def _create_organization(features: list[AvailableFeature]) -> Organization:
@@ -55,6 +57,19 @@ async def _refresh_rule(rule: LogsRetentionRule) -> LogsRetentionRule:
     return await sync_to_async(LogsRetentionRule.objects.get)(id=rule.id)
 
 
+async def _set_traces_retention(team: Team, retention_days: int) -> None:
+    def set_retention() -> None:
+        config = get_or_create_team_extension(team, TeamTracingConfig)
+        config.retention_days = retention_days
+        config.save()
+
+    await sync_to_async(set_retention)()
+
+
+async def _traces_retention(team: Team) -> int:
+    return (await sync_to_async(TeamTracingConfig.objects.get)(team=team)).retention_days
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_teams() -> None:
@@ -74,8 +89,10 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
     rule_allowed = await _create_rule(team_30d_allowed, 90)
     rule_blocked = await _create_rule(team_14d, 30)
     rule_14d = await _create_rule(team_14d, 14)
-    # Span rules are outside the Logs entitlement, so a blocked org keeps its paid span period.
+    # Traces reuse the Logs entitlement, so a blocked org loses its paid span periods too.
     span_rule_blocked = await _create_rule(team_14d, 30, source=LogsRetentionRule.RecordSource.SPANS)
+    await _set_traces_retention(team_30d_allowed, 30)
+    await _set_traces_retention(team_14d, 30)
 
     output: EnforceLogsRetentionEntitlementsOutput = await ActivityEnvironment().run(
         enforce_logs_retention_entitlements,
@@ -84,12 +101,15 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
 
     assert output.teams_checked == 3
     assert output.teams_reset == 2
-    assert output.rules_checked == 2
-    assert output.rules_reset == 1
+    assert output.rules_checked == 3
+    assert output.rules_reset == 2
+    assert output.tracing_configs_reset == 1
 
     assert (await _refresh_rule(rule_allowed)).config["retention_days"] == 90
     assert (await _refresh_rule(rule_14d)).config["retention_days"] == 14
-    assert (await _refresh_rule(span_rule_blocked)).config["retention_days"] == 30
+    assert (await _refresh_rule(span_rule_blocked)).config["retention_days"] == 14
+    assert await _traces_retention(team_30d_allowed) == 30
+    assert await _traces_retention(team_14d) == 14
     blocked_rule = await _refresh_rule(rule_blocked)
     assert blocked_rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
     assert blocked_rule.enabled is True

@@ -167,17 +167,20 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
             raise ValidationError({"config": {"retention_days": error}})
         # Gate paid tiers on the org entitlement, mirroring TeamSerializer.validate_logs_settings —
         # otherwise a Logs editor could grant a per-log retention tier the org can't set team-wide.
-        # The entitlement covers logs only, so span rules skip it.
-        if self.context.get("rule_source", LogsRetentionRule.RecordSource.LOGS) != LogsRetentionRule.RecordSource.LOGS:
-            return
+        # Span rules are gated on the same Logs entitlement.
         required_feature = required_logs_retention_feature(retention_days)
         if required_feature is not None:
             get_organization = self.context.get("get_organization")
             organization = get_organization() if callable(get_organization) else None
             if organization is None or not organization.is_feature_available(required_feature):
                 raise PermissionDenied(
-                    f"This organization does not have permission to set Logs retention to {retention_days} days."
+                    f"This organization does not have permission to set {self._retention_label()} "
+                    f"to {retention_days} days."
                 )
+
+    def _retention_label(self) -> str:
+        source = self.context.get("rule_source", LogsRetentionRule.RecordSource.LOGS)
+        return "span retention" if source == LogsRetentionRule.RecordSource.SPANS else "Logs retention"
 
     def _validate_filter_group(self, filter_group: Any) -> None:
         message = retention_filter_group_error(filter_group)

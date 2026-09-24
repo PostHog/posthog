@@ -76,7 +76,6 @@ export function LogsRetentionForm({
                         value={retentionForm.retention_days}
                         onChange={(days) => setRetentionFormValue('retention_days', days)}
                         allowCustom={allowCustomRetention}
-                        requiresPaidRetention={product.requiresPaidRetention}
                         size="small"
                         dataAttrPrefix="logs-retention-rule"
                     />

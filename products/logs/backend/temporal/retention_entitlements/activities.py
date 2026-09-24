@@ -5,6 +5,7 @@ from posthog.models.team.logs_retention import (
     DEFAULT_LOGS_RETENTION_DAYS,
     required_logs_retention_feature,
     reset_logs_retention_rules,
+    reset_unentitled_traces_retention,
 )
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -78,13 +79,11 @@ async def enforce_logs_retention_entitlements(
             )
 
         # Rules store their own retention period, so ingestion keeps applying a paid period until they are reset too.
-        # Span rules are not covered by the Logs entitlement.
+        # Span rules are gated on the same entitlement, so they are included.
         rules_to_update: list[LogsRetentionRule] = []
         rules_checked = 0
         async for rule in (
-            LogsRetentionRule.objects.filter(
-                source=LogsRetentionRule.RecordSource.LOGS, config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS
-            )
+            LogsRetentionRule.objects.filter(config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS)
             .select_related("team__organization")
             .only("id", "config", "version", "team__id", "team__organization__available_product_features")
         ):
@@ -112,16 +111,23 @@ async def enforce_logs_retention_entitlements(
         if not input.dry_run and rules_to_update:
             await database_sync_to_async(reset_logs_retention_rules)(rules_to_update)
 
+        # Traces keep their default period on their own team extension, gated by the same feature.
+        tracing_configs_reset = await database_sync_to_async(reset_unentitled_traces_retention)(
+            dry_run=input.dry_run, batch_size=batch_size
+        )
+
         logger.info(
             "Logs retention entitlement enforcement complete",
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
             rules_checked=rules_checked,
             rules_reset=len(rules_to_update),
+            tracing_configs_reset=tracing_configs_reset,
         )
         return EnforceLogsRetentionEntitlementsOutput(
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
             rules_checked=rules_checked,
             rules_reset=len(rules_to_update),
+            tracing_configs_reset=tracing_configs_reset,
         )

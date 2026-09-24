@@ -58,8 +58,6 @@ export interface RetentionRulesProduct {
      * equivalent of yet.
      */
     showVolumePreview: boolean
-    /** Whether periods over the free tier need the Logs retention feature. Traces have no paid gate. */
-    requiresPaidRetention: boolean
     /** `resourceType` for the rule scenes' title section. */
     sceneResourceType: string
 }
@@ -88,6 +86,5 @@ export const LOGS_RETENTION_PRODUCT: RetentionRulesProduct = {
         settings: () => logsRetentionRulesSettingsUrl(),
     },
     showVolumePreview: true,
-    requiresPaidRetention: true,
     sceneResourceType: 'logs',
 }

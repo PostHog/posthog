@@ -39,8 +39,6 @@ export interface LogsRetentionPeriodPickerProps {
     customCommit?: 'change' | 'apply'
     size?: 'small' | 'medium'
     dataAttrPrefix?: string
-    /** Disable periods over the free tier unless the organization has the Logs retention feature. */
-    requiresPaidRetention?: boolean
 }
 
 /** With the custom option off, a stored custom period is still shown, so the picker never hides the current value. */
@@ -62,10 +60,9 @@ export function LogsRetentionPeriodPicker({
     customCommit = 'change',
     size,
     dataAttrPrefix = 'logs-retention',
-    requiresPaidRetention = true,
 }: LogsRetentionPeriodPickerProps): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasPaidRetention = !requiresPaidRetention || hasAvailableFeature(AvailableFeature.LOGS_RETENTION_30D)
+    const hasPaidRetention = hasAvailableFeature(AvailableFeature.LOGS_RETENTION_30D)
 
     const presetDays = pickerPresetDays(value, allowCustom)
     const valueIsPreset = presetDays.includes(value)

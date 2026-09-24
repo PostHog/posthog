@@ -93,24 +93,72 @@ def reset_revoked_logs_retention(organization: Organization, revoked_feature_key
         # Preserve unrelated Logs settings such as JSON parsing and PII scrubbing.
         team.logs_settings = {**(team.logs_settings or {}), "retention_days": DEFAULT_LOGS_RETENTION_DAYS}
 
-    # Span rules share this table but are not covered by the Logs entitlement.
+    # Rules of both sources store their own period, so ingestion keeps applying a paid period
+    # until they are reset too.
     rules = list(
         LogsRetentionRule.objects.filter(
-            team__organization=organization,
-            source=LogsRetentionRule.RecordSource.LOGS,
-            config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS,
+            team__organization=organization, config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS
         ).only("id", "config", "version")
     )
 
+    # Imported here so the tracing product stays off this module's import path.
+    from products.tracing.backend.facade.team_extension import TeamTracingConfig  # noqa: PLC0415
+
+    # Traces reuse the Logs entitlement, so their default period is reset with it.
+    tracing_configs = list(
+        TeamTracingConfig.objects.filter(
+            team__organization=organization, retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS
+        ).only("team_id", "retention_days")
+    )
+    for config in tracing_configs:
+        config.retention_days = DEFAULT_LOGS_RETENTION_DAYS
+
     if teams:
         Team.objects.bulk_update(teams, ["logs_settings"])
+    if tracing_configs:
+        TeamTracingConfig.objects.bulk_update(tracing_configs, ["retention_days"])
     if rules:
         reset_logs_retention_rules(rules)
-    if teams or rules:
+    if teams or rules or tracing_configs:
         logger.info(
             "Logs retention reset after entitlement revocation",
             organization_id=str(organization.id),
             teams_reset=len(teams),
             rules_reset=len(rules),
+            tracing_configs_reset=len(tracing_configs),
         )
     return len(teams)
+
+
+def reset_unentitled_traces_retention(*, dry_run: bool, batch_size: int) -> int:
+    """Reset the traces default to the free tier wherever the organization lacks the Logs retention feature.
+
+    The Logs retention reconciliation activity calls this, so the logs product never imports the
+    tracing product. Returns how many configs were reset, or would be on a dry run.
+    """
+    # Imported here so the tracing product stays off this module's import path.
+    from products.tracing.backend.facade.team_extension import TeamTracingConfig  # noqa: PLC0415
+
+    to_update = []
+    for config in (
+        TeamTracingConfig.objects.filter(retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS)
+        .select_related("team__organization")
+        .only("team__id", "retention_days", "team__organization__available_product_features")
+    ):
+        required_feature = required_logs_retention_feature(config.retention_days)
+        organization = config.team.organization
+        if not required_feature or organization.is_feature_available(required_feature):
+            continue
+        logger.info(
+            "Traces retention period setting forcibly reduced",
+            team_id=config.team_id,
+            organization_id=organization.id,
+            retention_period_before=config.retention_days,
+            retention_period_after=DEFAULT_LOGS_RETENTION_DAYS,
+        )
+        config.retention_days = DEFAULT_LOGS_RETENTION_DAYS
+        to_update.append(config)
+
+    if not dry_run and to_update:
+        TeamTracingConfig.objects.bulk_update(to_update, ["retention_days"], batch_size=batch_size)
+    return len(to_update)

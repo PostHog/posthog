@@ -295,8 +295,8 @@ class TeamTracingConfigSerializer(serializers.ModelSerializer):
         return _validate_unique_attribute_keys(value)
 
     def validate_retention_days(self, value: int) -> int:
-        # Only a changed period is checked against the flags, so an unrelated update that sends
-        # the stored period back keeps working after a flag is turned off.
+        # Only a changed period is checked against the flags and the entitlement, so an unrelated
+        # update that sends the stored period back keeps working after either is turned off.
         if self.instance is not None and self.instance.retention_days == value:
             return value
 
@@ -313,6 +313,13 @@ class TeamTracingConfigSerializer(serializers.ModelSerializer):
         error = logs_retention_days_error(value, custom_retention_enabled=custom_enabled)
         if error:
             raise exceptions.ValidationError(error)
+
+        # Traces reuse the Logs retention entitlement.
+        required_feature = required_logs_retention_feature(value)
+        if required_feature and (organization is None or not organization.is_feature_available(required_feature)):
+            raise exceptions.PermissionDenied(
+                f"This organization does not have permission to set traces retention to {value} days."
+            )
 
         throttle_error = retention_update_throttle_error(
             self.instance.retention_last_updated if self.instance is not None else None

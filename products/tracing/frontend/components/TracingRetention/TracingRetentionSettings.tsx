@@ -74,7 +74,6 @@ export function TracingRetentionSettings(): JSX.Element {
                 value={currentRetention}
                 onChange={handleRetentionChange}
                 allowCustom={allowCustomRetention}
-                requiresPaidRetention={false}
                 disabledReason={disabledReason}
                 customCommit="apply"
                 dataAttrPrefix="tracing-retention"
