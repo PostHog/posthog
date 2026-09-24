@@ -70,3 +70,10 @@ class TestApplySourceEdits(SimpleTestCase):
         assert [entry["code"] for entry in diagnostics] == [expected_code]
         assert diagnostics[0].get("line") == expected_line
         assert original["files"]["src/card.tsx"] == EDIT_SOURCE
+
+    def test_replace_all_that_would_exceed_the_file_limit_is_rejected(self) -> None:
+        source = "a\n" * 200_000
+        original = project(files={"src/card.tsx": source})
+        edited, diagnostics = apply_source_edits(original, [replace("a", "x" * 4096, replace_all=True)])
+        assert [entry["code"] for entry in diagnostics] == ["edit_too_large"]
+        assert edited["files"]["src/card.tsx"] == source
