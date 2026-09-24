@@ -365,19 +365,18 @@ describe('cohortCountWarningLogic', () => {
         })
 
         it.each([
-            ['an unsaved cohort does not run the persons query', true, null],
-            ['a saved cohort runs it', false, { results: [] }],
-        ])('%s', async (_name, doNotLoad, expectedResponse) => {
-            const dataNodeLogicKey = `cohort-count-warning-load-${String(doNotLoad)}`
+            ['an unsaved cohort does not run the persons query', 'new' as const, null],
+            ['a saved cohort runs it', 1, { results: [] }],
+        ])('%s', async (_name, cohortId, expectedResponse) => {
+            const dataNodeLogicKey = `cohort-count-warning-load-${String(cohortId)}`
             const query = createMockQuery(1)
             const logic = createLogicWithProps({
-                cohort: createMockCohort({ id: doNotLoad ? 'new' : 1 }),
+                cohort: createMockCohort({ id: cohortId }),
                 query,
                 dataNodeLogicKey,
-                doNotLoad,
             })
             logic.mount()
-            await expectLogic(dataNodeLogic({ key: dataNodeLogicKey, query, doNotLoad })).toFinishAllListeners()
+            await expectLogic(dataNodeLogic({ key: dataNodeLogicKey, query })).toFinishAllListeners()
 
             expect(logic.values.response).toEqual(expectedResponse)
         })

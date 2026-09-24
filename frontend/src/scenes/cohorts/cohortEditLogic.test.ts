@@ -1341,7 +1341,7 @@ describe('cohortEditLogic', () => {
             }).toDispatchActions(['setCohort'])
 
             expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([
-                { type: PropertyFilterType.Cohort, key: 'id', value: 42 },
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
             ])
         })
 

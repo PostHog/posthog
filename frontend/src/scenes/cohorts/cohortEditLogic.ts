@@ -54,6 +54,7 @@ import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
+    AnyPersonScopeFilter,
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
@@ -515,7 +516,7 @@ export interface cohortEditLogicActions {
 export interface cohortEditLogicMeta {
     key: number | 'new'
     __keaTypeGenInternalSelectorTypes: {
-        effectiveQuery: (query: DataTableNode, persistedColumns: string[] | null, cohort: CohortType) => DataTableNode
+        effectiveQuery: (query: DataTableNode, persistedColumns: string[] | null) => DataTableNode
         canRemovePersonFromCohort: (cohort: CohortType) => boolean | undefined
         isPendingCalculation: (cohort: CohortType) => boolean
         isCalculatingOrPending: (cohort: CohortType, isPendingCalculation: boolean) => boolean
@@ -528,6 +529,16 @@ export type cohortEditLogicType = MakeLogicType<
     CohortLogicProps,
     cohortEditLogicMeta
 >
+
+// The persons table filters on the cohort's own id. A draft has none — `props.id` is 'new' and
+// the route gives the id as a string — so parse it and leave the filter off until `setCohort`
+// supplies a real id. NaN serializes to null, which the API rejects.
+function cohortFixedProperties(id: CohortType['id'] | undefined): AnyPersonScopeFilter[] {
+    const cohortId = typeof id === 'number' ? id : parseInt(String(id))
+    return Number.isNaN(cohortId)
+        ? []
+        : [{ type: PropertyFilterType.Cohort, key: 'id', value: cohortId, operator: PropertyOperator.In }]
+}
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -693,9 +704,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    fixedProperties: [
-                        { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
-                    ],
+                    fixedProperties: cohortFixedProperties(props.id),
                 },
                 full: true,
                 showPropertyFilter: false,
@@ -716,6 +725,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         source: {
                             ...source,
                             select: source.select ?? defaultSelect,
+                            fixedProperties: cohortFixedProperties(cohort.id),
                         },
                     }
                 },
@@ -792,36 +802,19 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
 
     selectors({
-        // The persons table query with the user's persisted column selection applied, and the
-        // cohort filter pinned to the loaded cohort. Deriving this in a selector (instead of
-        // dispatching a corrective `setQuery` from a listener) avoids a render with default
-        // columns before the persisted ones kick in.
+        // The persons table query with the user's persisted column selection applied. Deriving
+        // this in a selector (instead of dispatching a corrective `setQuery` from a listener)
+        // avoids a render with default columns before the persisted ones kick in.
         effectiveQuery: [
-            (s) => [s.query, s.persistedColumns, s.cohort],
-            (query: DataTableNode, persistedColumns: string[] | null, cohort: CohortType): DataTableNode => {
-                if (!isDataTableNode(query)) {
-                    return query
-                }
-                const source = query.source as ActorsQuery
-                let nextSource = source
-                if (persistedColumns && !objectsEqual(source.select, persistedColumns)) {
-                    nextSource = { ...nextSource, select: persistedColumns }
-                }
-                // `props.id` stays 'new' until the scene remounts under the saved cohort's id, so
-                // the filter built at mount time holds NaN. NaN serializes to null and the API
-                // rejects the query, so take the id from the loaded cohort instead.
-                const cohortId = cohort.id
-                if (typeof cohortId === 'number') {
-                    const fixedProperties = (nextSource.fixedProperties ?? []).map((property) =>
-                        property.type === PropertyFilterType.Cohort && property.value !== cohortId
-                            ? { ...property, value: cohortId }
-                            : property
-                    )
-                    if (!objectsEqual(fixedProperties, nextSource.fixedProperties)) {
-                        nextSource = { ...nextSource, fixedProperties }
+            (s) => [s.query, s.persistedColumns],
+            (query: DataTableNode, persistedColumns: string[] | null): DataTableNode => {
+                if (persistedColumns && isDataTableNode(query)) {
+                    const source = query.source as ActorsQuery
+                    if (!objectsEqual(source.select, persistedColumns)) {
+                        return { ...query, source: { ...source, select: persistedColumns } }
                     }
                 }
-                return nextSource === source ? query : { ...query, source: nextSource }
+                return query
             },
         ],
         canRemovePersonFromCohort: [
