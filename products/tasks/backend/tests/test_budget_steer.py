@@ -41,8 +41,7 @@ class TestBudgetSteerCapture(SimpleTestCase):
     def test_replays_preserve_timestamp_across_midnight(
         self, redis_version: tuple[int, int], event_timestamp: str | None, expected: str
     ) -> None:
-        # The default fake client speaks the newest command set, so each supported server version
-        # gets its own client to keep the enqueue on commands production Redis accepts.
+        # The shared fake client speaks the newest command set, which hides commands older servers reject.
         redis = fakeredis.FakeRedis(server=fakeredis.FakeServer(version=redis_version))
         with (
             patch(
