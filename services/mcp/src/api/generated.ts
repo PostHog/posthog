@@ -20111,6 +20111,11 @@ export namespace Schemas {
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
       claude_model_access?: ClaudeModelAccessEnum | null;
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -20528,6 +20533,11 @@ export namespace Schemas {
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
       claude_model_access?: ClaudeModelAccessEnum | null;
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -67124,6 +67134,11 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+      /**
+         * Earliest start time in UTC. Null for runs without a schedule.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
       preview_available?: boolean;
     }
@@ -96063,7 +96078,12 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
-      /** Start the task's first cloud run immediately after creation. */
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
       start_run?: boolean;
       /**
          * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
@@ -96761,6 +96781,13 @@ export namespace Schemas {
     }
 
     export interface TaskRunResumeRequestSchema {
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      model?: string;
+      reasoning_effort?: ReasoningEffortEnum;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
