@@ -14,7 +14,7 @@ function span(overrides: Partial<Span> & { span_id: string; timestamp: string; d
     })
 }
 
-function aiEvent(overrides: Partial<TraceAiEvent> & { uuid: string; timestamp: string }): TraceAiEvent {
+function aiEvent(overrides: Partial<TraceAiEvent> & { uuid: string; started_at: string }): TraceAiEvent {
     return {
         event: '$ai_generation',
         ai_trace_id: TRACE_ID.toLowerCase(),
@@ -49,10 +49,9 @@ const TOOL = span({
 const SPANS = [ROOT, TURN, TOOL]
 
 describe('buildAiEventSpans', () => {
-    // The AI event only knows when the call ended and how long it took, and carries no OTel parent
-    // id, so a wrong start or a wrong parent puts the row in the wrong place on the waterfall.
-    it('starts the row a latency before the event and parents it to the narrowest containing span', () => {
-        const [result] = buildAiEventSpans([aiEvent({ uuid: 'e1', timestamp: '2026-06-02T08:00:05.000Z' })], SPANS)
+    // A wrong end or a wrong parent puts the row in the wrong place on the waterfall.
+    it('runs the row a latency from its start and parents it to the narrowest containing span', () => {
+        const [result] = buildAiEventSpans([aiEvent({ uuid: 'e1', started_at: '2026-06-02T08:00:03.000Z' })], SPANS)
 
         expect(result).toMatchObject({
             span_id: 'ai:e1',
@@ -68,11 +67,11 @@ describe('buildAiEventSpans', () => {
 
     it.each([
         // An OTel-sourced event names its parent, which wins over time containment.
-        ['a named parent that is loaded', { timestamp: '2026-06-02T08:00:05.000Z', ai_parent_id: 'tool' }, 'TOOL'],
-        ['a named parent that is not loaded', { timestamp: '2026-06-02T08:00:05.000Z', ai_parent_id: 'gone' }, 'TURN'],
+        ['a named parent that is loaded', { started_at: '2026-06-02T08:00:03.000Z', ai_parent_id: 'tool' }, 'TOOL'],
+        ['a named parent that is not loaded', { started_at: '2026-06-02T08:00:03.000Z', ai_parent_id: 'gone' }, 'TURN'],
         // A call that ran past the turn's end is only contained by the root.
-        ['a call the turn does not contain', { timestamp: '2026-06-02T08:00:55.000Z', latency_seconds: 10 }, 'ROOT'],
-        ['a call nothing contains', { timestamp: '2026-06-02T08:02:00.000Z' }, ''],
+        ['a call the turn does not contain', { started_at: '2026-06-02T08:00:45.000Z', latency_seconds: 10 }, 'ROOT'],
+        ['a call nothing contains', { started_at: '2026-06-02T08:02:00.000Z' }, ''],
     ])('places %s', (_name, overrides, expectedParent) => {
         const [result] = buildAiEventSpans([aiEvent({ uuid: 'e1', ...overrides })], SPANS)
 
@@ -82,8 +81,8 @@ describe('buildAiEventSpans', () => {
     it('marks a failed call as an error and names an $ai_span by its span name', () => {
         const results = buildAiEventSpans(
             [
-                aiEvent({ uuid: 'e1', timestamp: '2026-06-02T08:00:05.000Z', is_error: true }),
-                aiEvent({ uuid: 'e2', timestamp: '2026-06-02T08:00:06.000Z', event: '$ai_span', span_name: 'plan' }),
+                aiEvent({ uuid: 'e1', started_at: '2026-06-02T08:00:03.000Z', is_error: true }),
+                aiEvent({ uuid: 'e2', started_at: '2026-06-02T08:00:04.000Z', event: '$ai_span', span_name: 'plan' }),
             ],
             SPANS
         )
@@ -96,13 +95,13 @@ describe('buildAiEventSpans', () => {
 
     // Merging twice must not parent new rows to earlier synthetic rows or emit rows without a trace.
     it('ignores earlier synthetic rows and returns nothing without real spans', () => {
-        const first = buildAiEventSpans([aiEvent({ uuid: 'e1', timestamp: '2026-06-02T08:00:05.000Z' })], SPANS)
+        const first = buildAiEventSpans([aiEvent({ uuid: 'e1', started_at: '2026-06-02T08:00:03.000Z' })], SPANS)
         const second = buildAiEventSpans(
-            [aiEvent({ uuid: 'e2', timestamp: '2026-06-02T08:00:04.500Z', latency_seconds: 0.1 })],
+            [aiEvent({ uuid: 'e2', started_at: '2026-06-02T08:00:04.400Z', latency_seconds: 0.1 })],
             [...SPANS, ...first]
         )
 
         expect(second[0].parent_span_id).toBe('TURN')
-        expect(buildAiEventSpans([aiEvent({ uuid: 'e3', timestamp: '2026-06-02T08:00:05.000Z' })], [])).toEqual([])
+        expect(buildAiEventSpans([aiEvent({ uuid: 'e3', started_at: '2026-06-02T08:00:03.000Z' })], [])).toEqual([])
     })
 })

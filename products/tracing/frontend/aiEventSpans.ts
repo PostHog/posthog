@@ -25,11 +25,10 @@ function spanInterval(span: Span): Interval {
     return { startMs, endMs: startMs + span.duration_nano / 1_000_000 }
 }
 
-// The AI event records when the call finished and how long it took; the row starts that far back.
 function aiEventInterval(event: TraceAiEvent): Interval {
-    const endMs = dayjs(event.timestamp).valueOf()
+    const startMs = dayjs(event.started_at).valueOf()
     const latencyMs = Math.max(event.latency_seconds ?? 0, 0) * 1000
-    return { startMs: endMs - latencyMs, endMs }
+    return { startMs, endMs: startMs + latencyMs }
 }
 
 /**
