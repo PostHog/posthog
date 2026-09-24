@@ -5,6 +5,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 :class:`UserGitHubIntegration` (user-scoped).
 """
 
+import re
 import json
 import time
 import uuid
@@ -29,6 +30,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.github.merge_queue import MergeQueueState
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
@@ -140,6 +142,16 @@ class PullRequestRef:
     @property
     def repository(self) -> str:
         return f"{self.owner}/{self.repo}"
+
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
 class GitHubIntegrationError(Exception):
@@ -1631,14 +1643,17 @@ class GitHubIntegrationBase:
             "reactions": [],
         }
 
-    def has_pull_request_comment(self, repository: str, pr_number: int, marker: str) -> bool | None:
-        """Return None when an incomplete read cannot prove the marker is absent."""
+    def _get_issue_comment_pages(self, repository: str, pr_number: int) -> tuple[list[requests.Response], bool]:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        responses, complete = self._installation_authenticated_get_pages(
+        return self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
             params={"per_page": 100},
         )
+
+    def has_pull_request_comment(self, repository: str, pr_number: int, marker: str) -> bool | None:
+        """Return None when an incomplete read cannot prove the marker is absent."""
+        responses, complete = self._get_issue_comment_pages(repository, pr_number)
         for response in responses:
             if response.status_code != 200:
                 return None
@@ -1654,6 +1669,30 @@ class GitHubIntegrationBase:
                 if marker in comment["body"]:
                     return True
         return False if complete else None
+
+    def get_pull_request_merge_queue_state(self, repository: str, pr_number: int) -> MergeQueueState | None:
+        """Read the Trunk merge queue state off the pull request's comments; None when Trunk does not manage it.
+
+        Raises GitHubIntegrationError on an incomplete read, because a missed Trunk comment reads as
+        "not in the queue" and lets a caller push into it.
+        """
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
+        responses, complete = self._get_issue_comment_pages(repository, pr_number)
+        comments: list[Mapping[str, Any]] = []
+        for response in responses:
+            try:
+                page = response.json() if response.status_code == 200 else None
+            except ValueError:
+                page = None
+            if not isinstance(page, list):
+                raise GitHubIntegrationError(
+                    f"Could not read the comments of {repository}#{pr_number}", status_code=response.status_code
+                )
+            comments.extend(comment for comment in page if isinstance(comment, dict))
+        if not complete:
+            raise GitHubIntegrationError(f"Could not read every comment of {repository}#{pr_number}")
+        return MergeQueueState.from_comments(comments)
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a PR's conversation comments and inline review comments, merged chronologically.
@@ -1766,6 +1805,37 @@ class GitHubIntegrationBase:
         if not isinstance(pulls, list):
             return []
         return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
+
+    def has_open_pull_request_with_base(self, repository: str, branch: str) -> bool:
+        """Whether an open pull request from the same repository uses ``branch`` as its base, which means pull requests are stacked on it.
+
+        Fork pull requests do not count, because anyone can open one against any branch.
+        Raises GitHubIntegrationError on a failed read, because a missed stacked pull request lets a
+        caller commit under it.
+        """
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repository}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
+            params={"base": branch, "state": "open", "per_page": 100},
+        )
+        for response in responses:
+            try:
+                pulls = response.json() if response.status_code == 200 else None
+            except ValueError:
+                pulls = None
+            if not isinstance(pulls, list):
+                raise GitHubIntegrationError(
+                    f"Could not list the pull requests based on {repository}:{branch}", status_code=response.status_code
+                )
+            for pull in pulls:
+                head_repo = ((pull.get("head") or {}).get("repo") or {}) if isinstance(pull, dict) else {}
+                if str(head_repo.get("full_name", "")).lower() == repository.lower():
+                    return True
+        if not complete:
+            raise GitHubIntegrationError(f"Could not list every pull request based on {repository}:{branch}")
+        return False
 
     def get_open_pull_request_for_head(self, repository: str, branch: str) -> dict[str, Any] | None:
         """Return the OPEN pull request whose head is ``branch`` — its number, HTML url, and base ref.

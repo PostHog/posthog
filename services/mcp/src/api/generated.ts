@@ -9724,6 +9724,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive
+     */
+    export type ObservationVerdictEnum = typeof ObservationVerdictEnum[keyof typeof ObservationVerdictEnum];
+
+
+    export const ObservationVerdictEnum = {
+      Yes: 'yes',
+      No: 'no',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
      */
     export interface AffectedCohortRequest {
@@ -9733,6 +9747,12 @@ export namespace Schemas {
          * @maximum 90
          */
       window_days?: number;
+      /** Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+       *
+       * * `yes` - Yes
+       * * `no` - No
+       * * `inconclusive` - Inconclusive */
+      verdict?: ObservationVerdictEnum | null;
       /**
          * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
          * @maxLength 100
@@ -63946,6 +63966,8 @@ export namespace Schemas {
       readonly credits_used_against_limit: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached: boolean;
+      /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+      readonly sweep_throttle_factor: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -75086,6 +75108,8 @@ export namespace Schemas {
       readonly credits_used_against_limit?: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached?: boolean;
+      /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+      readonly sweep_throttle_factor?: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -86758,7 +86782,7 @@ export namespace Schemas {
      * Who this scanner's findings affected in the window; counted from observations, not estimated.
      */
     export interface ScannerImpact {
-      /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+      /** Distinct sessions with an affected observation in the window. For monitors only observations with the requested verdict count (yes by default); for other scanner types every succeeded observation counts. */
       readonly affected_sessions: number;
       /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
       readonly affected_users: number;
@@ -87118,6 +87142,25 @@ export namespace Schemas {
       config: SignalScoutConfig;
     }
 
+    export interface SelfDrivingReport {
+      /** Signal report ID, for linking to it in the inbox. */
+      id: string;
+      /**
+         * Report title. Null until the report is summarized.
+         * @nullable
+         */
+      title: string | null;
+      /** The report's inbox status. */
+      status: string;
+    }
+
+    export interface SelfDrivingPullRequest {
+      /** URL of the implementation pull request. */
+      url: string;
+      /** Whether the pull request has merged. */
+      merged: boolean;
+    }
+
     /**
      * Response of GET /vision/scanners/:id/self_driving_stats/.
      */
@@ -87130,6 +87173,10 @@ export namespace Schemas {
       prs_opened: number;
       /** Of the opened PRs, how many have merged. */
       prs_merged: number;
+      /** The newest reports counted in `reports_contributed`, at most 20. */
+      reports: SelfDrivingReport[];
+      /** The newest PRs counted in `prs_opened`, at most 20. */
+      pull_requests: SelfDrivingPullRequest[];
     }
 
     /**
@@ -87298,7 +87345,7 @@ export namespace Schemas {
     }
 
     /**
-     * A team's enforced scout run caps and current usage.
+     * A team's enforced scout caps and current usage.
      *
      * These are the values the coordinator actually applies at dispatch (resolved per-team override →
      * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -87319,6 +87366,8 @@ export namespace Schemas {
          * @nullable
          */
       runs_remaining_today: number | null;
+      /** Most scouts the project can have switched on at once. Enabling another past this is rejected. */
+      max_enabled_scouts: number;
     }
 
     /**
@@ -97630,6 +97679,98 @@ export namespace Schemas {
       Increase: 'increase',
       PooledSamples: 'pooled_samples',
     } as const;
+
+    /**
+     * Anthropic text, image, or tool content blocks.
+     */
+    export type TerminalAIMessageContent = string | {[key: string]: JsonValue}[];
+
+    export type TerminalAIMessageRoleEnum = typeof TerminalAIMessageRoleEnum[keyof typeof TerminalAIMessageRoleEnum];
+
+
+    export const TerminalAIMessageRoleEnum = {
+      User: 'user',
+      Assistant: 'assistant',
+    } as const;
+
+    export interface TerminalAIMessage {
+      /** Author of this conversation message. */
+      role: TerminalAIMessageRoleEnum;
+      /** Anthropic text, image, or tool content blocks. */
+      content: TerminalAIMessageContent;
+    }
+
+    export type TerminalAIModel = typeof TerminalAIModel[keyof typeof TerminalAIModel];
+
+
+    export const TerminalAIModel = {
+      ClaudeOpus5: 'claude-opus-5',
+      ClaudeSonnet5: 'claude-sonnet-5',
+      ClaudeSonnet46: 'claude-sonnet-4-6',
+      ClaudeHaiku45: 'claude-haiku-4-5',
+    } as const;
+
+    /**
+     * Agent instructions.
+     */
+    export type TerminalAIRequestSystem = string | {[key: string]: JsonValue}[] | null;
+
+    /**
+     * JSON schema for the tool's arguments.
+     */
+    export type TerminalAIToolInputSchema = {[key: string]: JsonValue};
+
+    /**
+     * Provider prompt cache settings.
+     */
+    export type TerminalAIToolCacheControl = {[key: string]: string} | null;
+
+    export interface TerminalAITool {
+      /**
+         * Name of a tool executed inside the terminal.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * What the tool does.
+         * @maxLength 20000
+         */
+      description?: string;
+      /** JSON schema for the tool's arguments. */
+      input_schema: TerminalAIToolInputSchema;
+      /** Provider prompt cache settings. */
+      cache_control?: TerminalAIToolCacheControl;
+      /** Stream tool arguments as they are generated. */
+      eager_input_streaming?: boolean | null;
+    }
+
+    export interface TerminalAIRequest {
+      /** Model served by the PostHog provider. */
+      model: TerminalAIModel;
+      /**
+         * Conversation and tool results.
+         * @minItems 1
+         * @maxItems 1000
+         */
+      messages: TerminalAIMessage[];
+      /**
+         * Maximum output tokens for this generation.
+         * @minimum 1
+         * @maximum 8192
+         */
+      max_tokens: number;
+      /** Always stream the model response. */
+      stream?: true;
+      /** Agent instructions. */
+      system?: TerminalAIRequestSystem;
+      /**
+         * Tools executed by pi.
+         * @maxItems 100
+         */
+      tools?: TerminalAITool[];
+      /** Sampling temperature. */
+      temperature?: number | null;
+    }
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
@@ -113520,7 +113661,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run: self_driving, manual, label, or all.
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -114313,6 +114454,18 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type TerminalAiCreateParams = {
+    format?: TerminalAiCreateFormat;
+    };
+
+    export type TerminalAiCreateFormat = typeof TerminalAiCreateFormat[keyof typeof TerminalAiCreateFormat];
+
+
+    export const TerminalAiCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type TracingSpansAttributesRetrieveParams = {
     /**
      * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
@@ -114746,12 +114899,30 @@ export namespace Schemas {
      */
     tag?: string | null;
     /**
+     * Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+     *
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive
+     * @nullable
+     */
+    verdict?: VisionScannersImpactRetrieveVerdict;
+    /**
      * Trailing window of observations to count. Defaults to 30 days.
      * @minimum 1
      * @maximum 90
      */
     window_days?: number;
     };
+
+    export type VisionScannersImpactRetrieveVerdict = typeof VisionScannersImpactRetrieveVerdict[keyof typeof VisionScannersImpactRetrieveVerdict] | null;
+
+
+    export const VisionScannersImpactRetrieveVerdict = {
+      Yes: 'yes',
+      No: 'no',
+      Inconclusive: 'inconclusive',
+    } as const;
 
     export type VisionScannersBackfillsListParams = {
     /**
