@@ -152,6 +152,7 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
                         // Drops a response that lands after a newer search or filter started.
                         breakpoint()
                         cache.loadedQuery = query
+                        cache.nextOffset = page.length
                         actions.setHasMoreRecipients(page.length >= SENT_ROW_LIMIT)
                         return page
                     },
@@ -161,12 +162,22 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
                     loadMoreSends: async () => {
                         const version = cache.queryVersion
                         const shown = values.sends
-                        const page = await loadPage(cache.loadedQuery ?? { search: '', status: null }, shown.length)
+                        const offset: number = cache.nextOffset ?? shown.length
+                        const page = await loadPage(cache.loadedQuery ?? { search: '', status: null }, offset)
                         if (version !== cache.queryVersion) {
                             return values.sends
                         }
+                        cache.nextOffset = offset + page.length
                         actions.setHasMoreRecipients(page.length >= SENT_ROW_LIMIT)
-                        return [...shown, ...page]
+                        // A run that is still sending adds rows at the top, which pushes rows from the end
+                        // of the shown pages onto this one. Dropping them keeps each recipient listed once.
+                        // The offset counts every row the server returned, so it moves past the repeats
+                        // instead of fetching them again.
+                        const shownKeys = new Set(shown.map((send) => `${send.invocation_id}:${send.action_id}`))
+                        return [
+                            ...shown,
+                            ...page.filter((send) => !shownKeys.has(`${send.invocation_id}:${send.action_id}`)),
+                        ]
                     },
                 },
             ],

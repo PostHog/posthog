@@ -256,6 +256,8 @@ def fetch_message_assets(
         outer_where.append("latest_status = %(status)s")
         kwargs["status"] = status
 
+    # Sends can share a sent_at down to the millisecond. The (invocation_id, action_id) tiebreak gives
+    # them a stable order, so offset pages neither repeat a send nor skip one at a page boundary.
     query = f"""
         SELECT {_OUTER_COLUMNS}
         FROM (
@@ -265,7 +267,7 @@ def fetch_message_assets(
             GROUP BY invocation_id, action_id
         )
         WHERE {" AND ".join(outer_where)}
-        ORDER BY latest_sent_at DESC
+        ORDER BY latest_sent_at DESC, invocation_id, action_id
         LIMIT %(limit)s OFFSET %(offset)s
     """
 
