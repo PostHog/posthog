@@ -118,7 +118,11 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/evaluations/{self.evaluation.id}/backfills"
 
     def _running_backfill(
-        self, evaluation: Evaluation | None = None, *, age: timedelta | None = None
+        self,
+        evaluation: Evaluation | None = None,
+        *,
+        age: timedelta | None = None,
+        status: EvaluationBackfillStatus = EvaluationBackfillStatus.RUNNING,
     ) -> EvaluationBackfill:
         now = timezone.now()
         evaluation = evaluation or self.evaluation
@@ -130,6 +134,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             target="generation",
             conditions=[],
             total_count=1,
+            status=status,
+            finished_at=None if status == EvaluationBackfillStatus.RUNNING else now,
         )
         if age is not None:
             # created_at is auto_now_add, so ageing the row past BACKFILL_START_GRACE takes an update.
@@ -588,6 +594,19 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
+
+    def test_list_breaks_created_at_ties_by_ascending_id(self):
+        ids = sorted(str(self._running_backfill(status=EvaluationBackfillStatus.COMPLETED).id) for _ in range(5))
+        # created_at is auto_now_add, so tying the rows to one timestamp takes an update.
+        EvaluationBackfill.objects.unscoped().filter(pk__in=ids).update(created_at=timezone.now())
+
+        walked: list[str] = []
+        for offset in range(0, len(ids), 2):
+            response = self.client.get(f"{self.url}/?limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            walked.extend(row["id"] for row in response.json()["results"])
+
+        assert walked == ids
 
     def test_list_is_scoped_to_evaluation_and_team(self):
         mine = self._running_backfill()
