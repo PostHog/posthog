@@ -12,6 +12,7 @@ import { findActionById, findActionByType } from '../hogflow-utils'
 import {
     ConditionalBranchHandler,
     checkConditions,
+    counterHogflowRecheckWake,
     counterHogflowRekeyWake,
     counterHogflowWaitAdvancedAtMaxWait,
     counterHogflowWaitPersonRefreshFailed,
@@ -28,6 +29,9 @@ const personRefreshFailedCount = async (): Promise<number> =>
 
 const rekeyWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
     (await counterHogflowRekeyWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+
+const recheckWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
+    (await counterHogflowRecheckWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
 
 describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
@@ -353,6 +357,7 @@ describe('action.conditional_branch', () => {
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitAdvancedAtMaxWait.reset()
+            counterHogflowRecheckWake.reset()
             counterHogflowRekeyWake.reset()
             counterHogflowWaitPersonRefreshFailed.reset()
         })
@@ -564,6 +569,49 @@ describe('action.conditional_branch', () => {
             })
 
             expect(await lateAdvanceCount()).toBe(0)
+        })
+
+        it('advances a recheck wake, consumes the flag, and does not count it as a missed wake', async () => {
+            // The matcher could not decide this condition and woke the job so the worker would. The
+            // worker's globals make it match, so the wake did its job.
+            waitAction.config.condition = {
+                filters: {
+                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
+                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
+                },
+            }
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            waitInvocation.state.currentAction!.parkedMaxWaitDuration = '4h'
+            waitAction.config.max_wait_duration = '4h'
+            waitInvocation.state.currentAction!.recheckWake = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(await recheckWakeCount('advanced')).toBe(1)
+            expect(waitInvocation.state.currentAction!.recheckWake).toBe(false)
+            // The matcher woke this run, so it is not a wake the streams missed.
+            expect(await lateAdvanceCount()).toBe(0)
+        })
+
+        it('re-parks a recheck wake that still does not match, and consumes the flag', async () => {
+            // The default condition does not match, so the worker re-parks and the wake was wasted.
+            waitInvocation.state.currentAction!.recheckWake = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.scheduledAt).toBeDefined()
+            expect(await recheckWakeCount('reparked')).toBe(1)
+            expect(await recheckWakeCount('advanced')).toBe(0)
+            expect(waitInvocation.state.currentAction!.recheckWake).toBe(false)
         })
 
         it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {
