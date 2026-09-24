@@ -140,14 +140,17 @@ export class DashboardPage {
     }
 
     async duplicate(): Promise<void> {
+        const sourceDashboardId = new URL(this.page.url()).pathname.match(/\/dashboard\/(\d+)/)?.[1]
         await this.openInfoPanel()
         await this.page.getByTestId('dashboard-duplicate-button').click()
 
         const modal = this.page.locator('.LemonModal').filter({ hasText: 'Duplicate dashboard' })
         await expect(modal).toBeVisible()
-        await this.page.getByTestId('dashboard-submit-and-go').click()
+        await this.page.getByTestId('duplicate-dashboard-submit').click()
 
-        await expect(this.page).toHaveURL(/\/dashboard\//)
+        await expect
+            .poll(() => new URL(this.page.url()).pathname.match(/\/dashboard\/(\d+)/)?.[1])
+            .not.toBe(sourceDashboardId)
     }
 
     async deleteDashboard(): Promise<void> {
