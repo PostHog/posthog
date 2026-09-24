@@ -727,7 +727,9 @@
     /* Default, overridden via inline style */
 
     display: grid;
-    grid-template: 'left content' 1fr / var(--left-nav-width) minmax(0, 1fr);
+
+    // Viewport-height navigation must not force the content row underneath the terminal dock.
+    grid-template: 'left content' minmax(0, 1fr) / var(--left-nav-width) minmax(0, 1fr);
     height: calc(100vh - var(--terminal-dock-height, 0px));
     height: calc(
         100dvh - var(--terminal-dock-height, 0px)
@@ -741,7 +743,7 @@
 
     /* Mobile layout - single column with overlay nav */
     &.app-layout--mobile {
-        grid-template: 'content' 1fr / minmax(0, 1fr);
+        grid-template: 'content' minmax(0, 1fr) / minmax(0, 1fr);
 
         .main-content-container {
             margin-right: 0;

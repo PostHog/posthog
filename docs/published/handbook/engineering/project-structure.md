@@ -48,6 +48,7 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
 The app-level terminal lives in `src/scenes/terminal`.
+Opening or resizing the terminal dock reduces the page and side panel height so their content remains scrollable above it.
 SQL insights appear as editable `.sql` files; their full JSON remains editable under `/posthog/api/insight`.
 Saving SQL preserves the insight's other query options, and JSON saves send only changed fields through the existing APIs.
 `run report.sql` executes a SQL file in the current project and prints a Markdown table; `--json`, `--csv`, and `--tsv` select export formats.

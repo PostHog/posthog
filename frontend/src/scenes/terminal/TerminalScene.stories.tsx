@@ -9,9 +9,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
+import { Navigation } from '~/layout/navigation-3000/Navigation'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { ScenePanel } from '~/layout/scenes/SceneLayout'
 import { useStorybookMocks } from '~/mocks/browser'
+import { SidePanelTab } from '~/types'
 
-import { expect, spyOn, userEvent, waitFor } from 'storybook/test'
+import { expect, spyOn, userEvent, waitFor, within } from 'storybook/test'
 
 import { TerminalDock } from './TerminalDock'
 import { terminalDockLogic } from './terminalDockLogic'
@@ -24,19 +28,31 @@ function DockedTerminalPreview(): JSX.Element {
     const { location } = useValues(router)
     return (
         <>
-            <div className="app-layout">
-                <div className="left-nav flex flex-col gap-2 p-4">
+            <Navigation sceneConfig={null}>
+                <div className="flex gap-2 mb-4">
                     <LemonButton to="/notebooks/demonote">Notebook page</LemonButton>
                     <LemonButton to="/terminal">Full terminal</LemonButton>
                 </div>
-                <div className="main-content-container flex min-h-0 flex-col p-4">
+                <div className="flex min-h-0 flex-col">
                     {removeProjectIdIfPresent(location.pathname) === '/terminal' ? (
                         <TerminalScene />
                     ) : (
-                        <p>Press Ctrl+backtick or use Toggle terminal in Cmd+K.</p>
+                        <>
+                            <p>Press Ctrl+backtick or use Toggle terminal in Cmd+K.</p>
+                            {Array.from({ length: 30 }, (_, index) => (
+                                <p key={index}>Page row {index + 1}</p>
+                            ))}
+                            <p>End of page</p>
+                            <ScenePanel>
+                                {Array.from({ length: 30 }, (_, index) => (
+                                    <p key={index}>Panel row {index + 1}</p>
+                                ))}
+                                <p>End of panel</p>
+                            </ScenePanel>
+                        </>
                     )}
                 </div>
-            </div>
+            </Navigation>
             <GlobalShortcuts />
             <Command />
             <TerminalDock />
@@ -323,11 +339,45 @@ export const Docked: StoryObj<typeof TerminalScene> = {
         pageUrl: '/notebooks/demonote',
         layout: 'fullscreen',
         featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL],
+        testOptions: { viewport: { width: 1100, height: 900 }, includeNavigationInSnapshot: true },
     },
-    play: async () => {
+    play: async ({ canvasElement }) => {
         await waitFor(() => expect(terminalDockLogic.isMounted()).toBe(true))
         terminalDockLogic.actions.setDockOpen(true)
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Info)
+
+        const canvas = within(canvasElement)
+        const dock = canvasElement.querySelector<HTMLElement>('[data-attr="terminal-dock"]')!
+        const main = canvas.getByRole('main')
+        await canvas.findByText('End of panel')
+        const panel = canvasElement.querySelector<HTMLElement>('#side-panel')!
+        const panelScroll = panel.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        const expectContentAboveDock = async (): Promise<void> => {
+            await waitFor(() => {
+                const dockTop = dock.getBoundingClientRect().top
+                expect(main.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                main.scrollTop = main.scrollHeight
+                panelScroll.scrollTop = panelScroll.scrollHeight
+                for (const label of ['End of page', 'End of panel']) {
+                    const bottom = canvas.getByText(label).getBoundingClientRect().bottom
+                    expect(bottom).toBeGreaterThan(0)
+                    expect(bottom).toBeLessThanOrEqual(dockTop)
+                }
+            })
+        }
+        await expectContentAboveDock()
+        const resize = canvas.getByRole('separator', { name: 'Resize terminal' })
+        const initialHeight = dock.getBoundingClientRect().height
+        resize.focus()
+        await userEvent.keyboard('{ArrowUp}{ArrowUp}')
+        await waitFor(() => expect(dock.getBoundingClientRect().height).toBeGreaterThan(initialHeight))
+        await expectContentAboveDock()
+        await userEvent.click(canvas.getByRole('button', { name: 'Hide terminal' }))
+        await waitFor(() => expect(main.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight - 16))
+        terminalDockLogic.actions.setDockOpen(true)
+        await expectContentAboveDock()
     },
 }
 export const DockDisabled: StoryObj<typeof TerminalScene> = {
