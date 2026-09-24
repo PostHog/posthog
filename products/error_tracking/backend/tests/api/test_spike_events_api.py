@@ -58,7 +58,7 @@ class TestErrorTrackingSpikeEventListQuerySerializer(SimpleTestCase):
 class TestSpikeEventsAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.issue = ErrorTrackingIssue.objects.create(team=self.team)
+        self.issue = ErrorTrackingIssue.objects.create(team=self.team, id=ISSUE_ID)
         self.spike = ErrorTrackingSpikeEvent.objects.create(
             team=self.team,
             issue=self.issue,
@@ -79,11 +79,11 @@ class TestSpikeEventsAPI(APIBaseTest):
         [
             ("range_around_the_spike", "?date_from=2026-01-01T00:00:00Z&date_to=2026-01-03T00:00:00Z", True),
             ("range_after_the_spike", "?date_from=2026-02-01T00:00:00Z", False),
-            ("matching_issue", f"?issue_ids={{issue_id}}", True),
+            ("matching_issue", f"?issue_ids={ISSUE_ID}", True),
         ]
     )
     def test_filter_selects_the_expected_spikes(self, _name: str, query: str, expect_spike: bool):
-        response = self._list(query.format(issue_id=self.issue.id))
+        response = self._list(query)
 
         assert response.status_code == status.HTTP_200_OK, response.content
         expected = [str(self.spike.id)] if expect_spike else []
