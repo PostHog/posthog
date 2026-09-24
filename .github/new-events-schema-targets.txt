@@ -3,7 +3,8 @@
 # full legacy matrix (the merge queue, the hourly master run, a PR the selector cannot narrow)
 # takes every path. A narrowed PR run takes the paths its test selection reaches, plus the paths
 # of the products whose tests it runs. A change to products alone takes those products' paths.
-# The test-new-events-schema label runs the whole backend suite in both modes instead.
+# The test-new-events-schema label doubles the backend suites. Listed paths those suites
+# exclude still run here so the label does not reduce native-schema coverage.
 #
 # Only tests that read event properties can behave differently between the two events tables,
 # so the list holds those directories plus the modules that own a *.new_events_schema.ambr

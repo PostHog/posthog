@@ -1295,7 +1295,23 @@ function fullRunJsonTargets(targets, skippedProducts) {
 //   skippedProducts  products that SKIP_PRODUCT_TESTS or the quarantine file dropped
 //   draft            the PR is a draft. Only read in selected mode, the one mode that the
 //                    merge queue's draft trunk-merge/** PR never reaches.
-function decideJsonTargets({ targets, mode, runLegacy, selectedTests, products, skippedProducts = [], draft = false }) {
+//   doubled          retain only paths the schema copies do not cover
+function decideJsonTargets({
+    targets, mode, runLegacy, selectedTests, products, skippedProducts = [], draft = false, doubled = false,
+}) {
+    if (doubled) {
+        const paths = decideJsonTargets({ targets, mode, runLegacy, selectedTests, products, skippedProducts, draft })
+        // Dagster tests are excluded from the doubled Django suites and have no product job.
+        return (paths ?? targets).filter(
+            (target) =>
+                !isUnderProduct(target, products) &&
+                !Object.values(DJANGO_SEGMENTS).some(
+                    (segment) =>
+                        segment.include.some((path) => isUnderPath(target, path.replace(/\/$/, ''))) &&
+                        !segment.exclude.some((path) => isUnderPath(target, path.replace(/\/$/, '')))
+                )
+        )
+    }
     if (mode === 'skip') {
         return []
     }
@@ -1746,6 +1762,7 @@ const jsonTargetFiles = decideJsonTargets({
     products,
     skippedProducts,
     draft: process.env.PR_DRAFT === 'true',
+    doubled: process.env.RUN_NEW_EVENTS_SCHEMA === 'true',
 })
 
 console.error('\nDjango shard calculation:')

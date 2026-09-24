@@ -928,6 +928,7 @@ jobs:
                   # A draft has a later ready run to defer to, so an untrusted selection skips
                   # the heavy matrices there instead of running all of them.
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
+                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
@@ -2735,10 +2736,9 @@ jobs:
                       core_persons_on_events_new_schema="[]"
                       temporal_new_events_schema="[]"
                   else
-                      # The doubled matrices take the place of the events_json rows, so the
-                      # listed paths do not run a third time.
-                      echo "Skipping the events_json rows (RUN_NEW_EVENTS_SCHEMA is on)"
-                      json_targets_count=0
+                      # The doubled matrices exclude some curated paths, such as Dagster tests.
+                      # Discovery keeps only those paths so the other tests do not run a third time.
+                      json_targets_count="${JSON_TARGETS_SHARDS:-0}"
                   fi
 
                   # The events_json rows: Core jobs over the listed paths with the

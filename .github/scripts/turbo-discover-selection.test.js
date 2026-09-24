@@ -164,6 +164,7 @@ test('products outside the matrix are ignored', () => {
 
 const JSON_TARGETS = [
     'posthog/hogql',
+    'posthog/dags/tests/test_deletes.py',
     'posthog/tasks/test/test_usage_report.py',
     'products/batch_exports/backend/tests/test_hogql_source.py',
     'products/web_analytics/backend/hogql_queries',
@@ -186,7 +187,12 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
         [{ mode: 'skip' }, []],
         [
             { mode: '', skippedProducts: ['batch-exports'] },
-            ['posthog/hogql', 'posthog/tasks/test/test_usage_report.py', 'products/web_analytics/backend/hogql_queries'],
+            [
+                'posthog/hogql',
+                'posthog/dags/tests/test_deletes.py',
+                'posthog/tasks/test/test_usage_report.py',
+                'products/web_analytics/backend/hogql_queries',
+            ],
         ],
         [
             {
@@ -207,6 +213,14 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
         [{ selectedTests: ['posthog/api/test/test_team.py'], products: ['logs'] }, []],
         [{ mode: '', runLegacy: false, products: ['surveys', 'web-analytics'] }, ['products/web_analytics/backend/hogql_queries']],
         [{ mode: '', runLegacy: false, products: ['surveys'] }, []],
+        [{ mode: 'full', doubled: true, products: ['batch-exports', 'web-analytics'] }, ['posthog/dags/tests/test_deletes.py']],
+        [{ mode: 'skip', doubled: true }, []],
+        [{ mode: '', runLegacy: false, products: ['web-analytics'], doubled: true }, []],
+        [{ doubled: true, selectedTests: ['posthog/hogql/test/test_query.py'], products: ['web-analytics'] }, []],
+        [
+            { doubled: true, selectedTests: ['posthog/dags/tests/test_deletes.py', 'posthog/hogql/test/test_query.py'] },
+            ['posthog/dags/tests/test_deletes.py'],
+        ],
     ]
     for (const [overrides, expected] of cases) {
         assert.deepEqual(jsonTargets(overrides), expected, JSON.stringify(overrides))
