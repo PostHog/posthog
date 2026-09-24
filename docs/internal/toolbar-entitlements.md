@@ -28,3 +28,14 @@ Capture requests without a data URL keep using the exact page URL.
 A heatmap editor with resource-level access can change the data URL of a toolbar capture in the page settings without replacing its screenshot.
 Changing the captured page or its rendering settings still requires a new capture from the toolbar.
 Object-level editor access alone does not allow changing either URL.
+
+## Screenshot capture
+
+Saving a heatmap uses the browser's current page to capture screenshots at several widths.
+Images and video posters that cannot load or decode leave blank areas without changing the layout.
+Unreadable canvases and video frames also leave their original space in the screenshot.
+Image, font, and stylesheet fetches share a 15-second deadline for each capture.
+Stylesheets that miss this deadline are skipped so later capture widths can continue.
+This deadline does not bound the whole rendering process.
+Failed resource fetches are not cached, so later widths and save attempts can load a recovered resource.
+Successfully loaded resources remain cached.
