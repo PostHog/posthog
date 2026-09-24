@@ -281,6 +281,23 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert execute_bytecode(response["bytecode"], {"properties": {"organization": "acme"}}).result is True
         assert execute_bytecode(response["bytecode"], {"properties": {"organization": "other"}}).result is False
 
+    def test_warehouse_sql_filter_keeps_a_recursive_lambda_local(self):
+        # The lambda calls its own name, which must stay the local and not become the column.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let organization := (n -> if(n = 'acme', true, organization('acme'))); return organization(x) }, ['zzz'])",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "other"}}).result is True
+
     def test_event_filters_still_reject_a_bare_unknown_column(self):
         # Only a warehouse row lives under properties; an event filter naming an unknown root is a typo.
         response = compile_filters_bytecode(

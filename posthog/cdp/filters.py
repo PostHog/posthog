@@ -214,11 +214,14 @@ class _WarehouseRowFields(CloningVisitor):
 
     def visit_block(self, node: ast.Block) -> ast.Block:
         # A `let` shadows a column from its own declaration on, as in the compiler, so a read before
-        # it still means the column.
+        # it still means the column. A lambda initializer may call its own name, so that name is
+        # bound before the lambda body is visited, again as in the compiler.
         self.locals.append(set())
         try:
             declarations = []
             for declaration in node.declarations:
+                if isinstance(declaration, ast.VariableDeclaration) and isinstance(declaration.expr, ast.Lambda):
+                    self.locals[-1].add(declaration.name)
                 declarations.append(self.visit(declaration))
                 if isinstance(declaration, ast.VariableDeclaration):
                     self.locals[-1].add(declaration.name)
