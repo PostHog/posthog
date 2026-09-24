@@ -22,7 +22,7 @@ async def test_schedule_creates_or_updates_with_bounded_policy(already_exists: b
     )
     with (
         override_settings(
-            # Not DEV: registration is deployment-independent, and a reintroduced region gate fails here.
+            # A non-DEV deployment, because DEV would pass even if a region gate returned early.
             CLOUD_DEPLOYMENT="US",
             ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE="orchestration-test-queue",
         ),
