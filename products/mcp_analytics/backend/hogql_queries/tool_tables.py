@@ -60,11 +60,13 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     NEW_SDK_SOURCE,
     display_person_properties,
     mcp_query_date_range,
+    shared_filter_exprs,
     tool_scope_exprs,
     validate_mcp_analytics_access,
 )
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The effective-description expression lives in base.py so the intent-clustering
@@ -89,17 +91,37 @@ _RAW_ERROR_STATUS = "substring(coalesce(toString(properties.$mcp_error_status), 
 _COMPOSED_FAILURE_LABEL = "concat(error_type, if(empty(error_status), '', concat(' (HTTP ', error_status, ')')))"
 
 
-def _tool_call_where(tool: str, date_range: QueryDateRange, *, extra: list[ast.Expr] | None = None) -> ast.Expr:
+# Takes the whole query, not a tool name, so a table added here cannot accept the shared filters
+# in its schema and then drop them from its WHERE.
+_ToolDetailQuery = (
+    MCPToolDailyStatsQuery
+    | MCPToolDescriptionsQuery
+    | MCPToolFailureOccurrencesQuery
+    | MCPToolFailuresQuery
+    | MCPToolSampleIntentsQuery
+    | MCPToolStatsQuery
+    | MCPToolTopUsersQuery
+)
+
+
+def _tool_call_where(
+    query: _ToolDetailQuery,
+    date_range: QueryDateRange,
+    team: "Team",
+    *,
+    extra: list[ast.Expr] | None = None,
+) -> ast.Expr:
     """WHERE for new-SDK $mcp_tool_call events scoped to one effective tool and window.
 
-    `tool` is bound as an ast.Constant, never interpolated. `extra` appends
+    The tool name is bound as an ast.Constant, never interpolated. `extra` appends
     query-specific predicates (e.g. notEmpty(description)).
     """
     exprs: list[ast.Expr] = [
         parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
         parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
         parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
-        *tool_scope_exprs(tool),
+        *tool_scope_exprs(query.toolName),
+        *shared_filter_exprs(team, query.properties, query.filterTestAccounts),
     ]
     if extra:
         exprs.extend(extra)
@@ -118,7 +140,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def _where(self) -> ast.Expr:
-        return _tool_call_where(self.query.toolName, self.query_date_range)
+        return _tool_call_where(self.query, self.query_date_range, self.team)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
@@ -209,8 +231,9 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         # two can never disagree. (Previously this read $exception events, which don't carry MCP
         # tool markers, so the table was always empty while the error rate showed failures.)
         return _tool_call_where(
-            self.query.toolName,
+            self.query,
             self.query_date_range,
+            self.team,
             extra=[parse_expr("toBool(properties.$mcp_is_error)")],
         )
 
@@ -326,7 +349,7 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
             )
         else:
             extra.append(parse_expr("empty({raw_status})", placeholders={"raw_status": parse_expr(_RAW_ERROR_STATUS)}))
-        return _tool_call_where(self.query.toolName, self.query_date_range, extra=extra)
+        return _tool_call_where(self.query, self.query_date_range, self.team, extra=extra)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
@@ -436,7 +459,7 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
-                "where": _tool_call_where(self.query.toolName, self.query_date_range),
+                "where": _tool_call_where(self.query, self.query_date_range, self.team),
             },
         )
 
@@ -521,7 +544,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
-                "where": _tool_call_where(self.query.toolName, self.query_date_range),
+                "where": _tool_call_where(self.query, self.query_date_range, self.team),
             },
         )
 
@@ -574,8 +597,9 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         where = _tool_call_where(
-            self.query.toolName,
+            self.query,
             self.query_date_range,
+            self.team,
             extra=[
                 parse_expr("notEmpty({description})", placeholders={"description": parse_expr(_EFFECTIVE_DESCRIPTION)})
             ],
@@ -635,8 +659,9 @@ class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQ
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         where = _tool_call_where(
-            self.query.toolName,
+            self.query,
             self.query_date_range,
+            self.team,
             extra=[
                 parse_expr("notEmpty(toString(properties.$mcp_intent))"),
                 parse_expr("toString(properties.$mcp_intent) != '{}'"),
@@ -743,6 +768,8 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
                     "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}
                 ),
                 parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(_CONVERSATION_ID)}),
+                # In the CTE so a filtered-out call cannot count as a neighbour either.
+                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
             ]
         )
         return parse_select(

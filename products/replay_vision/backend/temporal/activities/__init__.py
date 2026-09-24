@@ -22,6 +22,7 @@ from products.replay_vision.backend.temporal.activities.emit_classifier_tags imp
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
     emit_observation_signal_activity,
+    emit_observation_signal_summaries_activity,
     emit_observation_signals_activity,
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
@@ -82,6 +83,7 @@ __all__ = [
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
     "emit_observation_signal_activity",
+    "emit_observation_signal_summaries_activity",
     "emit_observation_signals_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",

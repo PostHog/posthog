@@ -392,6 +392,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token.token}"})
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is False
+        assert response.json()["is_impersonated"] is False
 
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
@@ -2279,6 +2280,7 @@ class TestUserAPI(APIBaseTest):
                 "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
+                "ai_evaluation_disabled": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
@@ -2302,6 +2304,7 @@ class TestUserAPI(APIBaseTest):
                 "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
+                "ai_evaluation_disabled": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
@@ -2573,6 +2576,7 @@ class TestUserAPI(APIBaseTest):
                 "error_tracking_weekly_digest": True,  # Default value
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
+                "ai_evaluation_disabled": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
                 "materialized_view_sync_failed_daily": True,  # Default value
                 "materialized_view_sync_failed_immediate": False,  # Default value
@@ -3569,7 +3573,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": False,
                 "has_totp": False,
@@ -3594,7 +3598,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": True,
-                "backup_codes": ["123456", "789012"],
+                "backup_codes_remaining": 2,
                 "method": "TOTP",
                 "has_passkeys": False,
                 "has_totp": True,
@@ -3626,7 +3630,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": True,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": "passkey",
                 "has_passkeys": True,
                 "has_totp": False,
@@ -3667,7 +3671,7 @@ class TestUserTwoFactor(APIBaseTest):
                 response.json(),
                 {
                     "is_enabled": True,
-                    "backup_codes": ["123456"],
+                    "backup_codes_remaining": 1,
                     "method": "TOTP",
                     "has_passkeys": True,
                     "has_totp": True,
@@ -3696,7 +3700,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": False,
                 "has_totp": False,
@@ -3728,7 +3732,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": True,
                 "has_totp": False,

@@ -63,6 +63,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "data_catalog",
+    "data_deletion",
     "dashboard",
     "early_access_feature",
     "endpoint",
@@ -193,6 +194,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "AI trace clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "data_deletion":
+        return "data deletion requests"
     if resource == "warehouse_objects":
         # Umbrella label for both warehouse tables and views (both children inherit from this)
         return "data warehouse tables & views"
@@ -214,6 +217,8 @@ def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
 
 
 def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    if resource == "data_deletion":
+        return "none"
     if resource in ["project"]:
         return "admin"
     if resource in ["organization"]:
@@ -1666,6 +1671,27 @@ class UserAccessControl:
                 "object", resource, access, lambda: self.resolve_most_specific_object_access(obj)
             )
         return access.access_level if access else None
+
+    def _resolved_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
+        """The enforced access to `obj`, as `get_user_access_level` decides it, with the rule
+        that supplied it kept so a display can attribute the level."""
+        resource = model_to_resource(obj)
+        if not resource:
+            return None
+
+        if self._is_most_specific_access_control_enabled:
+            return self.resolve_most_specific_object_access(obj)
+
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+        if resolved:
+            return access
+
+        object_access_controls = self._get_access_controls(
+            self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        )
+        return self._object_access_level_from_rows(
+            resource, object_access_controls, fallback_parent_id=self._fallback_parent_id(obj, resource)
+        )
 
     def bulk_object_access_levels(
         self,

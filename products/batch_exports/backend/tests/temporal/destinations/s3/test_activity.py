@@ -347,22 +347,15 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     ateam,
     s3_compatible_integration,
 ):
-    """Test that the insert_into_s3_activity_from_stage function splits up large files into
-    multiple parts based on the max file size configuration.
-
-    If max file size is set to 0 then the file should not be split up.
-
-    This test needs to generate a lot of data to ensure that the file is large enough to be split up.
-    """
-
     prefix = str(uuid.uuid4())
+    events_per_batch = 1_000 if max_file_size_mb is None else 100_000
 
     events_1, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100000,
+        count=events_per_batch,
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,
@@ -374,7 +367,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100000,
+        count=events_per_batch,
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,

@@ -29,7 +29,9 @@ import {
 } from '../checksConstants'
 import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
+import { DataQualitySchedule } from '../DataQualitySchedule'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
+import { SubjectTypeEnumApi } from '../generated/api.schemas'
 import { DataQualityEmptyState } from './DataQualityEmptyState'
 import {
     NEW_CHECK_ACTION_ID,
@@ -237,9 +239,20 @@ export function DataQualityOverview(): JSX.Element {
     )
 }
 
+const SCHEDULED_SUBJECT_TYPES: string[] = [SubjectTypeEnumApi.Metric, SubjectTypeEnumApi.PosthogTable]
+
 function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
-    const { expandedSubjectKeys, startingRun, isRunning, runningSubjectKey, runTarget, runError, pollTimedOut } =
-        useValues(dataQualityOverviewLogic)
+    const {
+        expandedSubjectKeys,
+        startingRun,
+        isRunning,
+        runningSubjectKey,
+        runTarget,
+        runError,
+        pollTimedOut,
+        scheduleBySubjectKey,
+        subjectSchedulesLoading,
+    } = useValues(dataQualityOverviewLogic)
     const { toggleSubjectExpanded, runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
 
     const subjectType = SUBJECT_TYPE_TAGS[group.subjectType]
@@ -335,6 +348,19 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                 check's controls in the tab order of a panel nobody can see. */}
             {expanded && (
                 <div id={regionId} className="overflow-x-auto">
+                    {SCHEDULED_SUBJECT_TYPES.includes(group.subjectType) && group.subjectUuid ? (
+                        <div className="px-2 pt-2">
+                            <DataQualitySchedule
+                                subjectType={group.subjectType}
+                                subjectId={group.subjectUuid}
+                                initialSchedule={
+                                    scheduleBySubjectKey[group.subjectKey] ??
+                                    (subjectSchedulesLoading ? null : undefined)
+                                }
+                                poll={false}
+                            />
+                        </div>
+                    ) : null}
                     <SubjectChecks group={group} />
                 </div>
             )}
@@ -381,7 +407,6 @@ function SubjectChecks({ group }: { group: SubjectGroup }): JSX.Element {
                     <div className="flex flex-col gap-2 py-2">
                         {check.description && <p className="mb-0 text-secondary">{check.description}</p>}
                         <CheckRunsTable
-                            subjectType={check.subject_type}
                             runs={checkRunsByCheckId[check.id] ?? []}
                             loading={runsLoadingByCheckId[check.id]}
                         />

@@ -65,6 +65,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
+from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     AccountPropertySourceProjection,
@@ -102,6 +103,71 @@ async def _make_job(
 
 
 class TestMaterializeViewManagedWarehouseActivity:
+    @pytest.mark.parametrize(
+        "stale,alias_dispatch_fails",
+        [(False, False), (True, False), (False, True)],
+    )
+    async def test_trino_shadow_records_result_without_recompiling(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        ajob,
+        adag,
+        asaved_query,
+        stale: bool,
+        alias_dispatch_fails: bool,
+    ) -> None:
+        inputs = ManagedWarehouseShadowInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            dangerously_execute_raw_sql=True,
+            use_trino=True,
+        )
+        asaved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
+        await database_sync_to_async(asaved_query.save)(update_fields=["origin"])
+        executable_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
+        with (
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
+                side_effect=RuntimeError("Temporal unavailable") if alias_dispatch_fails else None,
+            ) as reconcile_aliases,
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.execute_trino_model",
+                return_value=DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12),
+                side_effect=ValueError("No current Trino conversion") if stale else None,
+            ) as execute,
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table"
+            ) as legacy_execute,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.prepare_executable_query",
+                side_effect=lambda saved_query: setattr(saved_query, "query", executable_query),
+            ),
+        ):
+            result = await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
+
+        execute.assert_called_once_with(
+            organization_id=str(ateam.organization_id),
+            team_id=ateam.pk,
+            saved_query_id=asaved_query.id,
+            source_query=executable_query,
+        )
+        legacy_execute.assert_not_called()
+        await database_sync_to_async(ajob.refresh_from_db)()
+        if stale:
+            reconcile_aliases.assert_not_awaited()
+            assert result.error == "No current Trino conversion"
+            assert ajob.status == DataModelingJobStatus.FAILED
+        else:
+            reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
+            assert result.row_count == 12
+            assert result.error is None
+            assert ajob.status == DataModelingJobStatus.COMPLETED
+            assert ajob.rows_materialized == 12
+
     async def test_records_failure_against_the_job_engine(self, activity_environment, ateam, anode, ajob, adag):
         ajob.engine = DataModelingJobEngine.LEGACY_DUCKGRES
         await database_sync_to_async(ajob.save)(update_fields=["engine"])

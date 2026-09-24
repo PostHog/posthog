@@ -1,10 +1,13 @@
+import { type SpanContext, TraceFlags } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
-import { AgentServer, codexAuthFromGatewayEnv } from "./agent-server";
+import { AgentServer } from "./agent-server";
+import { codexAuthFromGatewayEnv } from "./gateway-env";
 
 interface TestableServer {
   configureEnvironment(args?: {
+    runSpanContext?: SpanContext;
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
@@ -23,6 +26,12 @@ interface TestableServer {
     executionEnvironment?: "local" | "cloud";
   }): GatewayEnv;
 }
+
+const RUN_SPAN_CONTEXT: SpanContext = {
+  traceId: "1234567890abcdef1234567890abcdef",
+  spanId: "1234567890abcdef",
+  traceFlags: TraceFlags.SAMPLED,
+};
 
 const ENV_KEYS_UNDER_TEST = [
   "LLM_GATEWAY_URL",
@@ -209,6 +218,7 @@ describe("AgentServer.configureEnvironment", () => {
   // record. It carries both the selected project scope and event attribution.
   it("forwards task metadata and project scope as openaiCustomHeaders", () => {
     const env = buildServer("background").configureEnvironment({
+      runSpanContext: RUN_SPAN_CONTEXT,
       isInternal: true,
       originProduct: "signal_report",
       signalReportId: "report-123",
@@ -227,6 +237,8 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.openaiCustomHeaders).toEqual({
+      "x-posthog-property-task_run_trace_id": RUN_SPAN_CONTEXT.traceId,
+      "x-posthog-property-task_run_span_id": RUN_SPAN_CONTEXT.spanId,
       "x-posthog-property-task_origin_product": "signal_report",
       "x-posthog-property-task_internal": "true",
       "x-posthog-property-signal_report_id": "report-123",
@@ -252,6 +264,7 @@ describe("AgentServer.configureEnvironment", () => {
 
   it("forwards task metadata as anthropicCustomHeaders", () => {
     const env = buildServer("background").configureEnvironment({
+      runSpanContext: RUN_SPAN_CONTEXT,
       isInternal: true,
       originProduct: "signal_report",
       signalReportId: "report-123",
@@ -271,6 +284,8 @@ describe("AgentServer.configureEnvironment", () => {
 
     expect(env.anthropicCustomHeaders).toBe(
       [
+        `x-posthog-property-task_run_trace_id: ${RUN_SPAN_CONTEXT.traceId}`,
+        `x-posthog-property-task_run_span_id: ${RUN_SPAN_CONTEXT.spanId}`,
         "x-posthog-property-task_origin_product: signal_report",
         "x-posthog-property-task_internal: true",
         "x-posthog-property-signal_report_id: report-123",
@@ -301,6 +316,8 @@ describe("AgentServer.configureEnvironment", () => {
 
     expect(env.anthropicCustomHeaders).not.toContain("ai_stage");
     expect(env.anthropicCustomHeaders).not.toContain("ai_agent_name");
+    expect(env.anthropicCustomHeaders).not.toContain("task_run_trace_id");
+    expect(env.anthropicCustomHeaders).not.toContain("task_run_span_id");
   });
 
   // A signals_scout title is multi-line; it must not inject extra header lines.
@@ -536,6 +553,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("carries stage and team attribution in the blob for both adapters", () => {
     const env = buildServer().configureEnvironment({
+      runSpanContext: RUN_SPAN_CONTEXT,
       originProduct: "signal_report",
       aiStage: "scout",
       taskId: "task-1",
@@ -543,6 +561,8 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     });
 
     const expected = {
+      task_run_trace_id: RUN_SPAN_CONTEXT.traceId,
+      task_run_span_id: RUN_SPAN_CONTEXT.spanId,
       task_origin_product: "signal_report",
       task_internal: false,
       ai_stage: "scout",
@@ -573,6 +593,9 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(Object.keys(env.openaiCustomHeaders ?? {})).toEqual([
       "X-PostHog-Properties",
     ]);
+    const properties = parseBlob(env.anthropicCustomHeaders ?? "");
+    expect(properties).not.toHaveProperty("task_run_trace_id");
+    expect(properties).not.toHaveProperty("task_run_span_id");
   });
 
   // The gateway writes the tier into the OpenAI body from this header, so a
@@ -586,6 +609,27 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
     expect(env.openaiCustomHeaders?.["X-PostHog-Service-Tier"]).toBe("flex");
     expect(env.anthropicCustomHeaders).not.toContain("X-PostHog-Service-Tier");
+  });
+
+  // The header outranks `traceparent`, so giving it to Claude would replace the
+  // per-turn ids its CLI mints with one id for the whole run.
+  it("names the run as X-PostHog-Trace-Id for codex only", () => {
+    const codex = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskRunId: "run-1",
+      runtimeAdapter: "codex",
+    });
+    const claude = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskRunId: "run-1",
+      runtimeAdapter: "claude",
+    });
+
+    expect(codex.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBe("run-1");
+    expect(codex.anthropicCustomHeaders).not.toContain("X-PostHog-Trace-Id");
+    expect(claude.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBeUndefined();
   });
 
   it("keeps non-signals products on their existing ai_product name", () => {

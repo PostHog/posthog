@@ -15,7 +15,13 @@ import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog import settings
-from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
+from posthog.clickhouse.client.connection import (
+    ClickHouseCredentials,
+    ClickHouseUser,
+    Workload,
+    get_clickhouse_creds,
+    is_file_backed_user,
+)
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.profiles import KafkaClusterProfile
@@ -56,6 +62,22 @@ def _is_retryable_clickhouse_exception(e: Exception) -> bool:
         # memory consumption, but we should avoid retrying queries that were killed due to query limits
         or (e.code == ErrorCodes.MEMORY_LIMIT_EXCEEDED and "Memory limit (total) exceeded" in e.message)
     )
+
+
+def _dedicated_user_connection_overrides(creds: ClickHouseCredentials) -> dict[str, Any]:
+    """Build get_cluster connection_overrides for a dedicated ClickHouse user.
+
+    Mirrors the file-backed branch of get_pool: a user whose credential comes from a rotating token
+    file passes a credential_provider so RefreshingChPool re-stamps the live token on each checkout,
+    while a static-password user passes the password directly. get_cluster leaves the user override
+    untouched, so the pool authenticates as this user with this user's credential.
+    """
+    overrides: dict[str, Any] = {"user": creds.user}
+    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+        overrides["credential_provider"] = creds.read_password
+    else:
+        overrides["password"] = creds.password
+    return overrides
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -124,7 +146,8 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'backups' user.
 
-    Requires CLICKHOUSE_BACKUPS_USER and CLICKHOUSE_BACKUPS_PASSWORD env vars.
+    Requires CLICKHOUSE_BACKUPS_USER and either CLICKHOUSE_BACKUPS_PASSWORD or
+    CLICKHOUSE_BACKUPS_PASSWORD_FILE env vars.
     The backups user must have a server-side settings profile with
     use_concurrency_control=0 (configured in users.xml via Ansible) because
     async BACKUP threads don't inherit session-level settings.
@@ -160,7 +183,7 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
                 delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
-            connection_overrides={"user": creds.user, "password": creds.password},
+            connection_overrides=_dedicated_user_connection_overrides(creds),
         )
 
 
@@ -168,7 +191,8 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'part_breaker' user.
 
-    Requires CLICKHOUSE_PART_BREAKER_USER and CLICKHOUSE_PART_BREAKER_PASSWORD env vars.
+    Requires CLICKHOUSE_PART_BREAKER_USER and either CLICKHOUSE_PART_BREAKER_PASSWORD or
+    CLICKHOUSE_PART_BREAKER_PASSWORD_FILE env vars.
     The part_breaker user needs SELECT on system tables, CREATE/DROP/INSERT/ALTER on
     staging tables, and ALTER FREEZE / DROP PART on source tables.
     """
@@ -197,7 +221,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
                 delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
-            connection_overrides={"user": creds.user, "password": creds.password},
+            connection_overrides=_dedicated_user_connection_overrides(creds),
         )
 
 

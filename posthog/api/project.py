@@ -1699,6 +1699,7 @@ class ProjectViewSet(
         request=None,
         responses={200: ProjectSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=True,
