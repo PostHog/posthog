@@ -120,10 +120,16 @@ ACTIVE_DAYS_ENV_VAR = "MARKETING_PRECOMPUTE_ACTIVE_DAYS"
 DEFAULT_ACTIVE_DAYS = 30
 ACTIVE_TEAMS_QUERY_TIMEOUT_SECONDS = 60
 
-# Teams warmed in parallel per run. Warming is I/O-bound (ClickHouse INSERTs), so threads overlap the
-# waits; the ceiling keeps concurrent ClickHouse load and DB connections bounded. Tunable per environment.
+# Teams warmed in parallel per shard. Threads overlap the ClickHouse INSERT waits; shards x this bounds the
+# concurrent INSERTs and DB connections across the run. Tunable per environment.
 TEAM_CONCURRENCY_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_CONCURRENCY"
-DEFAULT_TEAM_CONCURRENCY = 8
+DEFAULT_TEAM_CONCURRENCY = 4
+
+# Processes the job fans teams out into. Each shard prints HogQL on its own core; the run pod requests
+# 6 CPUs, so more shards than that only contend for cores.
+SHARDS_ENV_VAR = "MARKETING_PRECOMPUTE_SHARDS"
+DEFAULT_SHARDS = 6
+MAX_SHARDS = 16
 
 _TOUCHPOINTS_TABLE_LABEL = LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED.value
 _CONVERSIONS_TABLE_LABEL = LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED.value
@@ -234,6 +240,7 @@ def _ensure_chunks(
     start: datetime,
     end: datetime,
     chunk_days: int,
+    database: Database | None = None,
 ) -> int:
     """Drive ensure_precomputed for one (team, table, query) across the window, one bounded chunk at a
     time. `build_insert_query` is called fresh per chunk (the executor resolves the time-window
@@ -262,6 +269,7 @@ def _ensure_chunks(
                 time_range_end=chunk_end,
                 ttl_seconds=ttl_seconds,
                 table=table,
+                database=database,
             )
         except Exception:
             ensure_seconds += time.monotonic() - ensure_started
@@ -297,6 +305,7 @@ def _ensure_touchpoints_for_team(
     start: datetime,
     end: datetime,
     chunk_days: int,
+    database: Database | None = None,
 ) -> int:
     """Warm the goal-agnostic touchpoints table over [start, end] (start already reaches back past the
     attribution window). One warmed window serves every conversion goal / attribution mode.
@@ -316,6 +325,7 @@ def _ensure_touchpoints_for_team(
         start,
         end,
         chunk_days,
+        database,
     )
 
 
@@ -328,6 +338,7 @@ def _ensure_conversions_for_team(
     start: datetime,
     end: datetime,
     chunk_days: int,
+    database: Database | None = None,
 ) -> tuple[int, int]:
     """Warm the per-goal conversions table over [start, end] (no attribution backfill — the conversion
     event itself must fall in-range). One lazy job per precomputable goal; ineligible goals are skipped
@@ -357,8 +368,23 @@ def _ensure_conversions_for_team(
             start,
             end,
             chunk_days,
+            database,
         )
     return goals_warmed, failures
+
+
+def _build_team_database(team: Team) -> Database:
+    """The HogQL database every INSERT for this team prints against.
+
+    Built userless with warehouse access control bypassed and the default modifiers, which is what the
+    executor builds per INSERT when it gets none. Building it once per team instead of once per bucket
+    removes most of the warmer's CPU, which the process otherwise spends rebuilding the same schema.
+    """
+    return Database.create_for(
+        team=team,
+        modifiers=create_default_modifiers_for_team(team),
+        bypass_warehouse_access_control=True,
+    )
 
 
 def _team_has_cost_sources(team: Team) -> bool:
@@ -370,7 +396,12 @@ def _team_has_cost_sources(team: Team) -> bool:
 
 
 def _ensure_costs_for_team(
-    context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime, chunk_days: int
+    context: dagster.OpExecutionContext,
+    team: Team,
+    start: datetime,
+    end: datetime,
+    chunk_days: int,
+    database: Database | None = None,
 ) -> tuple[int, int]:
     """Warm the per-source cost table at every supported grain over [start, end] (no attribution
     backfill). The database is built userless with warehouse access control bypassed — the materialization
@@ -379,11 +410,8 @@ def _ensure_costs_for_team(
     Returns (source_grain_pairs_warmed, failures).
     """
     # Database.create_for is ~550ms; build once and share across grains/sources for this team.
-    database = Database.create_for(
-        team=team,
-        modifiers=create_default_modifiers_for_team(team),
-        bypass_warehouse_access_control=True,
-    )
+    if database is None:
+        database = _build_team_database(team)
     base_currency = team.base_currency or DEFAULT_CURRENCY
     warmed = 0
     failures = 0
@@ -417,6 +445,7 @@ def _ensure_costs_for_team(
                 start,
                 end,
                 chunk_days,
+                database,
             )
     return warmed, failures
 
@@ -435,6 +464,7 @@ class _TeamWarmPlan(NamedTuple):
     attribution_window_days: int
     filter_test_accounts: bool
     warm_costs: bool
+    database: Database | None = None
 
     @property
     def warm_conversions(self) -> bool:
@@ -509,7 +539,7 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
                 # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
                 tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
                 failures += _ensure_touchpoints_for_team(
-                    context, team, plan.filter_test_accounts, tp_start, end, PRECOMPUTE_CHUNK_DAYS
+                    context, team, plan.filter_test_accounts, tp_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
                 )
                 # Conversions need no attribution backfill — the conversion event must fall in the query range.
                 # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
@@ -524,6 +554,7 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
                     conv_start,
                     end,
                     PRECOMPUTE_CHUNK_DAYS,
+                    plan.database,
                 )
                 failures += conv_failures
                 conversion_teams += 1
@@ -536,7 +567,7 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
             try:
                 costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
                 _sources_warmed, costs_failures = _ensure_costs_for_team(
-                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS
+                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
                 )
                 failures += costs_failures
                 costs_teams += 1  # after the block, mirroring conversion_teams: not counted if it raised
@@ -553,16 +584,19 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
     return _WarmCounts(conversion_teams, costs_teams, failures)
 
 
-@dagster.op
-def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    """Drive ensure_precomputed for the marketing precompute tables over the rolling window per team.
+def _empty_result() -> dict[str, int]:
+    return {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+
+
+def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: datetime) -> dict[str, int]:
+    """Warm the marketing precompute tables over the rolling window for `team_ids`.
 
     Teams are warmed in parallel (`_warm_team` in a thread pool, `MARKETING_PRECOMPUTE_TEAM_CONCURRENCY`
-    workers), since warming is I/O-bound on ClickHouse and the active fleet is hundreds of teams. Each
-    team warms touchpoints + conversions when it has conversion goals, deliberately independent of the
-    `marketing-analytics-precomputation` read flag so the tables are populated before the flip; costs
-    stay gated on the costs precompute flag plus the team having warehouse tables. Every team, and each
-    warming block within it, is isolated — one failure never aborts the rest.
+    workers), which overlaps the ClickHouse INSERTs. Printing each INSERT is CPU-bound Python, so real
+    parallelism across teams comes from running shards in separate processes (see
+    `warm_marketing_precompute_shard_op`). Each team warms touchpoints + conversions when it has
+    conversion goals; costs stay gated on the costs precompute flag plus the team having warehouse tables.
+    Every team, and each warming block within it, is isolated — one failure never aborts the rest.
 
     `conversion_teams` / `costs_teams` count teams whose block ran to completion without an unexpected
     error (its raw material present — goals / warehouse tables), symmetric to each other. They
@@ -571,18 +605,8 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
     """
     # Tag the op thread too (workers re-tag themselves). Keeps any op-thread ClickHouse work attributable.
     tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
-
-    end = datetime.now(UTC)
-    team_ids = list(dict.fromkeys(get_selected_team_ids()))  # dedupe so a repeated id doesn't warm twice
-    context.log.info(
-        f"marketing_precompute_start teams={len(team_ids)} window_days={PRECOMPUTE_WINDOW_DAYS} "
-        f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
-    )
     if not team_ids:
-        context.log.info(f"marketing_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
-        result = {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
-        context.add_output_metadata(result)
-        return result
+        return _empty_result()
 
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     teams = [teams_by_id[team_id] for team_id in team_ids if team_id in teams_by_id]
@@ -601,22 +625,43 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
         else:
             plans.append(plan)
 
-    concurrency = int(os.getenv(TEAM_CONCURRENCY_ENV_VAR, str(DEFAULT_TEAM_CONCURRENCY)))
+    concurrency = max(1, int(os.getenv(TEAM_CONCURRENCY_ENV_VAR, str(DEFAULT_TEAM_CONCURRENCY))))
     context.log.info(
         f"marketing_precompute_planned plans={len(plans)} concurrency={concurrency} "
         f"plan_ms={round((time.monotonic() - plan_started) * 1000)}"
     )
     conversion_teams = 0
     costs_teams = 0
-    if plans:
-        warm_started = time.monotonic()
-        with ThreadPoolExecutor(max_workers=max(1, min(concurrency, len(plans))), thread_name_prefix="ma_warm") as pool:
-            futures = [pool.submit(_warm_team, context, plan, end) for plan in plans]
-            for done, future in enumerate(as_completed(futures), start=1):
+    done = 0
+    warm_started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ma_warm") as pool:
+        # Batches of `concurrency`: each team's database is built on the main thread (it reads Postgres,
+        # which worker threads must not) just before its batch runs, so only one batch of databases is
+        # held in memory at a time.
+        for batch_start in range(0, len(plans), concurrency):
+            batch: list[_TeamWarmPlan] = []
+            db_started = time.monotonic()
+            for plan in plans[batch_start : batch_start + concurrency]:
+                if not (plan.warm_conversions or plan.warm_costs):
+                    batch.append(plan)  # nothing to warm, so skip the database build
+                    continue
+                try:
+                    batch.append(plan._replace(database=_build_team_database(plan.team)))
+                except Exception:
+                    MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="database").inc()
+                    logger.exception("marketing_precompute_database_failed", team_id=plan.team.pk)
+                    failures += 1
+            context.log.info(
+                f"marketing_precompute_databases_built teams={len(batch)} "
+                f"ms={round((time.monotonic() - db_started) * 1000)}"
+            )
+            futures = [pool.submit(_warm_team, context, plan, end) for plan in batch]
+            for future in as_completed(futures):
                 conv_inc, costs_inc, fail_inc = future.result()
                 conversion_teams += conv_inc
                 costs_teams += costs_inc
                 failures += fail_inc
+                done += 1
                 context.log.info(
                     f"marketing_precompute_progress done={done}/{len(plans)} "
                     f"elapsed_s={round(time.monotonic() - warm_started)}"
@@ -626,32 +671,98 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
         f"marketing_precompute_complete teams={len(teams)} conversion_teams={conversion_teams} "
         f"costs_teams={costs_teams} failures={failures}"
     )
-    result = {
+    return {
         "teams": len(teams),
         "conversion_teams": conversion_teams,
         "costs_teams": costs_teams,
         "failures": failures,
     }
+
+
+def warm_selected_teams(context: dagster.OpExecutionContext) -> dict[str, int]:
+    """Warm every selected team in this process. The job fans out instead; this is the single-process path."""
+    return _warm_teams(context, list(dict.fromkeys(get_selected_team_ids())), datetime.now(UTC))
+
+
+def _shard_count() -> int:
+    return min(MAX_SHARDS, max(1, int(os.getenv(SHARDS_ENV_VAR, str(DEFAULT_SHARDS)))))
+
+
+@dagster.op(out=dagster.DynamicOut(dict))
+def split_marketing_precompute_teams_op(context: dagster.OpExecutionContext):
+    """Select the teams to warm and fan them out into team-disjoint shards.
+
+    Each shard becomes its own mapped op, a separate subprocess with its own GIL. Printing each INSERT is
+    CPU-bound Python, so threads inside one process queue on the interpreter and real parallelism needs
+    processes. Every shard shares one `end`, so all shards warm the same windows.
+    """
+    team_ids = list(dict.fromkeys(get_selected_team_ids()))  # dedupe so a repeated id doesn't warm twice
+    shards = _shard_count()
+    context.log.info(
+        f"marketing_precompute_start teams={len(team_ids)} shards={shards} window_days={PRECOMPUTE_WINDOW_DAYS} "
+        f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
+    )
+    if not team_ids:
+        context.log.info(f"marketing_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
+        return
+    end = datetime.now(UTC).isoformat()
+    buckets: dict[int, list[int]] = {}
+    for team_id in team_ids:
+        buckets.setdefault(team_id % shards, []).append(team_id)
+    for shard_index in sorted(buckets):
+        yield dagster.DynamicOutput({"team_ids": buckets[shard_index], "end": end}, mapping_key=f"shard_{shard_index}")
+
+
+@dagster.op
+def warm_marketing_precompute_shard_op(context: dagster.OpExecutionContext, shard: dict) -> dict[str, int]:
+    result = _warm_teams(context, shard["team_ids"], datetime.fromisoformat(shard["end"]))
     context.add_output_metadata(result)
     return result
+
+
+@dagster.op
+def summarize_marketing_precompute_op(context: dagster.OpExecutionContext, results: list[dict]) -> dict[str, int]:
+    total = _empty_result()
+    for result in results:
+        for key in total:
+            total[key] += result[key]
+    context.log.info(
+        f"marketing_precompute_summary shards={len(results)} teams={total['teams']} "
+        f"conversion_teams={total['conversion_teams']} costs_teams={total['costs_teams']} "
+        f"failures={total['failures']}"
+    )
+    context.add_output_metadata(total)
+    return total
 
 
 @dagster.job(
     description=(
         f"Warms the marketing analytics precompute tables ({_TOUCHPOINTS_TABLE_LABEL}, "
         f"{_CONVERSIONS_TABLE_LABEL}, {_COSTS_TABLE_LABEL}) over the trailing {PRECOMPUTE_WINDOW_DAYS} "
-        f"days for the teams in the {SELECTED_TEAM_IDS_ENV_VAR} audience, warming teams in parallel and "
-        f"gating per table on the same precompute flags the read "
+        f"days for the teams in the {SELECTED_TEAM_IDS_ENV_VAR} audience, fanning teams out across "
+        f"processes and gating per table on the same precompute flags the read "
         f"path checks, by driving the lazy-computation framework's ensure_precomputed. Re-runs only "
         f"recompute expired windows."
     ),
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/max_runtime": str(2 * 60 * 60),
+        # One subprocess per shard, each printing HogQL on its own core, so the run pod needs CPU for the
+        # shards and memory for that many Django interpreters. Matches the web cache warming job.
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"cpu": "6000m", "memory": "12Gi"},
+                    "limits": {"memory": "12Gi"},
+                }
+            }
+        },
     },
 )
 def marketing_precompute_job():
-    ensure_marketing_precompute_op()
+    summarize_marketing_precompute_op(
+        split_marketing_precompute_teams_op().map(warm_marketing_precompute_shard_op).collect()
+    )
 
 
 @dagster.schedule(
