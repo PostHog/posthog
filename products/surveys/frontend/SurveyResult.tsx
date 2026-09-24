@@ -47,6 +47,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     const {
         survey,
         dataTableQuery,
+        responsesExportQuery,
         surveyLoading,
         surveyAsInsightURL,
         isAnyResultsLoading,
@@ -110,6 +111,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                                 noIndent: true,
                                             },
                                             dataTableExportExcludedColumns: ['response', 'actions'],
+                                            dataTableExportQuery: responsesExportQuery ?? undefined,
                                             dataTableRowsTransformer: (rows) =>
                                                 transformSurveyResponseRows(rows, survey),
                                             rowProps: (record: unknown) => {
