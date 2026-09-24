@@ -20,6 +20,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { keepSubmenuOpenOnRepeatPress } from 'lib/ui/Menus/keepSubmenuOpenOnRepeatPress'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { useSubmenuSafeTriangle } from 'lib/ui/Menus/useSubmenuSafeTriangle'
 import { cn } from 'lib/utils/css-classes'
@@ -166,7 +167,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <DropdownMenuSeparator />
 
                                 {isAuthenticatedTeam(currentTeam) && (
-                                    <Menu.SubmenuRoot>
+                                    <Menu.SubmenuRoot onOpenChange={keepSubmenuOpenOnRepeatPress}>
                                         <Menu.SubmenuTrigger
                                             openOnHover={false}
                                             ref={projectSubmenu.triggerRef}
@@ -269,7 +270,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     )}
                                 </Label>
                                 <DropdownMenuSeparator />
-                                <Menu.SubmenuRoot>
+                                <Menu.SubmenuRoot onOpenChange={keepSubmenuOpenOnRepeatPress}>
                                     <Menu.SubmenuTrigger
                                         openOnHover={false}
                                         ref={organizationSubmenu.triggerRef}
