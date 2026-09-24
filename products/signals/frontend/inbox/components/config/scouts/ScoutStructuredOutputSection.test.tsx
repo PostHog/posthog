@@ -128,8 +128,12 @@ describe('ScoutStructuredOutputSection', () => {
         expect(onUpdate).not.toHaveBeenCalled()
     })
 
-    it('turns the channel off with an explicit clear', () => {
+    it('turns the channel off only after the clear is confirmed', () => {
+        // A stray click must not delete a schema the scout records against.
         const onUpdate = openSection({ ...CONFIG, structured_output_schema: SCHEMA })
+
+        fireEvent.click(screen.getByText('Turn off'))
+        expect(onUpdate).not.toHaveBeenCalled()
 
         fireEvent.click(screen.getByText('Turn off'))
         expect(onUpdate).toHaveBeenCalledWith('config-1', { structured_output_schema: null })
