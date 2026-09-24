@@ -1,4 +1,5 @@
 import { BuiltLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
@@ -361,6 +362,24 @@ describe('cohortCountWarningLogic', () => {
 
             expect(logic.props.dataNodeLogicKey).toBe(dataNodeLogicKey)
             expect(logic.props.query).toBe(query)
+        })
+
+        it.each([
+            ['an unsaved cohort does not run the persons query', true, null],
+            ['a saved cohort runs it', false, { results: [] }],
+        ])('%s', async (_name, doNotLoad, expectedResponse) => {
+            const dataNodeLogicKey = `cohort-count-warning-load-${String(doNotLoad)}`
+            const query = createMockQuery(1)
+            const logic = createLogicWithProps({
+                cohort: createMockCohort({ id: doNotLoad ? 'new' : 1 }),
+                query,
+                dataNodeLogicKey,
+                doNotLoad,
+            })
+            logic.mount()
+            await expectLogic(dataNodeLogic({ key: dataNodeLogicKey, query, doNotLoad })).toFinishAllListeners()
+
+            expect(logic.values.response).toEqual(expectedResponse)
         })
     })
 })

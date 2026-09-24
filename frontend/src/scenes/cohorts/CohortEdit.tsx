@@ -232,10 +232,15 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
-    const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
-    const { shouldShowCountWarning } = useValues(warningLogic)
-
     const cohortId = typeof cohort.id === 'number' ? cohort.id : null
+
+    const warningLogic = cohortCountWarningLogic({
+        cohort,
+        query: effectiveQuery,
+        dataNodeLogicKey,
+        doNotLoad: cohortId === null,
+    })
+    const { shouldShowCountWarning } = useValues(warningLogic)
 
     useFileSystemLogView({
         type: 'cohort',

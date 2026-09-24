@@ -515,7 +515,7 @@ export interface cohortEditLogicActions {
 export interface cohortEditLogicMeta {
     key: number | 'new'
     __keaTypeGenInternalSelectorTypes: {
-        effectiveQuery: (query: DataTableNode, persistedColumns: string[] | null) => DataTableNode
+        effectiveQuery: (query: DataTableNode, persistedColumns: string[] | null, cohort: CohortType) => DataTableNode
         canRemovePersonFromCohort: (cohort: CohortType) => boolean | undefined
         isPendingCalculation: (cohort: CohortType) => boolean
         isCalculatingOrPending: (cohort: CohortType, isPendingCalculation: boolean) => boolean
@@ -792,19 +792,36 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
 
     selectors({
-        // The persons table query with the user's persisted column selection applied. Deriving
-        // this in a selector (instead of dispatching a corrective `setQuery` from a listener)
-        // avoids a render with default columns before the persisted ones kick in.
+        // The persons table query with the user's persisted column selection applied, and the
+        // cohort filter pinned to the loaded cohort. Deriving this in a selector (instead of
+        // dispatching a corrective `setQuery` from a listener) avoids a render with default
+        // columns before the persisted ones kick in.
         effectiveQuery: [
-            (s) => [s.query, s.persistedColumns],
-            (query: DataTableNode, persistedColumns: string[] | null): DataTableNode => {
-                if (persistedColumns && isDataTableNode(query)) {
-                    const source = query.source as ActorsQuery
-                    if (!objectsEqual(source.select, persistedColumns)) {
-                        return { ...query, source: { ...source, select: persistedColumns } }
+            (s) => [s.query, s.persistedColumns, s.cohort],
+            (query: DataTableNode, persistedColumns: string[] | null, cohort: CohortType): DataTableNode => {
+                if (!isDataTableNode(query)) {
+                    return query
+                }
+                const source = query.source as ActorsQuery
+                let nextSource = source
+                if (persistedColumns && !objectsEqual(source.select, persistedColumns)) {
+                    nextSource = { ...nextSource, select: persistedColumns }
+                }
+                // `props.id` stays 'new' until the scene remounts under the saved cohort's id, so
+                // the filter built at mount time holds NaN. NaN serializes to null and the API
+                // rejects the query, so take the id from the loaded cohort instead.
+                const cohortId = cohort.id
+                if (typeof cohortId === 'number') {
+                    const fixedProperties = (nextSource.fixedProperties ?? []).map((property) =>
+                        property.type === PropertyFilterType.Cohort && property.value !== cohortId
+                            ? { ...property, value: cohortId }
+                            : property
+                    )
+                    if (!objectsEqual(fixedProperties, nextSource.fixedProperties)) {
+                        nextSource = { ...nextSource, fixedProperties }
                     }
                 }
-                return query
+                return nextSource === source ? query : { ...query, source: nextSource }
             },
         ],
         canRemovePersonFromCohort: [
