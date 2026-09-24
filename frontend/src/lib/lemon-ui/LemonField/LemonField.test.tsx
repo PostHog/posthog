@@ -150,6 +150,17 @@ describe('LemonField', () => {
         expect(document.activeElement).toBe(screen.getByLabelText(label))
     })
 
+    it('leaves htmlFor off when the field cannot put an id on its children', () => {
+        render(
+            <LemonField.Pure label="Device types">
+                <LemonInput />
+                <LemonInput />
+            </LemonField.Pure>
+        )
+
+        expect(screen.getByText('Device types').closest('label')).not.toHaveAttribute('for')
+    })
+
     it.each([
         {
             desc: 'function-as-child render prop (the signup dead-click pattern)',

@@ -43,24 +43,6 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
-/**
- * Give the field's input an id the label can point at, so a click on the label focuses the input.
- * An explicit `htmlFor` wins, then an id the child already has, then the generated fallback.
- */
-const linkLabelToInput = (
-    children: React.ReactNode,
-    htmlFor: string | undefined,
-    fallbackId: string
-): { inputId: string; children: React.ReactNode } => {
-    const childElement = isValidElement(children) ? (children as React.ReactElement<{ id?: string }>) : null
-    const existingId = childElement?.props.id
-    const inputId = htmlFor ?? existingId ?? fallbackId
-    return {
-        inputId,
-        children: childElement && existingId !== inputId ? cloneElement(childElement, { id: inputId }) : children,
-    }
-}
-
 const LemonPureField = ({
     label,
     info,
@@ -77,10 +59,15 @@ const LemonPureField = ({
     labelClassName,
     premiumFeature,
 }: LemonPureFieldProps): JSX.Element => {
+    // Point the label at the input it wraps, so clicking the label focuses it. An explicit
+    // `htmlFor` wins, then an id the child already has, then a generated fallback. A child we
+    // cannot put an id on gets no `htmlFor`, rather than a label pointing at nothing.
     const fallbackId = useId()
-    const { inputId, children: labelledChildren } = label
-        ? linkLabelToInput(children, htmlFor, fallbackId)
-        : { inputId: htmlFor, children }
+    const childElement = label && isValidElement(children) ? (children as React.ReactElement<{ id?: string }>) : null
+    const existingId = childElement?.props.id
+    const inputId = htmlFor ?? existingId ?? (childElement ? fallbackId : undefined)
+    const labelledChildren =
+        childElement && existingId !== inputId ? cloneElement(childElement, { id: inputId }) : children
     return (
         <div
             onClick={onClick}
