@@ -540,6 +540,46 @@ class TestGitHubPRWebhook(TestCase):
                 source="pr_closed",
             )
 
+    @parameterized.expand(
+        [
+            ("announced_pr_closed", "https://github.com/posthog/posthog/pull/790", False, 1),
+            ("announced_pr_merged", "https://github.com/posthog/posthog/pull/790", True, 1),
+            ("unannounced_pr_closed", "https://github.com/posthog/posthog/pull/791", False, 0),
+        ]
+    )
+    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.github.pull_request_events.posthoganalytics.capture")
+    def test_pr_closed_queues_slack_thread_notice(
+        self, _name, pr_url, merged, expected_enqueues, _mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Slack task",
+            description="",
+            origin_product=Task.OriginProduct.SLACK,
+            repository="posthog/posthog",
+            state={"slack_notified_pr_url": "https://github.com/posthog/posthog/pull/790"},
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": [pr_url]},
+            output={"pr_url": pr_url},
+        )
+        payload = self._merged_pr_payload(pr_url) if merged else self._closed_pr_payload(pr_url)
+
+        with patch("products.tasks.backend.tasks.tasks.notify_slack_thread_pr_closed.delay") as mock_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(mock_delay.call_count, expected_enqueues)
+        if expected_enqueues:
+            mock_delay.assert_called_once_with(str(run.id), pr_url, merged=merged)
+
     @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_closed_cancel_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
