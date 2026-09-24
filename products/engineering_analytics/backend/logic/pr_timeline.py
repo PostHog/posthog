@@ -51,8 +51,8 @@ class RunAttempt:
     workflow_name: str
     head_sha: str
     attempt: int
-    # When the run was created, which is when its commit arrived. A queued run starts later.
-    pushed_at: datetime
+    # When the workflow run was created. A queued run starts later.
+    queued_at: datetime
     started_at: datetime
     # None while the attempt is still running.
     completed_at: datetime | None
@@ -61,6 +61,12 @@ class RunAttempt:
     succeeded: bool
     # Names of the jobs that failed in this attempt; empty when job data is not synced.
     failed_jobs: tuple[str, ...]
+
+
+@frozen
+class Push:
+    head_sha: str
+    pushed_at: datetime
 
 
 @frozen
@@ -101,6 +107,7 @@ class PRTimelineInput:
     is_open: bool
     is_merged: bool
     is_draft: bool
+    pushes: list[Push]
     attempts: list[RunAttempt]
     gate_attempts: list[GateAttempt]
     # None when the reviews table is not synced.
@@ -127,7 +134,7 @@ class PRTimelineBuilder:
     def __init__(self, pr: PRTimelineInput, master_failures: MasterFailureIndex) -> None:
         self._pr = pr
         self._master_failures = master_failures
-        self._pushes = self._group_pushes(pr.attempts)
+        self._pushes = self._group_pushes(pr.pushes, pr.attempts)
         self._push_times = [push.pushed_at for push in self._pushes]
         self._verdicts = sorted(
             (review for review in pr.reviews or [] if review.state in (APPROVED_STATE, CHANGES_REQUESTED_STATE)),
@@ -137,18 +144,20 @@ class PRTimelineBuilder:
         self._queue_from, self._queue_until = queue_span.started_at, queue_span.ended_at
 
     @staticmethod
-    def _group_pushes(attempts: list[RunAttempt]) -> list[_Push]:
+    def _group_pushes(pushes: list[Push], attempts: list[RunAttempt]) -> list[_Push]:
         by_sha: dict[str, list[RunAttempt]] = defaultdict(list)
         for attempt in attempts:
             by_sha[attempt.head_sha].append(attempt)
-        pushes = []
-        for head_sha, sha_attempts in by_sha.items():
+        grouped = []
+        for push in pushes:
+            sha_attempts = by_sha[push.head_sha]
             by_workflow: dict[str, list[RunAttempt]] = defaultdict(list)
             for attempt in sorted(sha_attempts, key=lambda a: (a.started_at, a.attempt)):
                 by_workflow[attempt.workflow_name].append(attempt)
-            pushed_at = min(attempt.pushed_at for attempt in sha_attempts)
-            pushes.append(_Push(head_sha=head_sha, pushed_at=pushed_at, attempts_by_workflow=dict(by_workflow)))
-        return sorted(pushes, key=lambda push: push.pushed_at)
+            grouped.append(
+                _Push(head_sha=push.head_sha, pushed_at=push.pushed_at, attempts_by_workflow=dict(by_workflow))
+            )
+        return sorted(grouped, key=lambda push: push.pushed_at)
 
     def _queue_span(self) -> _QueueSpan:
         """The continuous queue stretch: from the first gate attempt after the last push to the merge
@@ -190,7 +199,7 @@ class PRTimelineBuilder:
     def _change_points(self) -> list[datetime]:
         points: list[datetime] = [*self._push_times]
         for attempt in self._pr.attempts:
-            points.append(attempt.pushed_at)
+            points.append(attempt.queued_at)
             points.append(attempt.started_at)
             if attempt.completed_at is not None:
                 points.append(attempt.completed_at)
@@ -240,9 +249,8 @@ class PRTimelineBuilder:
         for attempts in push.attempts_by_workflow.values():
             started = [attempt for attempt in attempts if attempt.started_at <= at]
             if not started:
-                # Only a first attempt proves a queue wait: every attempt of a run carries the run's
-                # creation time, so a re-run's would stretch back over the stretch it was red.
-                if any(attempt.attempt == 1 and attempt.pushed_at <= at for attempt in attempts):
+                # Only a first attempt proves a queue wait. A re-run starts after the push's first CI.
+                if any(attempt.attempt == 1 and attempt.queued_at <= at for attempt in attempts):
                     running = True
                 continue
             latest = started[-1]

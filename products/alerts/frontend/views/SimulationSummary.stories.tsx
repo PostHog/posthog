@@ -68,3 +68,14 @@ export const SubDetectorScores: Story = {
         </StoryFrame>
     ),
 }
+
+export const AIWithUnscoredPoints: Story = {
+    render: () => (
+        <StoryFrame>
+            <SimulationSummary
+                result={{ ...SINGLE_RESULT, scores: SCORES.map((score, i) => (TRIGGERED.includes(i) ? score : null)) }}
+                detectorConfig={{ type: 'llm', threshold: 0.7 }}
+            />
+        </StoryFrame>
+    ),
+}

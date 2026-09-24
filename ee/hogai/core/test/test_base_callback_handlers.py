@@ -1,3 +1,5 @@
+import asyncio
+from functools import partial
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -6,9 +8,17 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 
 import posthoganalytics
+from asgiref.sync import async_to_sync
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import StructuredTool
+from opentelemetry import trace
+from parameterized import parameterized
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+
+from posthog.ph_client import get_client
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -44,8 +54,9 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         mock_is_cloud.return_value = False
         mock_get_region.return_value = None
 
-        mock_client = Mock()
-        with patch.object(posthoganalytics, "default_client", mock_client):
+        client = posthoganalytics.Posthog("test-key", send=False)
+        self.addCleanup(client.shutdown)
+        with patch.object(posthoganalytics, "default_client", client):
             runner = ChatAgentRunner(
                 team=self.team,
                 conversation=self.conversation,
@@ -54,6 +65,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
 
             self.assertEqual(len(runner._callback_handlers), 1)
             self.assertIsInstance(runner._callback_handlers[0], CallbackHandler)
+            self.assertFalse(client.capture_trace_context)
 
     @patch("ee.hogai.core.runner.is_cloud")
     @patch("ee.hogai.core.runner.get_instance_region")
@@ -76,6 +88,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
             "US",
             flush_at=1,
             before_send=ai_event_truncator,
+            capture_trace_context=True,
         )
 
     @patch("ee.hogai.core.runner.is_cloud")
@@ -109,12 +122,102 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
             "EU",
             flush_at=1,
             before_send=ai_event_truncator,
+            capture_trace_context=True,
         )
         mock_get_client.assert_any_call(
             "US",
             flush_at=1,
             before_send=ai_event_truncator,
+            capture_trace_context=True,
         )
+
+    @parameterized.expand(
+        [
+            ("sampled", True, True, False),
+            ("subagent", True, True, True),
+            ("unsampled", True, False, False),
+            ("missing_context", False, False, False),
+        ]
+    )
+    def test_callback_events_preserve_run_trace_context(
+        self, _name: str, has_context: bool, sampled: bool, is_subagent: bool
+    ) -> None:
+        parent_span_id = uuid4() if is_subagent else None
+        ai_trace_ids = [uuid4(), uuid4()]
+        contexts = [
+            trace.SpanContext(
+                trace_id=index + 1,
+                span_id=index + 10,
+                is_remote=False,
+                trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED if sampled else trace.TraceFlags.DEFAULT),
+            )
+            for index in range(2)
+        ]
+
+        async def synthetic_tool(value: str) -> str:
+            return value
+
+        tool = StructuredTool.from_function(
+            coroutine=synthetic_tool, name="synthetic_tool", description="Return a synthetic value."
+        )
+
+        with (
+            patch("ee.hogai.core.runner.is_cloud", return_value=True),
+            patch("ee.hogai.core.runner.get_instance_region", return_value="US"),
+            patch("ee.hogai.core.runner.get_client", side_effect=partial(get_client, send=False, disabled=False)),
+            patch("ee.hogai.core.runner.ai_event_truncator", wraps=ai_event_truncator) as capture,
+        ):
+            configs: list[RunnableConfig] = []
+            for ai_trace_id in ai_trace_ids:
+                runner = ChatAgentRunner(
+                    team=self.team,
+                    conversation=self.conversation,
+                    user=self.user,
+                    trace_id=ai_trace_id,
+                    parent_span_id=parent_span_id,
+                )
+                configs.append(runner._get_config())
+                for handler in runner._callback_handlers:
+                    assert isinstance(handler, CallbackHandler)
+                    self.addCleanup(handler._ph_client.shutdown)
+
+            async def run_concurrently() -> None:
+                barrier = asyncio.Barrier(2)
+
+                async def run(index: int) -> None:
+                    span = trace.NonRecordingSpan(contexts[index]) if has_context else trace.INVALID_SPAN
+                    with trace.use_span(span):
+                        await barrier.wait()
+                        model = FakeListChatModel(responses=["synthetic response"])
+                        async for _chunk in model.astream("synthetic input", config=configs[index]):
+                            pass
+                        await tool.ainvoke({"value": "synthetic value"}, config=configs[index])
+
+                await asyncio.gather(run(0), run(1))
+
+            async_to_sync(run_concurrently)()
+
+        for index, ai_trace_id in enumerate(ai_trace_ids):
+            events = [
+                call.args[0]
+                for call in capture.call_args_list
+                if str(call.args[0]["properties"].get("$ai_trace_id")) == str(ai_trace_id)
+            ]
+            self.assertCountEqual(
+                [event["event"] for event in events], ["$ai_generation", "$ai_span" if is_subagent else "$ai_trace"]
+            )
+            for event in events:
+                properties = event["properties"]
+                self.assertTrue(properties["$ai_span_id"])
+                if is_subagent:
+                    self.assertEqual(str(properties["$ai_parent_id"]), str(parent_span_id))
+                if has_context:
+                    self.assertEqual(properties["$trace_id"], f"{contexts[index].trace_id:032x}")
+                    self.assertEqual(properties["$span_id"], f"{contexts[index].span_id:016x}")
+                    self.assertNotEqual(str(properties["$ai_span_id"]), properties["$span_id"])
+                else:
+                    self.assertNotIn("$trace_id", properties)
+                    self.assertNotIn("$span_id", properties)
 
     @patch("ee.hogai.core.runner.is_cloud")
     @patch("ee.hogai.core.runner.get_instance_region")

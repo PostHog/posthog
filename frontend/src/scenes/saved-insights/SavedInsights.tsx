@@ -39,13 +39,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ActivityScope,
-    QueryBasedInsightModel,
-    SavedInsightsTabs,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, InsightModel, SavedInsightsTabs } from '~/types'
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 
@@ -68,13 +62,7 @@ export const scene: SceneExport = {
     emptyState: productAnalyticsEmptyState,
 }
 
-export function InsightIcon({
-    insight,
-    className,
-}: {
-    insight: QueryBasedInsightModel
-    className?: string
-}): JSX.Element | null {
+export function InsightIcon({ insight, className }: { insight: InsightModel; className?: string }): JSX.Element | null {
     let Icon: ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
@@ -295,7 +283,7 @@ export function SavedInsights(): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Delete insight?',
                                                 description:
-                                                    'Are you sure you want to delete this insight? This action can be undone.',
+                                                    'Are you sure you want to delete this insight? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.',
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',
@@ -453,7 +441,7 @@ export function SavedInsights(): JSX.Element {
                                             const noun = count === 1 ? 'insight' : 'insights'
                                             LemonDialog.open({
                                                 title: `Delete ${count} ${noun}?`,
-                                                description: `Are you sure you want to delete ${count} ${noun}? This action can be undone.`,
+                                                description: `Are you sure you want to delete ${count} ${noun}? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.`,
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',

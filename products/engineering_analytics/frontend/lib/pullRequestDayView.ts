@@ -24,8 +24,6 @@ const AUTHOR_CAN_CLEAR: ReadonlySet<Kind> = new Set([
 // Without synced reviews nobody is known to be blocking the PR, so it gets its own group.
 const UNKNOWN_OWNER: ReadonlySet<Kind> = new Set([Kind.ReviewStateUnknown])
 
-export const RED_KINDS: Kind[] = [Kind.RedFixedByPush, Kind.RedPassedOnRerun, Kind.RedMasterBroken, Kind.RedNotProvable]
-
 export interface DayViewRow {
     pr: PRTimelineApi
     isOpen: boolean
@@ -145,26 +143,4 @@ export interface RedTimeByCause {
     /** Red seconds per merged pull request, per cause, in RED_KINDS order. */
     secondsPerMergedPr: { kind: Kind; seconds: number }[]
     totalSecondsPerMergedPr: number
-}
-
-/** Red time on the merged pull requests, split by what turned the check green. */
-export function redTimeByCause(items: PRTimelineApi[]): RedTimeByCause {
-    const merged = items.filter((pr) => pr.merged_at != null)
-    const totals = new Map<Kind, number>(RED_KINDS.map((kind) => [kind, 0]))
-    for (const pr of merged) {
-        for (const { kind, seconds } of stateSeconds(pr)) {
-            if (totals.has(kind)) {
-                totals.set(kind, (totals.get(kind) ?? 0) + seconds)
-            }
-        }
-    }
-    const perPr = RED_KINDS.map((kind) => ({
-        kind,
-        seconds: merged.length ? (totals.get(kind) ?? 0) / merged.length : 0,
-    }))
-    return {
-        mergedCount: merged.length,
-        secondsPerMergedPr: perPr,
-        totalSecondsPerMergedPr: perPr.reduce((sum, entry) => sum + entry.seconds, 0),
-    }
 }

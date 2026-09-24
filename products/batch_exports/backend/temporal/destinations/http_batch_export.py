@@ -116,10 +116,11 @@ class HeartbeatDetails:
         return HeartbeatDetails(last_uploaded_timestamp)
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class HttpInsertInputs(BatchExportInsertInputs):
     """Inputs for HTTP insert activity."""
 
+    data_interval_end: str
     url: str
     token: str
 

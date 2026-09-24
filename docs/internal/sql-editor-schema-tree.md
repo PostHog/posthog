@@ -1,5 +1,16 @@
 # SQL editor schema tree
 
+The Sources tree starts with Popular, containing `events`, `groups`, `persons`, and `sessions`.
+PostHog follows with the full PostHog catalog, sorted by name and qualified with `posthog.`, including those four tables.
+Qualified entries use the same schema fields as their unqualified shortcuts.
+Search includes both categories, and table actions use the name shown in the tree.
+
+The PostHog catalog includes `posthog.ai_events` for AI observability, `posthog.session_replay_events` for recordings, and `posthog.trace_spans` for tracing.
+`posthog.metrics` contains metric data points; join `posthog.metric_series` for their labels.
+`posthog.flag_evaluations` appears when enabled for the organization.
+These tables come from the backend catalog without a separate sidebar allowlist.
+Namespace-only tables retain their `posthog.` prefix when requesting fields.
+
 The SQL editor requests the database catalog with `DatabaseSchemaQuery.includeFields = false`.
 The response contains table names and source metadata, with empty field dictionaries.
 The sidebar does not mount source management or request the full external source list.

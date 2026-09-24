@@ -22,7 +22,6 @@ import {
     FilterLogicalOperator,
     FunnelVizType,
     PropertyFilterType,
-    type QueryBasedInsightModel,
     StepOrderValue,
 } from '~/types'
 
@@ -394,9 +393,7 @@ describe('eventUsageLogic', () => {
     })
 
     describe('dashboardViewedProperties', () => {
-        const dashboard = (
-            tiles: Partial<DashboardTile<QueryBasedInsightModel>>[]
-        ): DashboardType<QueryBasedInsightModel> =>
+        const dashboard = (tiles: Partial<DashboardTile>[]): DashboardType =>
             ({
                 id: 7,
                 created_at: '2026-01-01T00:00:00Z',
@@ -405,12 +402,12 @@ describe('eventUsageLogic', () => {
                 creation_mode: 'default',
                 created_by: { uuid: 'creator' },
                 tiles,
-            }) as unknown as DashboardType<QueryBasedInsightModel>
+            }) as unknown as DashboardType
 
-        const insightTile = (query: unknown, is_sample = false): Partial<DashboardTile<QueryBasedInsightModel>> =>
-            ({ insight: { query, is_sample } }) as unknown as Partial<DashboardTile<QueryBasedInsightModel>>
+        const insightTile = (query: unknown, is_sample = false): Partial<DashboardTile> =>
+            ({ insight: { query, is_sample } }) as unknown as Partial<DashboardTile>
 
-        const cases: [string, Partial<DashboardTile<QueryBasedInsightModel>>[], Record<string, unknown>][] = [
+        const cases: [string, Partial<DashboardTile>[], Record<string, unknown>][] = [
             ['no tiles', [], { item_count: 0, sample_items_count: 0 }],
             [
                 'an insight tile with a query',
@@ -431,9 +428,7 @@ describe('eventUsageLogic', () => {
             ],
             [
                 'text and widget tiles',
-                [{ text: { body: 'hi' } }, { text: { body: 'there' } }, { widget: {} }] as Partial<
-                    DashboardTile<QueryBasedInsightModel>
-                >[],
+                [{ text: { body: 'hi' } }, { text: { body: 'there' } }, { widget: {} }] as Partial<DashboardTile>[],
                 { item_count: 3, text_tiles_count: 2, widget_tiles_count: 1 },
             ],
         ]
@@ -464,7 +459,7 @@ describe('eventUsageLogic', () => {
         ]
 
         it.each(viewerCases)('reports viewer_is_creator when %s', (_, created_by, viewerUuid, expected) => {
-            const withCreator = { ...dashboard([]), created_by } as unknown as DashboardType<QueryBasedInsightModel>
+            const withCreator = { ...dashboard([]), created_by } as unknown as DashboardType
             expect(dashboardViewedProperties(withCreator, null, viewerUuid)).toMatchObject({
                 viewer_is_creator: expected,
                 created_by_system: created_by === null,

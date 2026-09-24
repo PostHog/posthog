@@ -6629,6 +6629,165 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_device_id_bucketing_matches_full_rollout_without_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "device-flag-full-rollout".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![mock!(PropertyFilter,
+                        key: "plan".mock_into(),
+                        value: Some(json!("pro")),
+                        prop_type: PropertyType::Person
+                    )]),
+                    rollout_percentage: Some(100.0)
+                )],
+                ..Default::default()
+            },
+            bucketing_identifier: "device_id".mock_into()
+        );
+
+        let mut person_properties = HashMap::new();
+        person_properties.insert("plan".to_string(), json!("pro"));
+
+        let matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        let result = matcher
+            .get_match(&flag, Some(&person_properties), None, None, &None)
+            .unwrap();
+
+        assert!(
+            result.matches,
+            "a condition at 100% rollout needs no bucket, so a missing device_id must not withhold it"
+        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_matches_pinned_variant_without_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        // The variants need the hash, but the condition pins one, so nothing is hashed.
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "device-flag-pinned-variant".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: Some("control".to_string())
+                )],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            name: None,
+                            key: "control".to_string(),
+                            rollout_percentage: 40.0,
+                            ..Default::default()
+                        },
+                        MultivariateFlagVariant {
+                            name: None,
+                            key: "test".to_string(),
+                            rollout_percentage: 60.0,
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            bucketing_identifier: "device_id".mock_into()
+        );
+
+        let matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "a pinned variant needs no bucket, so a missing device_id must not withhold it"
+        );
+        assert_eq!(result.variant, Some("control".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_withholds_unpinned_variant_without_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        // The percentages leave part of the range unassigned, so the hash picks between
+        // "test" and no variant. The variant-sum rule does not reject this today.
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "device-flag-short-variants".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: None,
+                    rollout_percentage: Some(100.0)
+                )],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![MultivariateFlagVariant {
+                        name: None,
+                        key: "test".to_string(),
+                        rollout_percentage: 50.0,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            bucketing_identifier: "device_id".mock_into()
+        );
+
+        let matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            !result.matches,
+            "an unpinned variant reads the hash, so it must not fall back to distinct_id"
+        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::OutOfRolloutBound);
+    }
+
+    #[tokio::test]
     async fn test_distinct_id_bucketing_ignores_device_id() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(

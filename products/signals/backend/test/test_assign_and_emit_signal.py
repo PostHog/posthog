@@ -19,6 +19,7 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -580,6 +581,32 @@ async def test_recurrence_forks_again_once_the_previous_fork_is_resolved(ateam):
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
     )
     assert third.report_id == second.report_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("dismissal_reason", [MERGE_DISMISSAL_REASON, "wontfix_intentional"])
+async def test_signal_follows_a_merge_pointer_to_the_survivor(ateam, dismissal_reason):
+    # A merged report keeps absorbing matches otherwise: its signals stay in the semantic index
+    # under its own id until the re-emit lands, and a suppressed report accrues them silently.
+    # Only a merge redirects. A hand-written `duplicate_of` on a report dismissed for any other
+    # reason leaves it the sink it was.
+    survivor = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.READY, title="survivor", summary="survivor summary"
+    )
+    source = await _suppressed_report(ateam, dismissal_reason)
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(source.id),
+        content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(survivor.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    result = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(source.id)), weight=WEIGHT_THRESHOLD)
+    )
+
+    assert result.report_id == str(survivor.id if dismissal_reason == MERGE_DISMISSAL_REASON else source.id)
 
 
 @pytest.mark.asyncio

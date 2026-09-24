@@ -1,7 +1,9 @@
 import json
 import datetime as dt
+from typing import TYPE_CHECKING
 
 import pytest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -11,14 +13,21 @@ import pyarrow as pa
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.constants import AvailableFeature
 from posthog.credentials import AWSKeyPair
+from posthog.models import OrganizationMembership, PropertyDefinition, User
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
+from products.access_control.backend.models import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.batch_exports.backend.hogql_source import (
+    UnsupportedHogQLQueryError,
+    validate_hogql_query_for_batch_export,
+)
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import iter_records
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
@@ -29,6 +38,10 @@ from products.batch_exports.backend.temporal.record_batch_model import (
 )
 from products.batch_exports.backend.temporal.sql.sessions import SESSIONS_LOOKBACK_DAYS
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_sessions
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, Team
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -337,9 +350,11 @@ class TestSessionsRecordBatchModelSelection:
 
 
 class TestHogQLQueryRecordBatchModel:
-    async def test_as_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+    async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end):
         model = HogQLQueryRecordBatchModel(
-            team_id=ateam.id, hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events"
+            team_id=ateam.id,
+            hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events",
+            user_id=auser.pk,
         )
         printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
 
@@ -347,10 +362,67 @@ class TestHogQLQueryRecordBatchModel:
         assert f"equals(events.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
         assert "log_comment" in query_parameters
+        # without interval placeholders the query runs as-is, as of now
+        assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
+        assert model.wait_for_data_interval_end is False
 
-    async def test_as_insert_into_s3_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+    async def test_as_query_with_parameters_applies_data_interval(
+        self, ateam, auser, data_interval_start, data_interval_end
+    ):
         model = HogQLQueryRecordBatchModel(
-            team_id=ateam.id, hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events"
+            team_id=ateam.id,
+            user_id=auser.pk,
+            hogql_query=(
+                "SELECT event AS event, timestamp AS timestamp FROM events "
+                "WHERE event = 'test' AND timestamp >= {data_interval_start} "
+                "AND timestamp < {data_interval_end}"
+            ),
+        )
+        printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+
+        upper_bound = f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        lower_bound = f"toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        assert f"less(timestamp, {upper_bound})" in printed_query
+        assert f"greaterOrEquals(timestamp, {lower_bound})" in printed_query
+        # the user's own filters are kept
+        assert "equals(event, %(hogql_val_" in printed_query
+        assert model.wait_for_data_interval_end is True
+
+    async def test_as_query_with_parameters_selects_only_rows_in_data_interval(self, clickhouse_client, ateam, auser):
+        await truncate_events(clickhouse_client)
+        data_interval_start = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
+        data_interval_end = dt.datetime(2021, 1, 15, 11, 0, 0, tzinfo=dt.UTC)
+        events_in_range, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=10,
+            count_outside_range=5,
+            count_other_team=0,
+            table="sharded_events",
+        )
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.pk,
+            user_id=auser.pk,
+            hogql_query=(
+                "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
+                "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+            ),
+        )
+
+        printed_query, parameters = await model._print_query(
+            data_interval_start, data_interval_end, output_format="JSONEachRow"
+        )
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+
+        assert {row["uuid"] for row in rows} == {event["uuid"] for event in events_in_range}
+
+    async def test_as_insert_into_s3_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end):
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.id,
+            hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events",
+            user_id=auser.pk,
         )
         printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
             data_interval_start=data_interval_start,
@@ -404,21 +476,27 @@ class TestHogQLQueryRecordBatchModel:
     @pytest.mark.parametrize(
         "hogql_query,expected_message",
         [
-            ("SELECT event AS event FROM events WHERE {filters}", "Placeholders are not supported"),
-            ("SELECT event AS event FROM events WHERE event = {placeholder_field}", "Placeholders are not supported"),
-            ("SELECT event AS event FROM events WHERE event = {concat('a', 'b')}", "Placeholders are not supported"),
+            (
+                "SELECT event AS event FROM events WHERE {filters}",
+                "Unsupported placeholder. Only {data_interval_start} and {data_interval_end} are supported",
+            ),
+            (
+                "SELECT event AS event FROM events WHERE event = {placeholder_field}",
+                "Unknown placeholder '{placeholder_field}'",
+            ),
+            (
+                "SELECT event AS event FROM events WHERE event = {concat('a', 'b')}",
+                "Unsupported placeholder. Only {data_interval_start} and {data_interval_end} are supported",
+            ),
             ("not a valid query", "Failed to parse HogQL query"),
             ("DROP TABLE events", "Failed to parse HogQL query"),
         ],
         ids=["filters", "placeholder-field", "placeholder-expression", "invalid-syntax", "not-a-select"],
     )
-    async def test_get_hogql_query_raises_on_unsupported_query(
-        self, hogql_query, expected_message, data_interval_start, data_interval_end
-    ):
-        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
-
+    async def test_construction_raises_on_unsupported_query(self, hogql_query, expected_message):
+        # The query is parsed at construction, so an unsupported one fails before any run does.
         with pytest.raises(UnsupportedHogQLQueryError, match=expected_message):
-            model.get_hogql_query(data_interval_start, data_interval_end)
+            HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
 
     @pytest.mark.parametrize(
         "hogql_query",
@@ -429,7 +507,7 @@ class TestHogQLQueryRecordBatchModel:
         ],
         ids=["top-level", "after-union", "in-cte"],
     )
-    async def test_get_hogql_query_rejects_a_settings_clause(self, hogql_query, data_interval_start, data_interval_end):
+    async def test_construction_rejects_a_settings_clause(self, hogql_query):
         """A user query carrying its own SETTINGS is rejected, wherever that clause appears.
 
         The per-query resource limits are sent as request settings, and a query-level SETTINGS clause
@@ -437,14 +515,17 @@ class TestHogQLQueryRecordBatchModel:
         time and bytes-read caps. The parser refusing these is what the limits rest on, and nothing
         else asserts it.
         """
-        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
-
         with pytest.raises(UnsupportedHogQLQueryError, match="settingsClause"):
-            model.get_hogql_query(data_interval_start, data_interval_end)
+            HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
 
     async def test_resolve_batch_exports_model_returns_hogql_model(self):
         batch_export_model = BatchExportModel(
-            name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+            name="hogql",
+            schema=None,
+            hogql_query=(
+                "SELECT event AS event, timestamp AS timestamp FROM events "
+                "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+            ),
         )
 
         _, record_batch_model, model_name, _, _, _ = resolve_batch_exports_model(
@@ -454,11 +535,118 @@ class TestHogQLQueryRecordBatchModel:
         assert isinstance(record_batch_model, HogQLQueryRecordBatchModel)
         assert model_name == "hogql"
         assert record_batch_model.hogql_query == batch_export_model.hogql_query
+        assert record_batch_model.wait_for_data_interval_end is True
 
     async def test_resolve_batch_exports_model_raises_without_hogql_query(self):
         """Without this, a missing query would fall through to the events template path and export the wrong data."""
         with pytest.raises(UnsupportedHogQLQueryError):
             resolve_batch_exports_model(team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None))
+
+    @pytest.mark.parametrize("actor_state", ["missing", "deleted", "inactive", "nonmember", "project-denied"])
+    async def test_rechecks_actor_access_at_runtime(
+        self, ateam: "Team", aorganization: "Organization", auser: User, actor_state: str
+    ) -> None:
+        query = "SELECT event AS event FROM events"
+        await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
+        payload = BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+        _, model, _, _, _, _ = resolve_batch_exports_model(ateam.pk, payload)
+        await model.as_query_with_parameters(None, None)
+
+        if actor_state == "missing":
+            _, model, _, _, _, _ = resolve_batch_exports_model(
+                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query)
+            )
+        elif actor_state == "deleted":
+            await User.objects.filter(pk=auser.pk).adelete()
+        elif actor_state == "inactive":
+            await User.objects.filter(pk=auser.pk).aupdate(is_active=False)
+        elif actor_state == "nonmember":
+            await OrganizationMembership.objects.filter(user=auser, organization=aorganization).adelete()
+        else:
+            aorganization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            await aorganization.asave()
+            membership = await OrganizationMembership.objects.aget(user=auser, organization=aorganization)
+            await AccessControl.objects.acreate(
+                team=ateam,
+                resource="project",
+                resource_id=str(ateam.pk),
+                organization_member=membership,
+                access_level="none",
+            )
+
+        with pytest.raises(UnsupportedHogQLQueryError, match="Save the export again"):
+            await model.as_query_with_parameters(None, None)
+
+    @pytest.mark.parametrize("use_new_events_schema", [False, True])
+    async def test_rechecks_user_property_restrictions_at_runtime(
+        self, ateam: "Team", aorganization: "Organization", auser: User, use_new_events_schema: bool
+    ) -> None:
+        aorganization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        await aorganization.asave()
+        membership = await OrganizationMembership.objects.aget(user=auser, organization=aorganization)
+        prop = await PropertyDefinition.objects.acreate(
+            team=ateam, name="secret_field", type=PropertyDefinition.Type.EVENT, property_type="String"
+        )
+        query = (
+            "WITH source AS (SELECT properties.secret_field AS secret, properties AS all_properties FROM events) "
+            "SELECT secret, all_properties FROM source"
+        )
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+            await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
+            _, model, _, _, _, _ = resolve_batch_exports_model(
+                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+            )
+            before, _ = await model.as_query_with_parameters(None, None)
+            assert "NULL AS secret" not in before
+            assert "JSONDropKeys" not in before
+
+            await PropertyAccessControl.objects.acreate(
+                team=ateam, property_definition=prop, organization_member=membership, access_level="none"
+            )
+            await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
+            after, parameters = await model.as_insert_into_s3_query_with_parameters(
+                None, None, "https://example.com/staging", None, 1
+            )
+
+        assert "NULL AS secret" in after
+        assert "JSONDropKeys" in after
+        assert any(isinstance(value, list) and "secret_field" in value for value in parameters.values())
+
+    async def test_rechecks_table_access_at_runtime(
+        self, ateam: "Team", aorganization: "Organization", auser: User
+    ) -> None:
+        aorganization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        await aorganization.asave()
+        view = await DataWarehouseSavedQuery.objects.acreate(
+            team=ateam,
+            name="export_view",
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            columns={"event": "String"},
+        )
+        query = "SELECT event FROM export_view"
+        with patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
+            await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
+            _, model, _, _, _, _ = resolve_batch_exports_model(
+                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+            )
+            await model.as_query_with_parameters(None, None)
+            membership = await OrganizationMembership.objects.aget(user=auser, organization=aorganization)
+            await AccessControl.objects.acreate(
+                team=ateam,
+                resource="warehouse_view",
+                resource_id=str(view.pk),
+                organization_member=membership,
+                access_level="none",
+            )
+
+            with pytest.raises(UnsupportedHogQLQueryError, match="You don't have access to table `export_view`"):
+                await model.as_query_with_parameters(None, None)
 
 
 @pytest.mark.parametrize("use_new_events_schema", [False, True])

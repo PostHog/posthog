@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
+import { formatResponse } from '@/lib/response'
 import {
     MAX_SUMMARY_CHARS,
     MAX_TRACE_CHARS,
     PER_VALUE_CHAR_LIMIT,
     compactTrace,
-    compactTraceResults,
+    compactTraceResponse,
 } from '@/lib/trace-compaction'
 
 describe('compactTrace', () => {
@@ -137,9 +138,19 @@ describe('compactTrace summary detail', () => {
                 createdAt: '2026-09-02T11:30:23Z',
                 properties: {
                     $ai_model: 'gpt-4',
+                    $ai_temperature: 0.7,
+                    $ai_stream: false,
+                    $ai_effort: 'high',
                     $ai_latency: 1.5,
+                    $ai_time_to_first_token: 0.3,
+                    $ai_request_cost_usd: 0.02,
+                    $ai_total_tokens: 1_200,
+                    $ai_stop_reason: 'end_turn',
                     $ai_tools_called: ['search'],
-                    $ai_is_error: false,
+                    $ai_is_error: true,
+                    $ai_http_status: 429,
+                    $ai_error: 'rate limited while sending: Why did the checkout funnel drop?',
+                    $ai_feedback_text: 'It never answered why the checkout funnel dropped.',
                     $ai_input: 'i'.repeat(5_000),
                     $ai_output_choices: 'o'.repeat(5_000),
                     custom_payload: 'c'.repeat(5_000),
@@ -148,27 +159,52 @@ describe('compactTrace summary detail', () => {
         ],
     }
 
-    it('keeps navigation metadata verbatim and previews everything else', () => {
+    it('keeps navigation metadata verbatim and leaves out everything else', () => {
         const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
 
         const properties = result.events[0].properties
         expect(properties.$ai_model).toBe('gpt-4')
+        // How the model was called is a scalar setting, not conversation
+        // content, so a survey of it does not have to fall back to full detail.
+        expect(properties.$ai_temperature).toBe(0.7)
+        expect(properties.$ai_stream).toBe(false)
+        expect(properties.$ai_effort).toBe('high')
         expect(properties.$ai_latency).toBe(1.5)
+        // Cost and latency are what a summary survey is for, so the scalars it
+        // reads stay whole rather than being omitted as content.
+        expect(properties.$ai_time_to_first_token).toBe(0.3)
+        expect(properties.$ai_request_cost_usd).toBe(0.02)
+        expect(properties.$ai_total_tokens).toBe(1_200)
+        expect(properties.$ai_stop_reason).toBe('end_turn')
         expect(properties.$ai_tools_called).toEqual(['search'])
-        expect(properties.$ai_is_error).toBe(false)
-        expect(properties.$ai_input).toContain('truncated')
-        expect(properties.$ai_output_choices).toContain('truncated')
-        expect(properties.custom_payload).toContain('truncated')
+        expect(properties.$ai_is_error).toBe(true)
+        expect(properties.$ai_http_status).toBe(429)
+        expect(properties.$ai_input).toBeUndefined()
+        expect(properties.$ai_output_choices).toBeUndefined()
+        expect(properties.custom_payload).toBeUndefined()
+        // A provider error and a feedback note are free text, and an error
+        // routinely quotes the prompt back, so a summary keeps the flags that
+        // locate a failed event and drops the words.
+        expect(properties.$ai_error).toBeUndefined()
+        expect(properties.$ai_feedback_text).toBeUndefined()
+        expect(JSON.stringify(result)).not.toContain('checkout funnel')
+        expect(result.events[0]._summaryOmittedKeys).toEqual([
+            '$ai_error',
+            '$ai_feedback_text',
+            '$ai_input',
+            '$ai_output_choices',
+            'custom_payload',
+        ])
         expect(result.events[0].createdAt).toBe('2026-09-02T11:30:23Z')
         expect(result.totalCost).toBe(0.42)
         expect(result._detail.mode).toBe('summary')
     })
 
-    it('previews a structured prompt with readable content, not an empty shell', () => {
-        // `$ai_input` is an array of message objects, so a preview only helps if the
-        // walk's per-item allowances leave room to descend into it.
+    it('carries no fragment of a prompt, however it is structured', () => {
+        // A summary is for a cost or latency survey. Neither a plain string nor a
+        // message array may leak a readable piece of the conversation into one.
         const messages = [
-            { role: 'system', content: 's'.repeat(2_000) },
+            { role: 'system', content: 'You are a helpful assistant.' },
             { role: 'user', content: 'Why did the checkout funnel drop?' },
         ]
 
@@ -178,10 +214,15 @@ describe('compactTrace summary detail', () => {
             'summary'
         ) as any
 
-        const preview = result.events[0].properties.$ai_input
-        expect(preview[0].role).toBe('system')
-        expect(preview[0].content).toContain('sss')
-        expect(preview[0].content).toContain('truncated')
+        expect(JSON.stringify(result)).not.toContain('checkout funnel')
+        expect(result.events[0]._summaryOmittedKeys).toEqual(['$ai_input'])
+    })
+
+    it('leaves out trace-level input and output state', () => {
+        const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
+
+        expect(result.inputState).toBeUndefined()
+        expect(result._summaryOmittedKeys).toEqual(['inputState'])
     })
 
     it('returns far less than the same trace at full detail', () => {
@@ -204,10 +245,12 @@ describe('compactTrace summary detail', () => {
     })
 })
 
-describe('compactTraceResults', () => {
+describe('compactTraceResponse', () => {
     it('compacts the single trace returned by query-llm-trace', () => {
         const hugeInput = 'z'.repeat(PER_VALUE_CHAR_LIMIT + 1)
-        const results = compactTraceResults([{ id: 't1', events: [{ properties: { $ai_input: hugeInput } }] }]) as any[]
+        const results = compactTraceResponse({
+            results: [{ id: 't1', events: [{ properties: { $ai_input: hugeInput } }] }],
+        }).results as any[]
 
         expect(results[0].events[0].properties.$ai_input as string).toContain('truncated')
     })
@@ -222,7 +265,7 @@ describe('compactTraceResults', () => {
             id: `t${i}`,
             events: [{ id: `e${i}`, properties: { $ai_input: [chunk, chunk, chunk, chunk] } }],
         }))
-        const results = compactTraceResults(traces) as any[]
+        const results = compactTraceResponse({ results: traces }).results as any[]
 
         expect(JSON.stringify(results).length).toBeLessThanOrEqual(MAX_TRACE_CHARS + 5_000)
         const sentinel = results[results.length - 1]
@@ -236,12 +279,87 @@ describe('compactTraceResults', () => {
             events: Array.from({ length: 20 }, () => ({ properties: { $ai_input: 'r'.repeat(5_000) } })),
         }))
 
-        const results = compactTraceResults(traces, 'summary')
+        const results = compactTraceResponse({ results: traces }, 'summary').results
 
         expect(JSON.stringify(results).length).toBeLessThanOrEqual(MAX_SUMMARY_CHARS)
     })
 
     it('passes a non-array result through untouched', () => {
-        expect(compactTraceResults(null)).toBeNull()
+        expect(compactTraceResponse({ results: null }).results).toBeNull()
+    })
+
+    // These measure the TOON text the client receives, not the JSON size the walk
+    // budgets against, because TOON runs larger for a nested trace.
+    describe('delivered response size', () => {
+        const message = (role: string, repeat: number): unknown => ({
+            role,
+            content: 'Some conversation text about the user request. '.repeat(repeat),
+        })
+        const largeTrace = {
+            id: 'trace-1',
+            inputState: { messages: [message('user', 40)] },
+            outputState: { messages: [message('assistant', 40)] },
+            events: Array.from({ length: 40 }, (_, i) => ({
+                id: `e${i}`,
+                event: '$ai_generation',
+                properties: {
+                    $ai_span_id: `span-${i}`,
+                    $ai_parent_id: 'root',
+                    $ai_model: 'gpt-4o',
+                    $ai_input: [message('system', 30), message('user', 40)],
+                    $ai_output_choices: [message('assistant', 35)],
+                },
+            })),
+        }
+
+        it.each(['a', '界'])('retains a 40-event summary with %s content', (character) => {
+            const trace = {
+                ...largeTrace,
+                events: largeTrace.events.map((event) => ({
+                    ...event,
+                    properties: {
+                        ...event.properties,
+                        $ai_input: [{ role: 'user', content: character.repeat(2_000) }],
+                        $ai_output_choices: [{ role: 'assistant', content: character.repeat(2_000) }],
+                    },
+                })),
+            }
+            const response = compactTraceResponse({ results: [trace] }, 'summary')
+            const [result] = response.results as any[]
+
+            expect(result.events.map((event: { id: string }) => event.id)).toEqual(
+                trace.events.map((event) => event.id)
+            )
+            expect(result._truncated).toBeUndefined()
+        })
+
+        it.each(
+            (['full', 'summary'] as const).flatMap((detail) =>
+                ['Some conversation text. ', '分析結果を説明してください。', '"quoted"\n\\'].map((content) => ({
+                    detail,
+                    content,
+                }))
+            )
+        )('bounds the complete response for $detail detail with $content', ({ detail, content }) => {
+            const trace = {
+                ...largeTrace,
+                events: largeTrace.events.map((event) => ({
+                    ...event,
+                    properties: { ...event.properties, $ai_input: content.repeat(500) },
+                })),
+            }
+            const response = compactTraceResponse({ results: [trace] }, detail)
+            const contentBlocks = [{ type: 'text', text: formatResponse(response) }]
+
+            expect(JSON.stringify(contentBlocks).length).toBeLessThanOrEqual(detail === 'summary' ? 60_000 : 80_000)
+        })
+
+        it('points a truncated full-detail read at summary detail', () => {
+            const [result] = compactTraceResponse({ results: [largeTrace] }, 'full').results as any[]
+
+            expect(result._truncated.totalEvents).toBe(40)
+            expect(result._truncated.note).toContain('summary')
+            expect(result._truncated.note).toContain('can also omit events')
+        })
     })
 })

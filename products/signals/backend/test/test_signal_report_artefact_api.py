@@ -4,6 +4,8 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.core.management import call_command
+
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -30,6 +32,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportSuggestedReviewer,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 
@@ -85,6 +88,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         if github_login is not None:
             _attach_github_login(user, github_login, uid=f"gh-{email}")
         return user
+
+    def _reviewer_filter_matches(self, report: SignalReport, reviewer: User) -> bool:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?suggested_reviewers={reviewer.uuid}")
+        assert response.status_code == status.HTTP_200_OK
+        return str(report.id) in {row["id"] for row in response.json()["results"]}
 
     def _latest_reviewers(self, report: SignalReport) -> list:
         # suggested_reviewers is append-only: the current reviewers are the latest row's content.
@@ -949,6 +957,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
         assert str(report.id) in {row["id"] for row in original_response.json()["results"]}
         assert str(report.id) not in {row["id"] for row in replacement_response.json()["results"]}
+
+    def test_filter_follows_the_reviewers_row_that_survives_a_delete(self):
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        bob = self._create_org_member("bob@example.com", github_login="bob")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        current = self._create_artefact(report, content=[{"user_uuid": str(bob.uuid)}])
+
+        assert self._reviewer_filter_matches(report, bob)
+        assert not self._reviewer_filter_matches(report, alice)
+
+        delete_response = self.client.delete(self._detail_url(str(report.id), str(current.id)))
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+        assert self._reviewer_filter_matches(report, alice)
+        assert not self._reviewer_filter_matches(report, bob)
+
+    def test_backfill_command_restores_the_filter_for_a_report_missing_its_rows(self):
+        # The state every report written before the reviewer index existed starts in.
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).delete()
+        assert not self._reviewer_filter_matches(report, alice)
+
+        call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
+
+        assert self._reviewer_filter_matches(report, alice)
 
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.

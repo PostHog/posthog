@@ -136,6 +136,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         if self.query.includeSentiment and results and columns:
             sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
                 team=self.team,
+                user=self.user,
                 trace_ids=self._trace_ids_from_results(columns, results),
                 timings=self.timings,
                 modifiers=self.modifiers,

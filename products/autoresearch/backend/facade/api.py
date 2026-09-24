@@ -16,7 +16,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Prefetch, Q
 from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
@@ -65,6 +65,8 @@ from .contracts import (
     ResolvedTemplate,
     Run,
     StoredArtifact,
+    Suggestion,
+    SuggestionNotFound as SuggestionNotFound,
     TemplateInfo,
     TrainingRun,
     TrainingRunHistory,
@@ -225,6 +227,22 @@ def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
         agent_confidence=row.agent_confidence,
         parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
+    )
+
+
+def _suggestion_to_contract(row: AutoresearchSuggestion) -> Suggestion:
+    return Suggestion(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        prompt=row.prompt,
+        priority=row.priority,
+        status=row.status,
+        source=row.source,
+        agent_response=row.agent_response,
+        created_by=row.created_by,
+        linked_iteration_ids=[iteration.id for iteration in row.iterations.all()],
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -662,6 +680,8 @@ def _parent_suggestion_row(
         )
     if suggestion is None:
         raise AutoresearchConflict("parent_suggestion not found on this pipeline.")
+    if suggestion.status == AutoresearchSuggestion.Status.DISMISSED:
+        raise AutoresearchConflict("parent_suggestion was dismissed, so an iteration cannot act on it.")
     return suggestion
 
 
@@ -1015,6 +1035,116 @@ def delete_artifact(
     return ArtifactDeleteResult(path=normalized, deleted=deleted)
 
 
+# ── Suggestions ────────────────────────────────────────────────────────────
+
+
+def list_suggestions(
+    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
+) -> tuple[list[Suggestion], int]:
+    qs = _suggestion_rows(team_id, pipeline_id=pipeline_id).order_by("-created_at")
+    count = qs.count()
+    return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def _suggestion_rows(team_id: int, *, pipeline_id: str | UUID | None) -> Any:
+    """Suggestions in this team, and under ``pipeline_id`` when the route names one.
+
+    The contract lists the linked iteration ids, so they are prefetched here instead of read
+    once per row when a page is serialized.
+    """
+    qs = (
+        AutoresearchSuggestion.objects.for_team(team_id)
+        .select_related("pipeline", "created_by")
+        .prefetch_related(
+            Prefetch(
+                "iterations",
+                queryset=AutoresearchIteration.objects.for_team(team_id).only("id", "parent_suggestion_id"),
+            )
+        )
+    )
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    return qs
+
+
+def get_suggestion(
+    team_id: int, suggestion_id: str | UUID, *, pipeline_id: str | UUID | None = None
+) -> Suggestion | None:
+    suggestion_uuid = _as_uuid(suggestion_id)
+    if suggestion_uuid is None:
+        return None
+    row = _suggestion_rows(team_id, pipeline_id=pipeline_id).filter(pk=suggestion_uuid).first()
+    return _suggestion_to_contract(row) if row else None
+
+
+def create_suggestion(
+    team_id: int, pipeline_id: str | UUID, *, prompt: str, priority: str, created_by: Any
+) -> Suggestion:
+    pipeline = _pipeline_row(team_id, pipeline_id)
+    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+        raise AutoresearchConflict("Cannot submit suggestions to an archived pipeline.")
+    row = AutoresearchSuggestion.objects.create(
+        pipeline=pipeline,
+        created_by=created_by,
+        prompt=prompt,
+        priority=priority,
+        source=AutoresearchSuggestion.Source.USER,
+    )
+    return _suggestion_to_contract(row)
+
+
+def respond_to_suggestion(
+    team_id: int,
+    suggestion_id: str | UUID,
+    *,
+    status: str,
+    agent_response: str | None = None,
+    pipeline_id: str | UUID | None = None,
+) -> Suggestion:
+    """Record how the agent handled a suggestion.
+
+    A suggestion only moves forward: queued, then picked up, then acted on or dismissed. A
+    retried or delayed response therefore cannot undo the ``acted_on`` that recording an
+    iteration set, and ``acted_on`` itself is refused until an iteration is linked, because
+    that is what the status promises the reader. The same status again only updates the note.
+    """
+    suggestion_uuid = _as_uuid(suggestion_id)
+    if suggestion_uuid is None:
+        raise SuggestionNotFound("Suggestion not found.")
+    with transaction.atomic():
+        row = (
+            _suggestion_rows(team_id, pipeline_id=pipeline_id)
+            .select_for_update(of=("self",))
+            .filter(pk=suggestion_uuid)
+            .first()
+        )
+        if row is None:
+            raise SuggestionNotFound("Suggestion not found.")
+        if row.pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+            raise AutoresearchConflict("This pipeline is archived, so its suggestions can no longer be answered.")
+        if status != row.status and _SUGGESTION_RANK[status] <= _SUGGESTION_RANK[row.status]:
+            raise AutoresearchConflict(f"A suggestion cannot move from '{row.status}' to '{status}'.")
+        if status == AutoresearchSuggestion.Status.ACTED_ON and not row.iterations.all():
+            raise AutoresearchConflict(
+                "Record an iteration with parent_suggestion set before marking a suggestion acted_on."
+            )
+        note = row.agent_response if agent_response is None else agent_response
+        if status == AutoresearchSuggestion.Status.DISMISSED and not note.strip():
+            raise AutoresearchConflict("Explain why the suggestion was dismissed in agent_response.")
+        row.status = status
+        row.agent_response = note
+        row.save(update_fields=["status", "agent_response", "updated_at"])
+    return _suggestion_to_contract(row)
+
+
+_SUGGESTION_RANK: dict[str, int] = {
+    AutoresearchSuggestion.Status.QUEUED: 0,
+    AutoresearchSuggestion.Status.PICKED_UP: 1,
+    AutoresearchSuggestion.Status.ACTED_ON: 2,
+    AutoresearchSuggestion.Status.DISMISSED: 2,
+}
+
+
 # ── Recipe validation surface for the presentation layer ───────────────────
 
 # The semantic population kinds the labeler can compile. Presentation validates a submitted
@@ -1047,5 +1177,8 @@ VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
 ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices
+SUGGESTION_PRIORITY_CHOICES = AutoresearchSuggestion.Priority.choices
+SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
+SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices

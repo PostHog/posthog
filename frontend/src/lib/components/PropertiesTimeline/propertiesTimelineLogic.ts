@@ -115,7 +115,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
                         const response = await api.get<RawPropertiesTimelineResult>(
-                            `api/environments/${values.currentTeamId}/persons/${
+                            `api/projects/${values.currentTeamId}/persons/${
                                 props.actor.id
                             }/properties_timeline/?${toParams(props.filter)}`
                         )

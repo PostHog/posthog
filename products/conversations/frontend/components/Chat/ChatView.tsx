@@ -8,6 +8,7 @@ import type {
     AITriageSource,
     AiReplyFeedbackRating,
     ChatMessage,
+    MessageDeliveryStatus,
     Ticket,
     TicketChannel,
     TicketStatus,
@@ -44,10 +45,7 @@ export interface ChatViewProps {
     channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
-    /** Number of team messages that haven't been read by the customer */
-    unreadCustomerCount?: number
-    /** Whether to show delivery status on team messages */
-    showDeliveryStatus?: boolean
+    deliveryStatusByMessageId?: Map<string, MessageDeliveryStatus>
     /** Draft content to restore (for tab persistence) */
     draftContent?: JSONContent | string | null
     /** Called when draft content changes */
@@ -75,6 +73,7 @@ export interface ChatViewProps {
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
+    latestAiDraftId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
@@ -110,8 +109,7 @@ export function ChatView({
     threadId,
     channel,
     showPrivateOption = false,
-    unreadCustomerCount,
-    showDeliveryStatus = false,
+    deliveryStatusByMessageId,
     draftContent,
     onDraftChange,
     isPrivate,
@@ -126,6 +124,7 @@ export function ChatView({
     sendAndSetStatusOptions,
     unsavedTicketChanges,
     latestAiMessageId,
+    latestAiDraftId,
     feedbackByMessageId,
     showAiReplyFeedback,
     aiReplyFeedbackDisabledReason,
@@ -161,9 +160,9 @@ export function ChatView({
                 emptyMessage="No messages yet. Start the conversation!"
                 minHeight={listMinHeight}
                 maxHeight={listMaxHeight}
-                unreadCustomerCount={unreadCustomerCount}
-                showDeliveryStatus={showDeliveryStatus}
+                deliveryStatusByMessageId={deliveryStatusByMessageId}
                 latestAiMessageId={latestAiMessageId}
+                latestAiDraftId={latestAiDraftId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}

@@ -19,9 +19,15 @@ def _api_error(status: int) -> APIStatusError:
     return APIStatusError("boom", response=httpx.Response(status, request=request), body=None)
 
 
-def _mock_client(parse: AsyncMock) -> AsyncMock:
+def _mock_client(final_message: AsyncMock, *, open_error: Exception | None = None) -> AsyncMock:
+    # HTTP errors raise on entering the stream; SSE errors and schema validation raise while draining it.
+    stream = MagicMock()
+    stream.get_final_message = final_message
+    manager = MagicMock()
+    manager.__aenter__ = AsyncMock(return_value=stream, side_effect=open_error)
+    manager.__aexit__ = AsyncMock(return_value=False)
     client = AsyncMock()
-    client.messages.parse = parse
+    client.messages.stream = MagicMock(return_value=manager)
     return client
 
 
@@ -42,16 +48,16 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
     # silently falls back to the gateway default, dropping output_format loses the schema guarantee,
     # and dropping the stage header makes the call unattributable in dumps and cost queries.
     parsed = IssueDeduplication(duplicates=[])
-    mock_parse = AsyncMock(return_value=MagicMock(parsed_output=parsed))
+    client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=parsed)))
 
-    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)) as mock_get:
+    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=client) as mock_get:
         result = await _call()
 
     assert result is parsed
     assert mock_get.call_args.kwargs["product"] == "review_hog"
     assert mock_get.call_args.kwargs["ai_product"] == "review_hog"
     assert mock_get.call_args.kwargs["team_id"] == 1
-    kwargs = mock_parse.call_args.kwargs
+    kwargs = client.messages.stream.call_args.kwargs
     assert kwargs["model"] == ONESHOT_MODEL
     assert kwargs["output_config"] == {"effort": ONESHOT_REASONING_EFFORT}
     assert kwargs["output_format"] is IssueDeduplication
@@ -62,6 +68,19 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_oneshot_call_streams_rather_than_buffering() -> None:
+    client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=IssueDeduplication(duplicates=[]))))
+
+    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=client):
+        await _call()
+
+    client.messages.stream.assert_called_once()
+    client.messages.parse.assert_not_called()
+    client.messages.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("at_open", [True, False], ids=["on_open", "mid_stream"])
 @pytest.mark.parametrize(
     "status,non_retryable",
     [
@@ -71,11 +90,15 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
         (500, False),
     ],
 )
-async def test_api_errors_map_to_temporal_retryability(status: int, non_retryable: bool) -> None:
-    mock_parse = AsyncMock(side_effect=_api_error(status))
+async def test_api_errors_map_to_temporal_retryability(status: int, non_retryable: bool, at_open: bool) -> None:
+    error = _api_error(status)
+    if at_open:
+        client = _mock_client(AsyncMock(), open_error=error)
+    else:
+        client = _mock_client(AsyncMock(side_effect=error))
 
     with (
-        patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)),
+        patch(f"{_MODULE}.build_async_anthropic_client", return_value=client),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await _call()
@@ -94,10 +117,10 @@ async def test_api_errors_map_to_temporal_retryability(status: int, non_retryabl
 async def test_no_parseable_output_retryability_branches_on_stop_reason(stop_reason: str, non_retryable: bool) -> None:
     # No parsed output must raise (never return None into the pipeline), and the retry decision
     # must follow the stop reason.
-    mock_parse = AsyncMock(return_value=MagicMock(parsed_output=None, stop_reason=stop_reason))
+    client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=None, stop_reason=stop_reason)))
 
     with (
-        patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)),
+        patch(f"{_MODULE}.build_async_anthropic_client", return_value=client),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await _call()
@@ -116,14 +139,14 @@ def _validation_error() -> pydantic.ValidationError:
 
 @pytest.mark.asyncio
 async def test_truncated_json_validation_error_becomes_a_compact_application_error() -> None:
-    # The SDK validates the text block inside messages.parse(), so truncated JSON raises a raw
+    # The SDK validates the text block while draining the stream, so truncated JSON raises a raw
     # pydantic.ValidationError there — past the APIError handler and before parsed_output exists.
     # It must surface as the documented compact ApplicationError (retryable, stage-attributed),
     # not an oversized unclassified exception that Temporal's failure serialization chokes on.
-    mock_parse = AsyncMock(side_effect=_validation_error())
+    client = _mock_client(AsyncMock(side_effect=_validation_error()))
 
     with (
-        patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)),
+        patch(f"{_MODULE}.build_async_anthropic_client", return_value=client),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await _call()
@@ -134,10 +157,10 @@ async def test_truncated_json_validation_error_becomes_a_compact_application_err
 
 @pytest.mark.asyncio
 async def test_stage_labels_both_gateway_dialects() -> None:
-    mock_parse = AsyncMock(return_value=MagicMock(parsed_output=IssueDeduplication(duplicates=[])))
+    client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=IssueDeduplication(duplicates=[]))))
 
-    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=_mock_client(mock_parse)) as mock_get:
+    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=client) as mock_get:
         await _call()
 
     assert mock_get.call_args.kwargs["ai_stage"] == "dedup"
-    assert mock_parse.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
+    assert client.messages.stream.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}

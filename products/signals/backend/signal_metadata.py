@@ -22,6 +22,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+# Cap on the signal rows one merge re-points from a source onto its survivor. The move neither
+# pages nor retries, so `report_merge` refuses a source above the cap rather than leaving the
+# remainder pointing at an archived report while the survivor's counters already include them.
+REASSIGN_SIGNAL_ROW_CAP = 5000
+
+
 # The embedding model whose document rows constitute the signal store; every signals
 # ClickHouse query filters on it.
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536

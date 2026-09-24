@@ -10,8 +10,9 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 
+from posthog.ownership.paths import UNOWNED_TEAM
+
 from products.engineering_analytics.backend.facade.contracts import (
-    UNOWNED_TEAM,
     DeliveryComparison,
     DeliveryScopeKind,
     ReadyToMergeMedians,

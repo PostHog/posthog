@@ -14,7 +14,9 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from parameterized import parameterized
 from rest_framework import status
 
@@ -40,6 +42,7 @@ from posthog.api.query import (
     CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+    set_query_id_on_span,
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
@@ -60,6 +63,25 @@ from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREH
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+
+class TestQueryTraceCorrelation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("01234567-89ab-4def-8123-456789abcdef", True),
+            ("0123456789ab4def8123456789abcdef", True),
+            ("person@example.com", False),
+            ("", False),
+            ("01234567-89ab-4def-8123-456789abcdef\n", False),
+        ]
+    )
+    def test_query_trace_correlation_excludes_free_text(self, query_id: str, expected: bool) -> None:
+        provider = TracerProvider()
+        self.addCleanup(provider.shutdown)
+        with provider.get_tracer(__name__).start_as_current_span("query") as span:
+            set_query_id_on_span(span, query_id)
+        assert isinstance(span, ReadableSpan)
+        self.assertEqual(dict(span.attributes or {}), {"query.client_query_id": query_id} if expected else {})
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):

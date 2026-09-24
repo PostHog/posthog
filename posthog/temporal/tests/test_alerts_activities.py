@@ -1,10 +1,14 @@
 import uuid
+import threading
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError, connection, transaction
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -36,6 +40,8 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import (
+    _evaluation_inputs_match,
+    _load_alert_for_evaluation,
     cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
@@ -53,8 +59,14 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
@@ -98,6 +110,7 @@ async def _create_alert(
     schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
+    detector_config: dict | None = None,
 ) -> AlertConfiguration:
     @sync_to_async
     def _create() -> AlertConfiguration:
@@ -127,6 +140,7 @@ async def _create_alert(
             schedule_restriction=schedule_restriction,
             schedule_start_time=schedule_start_time,
             state=state,
+            detector_config=detector_config,
         )
         return alert
 
@@ -312,6 +326,21 @@ class TestPrepareAlert:
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
 
         assert result.action == PrepareAction.EVALUATE
+        assert result.uses_llm_detector is False
+
+    async def test_flags_an_ai_alert_for_the_dedicated_executor(self, ateam) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            interval=IntervalType.DAY,
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        ).model_dump()
+        a = await _create_alert(ateam, query=query, detector_config={"type": "llm", "threshold": 0.7, "window": 90})
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.EVALUATE
+        assert result.uses_llm_detector is True
 
     async def test_auto_disable_when_threshold_bounds_empty(self, ateam) -> None:
         a = await _create_alert(
@@ -441,6 +470,197 @@ class TestPrepareAlert:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestEvaluateAlert:
+    @pytest.mark.parametrize("uses_llm_detector", [False, True])
+    async def test_ai_checks_run_on_their_own_executor(self, alert, uses_llm_detector: bool) -> None:
+        # A model call can hold a thread for a minute; it must not hold one of the shared pool's.
+        thread_names: list[str] = []
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            detector_config={"type": "llm" if uses_llm_detector else "zscore"}
+        )
+
+        def _record_thread(_alert, *, evaluation_id):
+            thread_names.append(threading.current_thread().name)
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_thread):
+            env = ActivityEnvironment()
+            await env.run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=uses_llm_detector),
+            )
+
+        assert thread_names[0].startswith("insight-alert-llm-evaluate") is uses_llm_detector
+
+    @pytest.mark.parametrize("prepared_as_llm_detector", [False, True])
+    async def test_skips_when_the_detector_type_no_longer_matches_the_routed_queue(
+        self, alert, ateam, prepared_as_llm_detector: bool
+    ) -> None:
+        # Only the AI worker holds the model credentials, and prepare picked the queue from the
+        # detector type it read. An edit since then must leave the check to the next tick instead
+        # of running it on a worker that cannot serve it.
+        await sync_to_async(AlertConfiguration.objects.filter(team=ateam, id=alert.id).update)(
+            detector_config={"type": "llm" if prepared_as_llm_detector else "zscore"}
+        )
+
+        with patch("posthog.temporal.alerts.activities.check_alert_for_insight") as mock_evaluate:
+            env = ActivityEnvironment()
+            result = await env.run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(
+                    alert_id=str(alert.id),
+                    uses_llm_detector=not prepared_as_llm_detector,
+                    team_id=ateam.id,
+                ),
+            )
+
+        mock_evaluate.assert_not_called()
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration_id=alert.id).exists)()
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
+        assert refreshed.next_check_at == alert.next_check_at
+
+    async def test_an_unavailable_detector_is_not_counted_on_every_attempt(self, alert, ateam) -> None:
+        # Temporal retries this activity, so counting here would report one scheduled check as
+        # several failures. The retry-exhausted path owns the count instead.
+        await sync_to_async(AlertConfiguration.objects.filter(team=ateam, id=alert.id).update)(
+            detector_config={"type": "llm"}
+        )
+
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=LLMDetectorUnavailableError("Model timed out"),
+            ),
+            patch("posthog.temporal.alerts.activities.record_ai_detector_check_outcome") as mock_outcome,
+        ):
+            env = ActivityEnvironment()
+            with pytest.raises(LLMDetectorUnavailableError):
+                await env.run(
+                    evaluate_alert,
+                    EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=True, team_id=ateam.id),
+                )
+
+        mock_outcome.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "changes,evaluation_error",
+        [
+            ({"detector_config": {"type": "llm"}}, None),
+            ({"enabled": False}, None),
+            ({"calculation_interval": "monthly"}, None),
+            ({"detector_config": {"type": "llm"}}, ValueError("query failed")),
+            ({"detector_config": {"type": "llm"}}, LLMDetectorMisconfiguredError("invalid configuration")),
+            (None, None),
+        ],
+    )
+    async def test_executor_and_evaluation_use_the_same_config_snapshot(
+        self, alert, ateam, changes, evaluation_error
+    ) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(team=ateam, id=alert.id).update)(
+            detector_config={"type": "zscore"}
+        )
+        thread_names: list[str] = []
+        detector_types: list[str] = []
+
+        async def _load_then_convert(inputs):
+            snapshot = await _load_alert_for_evaluation(inputs)
+            if changes is None:
+                await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).delete)()
+            else:
+                await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(**changes)
+            return snapshot
+
+        def _record_thread(_alert, *, evaluation_id):
+            thread_names.append(threading.current_thread().name)
+            detector_types.append(_alert.detector_config["type"])
+            if evaluation_error:
+                raise evaluation_error
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with (
+            patch("posthog.temporal.alerts.activities._load_alert_for_evaluation", side_effect=_load_then_convert),
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_thread),
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=False, team_id=ateam.id),
+            )
+
+        assert not thread_names[0].startswith("insight-alert-llm-evaluate")
+        assert detector_types == ["zscore"]
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration_id=alert.id).exists)()
+        if changes is not None:
+            saved = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
+            assert saved.state == alert.state
+            assert saved.next_check_at == alert.next_check_at
+
+    @pytest.mark.parametrize("input_kind", ["insight", "threshold"])
+    async def test_evaluation_inputs_cannot_change_between_comparison_and_save(self, alert, input_kind) -> None:
+        def _change_input() -> bool:
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '100ms'")
+                    if input_kind == "insight":
+                        Insight.objects.filter(id=alert.insight_id).update(name="Changed metric")
+                    else:
+                        Threshold.objects.filter(id=alert.threshold_id).update(
+                            configuration={"type": "absolute", "bounds": {"upper": 200.0}}
+                        )
+                return False
+            except OperationalError as error:
+                assert "lock timeout" in str(error)
+                return True
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as writer:
+
+            def _compare_while_editing(evaluated, current):
+                assert writer.submit(_change_input).result(timeout=5)
+                return _evaluation_inputs_match(evaluated, current)
+
+            with (
+                patch(
+                    "posthog.temporal.alerts.activities._evaluation_inputs_match", side_effect=_compare_while_editing
+                ),
+                patch(
+                    "posthog.temporal.alerts.activities.check_alert_for_insight",
+                    return_value=AlertEvaluationResult(value=5.0, breaches=None),
+                ),
+            ):
+                result = await ActivityEnvironment().run(
+                    evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+                )
+
+            assert result.alert_check_id is not None
+            assert writer.submit(_change_input).result(timeout=5) is False
+
+    async def test_retry_keeps_evaluation_id_after_the_schedule_advances(self, alert) -> None:
+        evaluation_ids: list[str] = []
+        schedules: list[datetime | None] = []
+
+        def _record_evaluation(_alert, *, evaluation_id):
+            evaluation_ids.append(evaluation_id)
+            schedules.append(_alert.next_check_at)
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(next_check_at=None)
+        with patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_evaluation):
+            env = ActivityEnvironment()
+            inputs = EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            await env.run(evaluate_alert, inputs)
+            await env.run(evaluate_alert, inputs)
+
+        assert schedules[0] is None
+        assert schedules[1] is not None
+        assert evaluation_ids[0]
+        assert evaluation_ids[0] == evaluation_ids[1]
+
     async def test_evaluate_not_firing_no_breaches(self, alert) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
@@ -494,39 +714,134 @@ class TestEvaluateAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
 
-    async def test_evaluate_auto_disables_and_skips_error_tracking_on_extraction_error(self, alert_with_user) -> None:
-        # A misconfigured query (wrong shape / bad config) fails loud with AlertExtractionError. That's
-        # a config problem, not a bug: it must auto-disable + email the owner, not hit error tracking.
-        # alert_with_user has a subscriber, so this also exercises the send_notifications_for_disabled
-        # branch — guarding against a silent regression where the owner isn't told their alert died.
+    async def test_unavailable_data_records_error_without_disabling(self, alert_with_user) -> None:
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=AlertExtractionError("query returns 2 numeric columns — pick one"),
+                side_effect=AlertDataUnavailableError("SQL history is incomplete"),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.calculated_value is None
+        assert check.error == {"message": "SQL history is incomplete"}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+        mock_capture.assert_not_called()
+        mock_notify.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "rows,has_more,sql_limit,expected_error,expect_disabled",
+        [
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, "", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, " LIMIT 200", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(200)], True, " LIMIT 200", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(50)], False, " LIMIT 100", "at least 169", True),
+            ([[f"hour-{i}", float(i)] for i in range(50)], False, "", "at least", False),
+        ],
+    )
+    async def test_detector_unavailable_data_routes_through_evaluate_alert(
+        self, ateam, auser, rows, has_more, sql_limit, expected_error, expect_disabled
+    ) -> None:
+        # Cross-layer guard: the dispatcher must route a detector-configured HogQL alert into the
+        # extractor whose AlertDataUnavailableError reaches evaluate_alert's typed handler. Only the
+        # query boundary is patched, so a routing or exception-propagation regression fails here.
+        alert = await _create_alert(
+            ateam,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events GROUP BY bucket ORDER BY bucket ASC"
+                + sql_limit,
+            },
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            detector_config={"type": "mad", "window": 168, "threshold": 0.95},
+        )
+        await sync_to_async(alert.subscribed_users.add)(auser)
+        calculation = MagicMock(result=rows, columns=["bucket", "value"], has_more=has_more)
+        with (
+            patch(
+                "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight",
+                return_value=calculation,
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
             patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
         ):
             env = ActivityEnvironment()
-            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+            mock_notify.assert_not_called()
+            if expect_disabled:
+                assert result.alert_check_id is not None
+                await env.run(
+                    notify_alert,
+                    NotifyAlertActivityInputs(alert_id=str(alert.id), alert_check_id=result.alert_check_id),
+                )
 
         assert result.new_state == AlertState.ERRORED
-        assert result.should_notify is False  # disable_invalid_alert already emailed subscribers
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None and expected_error in check.error["message"]
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
+        # A capped result is a configuration error that recurs every check, so it disables and
+        # notifies; a short-but-uncapped history can be a young project growing into its window.
+        assert refreshed.enabled is (not expect_disabled)
+        mock_capture.assert_not_called()
+        if expect_disabled:
+            mock_notify.assert_called_once()
+        else:
+            mock_notify.assert_not_called()
+
+    @pytest.mark.parametrize("error_type", [AlertExtractionError, LLMDetectorMisconfiguredError])
+    async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
+        self, alert_with_user, error_type
+    ) -> None:
+
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=error_type("Alert configuration is invalid"),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.tasks.alerts.utils.send_alert_email") as mock_email,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+            mock_email.assert_not_called()
+
+        assert result.new_state == AlertState.ERRORED
+        assert result.should_notify is True
         mock_capture.assert_not_called()
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.ERRORED
         assert check.error is not None
-        assert "2 numeric columns" in check.error["message"]
+        assert "Alert configuration is invalid" in check.error["message"]
 
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is False
 
-        mock_notify.assert_called_once()
-        notified_alert, reason, targets = mock_notify.call_args.args
-        assert notified_alert.id == alert_with_user.id
-        assert "2 numeric columns" in reason
-        assert targets  # the subscribed owner's email
+        assert result.alert_check_id is not None
+        notify_inputs = NotifyAlertActivityInputs(
+            alert_id=str(alert_with_user.id), alert_check_id=result.alert_check_id
+        )
+        with patch(
+            "posthog.tasks.alerts.utils.send_alert_email", side_effect=[RuntimeError("Mail is unavailable"), None]
+        ) as mock_email:
+            with pytest.raises(RuntimeError, match="Mail is unavailable"):
+                await env.run(notify_alert, notify_inputs)
+            await env.run(notify_alert, notify_inputs)
+            await env.run(notify_alert, notify_inputs)
+        assert mock_email.call_count == 2
+        first, second = mock_email.call_args_list
+        assert first.kwargs["campaign_key"] == second.kwargs["campaign_key"]
+        assert second.kwargs["template_name"] == "alert_disabled"
+        assert second.kwargs["template_context"]["alert_error"] == "Alert configuration is invalid"
+        await sync_to_async(check.refresh_from_db)()
+        assert check.targets_notified
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
@@ -534,7 +849,13 @@ class TestEvaluateAlert:
     # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
     @pytest.mark.parametrize(
         "error_class",
-        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, SocketTimeoutError, NetworkError],
+        [
+            ClickHouseAtCapacity,
+            ClickHouseClusterMemoryLimitExceeded,
+            SocketTimeoutError,
+            NetworkError,
+            LLMDetectorUnavailableError,
+        ],
     )
     async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(
@@ -582,6 +903,105 @@ class TestEvaluateAlert:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestRecordFailedEvaluation:
+    @pytest.mark.parametrize("change", [None, "detector", "insight", "threshold"])
+    async def test_failure_only_records_against_the_prepared_inputs(self, alert, change) -> None:
+        env = ActivityEnvironment()
+        prepared = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+        assert prepared.action == PrepareAction.EVALUATE
+        assert prepared.evaluation_fingerprint
+        if change == "detector":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30}, next_check_at=datetime.now(UTC)
+            )
+        elif change == "insight":
+            await sync_to_async(Insight.objects.filter(id=alert.insight_id).update)(name="Changed metric")
+        elif change == "threshold":
+            await sync_to_async(Threshold.objects.filter(id=alert.threshold_id).update)(
+                configuration={"type": "absolute", "bounds": {"upper": 200.0}}
+            )
+        before = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
+        due_before = before.next_check_at
+        result = await env.run(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(
+                alert_id=str(alert.id),
+                error_message="Model timed out",
+                evaluation_fingerprint=prepared.evaluation_fingerprint,
+                team_id=alert.team_id,
+            ),
+        )
+        if change is None:
+            assert result.alert_check_id is not None
+        else:
+            assert result.alert_check_id is None
+            assert not result.should_notify
+            await before.arefresh_from_db()
+            assert before.state == alert.state
+            assert before.next_check_at == due_before
+            assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)()
+            prepared_again = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+            if change == "detector":
+                assert prepared_again.action == PrepareAction.AUTO_DISABLE
+                await before.arefresh_from_db()
+                assert not before.enabled
+                return
+            assert prepared_again.action == PrepareAction.EVALUATE
+            result_again = await env.run(
+                record_failed_evaluation,
+                RecordFailedEvaluationActivityInputs(
+                    alert_id=str(alert.id),
+                    error_message="Model timed out",
+                    evaluation_fingerprint=prepared_again.evaluation_fingerprint,
+                    team_id=alert.team_id,
+                ),
+            )
+            assert result_again.alert_check_id is not None
+
+    @pytest.mark.parametrize(
+        "error_type,expected_outcomes",
+        [
+            (LLMDetectorUnavailableError.__name__, ["unavailable"]),
+            ("ValueError", []),
+            (None, []),
+        ],
+    )
+    async def test_counts_one_unavailable_outcome_per_recorded_failure(
+        self, alert, error_type, expected_outcomes
+    ) -> None:
+        env = ActivityEnvironment()
+        with patch("posthog.temporal.alerts.activities.record_ai_detector_check_outcome") as mock_outcome:
+            result = await env.run(
+                record_failed_evaluation,
+                RecordFailedEvaluationActivityInputs(
+                    alert_id=str(alert.id),
+                    error_message="Model timed out",
+                    error_type=error_type,
+                    team_id=alert.team_id,
+                ),
+            )
+
+        assert result.alert_check_id is not None
+        assert [call.args[0] for call in mock_outcome.call_args_list] == expected_outcomes
+
+    async def test_does_not_count_an_unavailable_outcome_it_never_recorded(self, alert_with_user) -> None:
+        # A disable between prepare and evaluate writes no errored check, so it is not a failed
+        # detector check either and must not move the health counter.
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.id).update)(enabled=False)
+
+        env = ActivityEnvironment()
+        with patch("posthog.temporal.alerts.activities.record_ai_detector_check_outcome") as mock_outcome:
+            result = await env.run(
+                record_failed_evaluation,
+                RecordFailedEvaluationActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    error_message="Alert disabled between prepare and evaluate",
+                    error_type=LLMDetectorUnavailableError.__name__,
+                ),
+            )
+
+        assert result.alert_check_id is None
+        mock_outcome.assert_not_called()
+
     async def test_skips_disabled_alert_without_recording_or_notifying(self, alert_with_user) -> None:
         # Disabling an alert mid-check makes evaluate_alert raise into this activity. A normal
         # disable must not become an errored check or a "could not evaluate" email to subscribers.
@@ -765,6 +1185,64 @@ class TestNotifyAlert:
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
+    async def test_disabled_alert_notification_does_not_promise_a_retry(self, alert_with_user) -> None:
+        check = await _create_alert_check(
+            alert_with_user,
+            state=AlertState.ERRORED,
+            error={"message": "Insight has a breakdown.", "code": "invalid_configuration"},
+        )
+
+        with (
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
+
+        notification = mock_create_notification.call_args.args[0]
+        assert notification.title.endswith("was turned off")
+        assert "turned this alert off" in notification.body
+        assert "Insight has a breakdown." in notification.body
+        assert "try again" not in notification.body
+
+    async def test_unavailable_detector_notification_names_no_cause_and_no_settings_review(
+        self, alert_with_user
+    ) -> None:
+        next_check_at = datetime(2026, 8, 12, 14, 30, tzinfo=UTC)
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.pk).update)(
+            next_check_at=next_check_at
+        )
+        alert_with_user.next_check_at = next_check_at
+        check = await _create_alert_check(
+            alert_with_user,
+            state=AlertState.ERRORED,
+            error={"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+        )
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_errors",
+                return_value=[_email_delivery("alice@posthog.com")],
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
+
+        notification = mock_create_notification.call_args.args[0]
+        assert "could not complete this check" in notification.body
+        assert "model provider" not in notification.body
+        assert "there is nothing to change" not in notification.body
+        assert "Review the alert settings" not in notification.body
+        assert "settings need attention" not in notification.body
+        assert "PostHog will try again on August 12, 2026 at 2:30 PM UTC" in notification.body
+
     @pytest.mark.parametrize("message", [None, "", "   "])
     async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": message})
@@ -801,6 +1279,23 @@ class TestNotifyAlert:
         subscriber_email = await sync_to_async(lambda: alert_with_user.subscribed_users.get().email)()
         assert [(delivery.channel, delivery.target) for delivery in deliveries] == [("email", subscriber_email)]
         assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
+
+    @pytest.mark.parametrize(
+        "error,detector_unavailable",
+        [
+            ({"message": "boom"}, False),
+            ({"message": "boom", "code": "invalid_configuration"}, False),
+            ({"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE}, True),
+        ],
+    )
+    async def test_error_email_marks_an_unavailable_detector(
+        self, alert_with_user, error, detector_unavailable
+    ) -> None:
+        with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
+            await sync_to_async(send_notifications_for_errors)(alert_with_user, error, "notification-key")
+
+        template_context = mock_send_alert_email.call_args.kwargs["template_context"]
+        assert template_context["detector_unavailable"] is detector_unavailable
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)

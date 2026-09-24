@@ -79,7 +79,6 @@ import {
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
     RecordingUniversalFilters,
     RecurrenceInterval,
     ScheduledChangeOperationType,
@@ -1032,7 +1031,7 @@ export interface featureFlagLogicValues {
     props: any
     recordingFilterForFlag: Partial<RecordingUniversalFilters>
     recurrenceInterval: RecurrenceInterval | null
-    relatedInsights: QueryBasedInsightModel[]
+    relatedInsights: InsightModel[]
     relatedInsightsLoading: boolean
     repeatsValue: RecurrenceInterval | 'cron' | 'none'
     roleBasedAccessEnabled: boolean
@@ -1323,10 +1322,10 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     loadRelatedInsightsSuccess: (
-        relatedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[],
+        relatedInsights: InsightModel<Node<Record<string, any>>>[],
         payload?: any
     ) => {
-        relatedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[]
+        relatedInsights: InsightModel<Node<Record<string, any>>>[]
         payload?: any
     }
     loadScheduledChanges: () => any
@@ -3295,12 +3294,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         relatedInsights: [
-            [] as QueryBasedInsightModel[],
+            [] as InsightModel[],
             {
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get<PaginatedResponse<InsightModel>>(
-                            `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                            `api/projects/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
                         return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }

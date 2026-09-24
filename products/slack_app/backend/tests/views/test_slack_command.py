@@ -18,13 +18,13 @@ from django.test.client import RequestFactory
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 SIGNING_SECRET = "posthog-code-test-secret"

@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import published_priorities_for
+from products.review_hog.backend.reviewer.constants import FLASH_MODE_MESSAGE_PREFIX, published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
@@ -118,14 +118,17 @@ class TestPostGithubReview:
             post_promo=True,
             marker="m",
             promo_marker="pm",
-            message_prefix="FLASH MODE\n",
+            message_prefix=FLASH_MODE_MESSAGE_PREFIX,
         )
 
         (promo,) = _promo_posts(mock_request)
-        assert promo["body"].startswith("FLASH MODE\nPostHog Review alpha")
+        assert promo["body"].startswith(f"{FLASH_MODE_MESSAGE_PREFIX}PostHog Review alpha")
         (payload,) = _review_posts(mock_request)
-        assert payload["body"] == "FLASH MODE\nbody"
-        assert [c["body"] for c in payload["comments"]] == ["FLASH MODE\nfirst", "FLASH MODE\nsecond"]
+        assert payload["body"] == f"{FLASH_MODE_MESSAGE_PREFIX}body"
+        assert [c["body"] for c in payload["comments"]] == [
+            f"{FLASH_MODE_MESSAGE_PREFIX}first",
+            f"{FLASH_MODE_MESSAGE_PREFIX}second",
+        ]
 
     def test_credential_shapes_are_scrubbed_before_posting(
         self, mock_request: MagicMock, mock_paginated: MagicMock

@@ -145,6 +145,7 @@ export class ToolInputValidationError extends Error {
 
 export type ExecCommandErrorReason =
     | 'unknown_command'
+    | 'tool_as_command'
     | 'batched_command'
     | 'unknown_tool'
     | 'deprecated_tool'
@@ -155,7 +156,6 @@ export type ExecCommandErrorReason =
     | 'invalid_regex'
     | 'unknown_learn_topic'
     | 'needs_confirmation'
-    | 'skills_gate'
 
 /**
  * Thrown by the `exec` dispatcher when it rejects a command before any inner

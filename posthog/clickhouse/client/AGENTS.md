@@ -15,6 +15,11 @@ It routes through `get_client_from_pool`, which uses the token-aware `get_pool` 
 The async temporal client `get_client` in `posthog/temporal/common/clickhouse.py` is token-aware too, because `_request_headers` calls `read_password` on each request.
 Use these paths and token auth is automatic.
 
+`get_cluster` in `posthog/clickhouse/cluster.py` is token-aware for the pod default user: the per-host pools carry a credential provider that re-stamps the live token on each checkout.
+Its bootstrap discovery client is long-lived and cannot re-read the file, so it keeps the non-expiring static password when the user has one, and only a token-first user bakes the token into it.
+A caller that connects as a different user through `connection_overrides` owns its own credential.
+The backups and part_breaker Dagster resources do this: each sets `credential_provider` itself when its user is file-backed, the way `get_pool` does.
+
 Token-awareness is lost when you pass your own `sync_client` to `sync_execute`, or build your own pool or client.
 
 ## A custom pool or client must stay token-aware
@@ -24,7 +29,7 @@ Token-awareness is lost when you pass your own `sync_client` to `sync_execute`, 
 Build a custom native pool for a timeout or a setting only by replicating the file-backed branch of `get_pool`.
 A pool that skips this branch stays on the static password with no error.
 Resolve the credentials with `get_clickhouse_creds`.
-When `_is_file_backed_user` is true, pop the static `password` and pass `credential_provider=creds.read_password` to `make_ch_pool`.
+When `is_file_backed_user` is true, pop the static `password` and pass `credential_provider=creds.read_password` to `make_ch_pool`.
 `read_password` reads the token file on each call.
 It falls back to the static password when the file is unreadable or empty.
 For a user that keeps a static password, it also falls back when the token has expired or is about to expire.
@@ -33,6 +38,8 @@ The canonical native implementation is `get_pool`.
 
 An HTTP or one-shot client is rebuilt on each call, so it needs no credential provider.
 Resolve the token once with `creds.read_password()` and pass it as the password, the way `get_http_kwargs` does.
+A client that is retained and reconnects is not one-shot: a token baked into it expires with no recovery, because `read_password`'s expired-token fallback only fires when it is called again.
+Give such a client the static password, or a refreshing pool.
 
 ## Wire the username, or the user falls back to the default user
 

@@ -8,7 +8,16 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
+## Repository selection
+
+The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
+For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
+Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
+This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
+
 ## Reviewer notifications
+
+Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
 
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
 The same access rule applies when a reviewer is added later.

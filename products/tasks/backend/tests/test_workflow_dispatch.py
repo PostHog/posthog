@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from datetime import timedelta
 from typing import cast
 
@@ -9,11 +10,13 @@ from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade.api import (
@@ -23,6 +26,7 @@ from products.tasks.backend.facade.api import (
     maintain_workflow_dispatch_outbox,
     resume_task_run_in_cloud,
 )
+from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
     WorkflowDispatchFlags,
@@ -42,11 +46,12 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 )
 from products.tasks.backend.management.commands.run_task_workflow_dispatcher import (
     Command,
+    _scheduled_run_usage_error,
     _user_can_dispatch,
-    restart_attempt_already_started,
+    dispatch_attempt_already_started,
 )
 from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
-from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
+from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
@@ -69,13 +74,15 @@ class TestWorkflowDispatchPayload(SimpleTestCase):
 
     def test_restart_retry_recognizes_workflow_started_by_prior_attempt(self) -> None:
         enqueued_at = django_timezone.now()
-        dispatch = Mock(workflow_id="workflow-id", enqueued_at=enqueued_at)
+        dispatch = Mock(
+            workflow_id="workflow-id", enqueued_at=enqueued_at, dispatch_kind=TaskWorkflowDispatch.Kind.RESTART
+        )
         description = Mock(status=WorkflowExecutionStatus.RUNNING, start_time=enqueued_at + timedelta(seconds=1))
         handle = Mock(describe=AsyncMock(return_value=description))
         client = Mock()
         client.get_workflow_handle.return_value = handle
 
-        self.assertTrue(asyncio.run(restart_attempt_already_started(client, dispatch)))
+        self.assertTrue(asyncio.run(dispatch_attempt_already_started(client, dispatch)))
         handle.describe.assert_awaited_once_with(
             rpc_timeout=timedelta(seconds=settings.TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS)
         )
@@ -144,6 +151,172 @@ class TestWorkflowDispatchPersistence(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         self.task_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+    @parameterized.expand(
+        [
+            ("scheduled_over_limit", True, True, False),
+            ("scheduled_allowed", True, False, False),
+            ("scheduled_deactivated", True, False, True),
+            ("immediate_unchanged", False, True, False),
+        ]
+    )
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.organization_deactivated")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_dispatch_rechecks_scheduled_usage(
+        self,
+        name: str,
+        scheduled: bool,
+        limited: bool,
+        deactivated: bool,
+        get_usage: Mock,
+        organization_deactivated: Mock,
+        capture_flags: Mock,
+    ) -> None:
+        user = self.task_run.task.created_by
+        assert user is not None
+        OrganizationMembership.objects.create(organization=self.team.organization, user=user)
+        if scheduled:
+            self.task_run.scheduled_at = django_timezone.now() - timedelta(minutes=1)
+            self.task_run.save(update_fields=["scheduled_at"])
+        get_usage.return_value = CodeUsageStatus(limited, "burst" if limited else None, None, False)
+        organization_deactivated.return_value = deactivated
+        dispatch = create_dispatch(
+            self.task_run,
+            TaskWorkflowDispatch.Kind.CREATE,
+            build_create_payload(WorkflowDispatchOptions(user_id=user.id)),
+            self.task_run.workflow_id,
+        )
+        claimed = claim_dispatches("dispatcher-1", 1, timedelta(minutes=1))
+        self.assertEqual([row.id for row in claimed], [dispatch.id])
+        client = Mock(start_workflow=AsyncMock())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
+
+        dispatch.refresh_from_db()
+        self.task_run.refresh_from_db()
+        if scheduled and (limited or deactivated):
+            client.start_workflow.assert_not_called()
+            self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
+            self.assertEqual(self.task_run.status, TaskRun.Status.FAILED)
+            self.assertTrue(self.task_run.error_message)
+            self.assertEqual(self.task_run.error_message, dispatch.last_error)
+        else:
+            client.start_workflow.assert_awaited_once()
+            self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.ACCEPTED)
+        if not scheduled:
+            get_usage.assert_not_called()
+
+    @parameterized.expand([("member", True), ("removed", False)])
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    @patch(
+        "products.tasks.backend.management.commands.run_task_workflow_dispatcher._scheduled_run_usage_error",
+        return_value=None,
+    )
+    def test_scheduled_dispatch_requires_private_channel_access(
+        self, name: str, member: bool, usage_error: Mock, capture_flags: Mock
+    ) -> None:
+        user = self.task_run.task.created_by
+        assert user is not None
+        OrganizationMembership.objects.create(organization=self.team.organization, user=user)
+        channel = Channel.objects.for_team(self.team.id).create(
+            team=self.team, name="Private", channel_type=Channel.ChannelType.PRIVATE
+        )
+        membership = ChannelMembership.objects.for_team(self.team.id).create(team=self.team, channel=channel, user=user)
+        task = self.task_run.task
+        task.channel = channel
+        task.save(update_fields=["channel"])
+        self.task_run.scheduled_at = django_timezone.now() - timedelta(minutes=1)
+        self.task_run.save(update_fields=["scheduled_at"])
+        dispatch = create_dispatch(
+            self.task_run,
+            TaskWorkflowDispatch.Kind.CREATE,
+            build_create_payload(WorkflowDispatchOptions(user_id=user.id)),
+            self.task_run.workflow_id,
+        )
+        if not member:
+            membership.delete()
+        claimed = claim_dispatches("dispatcher-1", 1, timedelta(minutes=1))
+        client = Mock(start_workflow=AsyncMock())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
+
+        dispatch.refresh_from_db()
+        self.task_run.refresh_from_db()
+        if member:
+            client.start_workflow.assert_awaited_once()
+            self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.ACCEPTED)
+        else:
+            client.start_workflow.assert_not_called()
+            usage_error.assert_not_called()
+            self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
+            self.assertEqual(self.task_run.status, TaskRun.Status.FAILED)
+            self.assertEqual(self.task_run.error_message, "User no longer has task access")
+
+    @parameterized.expand(
+        [
+            ("running", WorkflowExecutionStatus.RUNNING, "accepted"),
+            ("completed", WorkflowExecutionStatus.COMPLETED, "accepted"),
+            ("continued", WorkflowExecutionStatus.CONTINUED_AS_NEW, "accepted"),
+            ("failed", WorkflowExecutionStatus.FAILED, "dead"),
+            ("canceled", WorkflowExecutionStatus.CANCELED, "dead"),
+            ("terminated", WorkflowExecutionStatus.TERMINATED, "dead"),
+            ("timed_out", WorkflowExecutionStatus.TIMED_OUT, "dead"),
+            ("missing", RPCStatusCode.NOT_FOUND, "dead"),
+            ("unavailable", RPCStatusCode.UNAVAILABLE, "pending"),
+        ]
+    )
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._scheduled_run_usage_error")
+    def test_scheduled_retry_checks_temporal_before_rejecting_usage(
+        self,
+        name: str,
+        workflow_status: WorkflowExecutionStatus | RPCStatusCode,
+        expected_status: str,
+        usage_error: Mock,
+        capture_flags: Mock,
+    ) -> None:
+        user = self.task_run.task.created_by
+        assert user is not None
+        OrganizationMembership.objects.create(organization=self.team.organization, user=user)
+        self.task_run.scheduled_at = django_timezone.now() - timedelta(minutes=1)
+        self.task_run.save(update_fields=["scheduled_at"])
+        dispatch = create_dispatch(
+            self.task_run,
+            TaskWorkflowDispatch.Kind.CREATE,
+            build_create_payload(WorkflowDispatchOptions(user_id=user.id)),
+            self.task_run.workflow_id,
+        )
+        client = Mock(start_workflow=AsyncMock(side_effect=TimeoutError("Start response lost")))
+        usage_error.return_value = None
+        claimed = claim_dispatches("dispatcher-1", 1, timedelta(minutes=1))
+        async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
+
+        usage_error.return_value = "Usage limit reached"
+        if expected_status == "accepted":
+            OrganizationMembership.objects.filter(organization=self.team.organization, user=user).delete()
+        describe = AsyncMock(return_value=Mock(status=workflow_status))
+        if isinstance(workflow_status, RPCStatusCode):
+            describe.side_effect = RPCError("Lookup failed", workflow_status, b"")
+        client.get_workflow_handle.return_value.describe = describe
+        TaskWorkflowDispatch.objects.for_team(self.team.id).filter(id=dispatch.id).update(
+            next_attempt_at=django_timezone.now()
+        )
+        claimed = claim_dispatches("dispatcher-1", 1, timedelta(minutes=1))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
+
+        dispatch.refresh_from_db()
+        self.task_run.refresh_from_db()
+        self.assertEqual(dispatch.status, expected_status)
+        self.assertEqual(
+            self.task_run.status, TaskRun.Status.FAILED if expected_status == "dead" else TaskRun.Status.QUEUED
+        )
+        client.start_workflow.assert_awaited_once()
+        self.assertEqual(usage_error.call_count, 2 if expected_status == "dead" else 1)
 
     @patch("products.tasks.backend.temporal.client._terminalize_unstarted_task_run")
     def test_malformed_restart_payload_is_terminalized_after_marking_dispatch_dead(self, terminalize: Mock) -> None:
@@ -731,6 +904,64 @@ class TestWorkflowDispatchPersistence(TestCase):
 
 
 class TestWorkflowDispatchPermissions(SimpleTestCase):
+    @parameterized.expand([("allowed", None), ("blocked", "Usage limit reached"), ("error", "error")])
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.usage_limit_response")
+    def test_usage_worker_releases_connections(
+        self, name: str, error: str | None, usage_response: Mock, close_connections: Mock
+    ) -> None:
+        user = Mock()
+        if name == "error":
+            usage_response.side_effect = RuntimeError(error)
+            with self.assertRaises(RuntimeError):
+                _scheduled_run_usage_error(user, 1)
+        else:
+            usage_response.return_value = Mock(data={"error": error}) if error is not None else None
+            self.assertEqual(_scheduled_run_usage_error(user, 1), error)
+        self.assertEqual(close_connections.call_count, 2)
+
+    def test_scheduled_usage_checks_do_not_block_each_other(self) -> None:
+        barrier = threading.Barrier(2, timeout=5)
+        run = Mock(status=TaskRun.Status.QUEUED, scheduled_at=django_timezone.now())
+        dispatches = [
+            Mock(
+                id=dispatch_id,
+                dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+                attempt_count=1,
+                payload=build_create_payload(WorkflowDispatchOptions(user_id=1)),
+            )
+            for dispatch_id in ("first", "second")
+        ]
+        client = Mock(start_workflow=AsyncMock())
+
+        def usage_error(user: User, team_id: int) -> None:
+            barrier.wait()
+
+        async def process() -> None:
+            semaphore = asyncio.Semaphore(2)
+            await asyncio.gather(
+                *(Command()._process(client, dispatch, "worker", semaphore) for dispatch in dispatches)
+            )
+
+        module = "products.tasks.backend.management.commands.run_task_workflow_dispatcher"
+        with (
+            patch(f"{module}.TaskRun.objects") as runs,
+            patch(f"{module}.Team.objects.aget", new_callable=AsyncMock),
+            patch(f"{module}.User.objects.aget", new_callable=AsyncMock),
+            patch(f"{module}.dispatch_exceeded_max_age", return_value=False),
+            patch(f"{module}._user_can_dispatch", return_value=True),
+            patch(f"{module}._scheduled_run_usage_error", side_effect=usage_error),
+            patch(f"{module}._capture_run_feature_flags"),
+            patch(f"{module}.mark_accepted"),
+            patch(f"{module}.observe_task_run_workflow_start"),
+            patch(f"{module}.reschedule") as reschedule_dispatch,
+        ):
+            runs.select_related.return_value.aget = AsyncMock(return_value=run)
+            asyncio.run(process())
+
+        self.assertEqual(client.start_workflow.await_count, 2)
+        reschedule_dispatch.assert_not_called()
+
     @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.UserPermissions")
     @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.User.objects")
     def test_user_requires_current_effective_team_access(self, users: Mock, permissions: Mock) -> None:

@@ -285,9 +285,18 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             actions.loadFeed()
         },
         loadFeedSuccess: ({ feedItems }) => {
+            const items = feedItems ?? []
+            // The click event reports the reason a reader picked; without this one nothing reports the mix
+            // they were offered, so a ranking change cannot be read after it ships.
+            const countByReasonKind: Record<string, number> = {}
+            for (const item of items) {
+                countByReasonKind[item.reason.kind] = (countByReasonKind[item.reason.kind] ?? 0) + 1
+            }
             posthog.capture('replay_vision_watch_feed_viewed', {
-                clip_count: feedItems?.length ?? 0,
-                scanner_count: new Set((feedItems ?? []).map((item) => item.observation.scanner_id)).size,
+                clip_count: items.length,
+                scanner_count: new Set(items.map((item) => item.observation.scanner_id)).size,
+                reason_kind_counts: countByReasonKind,
+                signal_share: items.length > 0 ? (countByReasonKind.signal_emitted ?? 0) / items.length : 0,
             })
         },
         // A card writes `?t=<seconds>` so the player opens at the cited moment; clear it on close so a

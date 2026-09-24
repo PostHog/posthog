@@ -320,6 +320,53 @@ class TestSampleWebAnalyticsQueries(ClickhouseTestMixin, APIBaseTest):
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
         runner.calculate()
 
+    def test_web_overview_with_conversion_goal_snapshot(self):
+        """
+        Overview query with a conversion goal, as sent by the marketing dashboard's
+        customer summary. Pins the shape of the conversion-goal path, which cannot
+        use the pre-aggregated or lazily precomputed overview tables.
+        """
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            conversionGoal=CustomEventConversionGoal(customEventName="signup"),
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_stats_first_pageview_channel_type_with_conversion_goal_snapshot(self):
+        """
+        First-pageview channel type breakdown with a conversion goal and traffic
+        metrics, as sent by the marketing dashboard's acquisition table.
+        """
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE,
+            conversionGoal=CustomEventConversionGoal(customEventName="signup"),
+            includeTrafficMetrics=True,
+            limit=10,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_stats_first_pageview_referring_domain_with_conversion_goal_snapshot(self):
+        """
+        First-pageview referring domain breakdown with a conversion goal and
+        traffic metrics. Same shape as the channel type variant without the
+        channel classifier, so the two snapshots isolate the classifier's cost.
+        """
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.FIRST_PAGEVIEW_REFERRING_DOMAIN,
+            conversionGoal=CustomEventConversionGoal(customEventName="signup"),
+            includeTrafficMetrics=True,
+            limit=10,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
     def test_web_trends_unique_users_snapshot(self):
         """
         Web analytics trends query for unique visitors over time.

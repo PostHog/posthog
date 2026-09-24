@@ -166,7 +166,7 @@ A refused resource produces no user-visible error, so the feature simply does no
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. It is enforced per user behind the `csp-enforce-app-policy` flag, and report-only otherwise.
+- **The app policy** governs every SPA page. It is enforced per user behind the `csp-enforce-app-policy` flag, and report-only otherwise. A signed-out visitor has no user to bucket, so on login, signup, password reset and email verification the `csp-enforce-signed-out-pages` flag enforces it per page load instead. Other signed-out pages stay report-only. Embeddable documents, such as shared dashboards, stay report-only under both flags.
 - **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 

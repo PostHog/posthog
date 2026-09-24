@@ -138,6 +138,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _deployment_row(4, "sha-d", "staging", "2026-01-12 08:30:00", production=False),
                 _deployment_row(5, "sha-e", "prod", "2026-01-05 09:30:00", production=True),
                 _deployment_row(6, "sha-f", "prod", "2026-01-14 09:30:00", production=True),
+                _deployment_row(7, "sha-g", "prod", "2026-01-21 09:30:00", production=True),
             ],
             status_rows=[
                 _status_row(11, 1, "in_progress", "prod", "2026-01-12 09:31:00"),
@@ -146,6 +147,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _status_row(31, 3, "success", "prod", "2026-01-13 12:00:00"),
                 _status_row(41, 4, "success", "staging", "2026-01-12 09:00:00"),
                 _status_row(51, 5, "success", "prod", "2026-01-05 10:00:00"),
+                _status_row(71, 7, "success", "prod", "2026-01-21 10:00:00"),
             ],
             pr_rows=[
                 # alice heads d1 and merges 2h before its success; bob heads d3, 2.5h before its.
@@ -173,8 +175,18 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 ),
                 # Bot merge in the same slot as PR 1: must not move the lead-time figures.
                 _pr_row(3, "dependabot[bot]", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 08:00:00"),
-                # Merged but never deployed in the window: not part of the deployed population.
-                _pr_row(4, "alice", "closed", 0, "2026-01-19 08:00:00", merged_at="2026-01-19 23:00:00"),
+                # Merged in the window but deployed after it: not yet attributed at the horizon.
+                _pr_row(
+                    4,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-19 08:00:00",
+                    merged_at="2026-01-19 23:00:00",
+                    merge_commit_sha="sha-g" if merge_shas_available else None,
+                    base_ref="main",
+                    default_branch="main",
+                ),
                 # Previous window: deployed by d5 (which it heads), backing the _prev twins.
                 _pr_row(
                     5,
@@ -208,6 +220,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     (102, "sha-a", 2 if merge_shas_available else 1, "2026-01-12 08:02:00"),
                     (103, "sha-c", 2, "2026-01-13 09:31:00"),
                     (104, "sha-e", 5, "2026-01-05 08:01:00"),
+                    (105, "sha-g", 4, "2026-01-21 08:01:00"),
                 ]
             ],
             member_rows=member_rows,
@@ -248,8 +261,8 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.median_open_to_deploy_seconds == 100800.0
         assert result.median_open_to_deploy_seconds_prev == 14400.0
         assert result.merged_pr_count == 4  # PRs 1, 2, 4, 6; the bot merge is excluded
-        assert result.unattributed_merged_pr_share == 0.25  # PR 4 merged Jan 19, never deployed
-        assert result.latest_deploy_status_at == datetime(2026, 1, 13, 12, 0, tzinfo=UTC)
+        assert result.unattributed_merged_pr_share == 0.25  # PR 4 deploys after the report horizon
+        assert result.latest_deploy_status_at == datetime(2026, 1, 21, 10, 0, tzinfo=UTC)
 
         assert result.series_granularity == "day"
         frequency = {bucket.bucket_start: bucket.deployment_count for bucket in result.deployment_frequency_series}

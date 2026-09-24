@@ -863,14 +863,30 @@ def _repository_resolves(
 
 
 def _github_retry_wait(state: RetryCallState) -> float:
-    """Sleep until GitHub's advertised rate-limit reset when it gave us one
-    (capped, plus a little jitter so the sources sharing one installation's
-    budget don't all wake at the same reset instant); otherwise fall back to
-    exponential backoff."""
+    """Sleep until the limit that shed this call frees, whichever limit it was.
+
+    Both twins get a timed wait, capped, plus a little jitter so the sources sharing one
+    installation's budget don't all wake at the same instant:
+
+    - ``GitHubRateLimitError`` is GitHub's own limit, and it advertises the reset.
+    - ``GitHubEgressBudgetExhausted`` is *our* limit, and the limiter knows the pace — the
+      same question :func:`_pace_before_request` asks before every request.
+
+    Only the fall-through is blind exponential backoff, which is capped at 30 seconds and so
+    cannot outlast either window. Leaving our own budget on that path meant a shed page
+    retried five times inside ~2 minutes, failed the activity, and let Temporal restart the
+    whole extraction — the shape behind a burst of ~9,700 shed-call errors in one hour.
+    """
     if state.outcome is not None and state.outcome.failed:
         exc = state.outcome.exception()
         if isinstance(exc, GitHubRateLimitError) and exc.retry_after is not None:
             return min(float(exc.retry_after), GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+        if isinstance(exc, GitHubEgressBudgetExhausted) and exc.scope:
+            # Zero means the budget already refilled between the denial and now, so fall through
+            # rather than returning a no-wait retry that would just hammer the gate again.
+            pace = github_installation_pace_seconds(exc.scope, priority=Priority.BATCH)
+            if pace > 0:
+                return min(pace, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
     return _github_backoff_wait(state)
 
 

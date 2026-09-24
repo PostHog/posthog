@@ -94,7 +94,8 @@ ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e2
 # directory to fall back on: without these the release is created with no link back to the code it
 # was built from, and the CLI skips the metadata silently because --release-name/--release-version
 # already let it create the release. The CLI treats empty values as absent, so local builds that
-# pass none of these behave as before.
+# pass none of these behave as before. In the CD workflow the release usually exists already, created
+# with the same metadata before the build, and this stage only looks it up by name and version.
 ARG GITHUB_ACTIONS
 ARG GITHUB_SHA
 ARG GITHUB_REF_NAME
@@ -359,6 +360,14 @@ USER posthog
 # Add the commit hash
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
+
+# The error tracking release this build belongs to. The CD workflow creates the release before the
+# build and passes its id in (see "Resolve error tracking release" in
+# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
+# $release_id on every event, so a backend exception resolves to the same release as the frontend
+# bundles. Empty in every other build, which the SDK treats as unset.
+ARG POSTHOG_RELEASE_ID
+ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles

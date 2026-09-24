@@ -670,12 +670,11 @@ describe('ErrorTrackingPipeline', () => {
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // Cymbal errors are retried 10 times (pipeline default), then propagate
-            // so Kafka doesn't commit and retries the batch
+            // Cymbal errors propagate once the retries are exhausted, so Kafka
+            // doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal was called 3 times (initial + 2 retries) before giving up
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(5)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 

@@ -160,9 +160,11 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
+    lock_insight_for_evaluation,
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
@@ -868,17 +870,24 @@ class InsightSerializer(InsightBasicSerializer):
                     "and this insight is publicly shared."
                 )
 
-        if validated_data.get("deleted", False):
-            hide_tiles_for_insights([instance.id])
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
-        else:
-            dashboard_ids = validated_data.pop("dashboards", None)
-            if dashboard_ids is not None:
-                # The membership write runs before the query is saved, so gate on the incoming one.
-                self._update_insight_dashboards(dashboard_ids, instance, validated_data.get("query", instance.query))
+        with transaction.atomic():
+            if validated_data.get("deleted", False):
+                # Alert creation locks the insight, then checks `deleted`. Taking the same lock before
+                # the sweep keeps a concurrent create from adding an alert the sweep never sees.
+                lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
+                delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
+                hide_tiles_for_insights([instance.id])
+                for alert in instance.alertconfiguration_set.all():
+                    alert.delete()
+            else:
+                dashboard_ids = validated_data.pop("dashboards", None)
+                if dashboard_ids is not None:
+                    # The membership write runs before the query is saved, so gate on the incoming one.
+                    self._update_insight_dashboards(
+                        dashboard_ids, instance, validated_data.get("query", instance.query)
+                    )
 
-        updated_insight = super().update(instance, validated_data)
+            updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -1894,7 +1903,10 @@ class InsightViewSet(
         if not order:
             if self.request.GET.get("search"):
                 return queryset
-            return queryset.order_by("order")
+            # `order` is a vestigial nullable column with no index, so sorting on it forces a full
+            # scan and sort of the project. `-last_modified_at` is covered by dashboarditem_team_lmod_idx.
+            # `-pk` breaks ties so paginated pages stay stable when timestamps collide.
+            return queryset.order_by("-last_modified_at", "-pk")
 
         if order == "-last_viewed_at":
             return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
@@ -2365,6 +2377,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
+                delete_insight_subscriptions(project_id=self.team.project_id, insight_ids=insight_ids)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

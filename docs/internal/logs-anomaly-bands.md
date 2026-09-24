@@ -8,6 +8,15 @@ The API keeps the existing `lower`, `upper`, and `verdict` fields.
 
 ## History and readiness
 
+The volume rollup keeps each bucket for at least 42 days or until its latest raw-log expiry, whichever is later.
+The lifetime is measured from the five-minute bucket start and rounded up to whole days, so timestamp skew and bucket rounding cannot shorten it.
+A 3650-day guard bounds corrupt expiry values, and rows written before the retention migration keep the 42-day floor.
+Rows can expire independently within a shared part; deletion happens during ClickHouse merges, not at an exact wall-clock deadline.
+
+Storage retention does not extend the chart's supported date range by itself.
+The chart still limits the start of a displayed window to 35 days ago; longer history needs a separate reader, API, and UI change.
+The on-demand anomaly scan queries raw logs rather than this rollup, so this storage change does not extend its history.
+
 The chart uses complete UTC weeks before the displayed window, up to the five-week lookback.
 It needs at least four complete weeks: two to fit the weekly pattern and count variability, followed by two separate weeks to calibrate the prediction errors.
 With five available weeks, three train the model and two calibrate it.

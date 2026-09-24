@@ -85,9 +85,9 @@ jobs:
 
             # The preinstalled python3 runs these standalone tests, so no
             # setup-python step. defusedxml + opentelemetry + the owners resolver are
-            # report_test_timings.py's script deps.
+            # report_test_timings.py's script deps; coverage is coverage_report.py's.
             - name: Install pytest
-              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
+              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the

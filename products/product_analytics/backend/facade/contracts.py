@@ -42,3 +42,11 @@ class TrendsQueryRunResult:
 
     results: list[dict[str, Any]]
     last_refresh: datetime | None = None
+
+
+@dataclass(frozen=True)
+class SavedInsightDefinition:
+    id: int
+    short_id: str
+    name: str | None
+    query: dict[str, Any]

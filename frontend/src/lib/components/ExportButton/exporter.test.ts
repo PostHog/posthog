@@ -45,7 +45,7 @@ describe('exporter', () => {
         // The click must fire synchronously with no await before it (no preflight fetch), or Safari
         // drops the download once the user gesture expires.
         expect(getResponse).not.toHaveBeenCalled()
-        expect((fakeAnchor as any).href).toBe('/api/environments/1/exports/123/content?download=true')
+        expect((fakeAnchor as any).href).toBe('/api/projects/1/exports/123/content?download=true')
         expect((fakeAnchor as any).click).toHaveBeenCalled()
         expect(appendSpy).toHaveBeenCalledWith(fakeAnchor)
 
@@ -60,6 +60,6 @@ describe('exporter', () => {
 
         await exportedAssetBlob({ id: 123 } as ExportedAssetType)
 
-        expect(getResponse).toHaveBeenCalledWith('/api/environments/1/exports/123/content?direct=true')
+        expect(getResponse).toHaveBeenCalledWith('/api/projects/1/exports/123/content?direct=true')
     })
 })

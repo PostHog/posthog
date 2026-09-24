@@ -1,5 +1,5 @@
 import { QueryScanSummary, QueryScanWarning } from '~/queries/schema/schema-general'
-import { DashboardTile, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, InsightShortId, InsightModel } from '~/types'
 
 import {
     QueryScanPollResult,
@@ -31,8 +31,8 @@ const BY_DESIGN_FINDING: QueryScanWarning = {
     actionable: false,
 }
 
-function tile(id: number, insight: Partial<QueryBasedInsightModel> | null): DashboardTile<QueryBasedInsightModel> {
-    return { id, color: null, insight: insight ? (insight as QueryBasedInsightModel) : undefined }
+function tile(id: number, insight: Partial<InsightModel> | null): DashboardTile {
+    return { id, color: null, insight: insight ? (insight as InsightModel) : undefined }
 }
 
 function slowInsight(
@@ -40,7 +40,7 @@ function slowInsight(
     name: string,
     findings: QueryScanWarning[],
     summary: Partial<QueryScanSummary> = {}
-): Partial<QueryBasedInsightModel> {
+): Partial<InsightModel> {
     return {
         short_id: shortId as InsightShortId,
         name,

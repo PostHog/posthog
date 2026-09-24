@@ -11,7 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 
 export function TwoFactorSettings(): JSX.Element {
-    const { status, isDisable2FAModalOpen, isBackupCodesModalOpen } = useValues(twoFactorLogic)
+    const { status, isDisable2FAModalOpen, isBackupCodesModalOpen, generatingCodes, generatingCodesLoading } =
+        useValues(twoFactorLogic)
 
     const { updateUser } = useActions(userLogic)
     const { loadMemberUpdates } = useActions(membersLogic)
@@ -64,13 +65,14 @@ export function TwoFactorSettings(): JSX.Element {
             )}
 
             {isBackupCodesModalOpen && (
-                <LemonModal title="Backup Codes" onClose={() => toggleBackupCodesModal(false)}>
+                <LemonModal title="Backup codes" onClose={() => toggleBackupCodesModal(false)}>
                     <div className="deprecated-space-y-4 max-w-md">
-                        {status?.backup_codes?.length ? (
+                        {generatingCodes?.backup_codes.length ? (
                             <>
                                 <p>
                                     Save these backup codes in a secure location. Each code can only be used once to
-                                    sign in if you lose access to your authentication device.
+                                    sign in if you lose access to your authentication device. You won't be able to see
+                                    them again after you close this window.
                                 </p>
                                 <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
                                     <LemonButton
@@ -78,28 +80,32 @@ export function TwoFactorSettings(): JSX.Element {
                                         size="small"
                                         className="absolute top-4 right-4"
                                         onClick={() => {
-                                            void copyToClipboard(status.backup_codes.join('\n') || '', 'backup codes')
+                                            void copyToClipboard(
+                                                generatingCodes.backup_codes.join('\n'),
+                                                'backup codes'
+                                            )
                                         }}
                                     >
                                         Copy
                                     </LemonButton>
-                                    {status.backup_codes.map((code) => (
+                                    {generatingCodes.backup_codes.map((code) => (
                                         <div key={code}>{code}</div>
                                     ))}
                                 </div>
                             </>
                         ) : (
-                            <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
-                                <p className="text-secondary mb-0">No backup codes generated</p>
-                            </div>
+                            <p>
+                                {status?.backup_codes_remaining
+                                    ? `You have ${status.backup_codes_remaining} unused backup ${status.backup_codes_remaining === 1 ? 'code' : 'codes'}. Backup codes are only shown once, when you generate them. Generate new codes to replace them.`
+                                    : "You don't have any unused backup codes. Generate codes to sign in if you lose access to your authentication device."}
+                            </p>
                         )}
                         <LemonButton
                             type="primary"
-                            onClick={() => {
-                                generateBackupCodes()
-                            }}
+                            onClick={() => generateBackupCodes()}
+                            loading={generatingCodesLoading}
                         >
-                            {status?.backup_codes?.length ? 'Generate new codes' : 'Generate backup codes'}
+                            {status?.backup_codes_remaining ? 'Generate new codes' : 'Generate backup codes'}
                         </LemonButton>
                     </div>
                 </LemonModal>
@@ -159,7 +165,7 @@ export function TwoFactorSettings(): JSX.Element {
                                             size="small"
                                             onClick={() => toggleBackupCodesModal(true)}
                                         >
-                                            View backup codes
+                                            Backup codes
                                         </LemonButton>
                                         <LemonButton
                                             type="secondary"
