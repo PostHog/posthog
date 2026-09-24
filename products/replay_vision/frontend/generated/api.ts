@@ -26,7 +26,6 @@ import type {
     InlineScanRequestApi,
     InlineScanResponseApi,
     ObservationSearchResponseApi,
-    ObservationSignalReportApi,
     ObservationStatsApi,
     ObserveAlreadyScannedApi,
     ObserveRequestApi,
@@ -72,7 +71,6 @@ import type {
     VisionScannersListParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsRetrieveParams,
-    VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
     VisionScannersWatchFeedRetrieveParams,
@@ -432,24 +430,6 @@ export const visionObservationsRetryCreate = async (
     return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-    })
-}
-
-export const getVisionObservationsSignalReportsListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/observations/${id}/signal_reports/`
-}
-
-/**
- * The inbox reports this observation's emitted signals were grouped into, newest first.
- */
-export const visionObservationsSignalReportsList = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ObservationSignalReportApi[]> => {
-    return apiMutator<ObservationSignalReportApi[]>(getVisionObservationsSignalReportsListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -1160,46 +1140,6 @@ export const visionScannersObservationsRetryCreate = async (
         ...options,
         method: 'POST',
     })
-}
-
-export const getVisionScannersObservationsSignalReportsListUrl = (
-    projectId: string,
-    scannerId: string,
-    id: string,
-    params?: VisionScannersObservationsSignalReportsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/signal_reports/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/signal_reports/`
-}
-
-/**
- * The inbox reports this observation's emitted signals were grouped into, newest first.
- */
-export const visionScannersObservationsSignalReportsList = async (
-    projectId: string,
-    scannerId: string,
-    id: string,
-    params?: VisionScannersObservationsSignalReportsListParams,
-    options?: RequestInit
-): Promise<ObservationSignalReportApi[]> => {
-    return apiMutator<ObservationSignalReportApi[]>(
-        getVisionScannersObservationsSignalReportsListUrl(projectId, scannerId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getVisionScannersObservationsThumbnailRetrieveUrl = (projectId: string, scannerId: string, id: string) => {

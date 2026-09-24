@@ -191,9 +191,6 @@ tools:
     vision-observations-search-viewed-create:
         operation: vision_observations_search_viewed_create
         enabled: false
-    vision-observations-signal-reports-list:
-        operation: vision_observations_signal_reports_list
-        enabled: false
     vision-observations-thumbnail-retrieve:
         operation: vision_observations_thumbnail_retrieve
         enabled: false
@@ -526,9 +523,6 @@ tools:
                 - _posthogUrl
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
-        enabled: false
-    vision-scanners-observations-signal-reports-list:
-        operation: vision_scanners_observations_signal_reports_list
         enabled: false
     vision-scanners-observations-stats:
         operation: vision_scanners_observations_stats_retrieve
