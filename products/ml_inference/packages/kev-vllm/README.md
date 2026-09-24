@@ -42,6 +42,8 @@ curl -s localhost:8000/pooling -H 'content-type: application/json' -d '{"model":
 
 The answer is under `data.answers`, in Kev's format for either model, with `data.probabilities_raw` alongside for parity checks. JevK5 takes at most 16 options per question and 16,384 tokens per prompt, and refuses more.
 
+The AI gateway states the day counts between the dates in a state when a request sets `date_facts` (PostHog/ai-gateway#505), before any host sees it, so this plugin does no date preprocessing of its own.
+
 Prefix caching is off for both models: vLLM does not enable it for pooling models on hybrid backbones, so every row recomputes its state. Batching across rows and requests still applies.
 
 ## Container image
