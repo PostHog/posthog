@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -32,7 +31,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolQualityDailyStatsQueryRunner,
     MCPToolQualityRowsQueryRunner,
 )
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin, deny_mcp_analytics_access
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 
@@ -343,11 +342,11 @@ class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMix
             (MCPToolCategoryMapQueryRunner, MCPToolCategoryMapQuery()),
         ]
     )
-    def test_runner_gates_on_mcp_analytics_flag(self, runner_cls: Any, query: Any) -> None:
+    def test_runner_gates_on_mcp_analytics_access(self, runner_cls: Any, query: Any) -> None:
         runner = runner_cls(query=query, team=self.team, user=self.user)
 
         assert runner.validate_query_runner_access(self.user) is True
 
-        with patch("posthoganalytics.feature_enabled", return_value=False):
+        with deny_mcp_analytics_access():
             with self.assertRaises(UserAccessControlError):
                 runner.validate_query_runner_access(self.user)
