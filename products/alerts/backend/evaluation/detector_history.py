@@ -12,7 +12,7 @@ to today's behavior, and the cache is rebuilt from that scan.
 import json
 import random
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -26,6 +26,7 @@ from posthog.schema import HogQLAlertConfig, HogQLAlertEvaluation, HogQLQueryMod
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -38,7 +39,7 @@ from products.alerts.backend.evaluation.detector_history_eligibility import (
     match_detector_series_query,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.models.alert_series_point import AlertSeriesPoint
+from products.alerts.backend.models.alert_series_point import AlertSeriesPoint, AlertSeriesState
 from products.product_analytics.backend.facade.models import Insight
 
 INCREMENTAL_DETECTOR_HISTORY_FLAG = "alerts-incremental-detector-history"
@@ -52,6 +53,9 @@ PRUNE_EXTRA_HOURS = 48
 # The app clock and the ClickHouse clock can disagree. An hour of headroom on the narrowed scan
 # means a disagreement makes that scan slightly wider, never leaves a bucket unread.
 _CLOCK_SKEW_HOURS = 1
+# One full scan a day bounds the drift the insert probe cannot see: person merges, dedup
+# collapses and partition attaches change old buckets without inserting a single event row.
+RESEED_INTERVAL_HOURS = 24
 
 # One result row: the bucket cell as the query returned it, then the value.
 _Row = list[Any]
@@ -144,28 +148,47 @@ def detector_rows_from_history(
         # Even a perfect tail scan could not fill the detector's window from here.
         return rebuild("short_cache")
 
-    scan_hours = _scan_hours(cached, now)
-    if scan_hours >= matched.window_hours:
-        return rebuild("stale_cache")
+    state = _load_state(team_id, alert.id, fingerprint)
+    if state is None:
+        # Cached buckets without probe bookkeeping cannot prove they saw every late insert.
+        return rebuild("no_watermark")
+    if now - state.seeded_at >= timedelta(hours=RESEED_INTERVAL_HOURS):
+        return rebuild("scheduled_reseed")
 
-    scanned_rows, _ = run_query(query_override=matched.narrowed_to(scan_hours, at=now, tz=team.timezone))
+    window_start = anchor - timedelta(hours=matched.window_hours)
+    probed = _changed_buckets(team, team_id, state.watermark, window_start, anchor)
+
+    scan_set: set[datetime] = {anchor - timedelta(hours=back) for back in range(1, DEFAULT_MARGIN_HOURS + 1)}
+    hour = max(cached) - timedelta(hours=_CLOCK_SKEW_HOURS)
+    while hour < anchor:
+        scan_set.add(hour)
+        hour += timedelta(hours=1)
+    if probed:
+        scan_set.update(probed)
+    scan_set = {bucket for bucket in scan_set if window_start <= bucket < anchor}
+    if len(scan_set) >= matched.window_hours:
+        return rebuild("wide_scan")
+
+    scanned_rows, _ = run_query(query_override=matched.narrowed_to_buckets(sorted(scan_set), at=now, tz=team.timezone))
     scanned = _parse_rows(scanned_rows, team)
     if scanned is None:
         return rebuild("unparsable_tail")
 
-    authoritative_from = anchor - timedelta(hours=scan_hours)
     _write(
         team_id=team_id,
         alert_id=alert.id,
         fingerprint=fingerprint,
         scanned=scanned,
-        authoritative_from=authoritative_from,
+        authoritative_buckets=scan_set,
         prune_before=now - timedelta(hours=matched.window_hours + PRUNE_EXTRA_HOURS),
+        # A failed probe leaves the watermark where it was, so the next check re-detects from
+        # the same point instead of silently skipping the interval.
+        watermark=None if probed is None else now - timedelta(hours=_CLOCK_SKEW_HOURS),
     )
 
     merged: _Buckets = {bucket: (bucket, value) for bucket, value in cached.items()}
     for bucket in list(merged):
-        if bucket >= authoritative_from:
+        if bucket in scan_set:
             del merged[bucket]
     merged.update(scanned)
 
@@ -173,7 +196,15 @@ def detector_rows_from_history(
     if len(rows) < min_samples:
         return rebuild("short_assembly")
     shadow = _shadow_compare(rows, matched, team, anchor, run_query)
-    _capture_outcome(alert, "cache_hit", scan_hours=scan_hours, window_hours=matched.window_hours, **shadow)
+    _capture_outcome(
+        alert,
+        "cache_hit",
+        scanned_buckets=len(scan_set),
+        probed_buckets=0 if probed is None else len(probed),
+        probe_failed=probed is None,
+        window_hours=matched.window_hours,
+        **shadow,
+    )
     return rows, matched.column_names
 
 
@@ -267,14 +298,47 @@ def _window_spans_backward_dst_transition(anchor: datetime, window_hours: int, t
     return any(later < earlier for earlier, later in zip(offsets, offsets[1:]))
 
 
-def _scan_hours(cached: dict[datetime, float], now: datetime) -> int:
-    """How far back this check must read to join up with what the cache already holds.
+def _load_state(team_id: int, alert_id: Any, fingerprint: str) -> AlertSeriesState | None:
+    """The alert's probe bookkeeping, or None when it is missing or describes another series."""
+    state = AlertSeriesState.objects.for_team(team_id).filter(alert_config_id=alert_id).first()
+    if state is None or state.fingerprint != fingerprint:
+        return None
+    return state
 
-    The newest cached bucket is the only point the cache can prove it has read up to, so a check
-    that never ran, or one that ran and found nothing, simply widens the next scan.
+
+def _changed_buckets(
+    team: Team, team_id: int, watermark: datetime, window_start: datetime, anchor: datetime
+) -> list[datetime] | None:
+    """Event-hours inside the window that received rows after ``watermark``.
+
+    ``events_recent`` is fed by a materialized view off the events table itself and is keyed by
+    insert time, so any insert that can change a bucket is visible here whatever the event
+    timestamp's age, and reading it costs megabytes where the same question against ``events``
+    reads the whole window. An error returns None, so a probe outage degrades to the margin scan
+    instead of failing the check.
     """
-    gap_hours = -(-int((now - max(cached)).total_seconds()) // 3600)
-    return max(DEFAULT_MARGIN_HOURS, gap_hours + _CLOCK_SKEW_HOURS)
+    try:
+        rows = sync_execute(
+            """
+            SELECT DISTINCT toStartOfHour(toTimeZone(timestamp, %(tz)s)) AS bucket
+            FROM events_recent
+            WHERE team_id = %(team_id)s
+              AND inserted_at > %(watermark)s
+              AND timestamp >= %(window_start)s
+              AND timestamp < %(anchor)s
+            """,
+            {
+                "tz": team.timezone,
+                "team_id": team_id,
+                "watermark": watermark,
+                "window_start": window_start,
+                "anchor": anchor,
+            },
+            team_id=team_id,
+        )
+    except Exception:
+        return None
+    return [_to_utc(bucket, team) for (bucket,) in rows]
 
 
 def _parse_rows(rows: list, team: Team) -> _Buckets | None:
@@ -318,19 +382,32 @@ def _write(
     alert_id: Any,
     fingerprint: str,
     scanned: _Buckets,
-    authoritative_from: datetime,
+    authoritative_buckets: Iterable[datetime],
     prune_before: datetime,
+    watermark: datetime | None = None,
+    seeded_at: datetime | None = None,
 ) -> None:
     """Store what the scan read, drop what it proved is gone, and prune what aged out.
 
-    ``authoritative_from`` is the bound the scan actually reached back to, so a bucket after it
-    that the scan did not return holds no rows any more and its cached value has to go. A bucket with no rows is never written as a zero — it is a bucket with no row here,
-    which is what the full scan reports too.
+    ``authoritative_buckets`` are the buckets the scan actually read, so one of them that the
+    scan did not return holds no rows any more and its cached value has to go. A bucket with no
+    rows is never written as a zero — it is a bucket with no row here, which is what the full
+    scan reports too. The probe bookkeeping advances in the same transaction as the buckets it
+    vouches for, so a crash between the two re-detects instead of silently skipping.
     """
     with transaction.atomic():
         _points(team_id, alert_id).filter(bucket__lt=prune_before).delete()
         _points(team_id, alert_id).exclude(fingerprint=fingerprint).delete()
-        _points(team_id, alert_id).filter(bucket__gte=authoritative_from).exclude(bucket__in=list(scanned)).delete()
+        _points(team_id, alert_id).filter(bucket__in=list(authoritative_buckets)).exclude(
+            bucket__in=list(scanned)
+        ).delete()
+        if watermark is not None:
+            updates: dict[str, Any] = {"fingerprint": fingerprint, "watermark": watermark, "team_id": team_id}
+            if seeded_at is not None:
+                updates["seeded_at"] = seeded_at
+            AlertSeriesState.objects.for_team(team_id, canonical=True).update_or_create(
+                alert_config_id=alert_id, defaults=updates
+            )
         if scanned:
             AlertSeriesPoint.objects.for_team(team_id, canonical=True).bulk_create(
                 [
@@ -362,12 +439,16 @@ def _rebuild(
     rows, column_names = run_query(query_override=matched.prepared(at=now, tz=alert.team.timezone))
     parsed = _parse_rows(rows, alert.team)
     if parsed is not None:
+        anchor = _hour_floor(now, alert.team)
+        window = [anchor - timedelta(hours=back) for back in range(1, matched.window_hours + 1)]
         _write(
             team_id=team_id,
             alert_id=alert.id,
             fingerprint=fingerprint,
             scanned=parsed,
-            authoritative_from=_hour_floor(now, alert.team) - timedelta(hours=matched.window_hours),
+            authoritative_buckets=window,
             prune_before=now - timedelta(hours=matched.window_hours + PRUNE_EXTRA_HOURS),
+            watermark=now - timedelta(hours=_CLOCK_SKEW_HOURS),
+            seeded_at=now,
         )
     return rows, column_names or matched.column_names

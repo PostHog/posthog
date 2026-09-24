@@ -12,7 +12,7 @@ from posthog.schema import HogQLAlertConfig
 
 from products.alerts.backend.evaluation.detector_history import detector_rows_from_history
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.models.alert_series_point import AlertSeriesPoint
+from products.alerts.backend.models.alert_series_point import AlertSeriesPoint, AlertSeriesState
 from products.product_analytics.backend.facade.models import Insight
 
 NOW = "2026-09-22T12:30:00Z"
@@ -32,6 +32,7 @@ RETENTION_PATH = "products.alerts.backend.evaluation.detector_history.events_ret
 RESTRICTIONS_PATH = (
     "products.alerts.backend.evaluation.detector_history.get_restricted_properties_with_group_type_index_for_team"
 )
+PROBE_PATH = "products.alerts.backend.evaluation.detector_history.sync_execute"
 
 
 class _Warehouse:
@@ -41,22 +42,39 @@ class _Warehouse:
 
     def run(self, query_override: dict | None = None) -> tuple[list, list[str] | None]:
         self.overrides.append(query_override)
-        since = CURRENT_HOUR - timedelta(hours=self._hours(query_override))
-        rows = [[bucket, value] for bucket, value in sorted(self.series.items()) if bucket >= since]
+        buckets = self._buckets(query_override)
+        if buckets is None:
+            rows = [[bucket, value] for bucket, value in sorted(self.series.items())]
+        else:
+            rows = [[bucket, value] for bucket, value in sorted(self.series.items()) if bucket in buckets]
         return rows, ["bucket", "value"]
 
     @staticmethod
-    def _hours(query_override: dict | None) -> int:
+    def _buckets(query_override: dict | None) -> set[datetime] | None:
+        """The hour buckets a narrowed override reads, or None for a full scan.
+
+        Pinned bucket constants are hour-aligned epochs; the pinned clock is mid-hour, so the
+        alignment test separates the two.
+        """
         if query_override is None:
-            return 48
-        return min(int(hours) for hours in re.findall(r"toIntervalHour\((\d+)\)", query_override["query"]))
+            return None
+        epochs = {
+            int(epoch)
+            for epoch in re.findall(r"fromUnixTimestamp\((\d+)\)", query_override["query"])
+            if int(epoch) % 3600 == 0
+        }
+        if not epochs:
+            return None
+        return {datetime.fromtimestamp(epoch, UTC) for epoch in epochs}
 
     @property
-    def last_scan_hours(self) -> int:
-        return self._hours(self.overrides[-1])
+    def last_scan_buckets(self) -> set[datetime]:
+        buckets = self._buckets(self.overrides[-1])
+        assert buckets is not None
+        return buckets
 
     def is_rebuild(self, override: dict | None) -> bool:
-        return self._hours(override) == 48
+        return self._buckets(override) is None
 
 
 class TestDetectorHistory(BaseTest):
@@ -74,8 +92,15 @@ class TestDetectorHistory(BaseTest):
         )
         self.config = HogQLAlertConfig.model_validate(self.alert.config)
 
-    def _check(self, warehouse: _Warehouse) -> tuple[list, list[str]] | None:
-        with patch(FLAG_PATH, return_value=True):
+    def _check(self, warehouse: _Warehouse, probe: list | Exception | None = None) -> tuple[list, list[str]] | None:
+        """Run a flagged check. ``probe`` is what the events_recent probe reports: changed
+        buckets, an exception, or the default quiet result."""
+        side_effect: Exception | None = probe if isinstance(probe, Exception) else None
+        return_value = [] if probe is None or isinstance(probe, Exception) else [(bucket,) for bucket in probe]
+        with (
+            patch(FLAG_PATH, return_value=True),
+            patch(PROBE_PATH, side_effect=side_effect, return_value=return_value),
+        ):
             return detector_rows_from_history(
                 alert=self.alert,
                 insight=self.alert.insight,
@@ -118,7 +143,7 @@ class TestDetectorHistory(BaseTest):
         assert first is not None and second is not None
         assert warehouse.is_rebuild(warehouse.overrides[0])
         assert warehouse.overrides[1] is not None
-        assert warehouse.last_scan_hours == 3
+        assert len(warehouse.last_scan_buckets) == 3
         assert second[0] == first[0]
         assert second[1] == ["bucket", "value"]
 
@@ -132,7 +157,7 @@ class TestDetectorHistory(BaseTest):
             self._check(warehouse)
 
         # 8 hours since the newest cached bucket, plus an hour of clock-skew headroom.
-        assert warehouse.last_scan_hours >= 9
+        assert len(warehouse.last_scan_buckets) >= 9
 
     def test_an_hour_with_no_events_stays_absent_instead_of_becoming_a_zero(self) -> None:
         series = self._dense(10)
@@ -247,7 +272,7 @@ class TestDetectorHistory(BaseTest):
             rows = self._check(warehouse)
 
         assert rows is not None
-        assert warehouse.last_scan_hours < 48
+        assert len(warehouse.last_scan_buckets) < 48
         assert next(bucket for bucket, _ in rows[0]) == CURRENT_HOUR - timedelta(hours=48)
         assert len(rows[0]) == 48
 
@@ -270,6 +295,52 @@ class TestDetectorHistory(BaseTest):
         self.alert.delete()
 
         assert not AlertSeriesPoint.objects.for_team(self.team.pk).filter(alert_config_id=alert_id).exists()
+
+    def test_a_probed_late_bucket_is_rescanned_and_its_new_value_served(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        late = CURRENT_HOUR - timedelta(hours=8)
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            warehouse.series[late] = 77.0
+            rows = self._check(warehouse, probe=[late])
+
+        assert rows is not None
+        assert late in warehouse.last_scan_buckets
+        assert (late, 77.0) in [(bucket, value) for bucket, value in rows[0]]
+
+    def test_a_failed_probe_still_serves_the_margin_scan_and_keeps_the_watermark(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            state_before = AlertSeriesState.objects.for_team(self.team.pk).get(alert_config=self.alert)
+            rows = self._check(warehouse, probe=RuntimeError("probe outage"))
+            state_after = AlertSeriesState.objects.for_team(self.team.pk).get(alert_config=self.alert)
+
+        assert rows is not None
+        assert len(warehouse.last_scan_buckets) == 3
+        # An unadvanced watermark makes the next successful probe re-detect the interval.
+        assert state_after.watermark == state_before.watermark
+
+    def test_a_stale_seed_triggers_a_scheduled_full_rescan(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            AlertSeriesState.objects.for_team(self.team.pk).filter(alert_config=self.alert).update(
+                seeded_at=CURRENT_HOUR - timedelta(hours=25)
+            )
+            self._check(warehouse)
+
+        # Person merges and dedup collapses leave no insert signal, so age alone reseeds.
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
+
+    def test_cached_buckets_without_a_watermark_trigger_a_full_rescan(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            AlertSeriesState.objects.for_team(self.team.pk).filter(alert_config=self.alert).delete()
+            self._check(warehouse)
+
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
 
     def test_the_flag_being_off_leaves_the_check_and_the_cache_untouched(self) -> None:
         warehouse = _Warehouse(self._dense(10))

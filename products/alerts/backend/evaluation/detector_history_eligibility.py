@@ -400,28 +400,43 @@ class DetectorSeriesQuery:
         """The full query with its clock pinned, for the rebuild scan."""
         return self._override(deepcopy(self.parsed), at=at, tz=tz)
 
-    def narrowed_to(self, hours: int, *, at: datetime, tz: str) -> dict:
-        """The same query, reading only the most recent ``hours`` buckets, anchored at ``at``.
+    def narrowed_to_buckets(self, buckets: list[datetime], *, at: datetime, tz: str) -> dict:
+        """The same query, reading only the given hour buckets, anchored at ``at``.
 
-        The added bound sits alongside the original one and is never wider, so the rows it keeps
-        are a suffix of the rows the original query would have grouped.
+        The added bounds sit alongside the original ones and are never wider, so the rows they
+        keep are a subset of the rows the original query would have grouped. Two conjuncts: the
+        bucket set itself, and a redundant lower bound on the oldest bucket so partition pruning
+        still applies before the set is evaluated.
         """
-        if hours >= self.window_hours:
-            raise ValueError(f"narrowing to {hours}h would not shorten a {self.window_hours}h window")
+        if not buckets or len(buckets) >= self.window_hours:
+            raise ValueError(f"narrowing to {len(buckets)} buckets would not shorten a {self.window_hours}h window")
         narrowed = deepcopy(self.parsed)
         events_query = narrowed
         if narrowed.select_from is not None and isinstance(narrowed.select_from.table, ast.SelectQuery):
             events_query = narrowed.select_from.table
         assert isinstance(events_query.where, ast.And)
+
+        def pinned(instant: datetime) -> ast.Call:
+            return ast.Call(
+                name="toTimeZone",
+                args=[
+                    ast.Call(name="fromUnixTimestamp", args=[ast.Constant(value=int(instant.timestamp()))]),
+                    ast.Constant(value=tz),
+                ],
+            )
+
         events_query.where.exprs.append(
             ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
-                right=ast.ArithmeticOperation(
-                    left=ast.Call(name="toStartOfHour", args=[ast.Call(name="now", args=[])]),
-                    op=ast.ArithmeticOperationOp.Sub,
-                    right=ast.Call(name="toIntervalHour", args=[ast.Constant(value=hours)]),
-                ),
+                right=pinned(min(buckets)),
+            )
+        )
+        events_query.where.exprs.append(
+            ast.CompareOperation(
+                left=ast.Call(name="toStartOfHour", args=[ast.Field(chain=["timestamp"])]),
+                op=ast.CompareOperationOp.In,
+                right=ast.Tuple(exprs=[pinned(bucket) for bucket in sorted(buckets)]),
             )
         )
         return self._override(narrowed, at=at, tz=tz)
