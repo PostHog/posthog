@@ -626,9 +626,7 @@ class TestDataWarehouseAPI(APIBaseTest):
     def test_data_ops_dashboard_creates_dashboard_on_first_call(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
 
-        # Config is auto-created by the team extension signal, but starts with no dashboards
-        config = TeamDataWarehouseConfig.objects.get(team=self.team)
-        self.assertEqual(config.overview_dashboards.count(), 0)
+        self.assertFalse(TeamDataWarehouseConfig.objects.filter(team=self.team).exists())
 
         response = self.client.get(endpoint)
         self.assertEqual(response.status_code, 200)

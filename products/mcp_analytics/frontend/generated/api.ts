@@ -19,6 +19,7 @@ import type {
     McpAnalyticsFeedbackListParams,
     McpAnalyticsIntentClustersRetrieveParams,
     McpAnalyticsMissingCapabilitiesListParams,
+    McpAnalyticsSessionsActivityOverviewParams,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsListParams,
     McpAnalyticsSessionsToolCallsParams,
@@ -283,8 +284,23 @@ export const mcpAnalyticsSessionsToolCalls = async (
     })
 }
 
-export const getMcpAnalyticsSessionsActivityOverviewUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_analytics/sessions/activity_overview/`
+export const getMcpAnalyticsSessionsActivityOverviewUrl = (
+    projectId: string,
+    params?: McpAnalyticsSessionsActivityOverviewParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_analytics/sessions/activity_overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/sessions/activity_overview/`
 }
 
 /**
@@ -292,9 +308,10 @@ export const getMcpAnalyticsSessionsActivityOverviewUrl = (projectId: string) =>
  */
 export const mcpAnalyticsSessionsActivityOverview = async (
     projectId: string,
+    params?: McpAnalyticsSessionsActivityOverviewParams,
     options?: RequestInit
 ): Promise<MCPActivityOverviewApi> => {
-    return apiMutator<MCPActivityOverviewApi>(getMcpAnalyticsSessionsActivityOverviewUrl(projectId), {
+    return apiMutator<MCPActivityOverviewApi>(getMcpAnalyticsSessionsActivityOverviewUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

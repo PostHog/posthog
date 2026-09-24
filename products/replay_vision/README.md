@@ -37,18 +37,16 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 | Scanners | (none)  | The team's scanner roster plus the team-wide vision metrics.              |
 | Usage    | `usage` | Credit spend over time for the org, bucketed daily/weekly/monthly/yearly. |
 
-**Scanner** (`/replay-vision/<scanner-id>`), seven tabs switched through `?tab=`. Overview is the default and writes no param.
+**Scanner** (`/replay-vision/<scanner-id>`), six tabs switched through `?tab=`. Overview is the default and writes no param.
 
-| Tab           | `?tab=`         | What it shows                                                                                                               |
-| ------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Overview      | `overview`      | At-a-glance panels: impact, verdict mix, top fixed and freeform tags, score distribution. Leads with the scout digest card. |
-| Observations  | `observations`  | The scanner's observations, filterable by status, verdict, tags, and date.                                                  |
-| On-demand     | `on-demand`     | Scan now: by session ID, or by picking from recent recordings.                                                              |
-| Backfills     | `backfills`     | The scanner's historical backfills: create one over a past window, watch progress, pause/resume.                            |
-| Configuration | `configuration` | Read-only view of the scanner's current config.                                                                             |
-| Calibration   | `calibration`   | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.         |
-| Scouts        | `scouts`        | The scanner's signals scouts, including its daily digest.                                                                   |
-| Alerts        | `alerts`        | The scanner's alerts on the shared alerts platform.                                                                         |
+| Tab          | `?tab=`        | What it shows                                                                                                                                             |
+| ------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview     | `overview`     | Scanner status, findings (verdict mix, top tags, score distribution), the scout digest, a configuration summary, and self-driving results.                |
+| Observations | `observations` | The scanner's observations, filterable by status, verdict, tags, and date.                                                                                |
+| Run          | `run`          | Scan one recording, a batch of recordings, or backfill a date range. Old `on-demand` and `backfills` links open here, and `configuration` opens Overview. |
+| Calibration  | `calibration`  | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.                                       |
+| Scouts       | `scouts`       | The scanner's signals scouts, including its daily digest.                                                                                                 |
+| Alerts       | `alerts`       | The scanner's alerts on the shared alerts platform.                                                                                                       |
 
 **Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
 Observations have their own scene under `/replay-vision/observations/…`.

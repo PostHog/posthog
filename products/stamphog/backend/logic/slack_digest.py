@@ -7,6 +7,10 @@ record the run as failed and retry the PRs tomorrow.
 Shape: the channel gets one lead (the model's headline, or the scope line when it wrote none) and a
 footer. The per-change lines go in a thread under it. A daily bot post competes with the channel it
 lands in, so it spends one line there and keeps the rest where a reader can open it by choice.
+
+Summaries are model-generated over contributor-authored PR text, so every summary or PR string goes
+through `escape_slack_mrkdwn`. That stops a merged PR from smuggling `<!channel>` mentions or breaking
+out of a link into the digest channel.
 """
 
 from __future__ import annotations
@@ -16,7 +20,8 @@ from typing import TYPE_CHECKING
 import structlog
 
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.team_notifications.slack import SlackPostRefused, post_message, post_with_join
+from posthog.slack.channels import SlackPostRefused, post_message, post_with_join
+from posthog.slack.formatting import escape_slack_mrkdwn
 
 from .digest import as_channel_paragraph
 
@@ -50,22 +55,12 @@ class DigestSlackError(Exception):
     """The digest could not be posted to Slack (integration missing, mismatched, or API failure)."""
 
 
-def _escape_mrkdwn(text: str) -> str:
-    """Neutralize Slack mrkdwn control characters in attacker-controlled text.
-
-    Model-generated summaries are written over contributor-authored PR text. Escaping
-    ``&``/``<``/``>`` stops a merged PR from smuggling ``<!channel>`` mentions or breaking out of a link
-    into the digest channel; Slack renders the escaped entities back as the literal characters.
-    """
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _link(url: str, label: str) -> str:
     # url is trusted (built from the GitHub PR URL); the label is untrusted, so escape it and drop the
     # `|` that would otherwise split the link syntax. Clipping happens inside the label rather than
     # over the finished string: the label is now the whole line, so trimming the tail off the assembled
     # link would take the closing `>` with it and leave Slack rendering raw markup instead of a link.
-    body = _clip(_escape_mrkdwn(label).replace("|", "/"), _MAX_SECTION_CHARS - len(url) - len("<|>"))
+    body = _clip(escape_slack_mrkdwn(label).replace("|", "/"), _MAX_SECTION_CHARS - len(url) - len("<|>"))
     return f"<{url}|{body}>"
 
 
@@ -126,10 +121,10 @@ def _lead_text(summary: DigestSummary) -> str:
     line is built from counts and is safe as it stands.
     """
     if summary.headline:
-        return _clip(_escape_mrkdwn(summary.headline), _MAX_SECTION_CHARS)
+        return _clip(escape_slack_mrkdwn(summary.headline), _MAX_SECTION_CHARS)
     change_line = _lead_change_line(summary)
     if change_line:
-        return _clip(_escape_mrkdwn(change_line), _MAX_SECTION_CHARS)
+        return _clip(escape_slack_mrkdwn(change_line), _MAX_SECTION_CHARS)
     return _scope_line(len(summary.prs), summary.considered)
 
 
@@ -172,7 +167,7 @@ def _build_fallback_text(summary: DigestSummary) -> str:
     the same sentence every morning pushes the change itself out of view.
     """
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
-    lines = [_escape_mrkdwn(pr.summary) for pr in summary.prs]
+    lines = [escape_slack_mrkdwn(pr.summary) for pr in summary.prs]
     return "\n".join(lines) or "No merged PRs worth a mention."
 
 
@@ -194,7 +189,7 @@ def post_digest_details(team_id: int, destination: Destination, summary: DigestS
         return
     try:
         post_message(
-            SlackIntegration(integration),
+            SlackIntegration(integration, source="stamphog"),
             destination.channel_id,
             _detail_blocks(summary),
             _build_fallback_text(summary),
@@ -220,7 +215,7 @@ def post_digest_lead(team_id: int, destination: Destination, summary: DigestSumm
 
     try:
         return post_with_join(
-            SlackIntegration(integration),
+            SlackIntegration(integration, source="stamphog"),
             destination.channel_id,
             _lead_blocks(summary),
             _lead_text(summary),

@@ -1,5 +1,3 @@
-import hmac
-import time
 from urllib.parse import urlencode
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -8,18 +6,13 @@ from django.test import RequestFactory, SimpleTestCase
 from parameterized import parameterized
 
 from posthog.ingress.mailgun.provider import FILES_KEY, MAX_FILES, MailgunProvider, build_mailgun_provider
+from posthog.ingress.mailgun.testing import signed_mailgun_fields
 from posthog.ingress.providers import InvalidPayload
 from posthog.ingress.verify.schemes import VerificationOutcome
 
 SIGNING_KEY = "mailgun-signing-key"
 URL = "/api/conversations/v1/email/inbound"
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
-
-
-def _signed_fields(*, age_seconds: int = 0, token: str = "delivery-token") -> dict[str, str]:
-    timestamp = str(int(time.time()) - age_seconds)
-    signature = hmac.digest(SIGNING_KEY.encode(), f"{timestamp}{token}".encode(), "sha256").hex()
-    return {"timestamp": timestamp, "token": token, "signature": signature}
 
 
 def _provider(app: str = "inbound", *, signing_key: str | None = SIGNING_KEY) -> MailgunProvider:
@@ -44,13 +37,13 @@ class TestMailgunProvider(SimpleTestCase):
         signing_key: str | None,
         expected: VerificationOutcome,
     ) -> None:
-        fields = _signed_fields(age_seconds=age_seconds) | overrides
+        fields = signed_mailgun_fields(SIGNING_KEY, age_seconds=age_seconds) | overrides
         request = RequestFactory().post(URL, data=urlencode(fields), content_type=FORM_CONTENT_TYPE)
 
         self.assertEqual(_provider(signing_key=signing_key).verify(request).outcome, expected)
 
     def test_a_multipart_delivery_verifies_and_parses_into_the_form_fields_and_its_files(self) -> None:
-        fields = _signed_fields()
+        fields = signed_mailgun_fields(SIGNING_KEY)
         request = RequestFactory().post(
             URL,
             data={
@@ -78,7 +71,9 @@ class TestMailgunProvider(SimpleTestCase):
         [("inbound", "message_received"), ("outbound", "message_sent"), ("capture", "message_received")]
     )
     def test_each_app_types_its_delivery_by_the_route_it_serves(self, app: str, event_type: str) -> None:
-        request = RequestFactory().post(URL, data=urlencode(_signed_fields()), content_type=FORM_CONTENT_TYPE)
+        request = RequestFactory().post(
+            URL, data=urlencode(signed_mailgun_fields(SIGNING_KEY)), content_type=FORM_CONTENT_TYPE
+        )
         provider = _provider(app)
 
         (delivery,) = provider.deliveries(request, provider.parse(request), {})
@@ -98,7 +93,7 @@ class TestMailgunProvider(SimpleTestCase):
             f"attachment-{index}": SimpleUploadedFile(f"{index}.txt", b"attached", content_type="text/plain")
             for index in range(MAX_FILES + 5)
         }
-        request = RequestFactory().post(URL, data={**_signed_fields(), **files})
+        request = RequestFactory().post(URL, data={**signed_mailgun_fields(SIGNING_KEY), **files})
 
         payload = _provider().parse(request)
 

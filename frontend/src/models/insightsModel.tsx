@@ -7,7 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InsightModel } from '~/types'
+import { InsightModel, InsightShortId } from '~/types'
 
 import type { Node } from '../queries/schema/schema-general'
 
@@ -18,6 +18,9 @@ export interface insightsModelActions {
     }
     duplicateInsightSuccess: (item: InsightModel) => {
         item: InsightModel<Node<Record<string, any>>>
+    }
+    insightSaved: (shortId: InsightShortId) => {
+        shortId: InsightShortId
     }
     insightsAddedToDashboard: ({ dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }) => {
         dashboardId: number
@@ -44,6 +47,7 @@ export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),
     connect(() => ({ logic: [teamLogic] })),
     actions(() => ({
+        insightSaved: (shortId: InsightShortId) => ({ shortId }),
         renameInsight: (item: InsightModel) => ({ item }),
         updateInsightDirect: (item: InsightModel, updates: Partial<InsightModel>) => ({
             item,

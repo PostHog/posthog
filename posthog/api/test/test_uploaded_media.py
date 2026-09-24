@@ -161,6 +161,19 @@ class TestMediaAPI(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
+    def test_rejects_a_headerless_dib_even_though_pillow_reports_it_as_bmp(self) -> None:
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), color="red").save(buffer, format="DIB")
+        fake_file = SimpleUploadedFile(name="logo.bmp", content=buffer.getvalue(), content_type="image/bmp")
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": fake_file},
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.count() == 0
+
     def test_download_sets_nosniff_and_strict_csp(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             with open(get_path_to("a-small-but-valid.gif"), "rb") as image:

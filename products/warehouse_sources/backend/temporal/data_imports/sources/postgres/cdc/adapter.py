@@ -48,14 +48,27 @@ logger = logging.getLogger(__name__)
 _retry_logger = structlog.get_logger(__name__)
 
 
-def _slot_setup_error_message(exc: Exception) -> str:
-    """User-facing message for a failed slot/publication setup.
+def _customer_fixable_setup_message(exc: BaseException) -> str | None:
+    """User-facing advice when a slot/publication setup failure is one the customer can fix on
+    their own database, or None for anything else.
 
     When the failure is a lack of replication privilege — the most common CDC blocker —
     point at the simplest fix rather than only echoing the raw error: switch the affected
     tables to Incremental sync, which needs only SELECT.
     """
     message = str(exc).lower()
+    # PostgreSQL rejects CREATE PUBLICATION FOR TABLE and ALTER PUBLICATION ADD TABLE with this
+    # wording when the connecting role does not own the table. A role with REPLICATION and SELECT
+    # but no ownership reaches that point, so it needs its own guidance: the replication grant the
+    # permission branch below asks for does not fix it.
+    if "must be owner of" in message:
+        return (
+            f"Could not publish the tables CDC syncs: {exc} "
+            "PostgreSQL only lets a table's owner publish it. Make the database user the owner of "
+            "these tables, or add it to the role that owns them. If you can't change ownership, "
+            "switch these tables to Incremental sync instead of CDC. Incremental needs only SELECT "
+            "permission."
+        )
     is_permission_error = isinstance(exc, psycopg.errors.InsufficientPrivilege) or (
         "permission denied" in message or "must be superuser" in message
     )
@@ -75,7 +88,12 @@ def _slot_setup_error_message(exc: Exception) -> str:
             "Connect to the primary database, or switch these tables to Incremental sync, which "
             "needs only SELECT."
         )
-    return f"Failed to create replication slot: {exc}"
+    return None
+
+
+def _slot_setup_error_message(exc: Exception) -> str:
+    """User-facing message for a failed slot/publication setup."""
+    return _customer_fixable_setup_message(exc) or f"Failed to create replication slot: {exc}"
 
 
 def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
@@ -169,6 +187,9 @@ class PostgresCDCAdapter:
         # None points at a bug in our code.
         return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
 
+    def customer_fixable_error_message(self, exc: BaseException) -> str | None:
+        return _customer_fixable_setup_message(exc)
+
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)
         return cdc_error_info(category) if category is not None else None
@@ -213,7 +234,9 @@ class PostgresCDCAdapter:
         # customer-owned publication) don't match the predicate and re-raise immediately.
         consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
 
-        return {"cdc_consistent_point": consistent_point}
+        # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
+        # to the legacy lane: the new slot starts on the buffer, as a new source does.
+        return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
 
     def setup_resources(
         self,
@@ -239,6 +262,9 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
+            # Written with the slot, before capture first runs, so no change reaches the buffer that a
+            # legacy batch already delivered.
+            "cdc_ingest_mode": "buffered",
         }
 
         if management_mode == "posthog":

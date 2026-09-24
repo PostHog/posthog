@@ -36,8 +36,10 @@ from owners_yaml.resolver import Purpose, TeamChannel, team_channel, teams_regis
 from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
-from posthog.team_notifications.slack import SlackChannel, fetch_channel_map, find_channel
+from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
+from posthog.slack.channels import SlackChannel, fetch_channel_map, find_channel
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig
@@ -139,7 +141,26 @@ class _RepoRouting:
     declared_channel: str | None
 
 
-def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
+def _fetcher_for_installation(installation_id: str) -> GitHubFilesFetcher:
+    """One fetcher per installation, not per repository.
+
+    It holds a token and a connection pool, and a team's repositories usually sit under one
+    installation, so building one per repository mints a token and a pool to read a single file.
+    """
+    try:
+        client = StamphogGitHubClient(installation_id)
+        return GitHubFilesFetcher.from_token(
+            client.installation_token(),
+            installation_id=installation_id,
+            refresh=client.refresh_installation_token,
+            # The daily run is background work, so it sheds before anything a person waits on.
+            priority=Priority.BATCH,
+        )
+    except Exception as e:
+        raise RoutingUnavailable(f"could not authenticate installation {installation_id}: {e}") from e
+
+
+def _read_repo_routing(repo_config: StamphogRepoConfig, fetcher: GitHubFilesFetcher) -> _RepoRouting:
     """One repo's routing config: its root registry, and the digest channel it declared.
 
     Both reads answer to one failure contract. A transient fetch failure for either file raises
@@ -148,9 +169,10 @@ def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
     owners.yaml inherits one, and a repo declaring no channel has no repo audience to route.
     """
     try:
-        raw = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
-            repo_config.repository, _OWNERS_FILE_PATH
-        )
+        # Routing is derived every run and never stored, so a head SHA another read cached up to
+        # two minutes ago could route a merged owners.yaml change to yesterday's channel.
+        files = AuthenticatedRepoFiles(repo_config.repository, fetcher, fresh_head=True)
+        raw = files.read(_OWNERS_FILE_PATH)
         digest_config = load_repo_digest_config(repo_config) if repo_config.digest_enabled else None
     except Exception as e:
         raise RoutingUnavailable(f"could not read routing config for {repo_config.repository}: {e}") from e
@@ -173,14 +195,19 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
 
     registry_by_repo: dict[str, dict[str, TeamEntry]] = {}
     declared_repo_channel: dict[str, str] = {}
+    fetcher_by_installation: dict[str, GitHubFilesFetcher] = {}
     for repo_config in _candidate_repo_configs(team_id):
-        routing = _read_repo_routing(repo_config)
+        fetcher = fetcher_by_installation.get(repo_config.installation_id)
+        if fetcher is None:
+            fetcher = _fetcher_for_installation(repo_config.installation_id)
+            fetcher_by_installation[repo_config.installation_id] = fetcher
+        routing = _read_repo_routing(repo_config, fetcher)
         registry_by_repo[repo_config.repository] = routing.registry
         if routing.declared_channel is not None:
             declared_repo_channel[repo_config.repository] = routing.declared_channel
 
     try:
-        channels_by_name = fetch_channel_map(integration)
+        channels_by_name = fetch_channel_map(integration, source="stamphog")
     except Exception as e:
         raise RoutingUnavailable(f"could not list Slack channels for team {team_id}: {e}") from e
 

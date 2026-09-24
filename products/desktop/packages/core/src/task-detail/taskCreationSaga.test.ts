@@ -818,6 +818,8 @@ describe("TaskCreationSaga", () => {
       repository: "posthog/posthog",
       workspaceMode: "cloud",
       branch: "main",
+      adapter: "claude",
+      executionMode: "plan",
       cloudAutoPublish: true,
     });
 
@@ -825,9 +827,10 @@ describe("TaskCreationSaga", () => {
     expect(mockHost.takeWarmTaskLease).toHaveBeenCalledWith({
       repository: "posthog/posthog",
       branch: "main",
-      runtimeAdapter: null,
+      runtimeAdapter: "claude",
       model: null,
       reasoningEffort: null,
+      permissionMode: "plan",
       sandboxEnvironmentId: null,
       customImageId: null,
     });
@@ -844,6 +847,7 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         pending_user_message: "/my-skill do it",
         pending_user_artifact_ids: ["skill-artifact-1"],
+        initial_permission_mode: "plan",
         // Warm activation skips run creation, so the choice must ride along here.
         auto_publish: true,
       }),

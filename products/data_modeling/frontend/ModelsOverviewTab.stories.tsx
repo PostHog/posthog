@@ -2,12 +2,13 @@ import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ModelsOverviewTab } from 'scenes/models/tabs/ModelsOverviewTab'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { ModelsOverviewTab } from './ModelsOverviewTab'
 
 const nodes = ['attention', 'behind'].flatMap((group) =>
     Array.from({ length: 12 }, (_, index) => ({

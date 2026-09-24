@@ -44,6 +44,7 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     ChannelTypeStrategy,
     FirstPageviewAttributionStrategy,
     FrustrationMetricsStrategy,
+    NoJoinFirstPageviewAttributionStrategy,
     NoJoinPathBounceAvgTimeStrategy,
     NoJoinPathBounceStrategy,
     NoJoinSimpleBreakdownStrategy,
@@ -181,6 +182,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # ChannelTypeStrategy must be checked before SimpleBreakdownStrategy since it's a subclass.
         if isinstance(strategy, ChannelTypeStrategy):
             return "stats_table_channel_type"
+        if isinstance(strategy, NoJoinFirstPageviewAttributionStrategy):
+            return "stats_table_no_join_first_pageview_attribution"
         if isinstance(strategy, FirstPageviewAttributionStrategy):
             return "stats_table_first_pageview_attribution"
         # NoJoinSimpleBreakdownStrategy is also a SimpleBreakdownStrategy subclass.
@@ -202,15 +205,15 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return remapped
         return self.query.breakdownBy
 
-    def get_cache_key(self) -> str:
+    def get_cache_key_variant(self) -> str:
         # The remap changes results for the same query, so remapped and
         # entry-attributed runs must not share cache entries — and rolling the
         # flag back to 0% must instantly serve the old key again.
-        original = super().get_cache_key()
+        variant = super().get_cache_key_variant()
         effective_breakdown = self._effective_breakdown()
         if effective_breakdown != self.query.breakdownBy:
-            return f"{original}_{effective_breakdown.value}"
-        return original
+            return f"{variant}_{effective_breakdown.value}"
+        return variant
 
     def _get_strategy(self) -> StatsTableQueryStrategy:
         breakdown = self._effective_breakdown()
@@ -240,16 +243,18 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if breakdown == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
             return ChannelTypeStrategy(self)
 
-        if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
-            return FirstPageviewAttributionStrategy(self)
+        # Breakdowns whose displayed columns are all event-derived don't need
+        # the events↔sessions join at all — the join only supplies the session
+        # grouping key and start timestamp, both recoverable from the UUIDv7
+        # session id. Conversion-goal columns are event-derived too.
+        # Session-entry breakdowns (Initial*), session-property filters, and
+        # bounce variants keep the join.
+        no_join = not self.query.includeBounceRate and not self._uses_session_fields()
 
-        # Simple breakdowns whose displayed columns are all event-derived don't
-        # need the events↔sessions join at all — the join only supplies the
-        # session grouping key and start timestamp, both recoverable from the
-        # UUIDv7 session id. Session-entry breakdowns (Initial*),
-        # session-property filters, and bounce/conversion variants keep
-        # the join.
-        if self.query.conversionGoal is None and not self.query.includeBounceRate and not self._uses_session_fields():
+        if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
+            return NoJoinFirstPageviewAttributionStrategy(self) if no_join else FirstPageviewAttributionStrategy(self)
+
+        if no_join:
             return NoJoinSimpleBreakdownStrategy(self)
 
         return SimpleBreakdownStrategy(self)
@@ -398,6 +403,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         visitor = Visitor()
         visitor.visit(self._counts_breakdown_value())
         visitor.visit(self.all_properties())
+        if self.conversion_goal_expr is not None:
+            visitor.visit(self.conversion_goal_expr)
         return found
 
     def _period_comparison_tuple(self, column, alias, function_name):

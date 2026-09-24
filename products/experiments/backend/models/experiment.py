@@ -366,12 +366,10 @@ LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "Exper
 
 def experiment_has_legacy_metrics(experiment: "Experiment") -> bool:
     """Check if experiment uses legacy metric formats."""
-    # Check inline metrics
     all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
     if any(m.get("kind") in LEGACY_METRIC_KINDS for m in all_metrics):
         return True
 
-    # Check saved metrics
     if experiment.experimenttosavedmetric_set.filter(saved_metric__query__kind__in=LEGACY_METRIC_KINDS).exists():
         return True
 

@@ -14,9 +14,11 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_user_errors
+
+from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
@@ -145,14 +147,22 @@ def build_hog_event_global(
     return event_global
 
 
-def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allows_na: bool) -> dict[str, Any]:
-    """Run compiled Hog eval bytecode against pre-built globals and shape the verdict.
+def execute_hog_eval_bytecode(
+    bytecode: list,
+    globals_dict: dict[str, Any],
+    allows_na: bool,
+    *,
+    output_type: str = "boolean",
+    output_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run compiled Hog eval bytecode against pre-built globals and shape the output.
 
     Shared by the single-event and trace-level Hog activities — only the globals differ.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}, plus "applicable"
     when allows_na and a `return null` is treated as N/A, "user_input_error": True when this unit's
     data defeated the user's Hog source, and "unexpected": True when the failure was a bug in our
     code rather than in the user's Hog source or its input.
+    Numeric success replaces `verdict` with a validated `score`.
     """
     try:
         response = execute_bytecode(
@@ -187,6 +197,24 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
 
     if response.result is None and allows_na:
         return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}
+
+    if output_type == "numeric":
+        try:
+            score = NumericOutputConfig.model_validate(output_config or {}).validate_score(response.result)
+        except NumericScoreOutOfBounds as error:
+            return {
+                "verdict": None,
+                "reasoning": reasoning,
+                "error": str(error),
+                "user_input_error": True,
+                "skip_reason": "score_out_of_bounds",
+            }
+        except ValueError as error:
+            return {"verdict": None, "reasoning": reasoning, "error": str(error)}
+        numeric_result: dict[str, Any] = {"score": score, "reasoning": reasoning, "error": None}
+        if allows_na:
+            numeric_result["applicable"] = True
+        return numeric_result
 
     if not isinstance(response.result, bool):
         hint = " (or null if N/A is enabled)" if allows_na else ""
@@ -229,7 +257,7 @@ def finalize_hog_eval_result(
             # terminal: the same evaluation usually reads the next unit fine, so disabling it over
             # one malformed payload would cost the user every later result. Skipping keeps the
             # evaluation running and leaves the run visible as skipped rather than failed.
-            input_error_spec = require_user_error_spec("hog_input_error")
+            input_error_spec = require_user_error_spec(result.get("skip_reason", "hog_input_error"))
             increment_user_errors(input_error_spec.error_type)
             # This path raises nothing and emails nobody, and the counter can't carry ids at this
             # cardinality, so without these fields there is no way to find the offending evaluation.
@@ -241,19 +269,13 @@ def finalize_hog_eval_result(
                 error=result["error"],
             )
             detail = truncate_error_detail(result["error"])
-            skipped_result: EvaluationActivityResult = {
-                "result_type": "boolean",
-                "verdict": None if allows_na else False,
-                # Leads with the safe message: `detail` is a Python exception repr, which is not a
-                # Hog concept, and `reasoning` is the only text the run shows the user.
-                "reasoning": f"{input_error_spec.safe_message} ({detail})" if detail else input_error_spec.safe_message,
-                "allows_na": allows_na,
-                "skipped": True,
-                "skip_reason": input_error_spec.error_type,
-            }
-            if allows_na:
-                skipped_result["applicable"] = False
-            return skipped_result
+            # Lead with the user-facing message; detail may contain a Python exception.
+            return build_skipped_evaluation_result(
+                output_type=evaluation.get("output_type", "boolean"),
+                allows_na=allows_na,
+                reasoning=f"{input_error_spec.safe_message} ({detail})" if detail else input_error_spec.safe_message,
+                skip_reason=input_error_spec.error_type,
+            )
 
         # The user's Hog source itself errored — an expected outcome of running customer-authored
         # code, recorded as a skipped evaluation rather than raised (which would flood error
@@ -261,36 +283,51 @@ def finalize_hog_eval_result(
         # eval instead of re-running it against every matching unit (mirrors the generation path).
         spec = require_user_error_spec("hog_error")
         error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
-        errored_result: EvaluationActivityResult = {
-            "result_type": "boolean",
-            "verdict": None if allows_na else False,
-            "reasoning": error_detail,
-            "allows_na": allows_na,
-            "skipped": True,
-            "skip_reason": "hog_error",
+        return {
+            **build_skipped_evaluation_result(
+                output_type=evaluation.get("output_type", "boolean"),
+                allows_na=allows_na,
+                reasoning=error_detail,
+                skip_reason="hog_error",
+            ),
             "terminal_user_error": True,
             "status_reason": spec.status_reason,
         }
-        if allows_na:
-            errored_result["applicable"] = False
-        return errored_result
 
     activity_result: EvaluationActivityResult = {
         "result_type": "boolean",
-        "verdict": result["verdict"],
         "reasoning": result["reasoning"],
         "allows_na": allows_na,
     }
+    if evaluation.get("output_type") == "numeric":
+        activity_result["result_type"] = "numeric"
+        if "score" in result:
+            config = NumericOutputConfig.model_validate(evaluation.get("output_config") or {})
+            activity_result["score"] = config.validate_score(result["score"])
+            if config.min is not None:
+                activity_result["score_min"] = config.min
+            if config.max is not None:
+                activity_result["score_max"] = config.max
+    else:
+        activity_result["verdict"] = result["verdict"]
     if allows_na:
         activity_result["applicable"] = result.get("applicable", True)
     return activity_result
 
 
-def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
+def run_hog_eval(
+    bytecode: list,
+    event_data: dict[str, Any],
+    allows_na: bool = False,
+    *,
+    output_type: str = "boolean",
+    output_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Run compiled Hog bytecode against a single event.
 
     Used by both the Temporal activity and the test endpoint.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
+    Numeric success replaces `verdict` with a validated `score`.
     When allows_na=True, a `return null` is treated as N/A (not an error).
     Sets "user_input_error": True when this event's data defeated the user's Hog source, and
     "unexpected": True only when the bytecode raised something other than a HogVM error or one of
@@ -332,7 +369,9 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
             )
         ]
 
-    return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+    return execute_hog_eval_bytecode(
+        bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+    )
 
 
 async def run_hog_eval_for_event(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
@@ -352,7 +391,13 @@ async def run_hog_eval_for_event(evaluation: dict[str, Any], event_data: dict[st
     allows_na = output_config.get("allows_na", False)
 
     def _execute() -> dict[str, Any]:
-        return run_hog_eval(bytecode, event_data, allows_na=allows_na)
+        return run_hog_eval(
+            bytecode,
+            event_data,
+            allows_na=allows_na,
+            output_type=evaluation.get("output_type", "boolean"),
+            output_config=output_config,
+        )
 
     result = await database_sync_to_async(_execute, thread_sensitive=False)()
 

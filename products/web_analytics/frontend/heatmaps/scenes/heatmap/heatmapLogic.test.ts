@@ -306,9 +306,11 @@ describe('heatmapLogic', () => {
             if (restriction === 'viewer') {
                 logic.actions.setUserAccessLevel(AccessControlLevel.Viewer)
                 expect(logic.values.editDisabledReason).toBeTruthy()
+                expect(logic.values.dataUrlEditDisabledReason).toBeTruthy()
             } else {
                 logic.actions.setSource('toolbar')
                 expect(logic.values.editDisabledReason).toBeNull()
+                expect(logic.values.dataUrlEditDisabledReason).toBeNull()
             }
             expect(logic.values.urlEditDisabledReason).toBeTruthy()
             expect(logic.values.regenerateDisabledReason).toBeTruthy()

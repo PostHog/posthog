@@ -1,6 +1,9 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -23,6 +26,7 @@ from posthog.schema import (
 from posthog.hogql.database.database import get_data_warehouse_table_name
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.access_controlled_resources import (
     _TRANSITIVE_SYSTEM_TABLE_SCOPES,
@@ -30,6 +34,7 @@ from posthog.hogql_queries.access_controlled_resources import (
     queried_access_controlled_resources,
 )
 
+from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -268,12 +273,79 @@ class TestQueriedAccessControlledResources(BaseTest):
         # hit skips that resolution, so the user's table denials must partition the key.
         assert result == {"warehouse_view", "warehouse_table", "external_data_source"}
 
+    @parameterized.expand(
+        [
+            (
+                "system table behind two views",
+                {"notebook_view": "select * from system.notebooks", "outer_view": "select * from notebook_view"},
+                "select * from outer_view",
+                {"warehouse_view", "warehouse_table", "external_data_source", "notebook"},
+            ),
+            (
+                "views that reference each other",
+                {"view_a": "select * from view_b", "view_b": "select * from view_a"},
+                "select * from view_a",
+                {"warehouse_view", "warehouse_table", "external_data_source"},
+            ),
+        ]
+    )
+    def test_view_definitions_are_walked(self, _name, views, sql, expected):
+        for name, definition in views.items():
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
+            )
+        assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
+
+    def test_view_fan_out_does_not_scale_queries(self) -> None:
+        # Views that share a base view must each be walked once, so six of them cost the same queries as two.
+        def _cost(fan_out: int) -> tuple[int, int]:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"base_view_{fan_out}",
+                query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+            )
+            view_names = [f"view_{fan_out}_{i}" for i in range(fan_out)]
+            for name in view_names:
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team,
+                    name=name,
+                    query={"kind": "HogQLQuery", "query": f"select * from base_view_{fan_out}"},
+                )
+            query = HogQLQuery(query=f"select * from {', '.join(view_names)}")
+            with (
+                CaptureQueriesContext(connection) as ctx,
+                patch("posthog.hogql.parser.parse_select", wraps=parse_select) as parse_spy,
+            ):
+                assert queried_access_controlled_resources(query, self.team) == {
+                    "warehouse_view",
+                    "warehouse_table",
+                    "external_data_source",
+                    "notebook",
+                }
+            return len(ctx.captured_queries), parse_spy.call_count
+
+        (queries_6, parses_6), (queries_2, parses_2) = _cost(6), _cost(2)
+        assert queries_6 == queries_2
+        # Each added view costs one parse. A base view walked again for each parent would cost two.
+        assert parses_6 - parses_2 == 4
+
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(
             HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks"), self.team
         )
         assert result == {"warehouse_table", "notebook", "external_data_source"}
+
+    def test_bypassed_scope_drops_only_its_own_fallback_parent(self):
+        # The map has a single entry, so a second one is patched in: a principal that bypasses one child's
+        # access control must still partition on the fallback parent of a child it does not bypass.
+        self._create_warehouse_table("my_warehouse_table")
+        query = HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks")
+        with patch.dict(RESOURCE_FALLBACK_MAP, {"notebook": "dashboard"}):
+            result = queried_access_controlled_resources(
+                query, self.team, bypassed_scopes=frozenset({"warehouse_table"})
+            )
+        assert result == {"warehouse_table", "notebook", "dashboard"}
 
     def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(

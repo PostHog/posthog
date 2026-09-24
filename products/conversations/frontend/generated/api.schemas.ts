@@ -156,6 +156,17 @@ export interface TicketPersonApi {
 }
 
 /**
+ * Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.
+ */
+export type TicketApiSessionContext = {
+    /** Page the reporter was on. */
+    readonly current_url?: string
+    /** Replay of the session the ticket came from. */
+    readonly replay_url?: string
+    [key: string]: unknown
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
@@ -203,7 +214,8 @@ export interface TicketApi {
     readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
-    readonly session_context: unknown
+    /** Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version. */
+    readonly session_context: TicketApiSessionContext
     /**
      * SLA deadline set via workflows. Null means no SLA.
      * @nullable

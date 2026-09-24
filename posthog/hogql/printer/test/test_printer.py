@@ -52,12 +52,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
@@ -138,29 +138,14 @@ class TestPrinter(BaseTest):
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
         if "%" in property_name:
-            subcolumns = [f"getSubcolumn({root}, %(hogql_val_{index})s)" for index in range(10)]
-            return (
-                f"if(notEquals(toJSONString({subcolumns[0]}), '{{}}'), toJSONString({subcolumns[1]}), "
-                f"if(isNull({subcolumns[2]}), NULL, if(startsWith(dynamicType({subcolumns[3]}), 'DateTime'), "
-                f"replaceOne(toString({subcolumns[4]}), ' ', 'T'), if(or(startsWith(dynamicType({subcolumns[5]}), "
-                f"'Array'), startsWith(dynamicType({subcolumns[6]}), 'Map'), startsWith(dynamicType({subcolumns[7]}), "
-                f"'Tuple')), toJSONString({subcolumns[8]}), toString({subcolumns[9]})))))"
-            )
+            # A key the printer cannot inline is parameterized: every occurrence takes the next placeholder.
+            counter = iter(range(100))
+            next_placeholder = lambda: f"getSubcolumn({root}, %(hogql_val_{next(counter)})s)"  # noqa: E731
+            return json_dynamic_read_sql_from_parts(next_placeholder, next_placeholder)
         return self._json_dynamic_subcolumn_path_expr(root, [property_name])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
-        escaped = [escape_clickhouse_identifier(key) for key in property_path]
-        field = ".".join([root, *escaped])
-        sub_object = f"{root}.^" + ".".join(escaped)
-        object_read = f"toJSONString({sub_object})"
-        scalar_read = (
-            f"if(isNull({field}), NULL, "
-            f"if(startsWith(dynamicType({field}), 'DateTime'), "
-            f"replaceOne(toString({field}), ' ', 'T'), "
-            f"if(or(startsWith(dynamicType({field}), 'Array'), startsWith(dynamicType({field}), 'Map'), "
-            f"startsWith(dynamicType({field}), 'Tuple')), toJSONString({field}), toString({field}))))"
-        )
-        return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
+        return json_dynamic_read_sql(root, property_path)
 
     def _json_dynamic_property_expr(self, property_name: str, table_alias: str = "events") -> str:
         return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name)
@@ -942,7 +927,7 @@ class TestPrinter(BaseTest):
     def test_hogql_properties_use_active_storage_schema(self):
         context = HogQLContext(team_id=self.team.pk)
         expected_browser_sql = (
-            "nullIf(events.properties.`$browser`, '')"
+            self._json_dynamic_property_expr("$browser")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
@@ -956,7 +941,7 @@ class TestPrinter(BaseTest):
 
         context = HogQLContext(team_id=self.team.pk)
         expected_ai_trace_sql = (
-            "nullIf(events.properties.`$ai_trace_id`, '')"
+            self._json_dynamic_property_expr("$ai_trace_id")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
@@ -1001,7 +986,7 @@ class TestPrinter(BaseTest):
     def test_hogql_property_comparisons_use_active_storage_schema(self):
         context = HogQLContext(team_id=self.team.pk)
         expected_sql = (
-            "equals(events.properties.`$browser`, %(hogql_val_0)s)"
+            f"ifNull(equals({self._json_dynamic_property_expr('$browser')}, %(hogql_val_0)s), 0)"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)"
         )
@@ -1078,7 +1063,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties['$browser']"),
             (
-                "nullIf(events.properties.`$browser`, '')"
+                self._json_dynamic_property_expr("$browser")
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
                 else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
             ),
@@ -3479,7 +3464,7 @@ class TestPrinter(BaseTest):
         mock_matcols_by_table.return_value = {"events": {("$ai_trace_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            expected_expr = "events.properties.`$ai_trace_id`"
+            expected_expr = self._json_dynamic_property_expr("$ai_trace_id")
         else:
             expected_expr = "events.`mat_$ai_trace_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3495,13 +3480,13 @@ class TestPrinter(BaseTest):
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
-        # Native String paths represent missing values as empty strings.
+        # The read itself already maps an empty value to NULL, so no outer nullIf wraps it.
         context = HogQLContext(team_id=self.team.pk)
         sql = self._expr("properties.$ai_trace_id", context)
 
         self.assertEqual(
             sql.strip(),
-            f"nullIf({expected_expr}, '')" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_expr,
+            expected_expr,
         )
 
         # IN operations - no ifNull wrapping
@@ -3513,11 +3498,7 @@ class TestPrinter(BaseTest):
         assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
         trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
-        expected_in = (
-            f"has([%({trace1_param_key})s, %({trace2_param_key})s], {expected_expr})"
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else f"in({expected_expr}, tuple(%({trace1_param_key})s, %({trace2_param_key})s))"
-        )
+        expected_in = f"in({expected_expr}, tuple(%({trace1_param_key})s, %({trace2_param_key})s))"
         self.assertIn(expected_in, sql)
         self.assertNotIn("ifNull(in", sql)
 
@@ -3568,7 +3549,7 @@ class TestPrinter(BaseTest):
         mock_matcols_by_table.return_value = {"events": {("$ai_session_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            expected_expr = "events.properties.`$ai_session_id`"
+            expected_expr = self._json_dynamic_property_expr("$ai_session_id")
         else:
             expected_expr = "events.`mat_$ai_session_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3581,13 +3562,13 @@ class TestPrinter(BaseTest):
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
-        # Native String paths represent missing values as empty strings.
+        # The read itself already maps an empty value to NULL, so no outer nullIf wraps it.
         context = HogQLContext(team_id=self.team.pk)
         sql = self._expr("properties.$ai_session_id", context)
 
         self.assertEqual(
             sql.strip(),
-            f"nullIf({expected_expr}, '')" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_expr,
+            expected_expr,
         )
 
         # IN operations - no ifNull wrapping
@@ -3599,11 +3580,7 @@ class TestPrinter(BaseTest):
         assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
         session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
         assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
-        expected_in = (
-            f"has([%({session1_param_key})s, %({session2_param_key})s], {expected_expr})"
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else f"in({expected_expr}, tuple(%({session1_param_key})s, %({session2_param_key})s))"
-        )
+        expected_in = f"in({expected_expr}, tuple(%({session1_param_key})s, %({session2_param_key})s))"
         self.assertIn(expected_in, sql)
         self.assertNotIn("ifNull(in", sql)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -4078,7 +4055,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         browser_expr = (
-            "nullIf(events.properties.`$browser`, '')"
+            self._json_dynamic_property_expr("$browser")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
         )
@@ -4107,7 +4084,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         browser_expr = (
-            "nullIf(events.properties.`$browser`, '')"
+            self._json_dynamic_property_expr("$browser")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
         )
@@ -4389,7 +4366,7 @@ class TestPrinter(BaseTest):
             self.assertIn("JSONExtractString", result.clickhouse)
             # Should NOT contain Float64 casting which would cause type mismatch
             self.assertNotIn("accurateCastOrNull", result.clickhouse)
-        self.assertNotIn("Float64", result.clickhouse)
+            self.assertNotIn("Float64", result.clickhouse)
 
     def test_unique_survey_submissions_filter(self):
         printed = self._print(
@@ -5503,24 +5480,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str, *, as_json: bool = False) -> str:
-        escaped = escape_clickhouse_identifier(property_name)
-        field = f"{root}.{escaped}"
-        object_read = f"toJSONString({root}.^{escaped})"
-        scalar_value = (
-            f"concat('\"', ifNull(toString(replaceOne(toString({field}), ' ', 'T')), ''), '\"')"
-            if as_json
-            else f"replaceOne(toString({field}), ' ', 'T')"
-        )
-        fallback_value = (
-            f"toJSONString({field})"
-            if as_json
-            else (
-                f"if(or(startsWith(dynamicType({field}), 'Array'), startsWith(dynamicType({field}), 'Map'), "
-                f"startsWith(dynamicType({field}), 'Tuple')), toJSONString({field}), toString({field}))"
-            )
-        )
-        scalar_read = f"if(isNull({field}), NULL, if(startsWith(dynamicType({field}), 'DateTime'), {scalar_value}, {fallback_value}))"
-        return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
+        return json_dynamic_read_sql(root, [property_name], as_json=as_json)
 
     def _json_dynamic_property_expr(
         self, property_name: str, table_alias: str = "events", *, as_json: bool = False
@@ -5725,7 +5685,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             printed = self._expr("properties.numeric_test_prop < 5")
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert self._json_dynamic_property_expr("numeric_test_prop") in printed
+            # A numeric comparison casts the bare JSON path instead of going through the string read.
+            assert "accurateCastOrNull(events.properties.numeric_test_prop, 'Float64')" in printed
             assert mat_col.name not in printed
         else:
             assert f"less(accurateCastOrNull(events.{mat_col.name}," in printed
@@ -5775,7 +5736,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         printed = self._expr("properties.numeric_test_prop < 5")
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert self._json_dynamic_property_expr("numeric_test_prop") in printed
+            # A numeric comparison casts the bare JSON path instead of going through the string read.
+            assert "accurateCastOrNull(events.properties.numeric_test_prop, 'Float64')" in printed
             assert "mat_numeric_test_prop" not in printed
             assert "accurateCastOrNull" in printed
         else:
