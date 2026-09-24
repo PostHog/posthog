@@ -15,7 +15,6 @@ from products.logs.backend.temporal.retention_entitlements.types import (
     EnforceLogsRetentionEntitlementsInput,
     EnforceLogsRetentionEntitlementsOutput,
 )
-from products.tracing.backend.facade.team_extension import TeamTracingConfig
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -24,7 +23,7 @@ LOGGER = get_write_only_logger(__name__)
 async def enforce_logs_retention_entitlements(
     input: EnforceLogsRetentionEntitlementsInput,
 ) -> EnforceLogsRetentionEntitlementsOutput:
-    """Reset saved paid Logs and traces retention when the organization no longer has the matching feature."""
+    """Reset saved paid Logs retention settings when the organization no longer has the matching feature."""
     async with Heartbeater():
         logger = LOGGER.bind(dry_run=input.dry_run)
         batch_size = max(1, input.batch_size)
@@ -79,10 +78,13 @@ async def enforce_logs_retention_entitlements(
             )
 
         # Rules store their own retention period, so ingestion keeps applying a paid period until they are reset too.
+        # Span rules are not covered by the Logs entitlement.
         rules_to_update: list[LogsRetentionRule] = []
         rules_checked = 0
         async for rule in (
-            LogsRetentionRule.objects.filter(config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS)
+            LogsRetentionRule.objects.filter(
+                source=LogsRetentionRule.RecordSource.LOGS, config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS
+            )
             .select_related("team__organization")
             .only("id", "config", "version", "team__id", "team__organization__available_product_features")
         ):
@@ -110,55 +112,16 @@ async def enforce_logs_retention_entitlements(
         if not input.dry_run and rules_to_update:
             await database_sync_to_async(reset_logs_retention_rules)(rules_to_update)
 
-        # Traces keep their default period on their own team extension, gated by the same feature.
-        tracing_configs_to_update: list[TeamTracingConfig] = []
-        tracing_configs_checked = 0
-        async for tracing_config in (
-            TeamTracingConfig.objects.filter(retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS)
-            .select_related("team__organization")
-            .only("team__id", "retention_days", "team__organization__available_product_features")
-        ):
-            retention_days = tracing_config.retention_days
-            required_feature = required_logs_retention_feature(retention_days)
-            if not required_feature:
-                continue
-
-            tracing_configs_checked += 1
-            organization = tracing_config.team.organization
-            if organization.is_feature_available(required_feature):
-                continue
-
-            tracing_config.retention_days = DEFAULT_LOGS_RETENTION_DAYS
-            tracing_configs_to_update.append(tracing_config)
-            logger.info(
-                "Traces retention period setting forcibly reduced",
-                team_id=tracing_config.team_id,
-                organization_id=organization.id,
-                retention_period_before=retention_days,
-                retention_period_after=DEFAULT_LOGS_RETENTION_DAYS,
-            )
-
-        if not input.dry_run and tracing_configs_to_update:
-            await database_sync_to_async(TeamTracingConfig.objects.bulk_update)(
-                tracing_configs_to_update,
-                ["retention_days"],
-                batch_size=batch_size,
-            )
-
         logger.info(
             "Logs retention entitlement enforcement complete",
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
             rules_checked=rules_checked,
             rules_reset=len(rules_to_update),
-            tracing_configs_checked=tracing_configs_checked,
-            tracing_configs_reset=len(tracing_configs_to_update),
         )
         return EnforceLogsRetentionEntitlementsOutput(
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
             rules_checked=rules_checked,
             rules_reset=len(rules_to_update),
-            tracing_configs_checked=tracing_configs_checked,
-            tracing_configs_reset=len(tracing_configs_to_update),
         )

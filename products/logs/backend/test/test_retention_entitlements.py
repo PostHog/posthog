@@ -39,11 +39,14 @@ async def _refresh_team(team: Team) -> Team:
     return await sync_to_async(Team.objects.get)(id=team.id)
 
 
-async def _create_rule(team: Team, retention_days: int) -> LogsRetentionRule:
+async def _create_rule(
+    team: Team, retention_days: int, source: str = LogsRetentionRule.RecordSource.LOGS
+) -> LogsRetentionRule:
     return await sync_to_async(LogsRetentionRule.objects.create)(
         team=team,
         name=f"Rule {uuid.uuid4()}",
         enabled=True,
+        source=source,
         config={"retention_days": retention_days, "filter_group": {"type": "AND", "values": []}},
     )
 
@@ -71,6 +74,8 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
     rule_allowed = await _create_rule(team_30d_allowed, 90)
     rule_blocked = await _create_rule(team_14d, 30)
     rule_14d = await _create_rule(team_14d, 14)
+    # Span rules are outside the Logs entitlement, so a blocked org keeps its paid span period.
+    span_rule_blocked = await _create_rule(team_14d, 30, source=LogsRetentionRule.RecordSource.SPANS)
 
     output: EnforceLogsRetentionEntitlementsOutput = await ActivityEnvironment().run(
         enforce_logs_retention_entitlements,
@@ -84,6 +89,7 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
 
     assert (await _refresh_rule(rule_allowed)).config["retention_days"] == 90
     assert (await _refresh_rule(rule_14d)).config["retention_days"] == 14
+    assert (await _refresh_rule(span_rule_blocked)).config["retention_days"] == 30
     blocked_rule = await _refresh_rule(rule_blocked)
     assert blocked_rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
     assert blocked_rule.enabled is True

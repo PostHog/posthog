@@ -1473,6 +1473,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </span>
                 ),
                 component: <TracingRetentionSettingsBlock />,
+                flag: 'TRACING_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl', 'rules', 'filter', 'keep', 'expire', 'span'],
             },
         ],

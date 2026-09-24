@@ -10,7 +10,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { LogsRetentionRuleApi, PatchedLogsRetentionRuleApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsRetentionRuleApi,
+    LogsRetentionRuleSuggestNameApi,
+    PatchedLogsRetentionRuleApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import {
     LOGS_RETENTION_DEFAULT_DAYS,
@@ -96,7 +100,8 @@ export function buildRetentionFormDefaults(rule: LogsRetentionRuleApi | null): L
     }
 }
 
-export function buildRetentionConfigPayload(form: LogsRetentionFormType): Record<string, unknown> {
+// A rule's `config` and the suggest-name request body share this shape.
+export function buildRetentionConfigPayload(form: LogsRetentionFormType): LogsRetentionRuleSuggestNameApi {
     return {
         retention_days: form.retention_days,
         filter_group: wrapFilterGroup(form.filter_group),
@@ -241,7 +246,7 @@ export const logsRetentionFormLogic = kea<logsRetentionFormLogicType>([
                     try {
                         response = await (props.product ?? LOGS_RETENTION_PRODUCT).api.suggestName(
                             String(values.currentTeamId),
-                            payload as never
+                            payload
                         )
                     } catch {
                         // A suggestion is cosmetic: missing AI consent (403), the shared AI throttle
@@ -304,7 +309,7 @@ export const logsRetentionFormLogic = kea<logsRetentionFormLogicType>([
                         await product.api.partialUpdate(projectId, props.rule.id, patch)
                         lemonToast.success('Retention rule updated')
                     } else {
-                        await product.api.create(projectId, payload as never)
+                        await product.api.create(projectId, payload)
                         lemonToast.success('Retention rule created')
                     }
                     router.actions.push(product.urls.settings())

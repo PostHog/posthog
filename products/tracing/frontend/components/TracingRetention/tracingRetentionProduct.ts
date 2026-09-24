@@ -42,5 +42,6 @@ export const TRACES_RETENTION_PRODUCT: RetentionRulesProduct = {
     },
     // Traces have no bytes-volume preview endpoint yet.
     showVolumePreview: false,
+    requiresPaidRetention: false,
     sceneResourceType: 'tracing',
 }

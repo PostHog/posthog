@@ -235,6 +235,10 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+# Gates changes to the traces default retention period. Mirrored in `FEATURE_FLAGS.TRACING_SETTINGS_RETENTION`.
+TRACES_RETENTION_FLAG = "tracing-settings-retention"
+
+
 class TeamTracingConfigSerializer(serializers.ModelSerializer):
     tracing_distinct_id_attribute_keys = serializers.ListField(
         # trim_whitespace is the DRF default, but the uniqueness validator below
@@ -291,27 +295,24 @@ class TeamTracingConfigSerializer(serializers.ModelSerializer):
         return _validate_unique_attribute_keys(value)
 
     def validate_retention_days(self, value: int) -> int:
-        # Only a changed period is checked against the flag and the entitlement, so an unrelated
-        # update that sends the stored period back keeps working after the flag is turned off.
+        # Only a changed period is checked against the flags, so an unrelated update that sends
+        # the stored period back keeps working after a flag is turned off.
         if self.instance is not None and self.instance.retention_days == value:
             return value
 
         team = self.context.get("team")
+        organization = team.organization if team is not None else None
+        user = getattr(self.context.get("request"), "user", None)
+        if not _flag_enabled_for_caller(TRACES_RETENTION_FLAG, organization, user, team):
+            raise exceptions.PermissionDenied("Changing traces retention is not available for this project yet.")
+
         # Only evaluate the flag outside the base tiers, so the common path makes no flag call.
         custom_enabled = value not in LOGS_RETENTION_BASE_TIERS_DAYS and _custom_retention_flag_enabled(
-            team.organization if team is not None else None,
-            getattr(self.context.get("request"), "user", None),
-            team,
+            organization, user, team
         )
         error = logs_retention_days_error(value, custom_retention_enabled=custom_enabled)
         if error:
             raise exceptions.ValidationError(error)
-
-        required_feature = required_logs_retention_feature(value)
-        if required_feature and (team is None or not team.organization.is_feature_available(required_feature)):
-            raise exceptions.PermissionDenied(
-                f"This organization does not have permission to set Traces retention to {value} days."
-            )
 
         throttle_error = retention_update_throttle_error(
             self.instance.retention_last_updated if self.instance is not None else None
@@ -1269,16 +1270,20 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
     return None
 
 
-def _custom_retention_flag_enabled(organization: Organization | None, user: Any, team: Team | None) -> bool:
-    """Whether the caller may pick a retention period outside the base tiers."""
+def _flag_enabled_for_caller(flag: str, organization: Organization | None, user: Any, team: Team | None) -> bool:
     if organization is None or user is None or not user.is_authenticated:
         return False
     return posthog_feature_flag_enabled(
-        LOGS_CUSTOM_RETENTION_FLAG,
+        flag,
         str(user.distinct_id),
         organization_id=organization.id,
         team_id=team.id if team is not None else None,
     )
+
+
+def _custom_retention_flag_enabled(organization: Organization | None, user: Any, team: Team | None) -> bool:
+    """Whether the caller may pick a retention period outside the base tiers."""
+    return _flag_enabled_for_caller(LOGS_CUSTOM_RETENTION_FLAG, organization, user, team)
 
 
 def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team: Team | None) -> bool:

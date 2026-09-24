@@ -13,6 +13,13 @@ import {
 import { LogsRetentionRuleApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsRetentionRulesSettingsUrl } from 'products/logs/frontend/logsRetentionRulesSettingsUrl'
 
+// Request bodies come from the generated logs client. The traces client is generated from the same
+// serializers, so assigning it to this descriptor fails to compile if the two routes ever diverge.
+type CreateBody = Parameters<typeof logsRetentionRulesCreate>[1]
+type PartialUpdateBody = NonNullable<Parameters<typeof logsRetentionRulesPartialUpdate>[2]>
+type ReorderBody = Parameters<typeof logsRetentionRulesReorderCreate>[1]
+type SuggestNameBody = Parameters<typeof logsRetentionRulesSuggestNameCreate>[1]
+
 /**
  * What separates one product's retention rules from another's.
  *
@@ -30,16 +37,12 @@ export interface RetentionRulesProduct {
     /** Generated client for the product's `retention_rules` route. */
     api: {
         list: (projectId: string) => Promise<{ results: LogsRetentionRuleApi[] }>
-        create: (projectId: string, body: never) => Promise<LogsRetentionRuleApi>
+        create: (projectId: string, body: CreateBody) => Promise<LogsRetentionRuleApi>
         retrieve: (projectId: string, id: string) => Promise<LogsRetentionRuleApi>
         destroy: (projectId: string, id: string) => Promise<void>
-        partialUpdate: (
-            projectId: string,
-            id: string,
-            body: { enabled?: boolean; name?: string; config?: unknown }
-        ) => Promise<LogsRetentionRuleApi>
-        reorder: (projectId: string, body: { ordered_ids: string[] }) => Promise<unknown>
-        suggestName: (projectId: string, body: never) => Promise<{ name?: string } | null>
+        partialUpdate: (projectId: string, id: string, body: PartialUpdateBody) => Promise<LogsRetentionRuleApi>
+        reorder: (projectId: string, body: ReorderBody) => Promise<unknown>
+        suggestName: (projectId: string, body: SuggestNameBody) => Promise<{ name?: string } | null>
     }
     /** Property vocabulary the rule's filter editor offers. */
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -55,6 +58,8 @@ export interface RetentionRulesProduct {
      * equivalent of yet.
      */
     showVolumePreview: boolean
+    /** Whether periods over the free tier need the Logs retention feature. Traces have no paid gate. */
+    requiresPaidRetention: boolean
     /** `resourceType` for the rule scenes' title section. */
     sceneResourceType: string
 }
@@ -83,5 +88,6 @@ export const LOGS_RETENTION_PRODUCT: RetentionRulesProduct = {
         settings: () => logsRetentionRulesSettingsUrl(),
     },
     showVolumePreview: true,
+    requiresPaidRetention: true,
     sceneResourceType: 'logs',
 }

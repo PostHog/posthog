@@ -27,8 +27,9 @@ A retention rule keeps {record_plural} matching a filter for a given number of d
 - Keep exact: service names, attribute values, numbers.
 - Never invent details that are not in the filters."""
 
-# Record kinds a retention rule can name, keyed by `LogsRetentionRule.RecordSource`.
-RECORD_PLURALS = {"logs": "log", "spans": "span"}
+# Record nouns for the prompt, keyed by `LogsRetentionRule.RecordSource`.
+RECORD_NOUNS = {"logs": "log", "spans": "span"}
+RECORD_NOUNS_PLURAL = {"logs": "logs", "spans": "spans"}
 
 
 def describe_filter_group(node: Any, depth: int = 0) -> str:
@@ -75,7 +76,8 @@ def suggest_retention_rule_name(
     if not description or not settings.OPENAI_API_KEY:
         return ""
 
-    record = RECORD_PLURALS.get(source, "log")
+    record = RECORD_NOUNS.get(source, "log")
+    record_plural = RECORD_NOUNS_PLURAL.get(source, "logs")
 
     try:
         client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
@@ -85,7 +87,7 @@ def suggest_retention_rule_name(
             max_tokens=32,
             timeout=SUGGESTION_TIMEOUT,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT.format(record_plural=f"{record}s")},
+                {"role": "system", "content": SYSTEM_PROMPT.format(record_plural=record_plural)},
                 {
                     "role": "user",
                     "content": (

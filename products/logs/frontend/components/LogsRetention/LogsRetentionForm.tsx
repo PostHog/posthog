@@ -5,6 +5,7 @@ import { LemonInput, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -75,6 +76,7 @@ export function LogsRetentionForm({
                         value={retentionForm.retention_days}
                         onChange={(days) => setRetentionFormValue('retention_days', days)}
                         allowCustom={allowCustomRetention}
+                        requiresPaidRetention={product.requiresPaidRetention}
                         size="small"
                         dataAttrPrefix="logs-retention-rule"
                     />
@@ -84,7 +86,7 @@ export function LogsRetentionForm({
             <SceneSection
                 title="Match"
                 titleSize="sm"
-                description={`The ${product.recordNounPlural} these filters match use the retention above instead of the environment default. The first matching rule wins.`}
+                description={`${capitalizeFirstLetter(product.recordNounPlural)} matching these filters use the retention above instead of the environment default. The first matching rule wins.`}
             >
                 <DropRuleFilterEditor
                     filterGroup={retentionForm.filter_group}

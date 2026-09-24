@@ -3,8 +3,6 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
-
 from products.logs.backend.models import LogsRetentionRule
 
 VALID_FILTER_GROUP = {"type": "AND", "values": [{"type": "AND", "values": []}]}
@@ -94,25 +92,13 @@ class TestTracingRetentionRulesAPI(APIBaseTest):
         # The log rule keeps its own priority.
         assert LogsRetentionRule.objects.get(id=log_rule["id"]).priority == 0
 
-    def test_paid_tier_requires_the_same_org_entitlement_as_logs(self):
-        denied = self.client.post(
+    def test_paid_tier_needs_no_logs_entitlement(self):
+        response = self.client.post(
             self.spans_url,
             self._payload(config={"retention_days": 30, "filter_group": VALID_FILTER_GROUP}),
             format="json",
         )
-        assert denied.status_code == status.HTTP_403_FORBIDDEN, denied.json()
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.LOGS_RETENTION_30D, "name": AvailableFeature.LOGS_RETENTION_30D}
-        ]
-        self.organization.save()
-
-        allowed = self.client.post(
-            self.spans_url,
-            self._payload(config={"retention_days": 30, "filter_group": VALID_FILTER_GROUP}),
-            format="json",
-        )
-        assert allowed.status_code == status.HTTP_201_CREATED, allowed.json()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_feature_flag_gates_the_route(self):
         self._ff_patcher.stop()

@@ -13,5 +13,3 @@ class EnforceLogsRetentionEntitlementsOutput:
     teams_reset: int
     rules_checked: int = 0
     rules_reset: int = 0
-    tracing_configs_checked: int = 0
-    tracing_configs_reset: int = 0

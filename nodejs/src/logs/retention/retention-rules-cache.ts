@@ -24,8 +24,20 @@ const REFRESH_MS = 30_000
 export const logsRetentionRulesDroppedCounter = new Counter({
     name: 'logs_ingestion_retention_rules_dropped_total',
     help: 'Enabled retention rules fetched but discarded at compile time (invalid retention_days tier or malformed config).',
-    labelNames: ['team_id', 'source'],
+    labelNames: ['team_id'],
 })
+
+/** The span-rule counterpart of `logsRetentionRulesDroppedCounter`, emitted by the traces consumer. */
+export const tracesRetentionRulesDroppedCounter = new Counter({
+    name: 'traces_ingestion_retention_rules_dropped_total',
+    help: 'Enabled span retention rules fetched but discarded at compile time (invalid retention_days tier or malformed config).',
+    labelNames: ['team_id'],
+})
+
+const retentionRulesDroppedCounters: Record<RetentionRuleSource, Counter<'team_id'>> = {
+    logs: logsRetentionRulesDroppedCounter,
+    spans: tracesRetentionRulesDroppedCounter,
+}
 
 const retentionCacheInstrumentOpts = { measureTime: false, sendException: false } as const
 
@@ -87,7 +99,7 @@ export class RetentionRulesCache {
                 const compiled = compileRetentionRuleSet(rows)
                 const droppedCount = rows.length - compiled.rules.length
                 if (droppedCount > 0) {
-                    logsRetentionRulesDroppedCounter.inc({ team_id: String(teamId), source }, droppedCount)
+                    retentionRulesDroppedCounters[source].inc({ team_id: String(teamId) }, droppedCount)
                     logger.warn('[logs-retention] enabled rules discarded at compile — check retention_days tier', {
                         teamId,
                         source,
