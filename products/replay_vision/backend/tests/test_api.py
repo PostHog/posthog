@@ -3534,7 +3534,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         mock_embed.return_value = MagicMock(embedding=[0.1])
         resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=2026-09-01")
         self.assertEqual(resp.status_code, 200, resp.json())
-        filters = mock_rank.call_args[0][5]
+        filters = mock_rank.call_args[0][4]
         self.assertIsNotNone(filters.date_from)
         # A date-only upper bound covers its whole day, like the observation list filter.
         self.assertEqual((filters.date_to.hour, filters.date_to.minute, filters.date_to.second), (23, 59, 59))
@@ -3543,7 +3543,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         before = timezone.now()
         resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=now")
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertGreaterEqual(mock_rank.call_args[0][5].date_to, before)
+        self.assertGreaterEqual(mock_rank.call_args[0][4].date_to, before)
 
     @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
     @patch("products.replay_vision.backend.search.generate_embedding")
@@ -3594,7 +3594,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         resp = self.client.get(f"{self.search_url}?q=confused users&limit=1")
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertGreater(mock_rank.call_args[0][4], 1)
+        self.assertGreater(mock_rank.call_args[0][3], 1)
         self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(first.id)])
         self.assertTrue(resp.json()["truncated"])
 
@@ -3648,7 +3648,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         # Not-found rather than 403, so the response never leaks the experiment's existence.
         self.assertEqual(scoped.status_code, 404)
         self.assertEqual(cross.status_code, 200)
-        searched_scanner_ids = mock_rank.call_args[0][2]
+        searched_scanner_ids = mock_rank.call_args[0][1]
         self.assertNotIn(str(denied.id), searched_scanner_ids)
         self.assertIn(str(self.scanner.id), searched_scanner_ids)
 
