@@ -13,12 +13,41 @@ takes its decoded run id, which joins those traces to its jobs. A run with sever
 each workflow's decoded id instead, because one shared id would fan every join on it out.
 """
 
+import re
+
+from posthog.dataclasses import frozen
+
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 
 _ID_ALPHABET = "0123456789bcdfghjklmnpqrstvwxz"
+
+# The repository is written into HogQL as a string literal, so only a plain owner/name qualifies.
+_PLAIN_REPOSITORY = re.compile(r"\A[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\Z")
+
+
+@frozen
+class DepotJobAttempts:
+    """A synced Depot ``job_attempts`` table and the repository whose rows it contributes.
+
+    Reads keep only that repository's rows, because a Depot source moved to another repository keeps
+    the rows it synced before the move.
+    """
+
+    table: str
+    repository: str
+
+    def __post_init__(self) -> None:
+        if not _PLAIN_REPOSITORY.match(self.repository):
+            raise ValueError(f"Not a plain owner/name repository: {self.repository!r}")
+
+    @classmethod
+    def for_repository(cls, table: str, repository: str) -> "DepotJobAttempts | None":
+        """The attempts of ``repository``, or None when it is not a plain owner/name."""
+        return cls(table=table, repository=repository) if _PLAIN_REPOSITORY.match(repository) else None
+
 
 # Depot ids are 10 characters. Ten base-30 digits stay below 2^53, so the Float64 powers sum exactly.
 _MAX_ID_LENGTH = 10
@@ -49,7 +78,7 @@ def _conclusion(status: str) -> str:
     return f"multiIf({status} = 'finished', 'success', {status} = 'failed', 'failure', {status})"
 
 
-def _attempts(attempts_table: str, pull_requests_table: str | None) -> str:
+def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
     # filters then match it like a GitHub run of the same PR.
     pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
@@ -85,9 +114,10 @@ def _attempts(attempts_table: str, pull_requests_table: str | None) -> str:
             a.attempt_started_at AS attempt_started_at,
             a.attempt_finished_at AS attempt_finished_at,
             a.sandbox_id AS sandbox_id
-        FROM {attempts_table} AS a
+        FROM {depot.table} AS a
         {branch_join}
-        WHERE {_is_id("a.run_id")} AND {_is_id("a.workflow_id")} AND {_is_id("a.attempt_id")}
+        WHERE lower(ifNull(a.repo, '')) = '{depot.repository.lower()}'
+            AND {_is_id("a.run_id")} AND {_is_id("a.workflow_id")} AND {_is_id("a.attempt_id")}
     )"""
 
 
@@ -147,20 +177,20 @@ def _union(github_table: str, columns: dict[str, dict[str, str]], depot_select: 
     return f"(SELECT {', '.join(columns)} FROM {github_table} UNION ALL {depot_select})"
 
 
-def with_depot_runs(runs_table: str, attempts_table: str | None, pull_requests_table: str | None = None) -> str:
+def with_depot_runs(runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None = None) -> str:
     """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced."""
-    if not attempts_table:
+    if depot is None:
         return runs_table
-    return _union(runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_attempts(attempts_table, pull_requests_table)))
+    return _union(runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_attempts(depot, pull_requests_table)))
 
 
-def with_depot_jobs(jobs_table: str, attempts_table: str | None) -> str:
+def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
     Depot job rows carry no branch: branch filters read the run's branch, and the jobs builder scans
     its source twice, so a PR snapshot lookup here would cost two full PR scans for a column no
     filter reads.
     """
-    if not attempts_table:
+    if depot is None:
         return jobs_table
-    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(attempts_table, pull_requests_table=None)))
+    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(depot, pull_requests_table=None)))

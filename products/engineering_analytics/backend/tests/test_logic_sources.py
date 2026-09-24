@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_job_source_tables,
     resolve_team_membership_table,
 )
+from products.engineering_analytics.backend.logic.views.depot_ci import DepotJobAttempts
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -505,7 +506,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
                 source_id=str(source.id),
-                depot_job_attempts="cidepot_job_attempts",
+                depot_job_attempts=DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog"),
             ),
             JobSourceTables(
                 workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",

@@ -215,7 +215,7 @@ class JobSourceTables:
     issue_events: str | None = None
     reviews: str | None = None
     source_id: str = ""
-    depot_job_attempts: str | None = None
+    depot_job_attempts: depot_ci.DepotJobAttempts | None = None
 
     @property
     def runs_source(self) -> str:
@@ -525,19 +525,20 @@ def _as_source_uuid(source_id: str) -> UUID:
 
 def resolve_depot_job_attempts_tables(
     team: Team, user_access_control: "UserAccessControl | None" = None
-) -> dict[str, str]:
-    """``{repository: table}`` for the team's synced Depot CI job attempts, keyed by the casefolded
-    ``owner/repo`` the way ``_synced_tables_by_repo`` keys GitHub repos.
+) -> dict[str, depot_ci.DepotJobAttempts]:
+    """The team's synced Depot CI job attempts, keyed by the casefolded ``owner/repo`` the way
+    ``_synced_tables_by_repo`` keys GitHub repos.
 
     A Depot source syncs only the repository its ``repository`` input names, so that input decides
     which GitHub repository its runs join. The oldest source wins, like every other resolver here.
     """
-    tables: dict[str, str] = {}
+    tables: dict[str, depot_ci.DepotJobAttempts] = {}
     for source in _accessible_sources(team, ExternalDataSourceType.DEPOT, user_access_control):
         repository = _source_repository(source).casefold()
         table = _synced_table_name(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA) if repository else None
-        if table:
-            tables.setdefault(repository, table)
+        attempts = depot_ci.DepotJobAttempts.for_repository(table, repository) if table else None
+        if attempts:
+            tables.setdefault(repository, attempts)
     return tables
 
 

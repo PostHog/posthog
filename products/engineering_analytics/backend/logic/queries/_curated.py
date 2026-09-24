@@ -170,7 +170,7 @@ class CuratedGitHubSource:
         self._trunk_table_resolved = False
         self._trunk_quarantine_source: TrunkQuarantineSource | None = None
         self._trunk_quarantine_resolved = False
-        self._depot_job_attempts_table: str | None = None
+        self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
 
     @property
@@ -236,7 +236,7 @@ class CuratedGitHubSource:
             f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
         )
 
-    def _depot_job_attempts(self) -> str | None:
+    def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
         Trunk tables, so a read that never touches CI pays no lookup."""
         if not self._depot_job_attempts_resolved:

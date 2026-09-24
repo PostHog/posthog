@@ -262,11 +262,12 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             workflow_status: str = "failed",
             ref: str = "refs/pull/101991/merge",
             display_name: str = "Product tests (experiments)",
+            repo: str = "PostHog/posthog",
         ) -> dict[str, str | int]:
             return {
                 "run_id": run_id,
                 "run_workflow_count": run_workflow_count,
-                "repo": "PostHog/posthog",
+                "repo": repo,
                 "ref": ref,
                 "head_sha": "abc123",
                 "workflow_id": workflow_id,
@@ -319,10 +320,21 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_status="failed",
                     **schedule,
                 ),
+                # Synced before the source moved to another repository, so no read of this one keeps it.
+                attempt(
+                    "k3w9v2rq8b",
+                    1,
+                    "finished",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:53:00.000Z",
+                    run_id="zzzzzzzzzz",
+                    repo="PostHog/other",
+                ),
             ],
         )
-        runs = depot_ci.with_depot_runs(runs_table, depot_table, prs_table)
-        jobs = depot_ci.with_depot_jobs(jobs_table, depot_table)
+        depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
+        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot)
 
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
