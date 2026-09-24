@@ -19,6 +19,9 @@ class TestFixInvalidFlagPropertyTypes(BaseTest):
         v1_flag = FeatureFlag.objects.create(
             team=self.team, key="v1-flag", created_by=self.user, filters={"groups": invalid_groups}
         )
+        object_groups = FeatureFlag.objects.create(
+            team=other_team, key="object-groups", created_by=self.user, filters={"groups": {"properties": "junk"}}
+        )
 
         out = StringIO()
         call_command("fix_invalid_flag_property_types", "--live-run", stdout=out)
@@ -27,6 +30,8 @@ class TestFixInvalidFlagPropertyTypes(BaseTest):
         assert unsupported.filters == {"version": 2, "groups": invalid_groups}
         v1_flag.refresh_from_db()
         assert v1_flag.filters["groups"][0]["properties"][0]["type"] == "person"
+        object_groups.refresh_from_db()
+        assert object_groups.filters == {"groups": {"properties": "junk"}}
         assert f"Flag id={unsupported.id} team_id={other_team.id} key='v2-flag': config format is not 1, skipped" in (
             out.getvalue()
         )

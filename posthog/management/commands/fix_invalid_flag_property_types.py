@@ -1,3 +1,5 @@
+import copy
+
 from django.core.management.base import BaseCommand
 
 from products.feature_flags.backend.facade.config import detect_config_format
@@ -12,9 +14,15 @@ TYPE_FIXES = {
 }
 
 # Raw SQL to find flags with invalid property types (used as a subquery filter)
+# `jsonb_array_elements` raises on a non-array value and aborts the whole scan, so `CASE` reads one
+# as an empty array first (the planner may reorder `AND` arms, `CASE` it may not).
 INVALID_FLAGS_SQL = """
-    SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters::jsonb->'groups') as grp,
-                  jsonb_array_elements(grp->'properties') as prop
+    SELECT 1 FROM jsonb_array_elements(
+                      CASE WHEN jsonb_typeof(posthog_featureflag.filters->'groups') = 'array'
+                           THEN posthog_featureflag.filters->'groups' ELSE '[]'::jsonb END) as grp,
+                  jsonb_array_elements(
+                      CASE WHEN jsonb_typeof(grp->'properties') = 'array'
+                           THEN grp->'properties' ELSE '[]'::jsonb END) as prop
     WHERE prop->>'type' NOT IN ('person', 'cohort', 'group', 'flag')
       AND prop->>'type' IS NOT NULL
 """
@@ -44,7 +52,7 @@ class Command(BaseCommand):
         fixed_count = 0
         unfixable_count = 0
         skipped_count = 0
-        flags_to_update = []
+        saved_count = 0
 
         for flag in flags.iterator():
             if detect_config_format(flag.filters).kind != "v1":
@@ -56,13 +64,14 @@ class Command(BaseCommand):
                 skipped_count += 1
                 continue
             filters = flag.filters or {}
-            groups = filters.get("groups", [])
+            snapshot = copy.deepcopy(filters)
+            groups = filters.get("groups") or []
             modified = False
 
             for group_idx, group in enumerate(groups):
-                properties = group.get("properties", [])
+                properties = (group.get("properties") or []) if isinstance(group, dict) else []
                 for prop_idx, prop in enumerate(properties):
-                    prop_type = prop.get("type")
+                    prop_type = prop.get("type") if isinstance(prop, dict) else None
 
                     if prop_type and prop_type not in VALID_PROPERTY_TYPES:
                         if prop_type in TYPE_FIXES:
@@ -83,13 +92,21 @@ class Command(BaseCommand):
                             )
                             unfixable_count += 1
 
-            if modified:
-                flag.filters = filters  # nosemgrep: feature-flags-no-raw-filters-access -- data-repair command that fixes the filters JSON itself
-                flags_to_update.append(flag)
+            if not (modified and live_run):
+                continue
+            # Compare-and-swap on the scanned document: a row edited since the scan keeps its new value.
+            if FeatureFlag.objects.filter(pk=flag.pk, filters=snapshot).update(filters=filters):
+                saved_count += 1
+            else:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  Flag id={flag.id} team_id={flag.team_id} key='{flag.key}': changed during the run, not saved"
+                    )
+                )
+                skipped_count += 1
 
-        if live_run and flags_to_update:
-            FeatureFlag.objects.bulk_update(flags_to_update, ["filters"])
-            self.stdout.write(self.style.SUCCESS(f"  Saved {len(flags_to_update)} flags"))
+        if live_run:
+            self.stdout.write(self.style.SUCCESS(f"  Saved {saved_count} flags"))
 
         self.stdout.write(
             f"Completed ({mode}): {fixed_count} properties fixed, {unfixable_count} unfixable, {skipped_count} flags skipped"

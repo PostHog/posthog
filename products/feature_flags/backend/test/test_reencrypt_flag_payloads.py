@@ -138,3 +138,5 @@ class TestReencryptFlagPayloads(BaseTest):
         assert _codec(NEW_KEY).decrypt(v1_flag.filters["payloads"]["true"].encode("utf-8")).decode("utf-8") == PAYLOAD
         skips = [log for log in logs if log["event"] == "reencrypt_flag_payloads.skip_unsupported_config"]
         assert [(log["flag_id"], log["team_id"]) for log in skips] == [(unsupported.id, other_team.id)]
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
+            assert Command()._reencrypt(unsupported.pk, flag_payload_codec()) is None

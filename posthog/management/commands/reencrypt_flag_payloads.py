@@ -57,7 +57,9 @@ class Command(BaseCommand):
                 )
                 self.stderr.write(f"  ! skipped flag {flag.id} (team {flag.team_id}): {e}")
                 continue
-            if changed:
+            if changed is None:
+                skipped += 1
+            elif changed:
                 updated += 1
 
         verb = "re-encrypted" if live_run else "would re-encrypt"
@@ -75,8 +77,8 @@ class Command(BaseCommand):
         payloads = (flag.filters or {}).get("payloads") or {}
         return self._rotate_payloads(payloads, codec) is not None
 
-    def _reencrypt(self, flag_pk: int, codec: FlagPayloadCodec) -> bool:
-        """Rotate one flag's payloads under a row lock, returning True if anything changed.
+    def _reencrypt(self, flag_pk: int, codec: FlagPayloadCodec) -> bool | None:
+        """Rotate one flag's payloads under a row lock: True if anything changed, None if skipped.
 
         Re-read ``filters`` inside the lock so we merge the rotation into the current
         value rather than a stale streamed snapshot — otherwise a concurrent edit to
@@ -85,7 +87,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             flag = FeatureFlag.objects.select_for_update().only("id", "team_id", "filters").get(pk=flag_pk)
             if self._skip_unsupported(flag):
-                return False
+                return None
             filters = flag.filters or {}
             rotated = self._rotate_payloads(filters.get("payloads") or {}, codec)
             if rotated is None:
