@@ -24,6 +24,7 @@ const examples = [
             'busybox',
         ],
     },
+    { title: 'Optional tools', commands: ['doom', 'node --version', 'pi --help'] },
     { title: 'PostHog tools', commands: ['ph tools', 'ph tools notebook', 'ph help notebooks-retrieve', 'ph refresh'] },
     {
         title: 'Edit and organize',

@@ -515,6 +515,9 @@ tools:
         title: Get a specific role.
         description: |
             Get details of a specific role including its name, creation date, and creator.
+        param_overrides:
+            id:
+                description: Required. The role id from roles-list.
     role-members-list:
         operation: roles_role_memberships_list
         enabled: true
@@ -527,6 +530,9 @@ tools:
         title: List members of a role.
         description: |
             List all members assigned to a specific role. Shows who has which role in the organization.
+        param_overrides:
+            role_id:
+                description: Required. The role id from roles-list.
     role-membership-get:
         operation: roles_role_memberships_retrieve
         enabled: false

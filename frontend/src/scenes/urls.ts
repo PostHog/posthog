@@ -183,6 +183,7 @@ export const urls = {
     // Onboarding / setup routes
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     login2FASetup: (): string => '/login/2fa_setup',
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
@@ -200,9 +201,11 @@ export const urls = {
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     verifyEmail: (userUuid: string = ''): string => `/verify_email${userUuid ? `/${userUuid}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
@@ -253,16 +256,23 @@ export const urls = {
         combineUrl(`/organization/billing/${section}`).url,
     organizationBillingRealTimeUsage: (): string => '/organization/billing/real-time-usage',
     advancedActivityLogs: (): string => '/activity-logs',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     instanceStaffUsers: (): string => '/instance/staff_users',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     instanceKafkaInspector: (): string => '/instance/kafka_inspector',
     instanceSettings: (): string => '/instance/settings',
     instanceMetrics: (): string => `/instance/metrics`,
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     asyncMigrations: (): string => '/instance/async_migrations',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     experimentsStaffTools: (): string => '/experiments/staff',
     materializedColumns: (): string => '/data-management/materialized-columns',
@@ -318,8 +328,10 @@ export const urls = {
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     productTours: (): string => '/product_tours',
     productTour: (id: string, params?: string): string =>
+        // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     organizationPendingDeletion: (): string => '/organization-pending-deletion',
