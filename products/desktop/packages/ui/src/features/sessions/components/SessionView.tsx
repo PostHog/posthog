@@ -33,6 +33,7 @@ import {
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
+import { BypassPermissionsHint } from "@posthog/ui/features/permissions/BypassPermissionsHint";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
 import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
@@ -775,6 +776,11 @@ export function SessionView({
                   <PermissionDock
                     key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
                     compact={compact}
+                    footer={
+                      <BypassPermissionsHint
+                        toolCall={firstPendingPermission.toolCall}
+                      />
+                    }
                   >
                     <PermissionSelector
                       toolCall={firstPendingPermission.toolCall}

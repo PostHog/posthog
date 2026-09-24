@@ -19,6 +19,8 @@ export const TIP_KEYS = {
   recallMessageNav: "recall-message-nav",
   /** A steered message waits for the run to reach a safe boundary. */
   steerSafeBoundary: "steer-safe-boundary",
+  /** Bypass permissions mode is off, so every step asks for approval. */
+  bypassPermissionsMode: "bypass-permissions-mode",
 } as const;
 
 export type TipKey = (typeof TIP_KEYS)[keyof typeof TIP_KEYS];
@@ -37,4 +39,7 @@ export const TIP_SHOWINGS: Record<TipKey, TipShowings> = {
   [TIP_KEYS.pasteAsFile]: { max: 3 },
   [TIP_KEYS.recallMessageNav]: { max: 3 },
   [TIP_KEYS.steerSafeBoundary]: { max: 1 },
+  // Higher than the rest because its showings are cheap to miss: it rides on a
+  // permission prompt, and a run can raise a dozen of those in a few minutes.
+  [TIP_KEYS.bypassPermissionsMode]: { max: 12 },
 };

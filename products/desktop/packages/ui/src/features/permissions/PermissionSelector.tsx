@@ -12,7 +12,7 @@ import { ReadPermission } from "./ReadPermission";
 import { SearchPermission } from "./SearchPermission";
 import { SwitchModePermission } from "./SwitchModePermission";
 import { ThinkPermission } from "./ThinkPermission";
-import type { PermissionToolCall } from "./types";
+import { type PermissionToolCall, permissionKind } from "./types";
 
 interface PermissionSelectorProps {
   toolCall: PermissionToolCall;
@@ -32,11 +32,10 @@ export function PermissionSelector({
   onCancel,
 }: PermissionSelectorProps) {
   const props = { toolCall, options, onSelect, onCancel };
-  const meta = toolCall._meta as { codeToolKind?: string } | undefined;
   if (readMcpToolName(toolCall._meta)) {
     return <McpPermission {...props} />;
   }
-  const kind = meta?.codeToolKind ?? (toolCall.kind as string);
+  const kind = permissionKind(toolCall);
 
   switch (kind) {
     case "execute":

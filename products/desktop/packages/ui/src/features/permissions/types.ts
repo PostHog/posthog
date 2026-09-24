@@ -23,6 +23,14 @@ export interface BasePermissionProps {
   onCancel: () => void;
 }
 
+/** The kind a permission card keys on: the harness's own label, else the ACP kind. */
+export function permissionKind(
+  toolCall: PermissionToolCall,
+): string | undefined {
+  const meta = toolCall._meta as { codeToolKind?: string } | undefined;
+  return meta?.codeToolKind ?? (toolCall.kind as string | undefined);
+}
+
 export function toSelectorOptions(
   options: PermissionOption[],
 ): SelectorOption[] {
