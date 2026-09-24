@@ -69,10 +69,8 @@ class HogQLHasMorePaginator:
         offset = query.offset
         if offset is None:
             return cls(limit=limit, offset=None, limit_context=limit_context)
-        valid_offset = isinstance(offset, ast.Constant) and type(offset.value) is int and offset.value >= 0
-        if not valid_offset:
+        if not isinstance(offset, ast.Constant) or type(offset.value) is not int or offset.value < 0:
             return None
-        assert isinstance(offset, ast.Constant)
         return cls(limit=limit, offset=offset.value, limit_context=limit_context)
 
     def paginate(self, query: Union[ast.SelectQuery, ast.SelectSetQuery]) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
