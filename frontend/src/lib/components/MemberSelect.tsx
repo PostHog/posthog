@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
 
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
@@ -13,6 +14,11 @@ import { MemberSelectRow } from './MemberSelectRow'
 export type MemberSelectProps = {
     defaultLabel?: string
     allowNone?: boolean
+    extraOptions?: { label: string; onClick: () => void }[]
+    options?: { uuid: string; name: string; email: string; trailing?: string | number }[]
+    optionsLoading?: boolean
+    onSearch?: (query: string) => void
+    onSelectOption?: (uuid: string, name: string) => void
     // NOTE: Trying to cover a lot of different cases - if string we assume uuid, if number we assume id
     value: string | number | null
     excludedMembers?: (string | number)[]
@@ -23,6 +29,11 @@ export type MemberSelectProps = {
 export function MemberSelect({
     defaultLabel = 'Any user',
     allowNone = true,
+    extraOptions = [],
+    options,
+    optionsLoading,
+    onSearch,
+    onSelectOption,
     value,
     excludedMembers = [],
     onChange,
@@ -32,6 +43,17 @@ export function MemberSelect({
     const { me, selectableMembers, meFirstMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
+    const [optionSearch, setOptionSearch] = useState('')
+    const searchValue = options ? optionSearch : search
+
+    const changeSearch = (query: string): void => {
+        if (options) {
+            setOptionSearch(query)
+            onSearch?.(query)
+        } else {
+            setSearch(query)
+        }
+    }
 
     const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
 
@@ -44,10 +66,10 @@ export function MemberSelect({
 
     const handleVisibilityChange = (visible: boolean): void => {
         setShowPopover(visible)
-        if (search) {
-            setSearch('')
+        if (searchValue) {
+            changeSearch('')
         }
-        if (visible) {
+        if (visible && !options) {
             ensureAllMembersLoaded()
         }
     }
@@ -57,7 +79,7 @@ export function MemberSelect({
         onChange(value)
     }
 
-    const members = showPopover ? selectableMembers(excludedMembers, propToCompare) : []
+    const members = showPopover && !options ? selectableMembers(excludedMembers, propToCompare) : []
 
     return (
         <LemonDropdown
@@ -74,11 +96,26 @@ export function MemberSelect({
                             type="search"
                             placeholder="Search"
                             autoFocus
-                            value={search}
-                            onChange={setSearch}
+                            value={searchValue}
+                            onChange={changeSearch}
                             fullWidth
                         />
                         <ul className="deprecated-space-y-px">
+                            {extraOptions.map((option) => (
+                                <li key={option.label}>
+                                    <LemonButton
+                                        fullWidth
+                                        role="menuitem"
+                                        size="small"
+                                        onClick={() => {
+                                            handleVisibilityChange(false)
+                                            option.onClick()
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                </li>
+                            ))}
                             {allowNone && (
                                 <li>
                                     <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
@@ -96,11 +133,36 @@ export function MemberSelect({
                                 />
                             ))}
 
-                            {membersLoading ? (
+                            {options?.map((option) => (
+                                <li key={option.uuid}>
+                                    <LemonButton
+                                        fullWidth
+                                        role="menuitem"
+                                        size="small"
+                                        icon={
+                                            <ProfilePicture
+                                                size="md"
+                                                user={{ first_name: option.name, email: option.email }}
+                                            />
+                                        }
+                                        onClick={() => {
+                                            handleVisibilityChange(false)
+                                            onSelectOption?.(option.uuid, option.name || option.email)
+                                        }}
+                                    >
+                                        <span className="flex items-center justify-between gap-2 flex-1">
+                                            <span>{option.name || option.email}</span>
+                                            <span className="text-secondary">{option.trailing}</span>
+                                        </span>
+                                    </LemonButton>
+                                </li>
+                            ))}
+
+                            {(options ? optionsLoading : membersLoading) ? (
                                 <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                            ) : members.length === 0 ? (
+                            ) : (options ?? members).length === 0 ? (
                                 <div className="p-2 text-secondary italic truncate border-t">
-                                    {search ? <span>No matches</span> : <span>No users</span>}
+                                    {searchValue ? <span>No matches</span> : <span>No users</span>}
                                 </div>
                             ) : null}
                         </ul>

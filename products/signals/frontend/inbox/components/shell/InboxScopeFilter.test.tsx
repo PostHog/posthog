@@ -9,21 +9,27 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import type { InboxPerson } from './InboxPeoplePicker'
 import { InboxScopeFilter } from './InboxScopeFilter'
 
 jest.mock('posthog-js')
-// The real picker pulls in a popover and avatars. This stand-in lists the roster rows as plain text,
-// which is all these tests read from it.
-jest.mock('./InboxPeoplePicker', () => ({
-    InboxPeoplePicker: ({ people }: { people: InboxPerson[] }) => (
-        <ul>
-            {people.map((person) => (
-                <li key={person.uuid}>
-                    {person.name} {person.trailing}
-                </li>
-            ))}
-        </ul>
+jest.mock('lib/components/MemberSelect', () => ({
+    MemberSelect: ({
+        options,
+        children,
+    }: {
+        options: { uuid: string; name: string; trailing?: string }[]
+        children: () => JSX.Element
+    }) => (
+        <>
+            {children()}
+            <ul>
+                {options.map((person) => (
+                    <li key={person.uuid}>
+                        {person.name} {person.trailing}
+                    </li>
+                ))}
+            </ul>
+        </>
     ),
 }))
 

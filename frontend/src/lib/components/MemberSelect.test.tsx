@@ -110,4 +110,34 @@ describe('MemberSelect', () => {
 
         expect(await screen.findByPlaceholderText('Search')).toHaveValue('')
     })
+
+    it('focuses search and picks a custom option from an external roster', async () => {
+        const onSelectOption = jest.fn()
+        const onSearch = jest.fn()
+        const onForYou = jest.fn()
+        renderSelect({
+            defaultLabel: 'Entire project',
+            extraOptions: [{ label: 'For you', onClick: onForYou }],
+            options: [{ uuid: 'reviewer-1', name: 'Alex', email: 'alex@example.com' }],
+            onSearch,
+            onSelectOption,
+        })
+
+        await userEvent.click(screen.getByText('Entire project'))
+        expect(screen.getByPlaceholderText('Search')).toHaveFocus()
+        expect(screen.queryByText(MOCK_DEFAULT_BASIC_USER.first_name)).not.toBeInTheDocument()
+        await userEvent.type(screen.getByPlaceholderText('Search'), 'Alex')
+        expect(onSearch).toHaveBeenLastCalledWith('Alex')
+        await userEvent.click(screen.getByText('Alex'))
+        expect(onSelectOption).toHaveBeenCalledWith('reviewer-1', 'Alex')
+
+        await userEvent.click(screen.getByText('Entire project'))
+        expect(screen.getByPlaceholderText('Search')).toHaveValue('')
+        await userEvent.click(screen.getAllByText('Entire project')[1])
+        expect(onChange).toHaveBeenCalledWith(null)
+
+        await userEvent.click(screen.getByText('Entire project'))
+        await userEvent.click(screen.getByText('For you'))
+        expect(onForYou).toHaveBeenCalledTimes(1)
+    })
 })
