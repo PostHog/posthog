@@ -2619,14 +2619,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         # ceiling, so a pause pays for no flag read.
         resume_cap: int | None = None
         if new_status in self.RUNNABLE_STATUSES:
-            if max_enabled_scouts is not None:
-                resume_cap = max_enabled_scouts
-            else:
-                from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
-                    max_enabled_scouts_for_team,
-                )
+            from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                max_enabled_scouts_for_team,
+            )
 
-                resume_cap = max_enabled_scouts_for_team(self.team_id)
+            resume_cap = (
+                max_enabled_scouts if max_enabled_scouts is not None else max_enabled_scouts_for_team(self.team_id)
+            )
         with transaction.atomic():
             # One ordered query locks the whole team's rows, not just ours: the cap check below
             # counts sibling rows, so two concurrent resumes locking only their own rows would
