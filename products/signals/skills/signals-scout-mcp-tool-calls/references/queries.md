@@ -445,10 +445,11 @@ SELECT
     round(uniqIf(t.session, NOT t.is_current) * 100.0 / nullIf(any(d.prior_sessions_total), 0), 1) AS share_pct_prior_window
 FROM per_session AS t
 JOIN totals AS d ON d.source_bucket = t.source_bucket
+WHERE t.tool != 'exec'
 GROUP BY source, tool
 HAVING sessions_with_call >= 20
-ORDER BY session_share_pct DESC
-LIMIT 20
+ORDER BY source, session_share_pct DESC
+LIMIT 20 BY source
 ```
 
 Read it:
@@ -461,11 +462,15 @@ Read it:
   localizes the cause to that surface's prompt.
 - `calls_per_session` separates "reached for once, everywhere" from "hammered" — the latter is
   query 2's territory, and the two together say whether the tool is over-advertised or confusing.
-- **Skip bare `exec`.** The wrapper is present in nearly every session by construction, so it tops
-  this query on every project and means nothing. The same disqualifiers as everywhere else apply:
-  a share over a handful of sessions is one developer.
-- The top 20 rows per source are what the scout records as `tool_session_share`; take the limit per
-  source when one source dominates the global ordering.
+- **Bare `exec` is filtered out.** The wrapper is present in nearly every session by construction,
+  so it would top this query on every project and mean nothing. The `totals` CTE still counts its
+  sessions, so the denominator stays every MCP session of the source. The same disqualifiers as
+  everywhere else apply: a share over a handful of sessions is one developer.
+- `LIMIT 20 BY source` returns the top 20 tools of each source, so one busy source cannot crowd
+  another out. These rows are what the scout records as `tool_session_share`.
+- For detection, rank by the change instead of the level. Run it again with
+  `ORDER BY source, session_share_pct - coalesce(share_pct_prior_window, 0) DESC`, so a tool that
+  rose from a low share is not cut behind tools that sit high and flat.
 
 ## 11. Category metrics — the `category_rollup` record
 
