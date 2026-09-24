@@ -458,6 +458,7 @@ function operationIdToPascal(operationId: string): string {
 const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
+    'int-string': 'castIntToString',
 } as const
 
 interface SchemaComposition {

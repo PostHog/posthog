@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { castBooleanToString, castStringToInt } from '../../src/tools/cast-helpers'
+import { castBooleanToString, castIntToString, castStringToInt } from '../../src/tools/cast-helpers'
 
 describe('castStringToInt', () => {
     const schema = z.preprocess(castStringToInt, z.number().int())
@@ -76,6 +76,35 @@ describe('castBooleanToString', () => {
         ['null', null],
         ['empty array', []],
     ] as const)('rejects non-boolean, non-string input: %s', (_label, input) => {
+        expect(() => schema.parse(input)).toThrow()
+    })
+})
+
+describe('castIntToString', () => {
+    const schema = z.preprocess(castIntToString, z.string())
+
+    it.each([
+        [12345, '12345'],
+        [0, '0'],
+        [-7, '-7'],
+    ] as const)('casts the integer %s to its decimal string form', (input, expected) => {
+        expect(schema.parse(input)).toBe(expected)
+    })
+
+    it('passes through plain strings untouched', () => {
+        expect(schema.parse('01a0b547-5dc0-0000-9fe7-4f2dbcf2733b')).toBe('01a0b547-5dc0-0000-9fe7-4f2dbcf2733b')
+    })
+
+    it.each([
+        ['decimal', 1.5],
+        ['NaN', Number.NaN],
+        ['Infinity', Number.POSITIVE_INFINITY],
+        ['above the safe integer range', Number.MAX_SAFE_INTEGER + 2],
+        ['boolean', true],
+        ['null', null],
+    ] as const)('rejects input that is not a safe integer: %s', (_label, input) => {
+        // A value that cannot round-trip to an identifier passes through to zod
+        // unchanged, so the call still fails with an honest type error.
         expect(() => schema.parse(input)).toThrow()
     })
 })

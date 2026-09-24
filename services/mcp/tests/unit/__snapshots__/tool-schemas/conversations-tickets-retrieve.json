@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "The ticket's UUID or its numeric ticket number.",
+            "description": "The ticket's UUID, or its numeric ticket number. Both identify the same ticket; conversations-tickets-list returns the UUID as `id` and the number as `ticket_number`.",
             "type": "string"
         }
     },

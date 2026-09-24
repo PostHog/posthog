@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/conversations/api'
+import { castIntToString, normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -76,8 +77,18 @@ const conversationsTicketsList = (): ToolBase<
 const ConversationsTicketsMessagesRetrieveSchema = () => {
     const ConversationsTicketsMessagesListParams = orvalSchemas.ConversationsTicketsMessagesListParams()
     const ConversationsTicketsMessagesListQueryParams = orvalSchemas.ConversationsTicketsMessagesListQueryParams()
-    return ConversationsTicketsMessagesListParams.omit({ project_id: true }).extend(
-        ConversationsTicketsMessagesListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['ticket_id', 'ticketId', 'ticket_number', 'ticketNumber'] }),
+        ConversationsTicketsMessagesListParams.omit({ project_id: true })
+            .extend(ConversationsTicketsMessagesListQueryParams.shape)
+            .extend({
+                id: z.preprocess(
+                    castIntToString,
+                    ConversationsTicketsMessagesListParams.shape['id'].describe(
+                        "The ticket's UUID, or its numeric ticket number. Both identify the same ticket; conversations-tickets-list returns the UUID as `id` and the number as `ticket_number`."
+                    )
+                ),
+            })
     )
 }
 
@@ -197,7 +208,17 @@ const conversationsTicketsReplyCreate = (): ToolBase<
 
 const ConversationsTicketsRetrieveSchema = () => {
     const ConversationsTicketsRetrieveParams = orvalSchemas.ConversationsTicketsRetrieveParams()
-    return ConversationsTicketsRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['ticket_id', 'ticketId', 'ticket_number', 'ticketNumber'] }),
+        ConversationsTicketsRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(
+                castIntToString,
+                ConversationsTicketsRetrieveParams.shape['id'].describe(
+                    "The ticket's UUID, or its numeric ticket number. Both identify the same ticket; conversations-tickets-list returns the UUID as `id` and the number as `ticket_number`."
+                )
+            ),
+        })
+    )
 }
 
 const conversationsTicketsRetrieve = (): ToolBase<
