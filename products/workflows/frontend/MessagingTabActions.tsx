@@ -26,9 +26,40 @@ export function MessagingTabActions({
     /** Where the Slack authorization flow returns to, so it lands back on the surface it left. */
     channelsUrl: string
 }): JSX.Element | null {
+    // One component per action, so a tab mounts (and loads) only the logic its own button needs.
+    if (tab === 'library') {
+        return <NewTemplateButton />
+    }
+    if (tab === 'channels') {
+        return <NewChannelButton channelsUrl={channelsUrl} />
+    }
+    if (tab === 'opt-outs') {
+        return <NewCategoryButton />
+    }
+    return null
+}
+
+function NewTemplateButton(): JSX.Element {
+    return (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Workflow}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <LemonButton
+                data-attr="new-message-button"
+                to={urls.workflowsLibraryTemplateNew()}
+                type="primary"
+                size="small"
+            >
+                New template
+            </LemonButton>
+        </AccessControlAction>
+    )
+}
+
+function NewChannelButton({ channelsUrl }: { channelsUrl: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
-    const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -86,50 +117,33 @@ export function MessagingTabActions({
             : []),
     ]
 
-    if (tab === 'library') {
-        return (
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Workflow}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonButton
-                    data-attr="new-message-button"
-                    to={urls.workflowsLibraryTemplateNew()}
-                    type="primary"
-                    size="small"
-                >
-                    New template
-                </LemonButton>
-            </AccessControlAction>
-        )
-    }
-    if (tab === 'channels') {
-        return (
-            <LemonMenu items={newChannelMenuItems} matchWidth>
-                <LemonButton
-                    data-attr="new-channel-button"
-                    icon={<IconPlusSmall />}
-                    size="small"
-                    type="primary"
-                    disabledReason={newChannelRestrictedReason}
-                >
-                    New channel
-                </LemonButton>
-            </LemonMenu>
-        )
-    }
-    if (tab === 'opt-outs') {
-        return (
+    return (
+        <LemonMenu items={newChannelMenuItems} matchWidth>
             <LemonButton
-                data-attr="new-optout-category"
+                data-attr="new-channel-button"
                 icon={<IconPlusSmall />}
                 size="small"
                 type="primary"
-                onClick={() => openNewCategoryModal()}
+                disabledReason={newChannelRestrictedReason}
             >
-                New category
+                New channel
             </LemonButton>
-        )
-    }
-    return null
+        </LemonMenu>
+    )
+}
+
+function NewCategoryButton(): JSX.Element {
+    const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
+
+    return (
+        <LemonButton
+            data-attr="new-optout-category"
+            icon={<IconPlusSmall />}
+            size="small"
+            type="primary"
+            onClick={() => openNewCategoryModal()}
+        >
+            New category
+        </LemonButton>
+    )
 }
