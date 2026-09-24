@@ -921,6 +921,8 @@ tools:
             the assembled content with each reference replaced by the referenced prompt's content, and
             `resolved_references` lists the exact versions spliced in. Pass `resolve=false` to get the raw text
             with the tags intact — always do this before editing the prompt (see llma-prompt-update).
+            References are rolling out gradually: when not enabled for the team, responses return the raw tags
+            and no `resolved_references`, so treat content containing `@@@prompt:` as unresolved.
         param_overrides:
             prompt_name:
                 aliases:
@@ -981,7 +983,8 @@ tools:
             prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.
             With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references
             resolved and `resolved_references` listing the spliced versions; unlabeled listings return raw
-            content with any reference tags intact.
+            content with any reference tags intact. Reference resolution is rolling out gradually and returns
+            raw tags when not enabled for the team.
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
