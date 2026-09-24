@@ -75,6 +75,22 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("valid", 14, status.HTTP_200_OK),
+            ("zero", 0, status.HTTP_400_BAD_REQUEST),
+            ("over_a_year", 366, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_update_settings_auto_resolve_after_days(self, _name, days, expected_status):
+        response = self.client.patch(
+            f"{self._base_url()}/update_settings/", {"auto_resolve_after_days": days}, format="json"
+        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["auto_resolve_after_days"], days)
+            self.assertEqual(ErrorTrackingSettings.objects.get(team=self.team).auto_resolve_after_days, days)
+
+    @parameterized.expand(
+        [
             ("read_scope", ["error_tracking:read"], status.HTTP_200_OK),
             ("write_scope_satisfies_read", ["error_tracking:write"], status.HTTP_200_OK),
             ("wrong_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),

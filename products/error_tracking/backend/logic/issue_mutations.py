@@ -5,10 +5,13 @@ assignment side effects that previously lived in the presentation layer, so the 
 can stay thin (parse -> facade -> serialize).
 """
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import DateTimeField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -287,48 +290,9 @@ def bulk_update_issues(
             new_status = _status_from_string(status) if status is not None else None
             if new_status is None:
                 raise InvalidIssueStatusError
-            transitions = []
-            for issue in issues:
-                if issue.status == new_status:
-                    continue
-                changed_issue_ids.append(issue.id)
-                log_activity(
-                    organization_id=issue.team.organization_id,
-                    team_id=team_id,
-                    user=user,
-                    was_impersonated=was_impersonated,
-                    item_id=issue.id,
-                    scope="ErrorTrackingIssue",
-                    activity="updated",
-                    detail=Detail(
-                        name=issue.name,
-                        changes=[
-                            Change(
-                                type="ErrorTrackingIssue",
-                                action="changed",
-                                field="status",
-                                before=issue.status,
-                                after=new_status,
-                            )
-                        ],
-                    ),
-                )
-                if new_status in STATUS_CHANGE_EVENTS:
-                    transitions.append(
-                        prepare_issue_lifecycle_event(
-                            event=STATUS_CHANGE_EVENTS[new_status],
-                            issue=issue,
-                            user=user,
-                            status=new_status,
-                            extra_properties={"previous_status": status_label(issue.status)},
-                            opener_allowed=False,
-                        )
-                    )
-            produce_issue_lifecycle_events_on_commit(transitions)
-            if changed_issue_ids:
-                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
-                    status=new_status, state_updated_at=timezone.now()
-                )
+            changed_issue_ids = _set_issues_status(
+                team_id, issues, new_status, user=user, was_impersonated=was_impersonated
+            )
         elif action == "assign":
             transitions = []
             for issue in issues:
@@ -342,6 +306,90 @@ def bulk_update_issues(
             _stamp_issue_state(team_id=team_id, issue_ids=changed_issue_ids)
 
     sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
+
+
+def _set_issues_status(
+    team_id: int,
+    issues: list[ErrorTrackingIssue],
+    new_status: "ErrorTrackingIssue.Status",
+    *,
+    user: User | None,
+    was_impersonated: bool,
+    extra_properties: dict[str, Any] | None = None,
+) -> list[UUID]:
+    """Move issues to `new_status` with activity log and lifecycle events. Must run inside a transaction.
+
+    A `None` user records the change as a system action (e.g. auto-resolve). Returns the ids that changed;
+    the caller syncs them to ClickHouse after the transaction commits.
+    """
+    changed_issue_ids: list[UUID] = []
+    transitions = []
+    for issue in issues:
+        if issue.status == new_status:
+            continue
+        changed_issue_ids.append(issue.id)
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=issue.id,
+            scope="ErrorTrackingIssue",
+            activity="updated",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(
+                        type="ErrorTrackingIssue",
+                        action="changed",
+                        field="status",
+                        before=issue.status,
+                        after=new_status,
+                    )
+                ],
+            ),
+        )
+        if new_status in STATUS_CHANGE_EVENTS:
+            transitions.append(
+                prepare_issue_lifecycle_event(
+                    event=STATUS_CHANGE_EVENTS[new_status],
+                    issue=issue,
+                    user=user,
+                    status=new_status,
+                    extra_properties={"previous_status": status_label(issue.status), **(extra_properties or {})},
+                    opener_allowed=False,
+                )
+            )
+    produce_issue_lifecycle_events_on_commit(transitions)
+    if changed_issue_ids:
+        ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
+            status=new_status, state_updated_at=timezone.now()
+        )
+    return changed_issue_ids
+
+
+def auto_resolve_issues(team_id: int, issue_ids: list[UUID], *, cutoff: datetime) -> list[UUID]:
+    """Recheck state age under the row lock so a recent manual reactivation stays active."""
+    with transaction.atomic():
+        issues = list(
+            ErrorTrackingIssue.objects.select_for_update(of=("self",))
+            .filter(team_id=team_id, id__in=issue_ids, status=ErrorTrackingIssue.Status.ACTIVE)
+            .annotate(last_state_change=Coalesce("state_updated_at", "created_at", output_field=DateTimeField()))
+            .filter(last_state_change__lt=cutoff)
+            .select_related("team__organization")
+            .order_by("id")
+        )
+        changed_issue_ids = _set_issues_status(
+            team_id,
+            issues,
+            ErrorTrackingIssue.Status.RESOLVED,
+            user=None,
+            was_impersonated=False,
+            extra_properties={"resolved_reason": "inactivity"},
+        )
+
+    sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
+    return changed_issue_ids
 
 
 def _assignment_repr(assignment: ErrorTrackingIssueAssignment | None) -> dict[str, Any] | None:

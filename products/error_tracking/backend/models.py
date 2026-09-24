@@ -843,6 +843,8 @@ class ErrorTrackingSettings(models.Model):
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    # Resolve active issues that have received no exceptions for this many days. Null disables it.
+    auto_resolve_after_days = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"

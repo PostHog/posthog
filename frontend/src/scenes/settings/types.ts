@@ -167,6 +167,7 @@ export type SettingId =
     | 'environment-secret-api-keys'
     | 'error-tracking-alerting'
     | 'error-tracking-auto-assignment'
+    | 'error-tracking-auto-resolve'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-ingestion-controls'

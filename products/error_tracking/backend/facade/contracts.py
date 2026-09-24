@@ -147,6 +147,7 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    auto_resolve_after_days: int | None = None
 
 
 @dataclass(frozen=True)

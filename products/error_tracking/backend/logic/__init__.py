@@ -38,6 +38,7 @@ SETTINGS_FIELDS = (
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
     "per_issue_rate_limit_bucket_size_minutes",
+    "auto_resolve_after_days",
 )
 
 SPIKE_DETECTION_CONFIG_FIELDS = (

@@ -33,6 +33,13 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
         required=False,
         help_text="Bucket window over which the per-issue rate limit applies, in minutes.",
     )
+    auto_resolve_after_days = serializers.IntegerField(
+        min_value=1,
+        max_value=365,
+        allow_null=True,
+        required=False,
+        help_text="Automatically resolve active issues that have received no new exceptions for this many days. Null disables auto-resolve.",
+    )
 
 
 class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

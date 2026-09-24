@@ -3,6 +3,7 @@ import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/fron
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
+import { AutoResolveSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/auto_resolve/AutoResolveSettings'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
@@ -650,6 +651,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
                 keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
+            },
+            {
+                id: 'error-tracking-auto-resolve',
+                title: 'Auto-resolve',
+                description: 'Resolve issues automatically when they stop receiving exceptions.',
+                component: <AutoResolveSettings />,
+                keywords: ['resolve', 'auto', 'stale', 'inactive', 'close', 'cleanup'],
             },
             {
                 id: 'error-tracking-auto-assignment',

@@ -168,6 +168,7 @@ export interface ErrorTrackingSettings {
     project_rate_limit_bucket_size_minutes: number | null
     per_issue_rate_limit_value: number | null
     per_issue_rate_limit_bucket_size_minutes: number | null
+    auto_resolve_after_days: number | null
 }
 
 export interface ErrorTrackingSpikeEventIssue {

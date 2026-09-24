@@ -203,6 +203,7 @@ def _to_settings(settings) -> contracts.ErrorTrackingSettings:
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        auto_resolve_after_days=settings.auto_resolve_after_days,
     )
 
 

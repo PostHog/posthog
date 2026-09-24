@@ -21,6 +21,7 @@ import django
 django.setup()
 import products.error_tracking.backend.hogql_queries.error_tracking_query_runner
 import products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner
+import products.error_tracking.backend.logic.issue_mutations
 """
 
 
@@ -32,4 +33,4 @@ def test_query_runners_import_in_cold_interpreter() -> None:
         timeout=180,
         cwd=_REPO_ROOT,
     )
-    assert result.returncode == 0, f"cold import of error_tracking query runners failed:\n{result.stderr[-2000:]}"
+    assert result.returncode == 0, f"cold import of error_tracking modules failed:\n{result.stderr[-2000:]}"

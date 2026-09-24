@@ -37177,6 +37177,13 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /**
+         * Automatically resolve active issues that have received no new exceptions for this many days. Null disables auto-resolve.
+         * @minimum 1
+         * @maximum 365
+         * @nullable
+         */
+      auto_resolve_after_days?: number | null;
     }
 
     /**
@@ -71382,6 +71389,13 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /**
+         * Automatically resolve active issues that have received no new exceptions for this many days. Null disables auto-resolve.
+         * @minimum 1
+         * @maximum 365
+         * @nullable
+         */
+      auto_resolve_after_days?: number | null;
     }
 
     /**
