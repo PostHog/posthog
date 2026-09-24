@@ -246,6 +246,8 @@ TRANSFORMATION_AVAILABLE_GLOBALS = {"project", "event", "inputs"}
 # Globals available to log transformations, which run per log record in the logs
 # ingestion pipeline and see a log record instead of an event.
 TRANSFORMATION_LOG_AVAILABLE_GLOBALS = {"project", "record", "inputs"}
+# The worker attaches these only to a workflow step's invocation, never to a trigger or a standalone function.
+WORKFLOW_STEP_GLOBALS = {"workflow"}
 
 # Helper functions that the transformer exposes via getTransformationFunctions
 # (nodejs/src/cdp/hog-transformations/transformation-functions.ts). These resolve
@@ -455,6 +457,7 @@ def generate_template_bytecode(
     function_type: Optional[str] = None,
     is_dwh_source: bool = False,
     validate_globals: bool = True,
+    is_workflow_step: bool = False,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
@@ -462,12 +465,16 @@ def generate_template_bytecode(
 
     if isinstance(obj, dict):
         return {
-            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source, validate_globals)
+            key: generate_template_bytecode(
+                value, input_collector, function_type, is_dwh_source, validate_globals, is_workflow_step
+            )
             for key, value in obj.items()
         }
     elif isinstance(obj, list):
         return [
-            generate_template_bytecode(item, input_collector, function_type, is_dwh_source, validate_globals)
+            generate_template_bytecode(
+                item, input_collector, function_type, is_dwh_source, validate_globals, is_workflow_step
+            )
             for item in obj
         ]
     elif isinstance(obj, str):
@@ -503,8 +510,9 @@ def generate_template_bytecode(
         elif function_type is not None and validate_globals:
             # Every other type resolves its inputs against the invocation globals at run time. A save
             # that disables or deletes the function skips this, so a broken function can be turned off.
+            available_globals = TEMPLATE_GLOBALS if is_workflow_step else TEMPLATE_GLOBALS - WORKFLOW_STEP_GLOBALS
             template_validator = TemplateGlobalsValidator(
-                available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
+                available_globals=available_globals, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
             )
             template_validator.check(node)
             if template_validator.invalid_globals:
@@ -512,7 +520,7 @@ def generate_template_bytecode(
                 raise Exception(
                     f"Variable not available in inputs: {names}. "
                     f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
-                    f"also variables."
+                    f"also variables. Only a workflow step can read workflow."
                 )
         return create_bytecode(node).bytecode
     else:
@@ -821,6 +829,7 @@ class InputsItemSerializer(serializers.Serializer):
                                 function_type=function_type,
                                 is_dwh_source=is_dwh_source,
                                 validate_globals=self.context.get("function_will_be_enabled", True),
+                                is_workflow_step=self.context.get("is_workflow_step", False),
                             )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:

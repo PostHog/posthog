@@ -37,7 +37,8 @@ import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 export function buildSampleGlobals(
     trigger: { type?: string; filters?: unknown } | undefined | null,
     variables: Array<Record<string, any>> | undefined | null,
-    realSampleGlobals?: CyclotronJobInvocationGlobals | null
+    realSampleGlobals?: CyclotronJobInvocationGlobals | null,
+    workflow?: { id?: string; name?: string | null } | null
 ): Record<string, any> {
     const triggerType = trigger?.type
     const workflowVariables: Record<string, any> = {}
@@ -68,6 +69,15 @@ export function buildSampleGlobals(
             name: 'Example step',
             url: 'https://example.com/project/1/workflows/1',
         },
+    }
+
+    // Only steps get `workflow` at runtime. A trigger's inputs run before any step, where it cannot
+    // resolve, so trigger editors pass no workflow and the editor flags it as unknown there.
+    if (workflow) {
+        sampleGlobals.workflow = {
+            id: workflow.id && workflow.id !== 'new' ? workflow.id : 'workflow123',
+            name: workflow.name || 'Example workflow',
+        }
     }
 
     if (triggerType === 'webhook') {
@@ -199,6 +209,7 @@ export function HogFlowFunctionConfiguration({
     errors,
     warnings,
     emailFieldErrors,
+    isWorkflowStep = false,
 }: {
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
@@ -208,6 +219,7 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
     warnings?: Record<string, string>
     emailFieldErrors?: EmailFieldErrors
+    isWorkflowStep?: boolean
 }): JSX.Element {
     const { workflow, logicProps, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     // The test panel loads a recent matching event; reuse it so autocomplete offers the property
@@ -246,7 +258,12 @@ export function HogFlowFunctionConfiguration({
         return <TemplateNotFoundFallback templateId={templateId} />
     }
 
-    const sampleGlobals = buildSampleGlobals(workflow?.trigger, workflow?.variables, realSampleGlobals)
+    const sampleGlobals = buildSampleGlobals(
+        workflow?.trigger,
+        workflow?.variables,
+        realSampleGlobals,
+        isWorkflowStep ? workflow : null
+    )
 
     // Native push carries a long tail of optional Android/iOS override fields. Keep the core message
     // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.

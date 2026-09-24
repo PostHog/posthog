@@ -180,7 +180,8 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                     const configuration: HogFlow = {
                         ...NEW_WORKFLOW,
                         team_id: currentTeamId ?? NEW_WORKFLOW.team_id,
-                        name: template.name || 'Test email',
+                        // No workflow sends a library test, so {workflow.name} renders empty rather than the template's name.
+                        name: '',
                         actions: [NEW_WORKFLOW.actions[0], emailAction, NEW_WORKFLOW.actions[1]],
                         edges,
                     }
@@ -189,7 +190,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                         configuration,
                         globals: createExampleEvent(
                             currentTeamId ?? undefined,
-                            configuration.name,
+                            template.name || 'Test email',
                             '$pageview',
                             recipientEmail
                         ),

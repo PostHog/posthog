@@ -1279,7 +1279,7 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
-                "inputs": {"url": {"value": "https://example.com/{event.distinct_id}/{variables.total}"}},
+                "inputs": {"url": {"value": "https://example.com/{event.distinct_id}/{variables.total}/{workflow.id}"}},
             }
         )
         hog_flow["status"] = "active"

@@ -13,7 +13,7 @@ export type CyclotronJobInputsValidationResult = {
 // Roots of the templating globals available to hog functions. Anchoring the
 // mismatch heuristics on these keeps false positives down — literal braces in
 // JSON/text bodies won't trip them unless they look like a global reference.
-const GLOBAL_ROOTS = 'event|person|groups|inputs|source|project'
+const GLOBAL_ROOTS = 'event|person|groups|inputs|source|project|workflow'
 
 // A global root immediately followed by property access (`.field` or `[…]`). Requiring the
 // access form is what distinguishes a real expression (`person.properties.email`) from a

@@ -1078,6 +1078,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         ):
             assert generate_template_bytecode(template, set(), function_type=function_type), (function_type, template)
 
+    @parameterized.expand([("workflow_step", True), ("standalone_or_trigger", False)])
+    def test_workflow_global_is_only_readable_from_a_workflow_step(self, _name, is_workflow_step):
+        template = "{workflow.name} ({workflow.id})"
+        if is_workflow_step:
+            assert generate_template_bytecode(template, set(), function_type="destination", is_workflow_step=True)
+        else:
+            with self.assertRaises(Exception) as ctx:
+                generate_template_bytecode(template, set(), function_type="source_webhook")
+            assert "Variable not available in inputs: workflow" in str(ctx.exception)
+
     def test_destination_templates_refuse_a_python_only_callback(self):
         # max2 is in the Python standard library and not in the Node VM, so a template that passes it
         # as a callback fails on every event.

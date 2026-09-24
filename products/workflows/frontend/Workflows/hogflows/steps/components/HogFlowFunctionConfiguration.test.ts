@@ -129,6 +129,14 @@ describe('HogFlowFunctionConfiguration', () => {
             })
         })
 
+        it.each([
+            ['a step of a saved workflow', { id: 'flow-1', name: 'Onboarding' }, { id: 'flow-1', name: 'Onboarding' }],
+            ['a step of an unsaved workflow', { id: 'new', name: '' }, { id: 'workflow123', name: 'Example workflow' }],
+            ['a trigger', null, undefined],
+        ])('exposes the sending workflow to %s', (_label, workflow, expected) => {
+            expect(buildSampleGlobals({ type: 'event' }, undefined, null, workflow).workflow).toEqual(expected)
+        })
+
         // Batch runs have no external event, but the worker backfills event.distinct_id at dequeue, so the
         // editor must expose event.distinct_id for batch or {event.distinct_id} wrongly warns as unknown.
         it.each(['event', 'batch'])('exposes event.distinct_id for a %s trigger', (triggerType) => {

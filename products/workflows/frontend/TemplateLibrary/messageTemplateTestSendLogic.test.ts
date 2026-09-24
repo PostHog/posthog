@@ -98,6 +98,7 @@ describe('messageTemplateTestSendLogic', () => {
         expect(capturedBody.mock_async_functions).toBe(false)
         expect(capturedBody.current_action_id).toBe('send_test_email')
         expect(capturedBody.configuration.actions.filter((a: any) => a.type === 'trigger')).toHaveLength(1)
+        expect(capturedBody.configuration.name).toBe('')
 
         const emailAction = capturedBody.configuration.actions.find((a: any) => a.type === 'function_email')
         expect(emailAction.config.inputs.email.value).toMatchObject({

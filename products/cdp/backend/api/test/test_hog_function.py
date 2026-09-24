@@ -2695,7 +2695,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "inputs__url"
         assert response.json()["detail"] == (
             "Invalid template: Variable not available in inputs: distinct_id. Inputs can read event, person, "
-            "groups, project, source and inputs, and in a workflow also variables."
+            "groups, project, source and inputs, and in a workflow also variables. Only a workflow step can read "
+            "workflow."
         )
 
         response = self.client.post(

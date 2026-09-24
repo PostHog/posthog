@@ -34,6 +34,7 @@ const templateRoots: Record<keyof HogFunctionInvocationGlobalsWithInputs, true> 
     unsubscribe_url_one_click: true,
     actions: true,
     variables: true,
+    workflow: true,
     inputs: true,
 }
 

@@ -501,6 +501,24 @@ describe('CyclotronJobInputsValidation', () => {
                     templating: 'liquid',
                     expected: W.hogSyntaxInLiquidField,
                 },
+                {
+                    name: 'hog field, bare workflow path',
+                    value: 'workflow.name',
+                    templating: 'hog',
+                    expected: W.unbracedExpressionInHogField('workflow.name'),
+                },
+                {
+                    name: 'hog field, liquid double-brace workflow reference',
+                    value: 'Sent by {{ workflow.name }}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
+                    name: 'liquid field, hog single-brace workflow reference',
+                    value: 'Sent by {workflow.id}',
+                    templating: 'liquid',
+                    expected: W.hogSyntaxInLiquidField,
+                },
                 // Valid values — no warning.
                 {
                     name: 'hog field, correctly braced expression',

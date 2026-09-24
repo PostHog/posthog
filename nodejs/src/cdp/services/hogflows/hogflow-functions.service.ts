@@ -107,8 +107,6 @@ export class HogFlowFunctionsService {
                 name: hogFunction.name ?? `Hog flow: ${invocation.hogFlow.id}`,
                 url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow?node=${hogFunction.id}`,
             },
-            // `source.name` also carries the step's template name, and `source.url` only holds the
-            // flow id inside a path. A template that shows the workflow itself needs these.
             workflow: {
                 id: invocation.hogFlow.id,
                 name: invocation.hogFlow.name,
