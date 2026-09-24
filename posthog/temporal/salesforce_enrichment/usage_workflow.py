@@ -271,18 +271,22 @@ async def _update_accounts(
         try:
             retry_response = await asyncio.to_thread(sf.bulk.Account.update, resend)  # type: ignore[union-attr,arg-type]
         except Exception as e:
-            # The first attempt's updates are already written, so the failure is reported
+            # The first attempt's updates are already written, so a failed resend is reported
             # beside their counts instead of raised over them.
             logger.exception("salesforce_account_resend_failed", account_count=len(resend))
             error = f"Failed to resend {len(resend)} Accounts without the region: {e!s}"
         else:
+            rejected = 0
             for record, result in zip(resend, retry_response, strict=True):
                 if result.get("success"):
                     updated += 1
                 else:
+                    rejected += 1
                     logger.warning(
                         "salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors")
                     )
+            if rejected:
+                error = f"Salesforce rejected {rejected} Accounts again when resent without the region"
     return _AccountUpdateCounts(
         updated=updated, regions_filled=regions_filled, regions_replaced=regions_replaced, error=error
     )

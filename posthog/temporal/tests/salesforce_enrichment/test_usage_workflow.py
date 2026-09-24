@@ -396,6 +396,12 @@ class TestEnrichOrgPageActivity(TestCase):
         assert result.updated == 1
         assert result.regions_filled == 0
 
+    @parameterized.expand(
+        [
+            ("resend_raises", Exception("Salesforce timed out"), "Salesforce timed out"),
+            ("resend_rejected", [{"id": None, "success": False, "errors": ["still bad"]}], "rejected 1 Accounts"),
+        ]
+    )
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.fetch_org_regions", return_value={"uuid-1": "US"})
@@ -403,7 +409,15 @@ class TestEnrichOrgPageActivity(TestCase):
     @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_keeps_batch_counts_and_reports_a_failed_resend(
-        self, _mock_close, mock_get_page, mock_sf_client, _mock_regions, _mock_heartbeat
+        self,
+        _name,
+        resend_outcome,
+        expected_error,
+        _mock_close,
+        mock_get_page,
+        mock_sf_client,
+        _mock_regions,
+        _mock_heartbeat,
     ):
         mock_get_page.return_value = [
             {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
@@ -415,10 +429,8 @@ class TestEnrichOrgPageActivity(TestCase):
         mock_sf.query_all.return_value = {
             "records": [{"Id": "001ABC", "Posthog_Org_ID__c": "uuid-1", "Posthog_Org_Region__c": None}]
         }
-        mock_sf.bulk.Account.update.side_effect = [
-            [{"id": None, "success": False, "errors": ["bad value"]}, {"id": "001DEF", "success": True}],
-            Exception("Salesforce timed out"),
-        ]
+        first_attempt = [{"id": None, "success": False, "errors": ["bad value"]}, {"id": "001DEF", "success": True}]
+        mock_sf.bulk.Account.update.side_effect = [first_attempt, resend_outcome]
         mock_sf_client.return_value = mock_sf
 
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
@@ -427,7 +439,7 @@ class TestEnrichOrgPageActivity(TestCase):
         assert result.processed == 2
         assert result.updated == 1
         assert len(result.errors) == 1
-        assert "Salesforce timed out" in result.errors[0]
+        assert expected_error in result.errors[0]
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
