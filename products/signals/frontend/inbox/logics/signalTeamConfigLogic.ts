@@ -382,7 +382,8 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         ],
         pullRequestLabelEnabled: [
             (s) => [s.teamConfig],
-            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.pull_request_label_enabled ?? false,
+            // Matches the model default, so the switch does not read as off before the config loads.
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.pull_request_label_enabled ?? true,
         ],
         pullRequestLabel: [
             (s) => [s.teamConfig],

@@ -83,7 +83,7 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Whether self-driving adds a label to every pull request it opens, so GitHub search, saved searches, and notification rules can separate them from other automation on the repository. False by default. Needs a GitHub integration that can reach the repository.'
+            'Whether self-driving adds a label to every pull request it opens, so GitHub search, saved searches, and notification rules can separate them from other automation on the repository. True by default. Needs a GitHub integration that can reach the repository.'
         ),
     pull_request_label: zod
         .string()

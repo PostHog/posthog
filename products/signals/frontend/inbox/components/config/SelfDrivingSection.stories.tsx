@@ -50,7 +50,7 @@ function useAutonomyMocks({
     githubAssign = false,
     projectPrReady = false,
     myPrReady = null,
-    prLabelEnabled = false,
+    prLabelEnabled = true,
     prLabel = null,
     integrations = [],
     issueTrackingIntegration = null,

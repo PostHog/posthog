@@ -402,7 +402,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         help_text=(
             "Whether self-driving adds a label to every pull request it opens, so GitHub search, "
             "saved searches, and notification rules can separate them from other automation on the "
-            "repository. False by default. Needs a GitHub integration that can reach the repository."
+            "repository. True by default. Needs a GitHub integration that can reach the repository."
         ),
     )
     pull_request_label = serializers.CharField(

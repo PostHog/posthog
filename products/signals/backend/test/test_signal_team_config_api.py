@@ -182,10 +182,19 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "max_reports_per_day"
 
+    def test_get_config_reports_the_pull_request_label_on_by_default(self):
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["pull_request_label_enabled"] is True
+        # Null still means the default label name, so a team gets one without naming it.
+        assert data["pull_request_label"] is None
+
     @parameterized.expand(
         [
-            ("enable", {"pull_request_label_enabled": True, "pull_request_label": "ours"}, True, "ours"),
-            ("clear_name", {"pull_request_label": ""}, False, None),
+            ("disable", {"pull_request_label_enabled": False}, False, None),
+            ("rename", {"pull_request_label": "ours"}, True, "ours"),
+            ("clear_name", {"pull_request_label": ""}, True, None),
         ]
     )
     def test_update_pull_request_label(self, _name, sent, expected_enabled, expected_label):

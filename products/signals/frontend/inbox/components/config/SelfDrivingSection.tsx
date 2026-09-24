@@ -567,9 +567,9 @@ function GitHubIssueWritebackRow(): JSX.Element {
 }
 
 /**
- * Team-wide opt-in to labelling every self-driving pull request. Off by default, because the label
- * lands on a repository the team shares with everybody. The name is only editable while the label
- * is on, and a blank name saves as the default label rather than as no label.
+ * Team-wide switch for labelling every self-driving pull request. On by default, because a team
+ * that never opens this page is the one that most needs the label. The name is only editable while
+ * the label is on, and a blank name saves as the default label rather than as no label.
  */
 function PullRequestLabelRow(): JSX.Element {
     const { pullRequestLabelEnabled, draftPullRequestLabel, savePullRequestLabelDisabledReason, teamConfigUpdating } =
@@ -579,7 +579,7 @@ function PullRequestLabelRow(): JSX.Element {
     return (
         <AutonomySettingRow
             title="Label PRs on GitHub"
-            description="Add a label to every PR agents open, so you can find them in GitHub search and notification rules. PostHog creates the label if your repository does not have it."
+            description="Every PR agents open gets a label, so you can find them in GitHub search and notification rules. PostHog creates the label if your repository does not have it."
             control={
                 <LemonSwitch
                     checked={pullRequestLabelEnabled}
