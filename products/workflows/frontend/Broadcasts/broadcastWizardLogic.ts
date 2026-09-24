@@ -761,8 +761,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         ensureDraft: async () => {
             // The AI assistant edits the saved broadcast, so the content step needs one to exist even
-            // when the stepper skipped past the Continue that would have created it.
-            if (values.broadcastId || cache.draftCreation || props.id !== 'new' || !values.currentProjectId) {
+            // when the stepper skipped past the Continue that would have created it. A Continue or launch
+            // save still in flight creates the draft itself, so a create here would make a second one.
+            if (
+                values.broadcastId ||
+                cache.draftCreation ||
+                values.saving ||
+                values.launching ||
+                props.id !== 'new' ||
+                !values.currentProjectId
+            ) {
                 return
             }
             const projectId = String(values.currentProjectId)
