@@ -234,23 +234,19 @@ export function QueryWindow({
         })
     }
 
-    const editorSettingsItems = canSendRawQuery
-        ? [
-              {
-                  custom: true,
-                  label: () => (
-                      <LemonSwitch
-                          checked={sendRawQueryEnabled}
-                          onChange={setSendRawQuery}
-                          label={sendRawQueryLabel}
-                          size="small"
-                          fullWidth
-                          data-attr="sql-editor-send-raw-query-toggle"
-                      />
-                  ),
-              },
-          ]
-        : []
+    const sendRawQueryItem = {
+        custom: true,
+        label: () => (
+            <LemonSwitch
+                checked={sendRawQueryEnabled}
+                onChange={setSendRawQuery}
+                label={sendRawQueryLabel}
+                size="small"
+                fullWidth
+                data-attr="sql-editor-send-raw-query-toggle"
+            />
+        ),
+    }
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -332,8 +328,8 @@ export function QueryWindow({
 
                     <div className="ml-auto flex items-center gap-2">
                         <FixErrorButton type="secondary" size="small" source="action-bar" />
-                        {editorSettingsItems.length > 0 ? (
-                            <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
+                        {canSendRawQuery ? (
+                            <LemonMenu items={[sendRawQueryItem]} closeOnClickInside={false} placement="bottom-end">
                                 <LemonButton
                                     icon={<IconGear />}
                                     type="secondary"
