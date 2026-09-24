@@ -16,8 +16,8 @@ function createContext(request: ReturnType<typeof vi.fn>): Context {
     } as unknown as Context
 }
 
-function apiError(status: number, url = recordingUrl): PostHogApiError {
-    return new PostHogApiError({ status, statusText: 'Not Found', body: '', url, method: 'GET' })
+function apiError(status: number, url = recordingUrl, body = ''): PostHogApiError {
+    return new PostHogApiError({ status, statusText: 'Not Found', body, url, method: 'GET' })
 }
 
 describe('session-recording-get', () => {
@@ -44,7 +44,7 @@ describe('session-recording-get', () => {
     })
 
     it('treats a missing recording as a normal lookup result', async () => {
-        const request = vi.fn().mockRejectedValue(apiError(404))
+        const request = vi.fn().mockRejectedValue(apiError(404, recordingUrl, '{"detail":"Recording not found"}'))
 
         await expect(tool.handler(createContext(request), { id: 'session-123' })).resolves.toEqual({
             found: false,
@@ -58,6 +58,8 @@ describe('session-recording-get', () => {
         ['permission failure', apiError(403)],
         ['server failure', apiError(503)],
         ['unrelated 404', apiError(404, 'https://us.posthog.com/api/projects/42/')],
+        ['missing project', apiError(404, recordingUrl, '{"detail":"Project not found."}')],
+        ['unrecognized 404', apiError(404, recordingUrl, '{"detail":"Not found."}')],
     ])('still throws on %s', async (_reason, error) => {
         const request = vi.fn().mockRejectedValue(error)
 

@@ -15,7 +15,8 @@ const getSessionRecording = (): ToolBase<ZodObjectAny> => {
                     error instanceof PostHogApiError &&
                     error.status === 404 &&
                     error.method === 'GET' &&
-                    error.url.split('?')[0]?.endsWith(`/session_recordings/${encodeURIComponent(params.id)}/`)
+                    error.url.split('?')[0]?.endsWith(`/session_recordings/${encodeURIComponent(params.id)}/`) &&
+                    isRecordingNotFound(error.body)
                 ) {
                     return {
                         found: false as const,
@@ -27,6 +28,14 @@ const getSessionRecording = (): ToolBase<ZodObjectAny> => {
                 throw error
             }
         },
+    }
+}
+
+function isRecordingNotFound(body: string): boolean {
+    try {
+        return JSON.parse(body)?.detail === 'Recording not found'
+    } catch {
+        return false
     }
 }
 
