@@ -282,8 +282,13 @@ class GitHubRecorder:
     def _graphql(self, body: dict) -> FakeResponse:
         query = str(body.get("query") or "")
         variables = body.get("variables") or {}
-        # Several GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, and the
-        # shared ownership file reader. Route by the query's shape.
+        # GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, the minimizeComment
+        # mutation after a dismissal, and the shared ownership file reader. Route by the query's shape.
+        if "minimizeComment" in query:
+            self.github_writes.append({"kind": "minimize_review", "node_id": variables.get("id"), "query": query})
+            return FakeResponse(
+                200, json_data={"data": {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}}
+            )
         if "defaultBranchRef" in query:
             if f"{variables.get('owner', '')}/{variables.get('name', '')}" in self.empty_repositories:
                 return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": None}}})
@@ -385,7 +390,7 @@ class GitHubRecorder:
         for review in self.pr_reviews.get((repo, number), []):
             if review.get("id") == review_id:
                 review["state"] = "DISMISSED"
-        return FakeResponse(200, json_data={})
+        return FakeResponse(200, json_data={"id": review_id, "node_id": f"PRR_{review_id}", "state": "DISMISSED"})
 
 
 def _extract(query: str, prefix: str) -> str:

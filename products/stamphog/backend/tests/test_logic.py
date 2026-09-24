@@ -507,10 +507,13 @@ class GetPrReviewThreadsTests(SimpleTestCase):
             self._fetch(self._threads_page([], has_next=True))
 
 
-# add_pr_reaction / remove_pr_reaction are deliberately the one fail-open pair on the client
-# (see their docstrings): a cosmetic "review in flight" 👀 must never fail or retry the calling
-# review activity, unlike every other read/write on StamphogGitHubClient.
-class PrReactionFailOpenTests(SimpleTestCase):
+# The client's cosmetic writes fail open (see their docstrings): the "review in flight" 👀 reaction
+# and hiding a dismissed review as outdated must never fail or retry the calling activity, unlike
+# every other read/write on StamphogGitHubClient.
+class CosmeticWriteFailOpenTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.requested_urls: list[str] = []
+
     def _call(
         self,
         transport_response_or_error: fakes.FakeResponse | Exception,
@@ -519,6 +522,9 @@ class PrReactionFailOpenTests(SimpleTestCase):
         def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
             if url.endswith("/access_tokens"):
                 return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            self.requested_urls.append(url)
+            if url.endswith("/dismissals"):
+                return fakes.FakeResponse(200, json_data={"id": 999, "node_id": "PRR_999"})
             if isinstance(transport_response_or_error, Exception):
                 raise transport_response_or_error
             return transport_response_or_error
@@ -561,6 +567,20 @@ class PrReactionFailOpenTests(SimpleTestCase):
         response = fakes.FakeResponse(200, json_data={"id": 555, "content": "eyes"})
         result = self._call(response, lambda c: c.add_pr_reaction("acme/widgets", 5))
         assert result == 555
+
+    @parameterized.expand(
+        [
+            ("http_error", fakes.FakeResponse(502, text="bad gateway")),
+            ("graphql_errors", fakes.FakeResponse(200, json_data={"errors": [{"message": "forbidden"}]})),
+            ("non_json_body", fakes.FakeResponse(200, text="not json")),
+            ("transport_exception", RuntimeError("network blew up")),
+        ]
+    )
+    def test_failed_minimize_does_not_fail_a_successful_dismissal(
+        self, _name: str, minimize_failure: fakes.FakeResponse | Exception
+    ) -> None:
+        self._call(minimize_failure, lambda c: c.dismiss_pr_review("acme/widgets", 5, 999, "stale"))
+        assert self.requested_urls[-1] == "https://api.github.com/graphql"
 
 
 class BuildAppJwtIssuerTests(SimpleTestCase):
