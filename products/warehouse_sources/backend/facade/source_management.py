@@ -22,6 +22,7 @@ _LAZY = {
     "CDCRepairError": "cdc.repair",
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",
+    "SELF_MANAGED_LAG_REASON": "cdc.broken",
     "purge_buffer_prefix": "cdc.buffer",
     "CDC_SEQ_COLUMN": "cdc.batcher",
     "ClickHouseConnectionError": "sources.clickhouse.clickhouse",

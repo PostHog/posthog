@@ -12147,10 +12147,12 @@ class TestResumeCDC(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/resume_cdc/",
         )
 
-    def _cdc_schema(self, source: ExternalDataSource, *, broken: bool = False) -> ExternalDataSchema:
+    def _cdc_schema(
+        self, source: ExternalDataSource, *, broken_marker: dict[str, str] | None = None
+    ) -> ExternalDataSchema:
         config: dict[str, t.Any] = {"cdc_mode": "streaming"}
-        if broken:
-            config["cdc_broken"] = BROKEN_MARKER
+        if broken_marker:
+            config["cdc_broken"] = broken_marker
         return ExternalDataSchema.objects.create(
             name="orders",
             team_id=self.team.pk,
@@ -12204,23 +12206,37 @@ class TestResumeCDC(APIBaseTest):
         assert "cdc_extraction_paused" not in schema.sync_type_config
         assert schema.sync_halted is False
 
+    @parameterized.expand(
+        [
+            # A lost slot/publication: resume must route to Repair, and not even probe the source.
+            ("slot_lost", BROKEN_MARKER, 400),
+            ("marker_without_a_reason", {"at": "2026-06-29T10:40:00+00:00"}, 400),
+            # The slot is intact, and the marker clears only once capture runs and the lag drops.
+            ("self_managed_lag", {"reason": "critical_lag_self_managed", "at": "2026-09-22T15:02:21+00:00"}, 200),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.sync_cdc_extraction_schedule"
+    )
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.unpause_cdc_extraction_schedule"
     )
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 128},
     )
-    def test_resume_cdc_rejected_when_broken_marker(self, mock_get_status, mock_unpause) -> None:
-        # A lost slot/publication is marked cdc_broken — resume must route to Repair, not unpause
-        # (and must not even probe, since the source is known-broken).
+    def test_resume_cdc_with_a_broken_marker(
+        self, _name, marker, expected_status, mock_get_status, mock_unpause, _mock_sync
+    ) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
-        self._cdc_schema(source, broken=True)
+        self._cdc_schema(source, broken_marker=marker)
 
         response = self._resume(source)
-        assert response.status_code == 400
-        assert "Repair CDC" in response.json()["message"]
-        mock_unpause.assert_not_called()
-        mock_get_status.assert_not_called()
+        assert response.status_code == expected_status, response.content
+        if expected_status == 400:
+            assert "Repair CDC" in response.json()["message"]
+        assert mock_unpause.called is (expected_status == 200)
+        assert mock_get_status.called is (expected_status == 200)
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.unpause_cdc_extraction_schedule"
