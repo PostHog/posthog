@@ -37,6 +37,7 @@ run on the PR. Recall beats precision: when in doubt, add a FULL_RUN_PATTERNS en
 from __future__ import annotations
 
 import os
+import re
 import ast
 import sys
 import json
@@ -571,6 +572,15 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     )
 
 
+def _pytest_ignored_prefixes() -> tuple[str, ...]:
+    """The --ignore paths in pytest.ini. pytest skips them when it walks a directory, but it still collects a file
+    that it gets by name, so a selected file under one of them fails collection."""
+    config = REPO_ROOT / "pytest.ini"
+    if not config.is_file():
+        return ()
+    return tuple(f"{path.rstrip('/')}/" for path in re.findall(r"--ignore[= ](\S+)", config.read_text()))
+
+
 def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
     changed_py_files = [path for path in changed_files if path.endswith(".py")]
     if not changed_py_files:
@@ -582,9 +592,14 @@ def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
         return {"status": "error", "error": f"could not import snob_lib: {exc}", "tests": [], "count": 0}
 
     try:
-        tests = _existing_test_files({normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)})
+        selected = _existing_test_files(
+            {normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)}
+        )
     except Exception as exc:
         return {"status": "error", "error": f"snob_lib.get_tests failed: {exc}", "tests": [], "count": 0}
+
+    ignored = _pytest_ignored_prefixes()
+    tests = [test for test in selected if not test.startswith(ignored)]
 
     return {"status": "ok", "tests": tests, "count": len(tests)}
 
