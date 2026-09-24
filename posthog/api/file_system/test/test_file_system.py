@@ -86,16 +86,14 @@ class TestFileSystemAPI(APIBaseTest):
             short_id="sqlquery",
             query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
         )
-        trend = Insight.objects.create(
-            team=self.team, short_id="trend", query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
-        )
+        standard = Insight.objects.create(team=self.team, short_id="standard")
         other_team = Team.objects.create(organization=self.organization)
         Notebook.objects.create(team=other_team, short_id="foreign", content=markdown.content)
         entries = [
             ("Markdown", "notebook", markdown.short_id, "text/markdown"),
             ("Legacy", "notebook", legacy.short_id, "application/json"),
             ("SQL", "insight", sql.short_id, "application/sql"),
-            ("Trend", "insight", trend.short_id, "application/json"),
+            ("Standard", "insight", standard.short_id, "application/json"),
             ("Missing", "notebook", "foreign", "application/json"),
         ]
         for name, entry_type, ref, _ in entries:

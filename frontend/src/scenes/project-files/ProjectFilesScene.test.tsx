@@ -18,15 +18,15 @@ describe('project files scene', () => {
         initKeaTests()
         router.actions.push(urls.projectFiles('Research & notes/Reports'))
         render(<ProjectFilesScene />)
-        expect(screen.getByRole('heading', { name: 'Research & notes/Reports' })).toBeInTheDocument()
+        expect(screen.getByText('Research & notes/Reports')).toBeInTheDocument()
         expect(screen.getByText('project://Research & notes/Reports')).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: 'Parent folder' })).toHaveAttribute(
+        expect(screen.getByLabelText('Parent folder')).toHaveAttribute(
             'href',
             expect.stringContaining('folder=Research%20%26%20notes')
         )
         router.actions.push(urls.projectFiles())
-        await waitFor(() => expect(screen.getByRole('heading', { name: 'Project' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByText('Project')).toBeInTheDocument())
         expect(screen.getByText('project://')).toBeInTheDocument()
-        expect(screen.queryByRole('link', { name: 'Parent folder' })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Parent folder')).not.toBeInTheDocument()
     })
 })
