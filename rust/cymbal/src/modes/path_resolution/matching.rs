@@ -1,5 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
+use crate::core::repo_slug::is_valid_repo_path;
+
 pub trait FileSet {
     /// Every file that equals `tail` or ends with `/` + `tail`.
     fn files_ending_with<'a>(&'a self, tail: &str) -> Vec<&'a str>;
@@ -51,14 +53,6 @@ pub fn resolve_paths<P: AsRef<str>>(paths: &[P], files: &impl FileSet) -> Vec<Pa
             },
         })
         .collect()
-}
-
-pub fn is_valid_repo_path(path: &str) -> bool {
-    !path.is_empty()
-        && !path.starts_with('/')
-        && path
-            .split('/')
-            .all(|segment| !segment.is_empty() && segment != "..")
 }
 
 fn longest_end<'p>(path: &'p str, files: &impl FileSet) -> Option<EndMatch<'p>> {

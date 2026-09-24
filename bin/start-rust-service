@@ -165,6 +165,15 @@ case "$RS_SVC" in
     # whatever load you induce by hand.
     export CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS="${CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS:-5}"
     export CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS="${CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS:-500}"
+    # Repo paths of frames through cymbal-path-resolution. Best effort: when that
+    # service is not running, frames get no repo_path and nothing else changes.
+    export CYMBAL_PATH_RESOLUTION_ENABLED="${CYMBAL_PATH_RESOLUTION_ENABLED:-true}"
+    export CYMBAL_PATH_RESOLUTION_HOST="${CYMBAL_PATH_RESOLUTION_HOST:-127.0.0.1}"
+    export CYMBAL_PATH_RESOLUTION_PORT="${CYMBAL_PATH_RESOLUTION_PORT:-50062}"
+    export CYMBAL_PATH_RESOLUTION_SECRET="${CYMBAL_PATH_RESOLUTION_SECRET:-posthog123}"
+    export CYMBAL_PATH_RESOLUTION_DNS_REFRESH_SECS="${CYMBAL_PATH_RESOLUTION_DNS_REFRESH_SECS:-5}"
+    # Debug builds and a cold object storage read are slower than production.
+    export CYMBAL_PATH_RESOLUTION_DEADLINE_MS="${CYMBAL_PATH_RESOLUTION_DEADLINE_MS:-2000}"
     ;;
 
   cymbal-resolution)

@@ -197,6 +197,9 @@ impl From<&RawNodeFrame> for Frame {
             suspicious: false,
             module: raw.module.clone(),
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
         }
     }
 }
@@ -237,6 +240,9 @@ impl From<(&RawNodeFrame, SourceLocation<'_>, usize)> for Frame {
 
             junk_drawer: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
             context: get_sourcelocation_context(&location, context_lines),
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
@@ -294,6 +300,9 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             resolve_failure,
             junk_drawer: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
             context: raw_frame.get_context(),
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,

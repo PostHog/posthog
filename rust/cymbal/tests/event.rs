@@ -102,6 +102,9 @@ fn make_frame_js(name: &str) -> Frame {
         suspicious: false,
         junk_drawer: None,
         code_variables: None,
+        build_path: None,
+        raw_path: None,
+        repo_path: None,
         context: None,
     }
 }
@@ -124,6 +127,9 @@ fn make_frame_ts(name: &str) -> Frame {
         suspicious: false,
         junk_drawer: None,
         code_variables: None,
+        build_path: None,
+        raw_path: None,
+        repo_path: None,
         context: None,
     }
 }

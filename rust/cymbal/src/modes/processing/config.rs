@@ -303,6 +303,43 @@ pub struct ProcessingConfig {
         default = "500"
     )]
     pub remote_resolution_subscribe_reconnect_backoff_ms: u64,
+
+    // ----------------------------------------------------------------------
+    // Repo paths of frames (cymbal.path_resolution.v1). Best effort: nothing
+    // here can fail or delay a batch beyond the deadline.
+    // ----------------------------------------------------------------------
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_ENABLED", default = "false")]
+    pub path_resolution_enabled: bool,
+
+    /// Headless service host of cymbal-path-resolution. Empty turns the feature off.
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_HOST", default = "")]
+    pub path_resolution_host: String,
+
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_PORT", default = "50062")]
+    pub path_resolution_port: u16,
+
+    /// Covers the wait for an in-flight slot and the call, including one move to another pod.
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_DEADLINE_MS", default = "200")]
+    pub path_resolution_deadline_ms: u64,
+
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_DNS_REFRESH_SECS", default = "30")]
+    pub path_resolution_dns_refresh_secs: u64,
+
+    /// The first of the service's `CYMBAL_PATH_RESOLUTION_SECRETS`.
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_SECRET", default = "")]
+    pub path_resolution_secret: String,
+
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_MAX_IN_FLIGHT", default = "32")]
+    pub path_resolution_max_in_flight: usize,
+
+    #[envconfig(
+        from = "CYMBAL_PATH_RESOLUTION_ANSWER_CACHE_ENTRIES",
+        default = "200000"
+    )]
+    pub path_resolution_answer_cache_entries: u64,
+
+    #[envconfig(from = "CYMBAL_PATH_RESOLUTION_ANSWER_CACHE_TTL_SECS", default = "600")]
+    pub path_resolution_answer_cache_ttl_secs: u64,
 }
 
 impl ProcessingConfig {

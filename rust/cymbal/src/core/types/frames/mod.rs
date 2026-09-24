@@ -167,6 +167,17 @@ pub struct Frame {
     pub junk_drawer: Option<HashMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_variables: Option<Value>,
+    // The source path that the build recorded for this frame, from native debug info. It depends
+    // only on the binary and the address, so it can live in the frame cache.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub build_path: Option<String>,
+    // The runtime path of the raw frame (`abs_path` of Python, Ruby and PHP). The frame id does not
+    // include it, so it is set per event after resolution and never serialized or cached.
+    #[serde(skip)]
+    pub raw_path: Option<String>,
+    // The frame's path in the release repository, set per event by `RepoPathResolver`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub repo_path: Option<String>,
     // The lines of code surrounding the frame ptr, if known. We skip serialising this because
     // it should never go in clickhouse / be queried over, but we do store it in PG for
     // use in the frontend
@@ -328,6 +339,30 @@ impl From<Frame> for FrameData {
 #[cfg(test)]
 mod test {
     use crate::frames::{Frame, RawFrame};
+
+    #[test]
+    fn serializes_build_and_repo_paths_but_never_the_raw_path() {
+        let mut frame: Frame = serde_json::from_value(serde_json::json!({
+            "raw_id": "abc/0",
+            "mangled_name": "run",
+            "in_app": true,
+            "resolved": true,
+            "lang": "python",
+        }))
+        .unwrap();
+        frame.build_path = Some("/build/src/app.py".to_string());
+        frame.raw_path = Some("/app/src/app.py".to_string());
+        frame.repo_path = Some("services/api/src/app.py".to_string());
+
+        let value = serde_json::to_value(&frame).unwrap();
+
+        assert_eq!(value["build_path"], "/build/src/app.py");
+        assert_eq!(value["repo_path"], "services/api/src/app.py");
+        assert!(value.get("raw_path").is_none());
+        let round_trip: Frame = serde_json::from_value(value).unwrap();
+        assert_eq!(round_trip.build_path, frame.build_path);
+        assert_eq!(round_trip.raw_path, None);
+    }
 
     #[test]
     fn ensure_custom_frames_work() {

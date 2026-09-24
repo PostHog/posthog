@@ -488,6 +488,9 @@ mod test {
             lang: "javascript".to_string(),
             junk_drawer: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
             context: None,
             synthetic: false,
             suspicious: false,
@@ -516,6 +519,36 @@ mod test {
             .strategy()
             .from_exception_list(&exceptions.into())
             .value
+    }
+
+    #[test]
+    fn repo_path_fields_never_change_a_fingerprint() {
+        let plain = frame("foo", Some("src/foo.js"), Some("bar"), true, true, Some(10));
+        let mut with_paths = plain.clone();
+        with_paths.build_path = Some("/build/src/foo.js".to_string());
+        with_paths.raw_path = Some("/app/src/foo.js".to_string());
+        with_paths.repo_path = Some("apps/web/src/foo.js".to_string());
+
+        for version in FingerprintVersion::all() {
+            assert_eq!(
+                value(
+                    *version,
+                    vec![exception(
+                        "TypeError",
+                        "boom",
+                        resolved_stack(vec![plain.clone()])
+                    )]
+                ),
+                value(
+                    *version,
+                    vec![exception(
+                        "TypeError",
+                        "boom",
+                        resolved_stack(vec![with_paths.clone()])
+                    )]
+                ),
+            );
+        }
     }
 
     // ---- V1 invariants (preserved from the original implementation) ----

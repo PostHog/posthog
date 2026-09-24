@@ -105,6 +105,9 @@ impl From<&CustomFrame> for Frame {
             suspicious: false,
             module: value.module.clone(),
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
         }
     }
 }
