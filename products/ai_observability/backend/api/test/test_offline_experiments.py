@@ -1,0 +1,190 @@
+from uuid import uuid4
+
+import pytest
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Project, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+
+
+@pytest.mark.ee
+class TestOfflineExperimentsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.feature_flag = self.enterContext(
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+    def _endpoint(self, experiment_id: str = "", action: str = "", team_id: int | None = None) -> str:
+        base = f"/api/projects/{team_id or self.team.id}/ai_observability/offline_experiments/"
+        return f"{base}{experiment_id}/{action}/" if experiment_id else base
+
+    def _authenticate(self, auth_kind: str, scopes: list[str] | None = None, user: User | None = None) -> None:
+        self.client.logout()
+        self.client.credentials()
+        user = user or self.user
+        scopes = scopes if scopes is not None else ["offline_evaluation_ingestion:write"]
+        if auth_kind == "session":
+            self.client.force_login(user)
+            return
+        if auth_kind == "personal_key":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=user,
+                label="Offline evaluation test",
+                secure_value=hash_key_value(token),
+                scopes=scopes,
+                scoped_teams=[self.team.id],
+            )
+        elif auth_kind == "project_key":
+            token = f"phs_{uuid4().hex}"
+            ProjectSecretAPIKey.objects.create(
+                team=self.team,
+                label="Offline evaluation test",
+                secure_value=hash_key_value(token),
+                scopes=scopes,
+            )
+        else:
+            raise ValueError(auth_kind)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _experiment_body(self) -> dict[str, object]:
+        return {"id": str(uuid4()), "name": "Answer quality", "started_at": timezone.now().isoformat()}
+
+    @parameterized.expand([("session",), ("personal_key",), ("project_key",)])
+    def test_ingestion_and_both_lifecycle_actions(self, auth_kind: str) -> None:
+        definition = ScoreDefinition.objects.create(team=self.team, name="Correct", kind="boolean")
+        version = definition.create_new_version(config={"true_label": "Yes", "false_label": "No"}, created_by=self.user)
+        self._authenticate(auth_kind)
+        body = self._experiment_body() | {"expected_item_count": 1, "expected_result_count": 1}
+        created = self.client.post(self._endpoint(), body, format="json")
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        experiment_id = str(body["id"])
+        self.assertEqual(created.data["id"], experiment_id)
+
+        item_id = str(uuid4())
+        uploaded = self.client.post(
+            self._endpoint(experiment_id, "upload"),
+            {
+                "items": [{"id": item_id, "payload": {"input": "What is 2 + 2?", "output": "5"}}],
+                "results": [{"item_id": item_id, "scorer_version_id": str(version.id), "status": "ok", "value": False}],
+            },
+            format="json",
+        )
+        self.assertEqual(uploaded.status_code, status.HTTP_200_OK, uploaded.data)
+        result = OfflineEvaluationResult.objects.for_team(self.team.id).get(pk=uploaded.data["results"][0]["id"])
+        self.assertIs(result.boolean_value, False)
+        self.assertEqual(result.scorer_version_id, version.id)
+
+        completed = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
+        self.assertEqual(completed.status_code, status.HTTP_200_OK, completed.data)
+        self.assertEqual(completed.data["status"], "completed")
+        self.assertEqual(completed.data["accepted_item_count"], 1)
+        self.assertEqual(completed.data["accepted_result_count"], 1)
+
+        failed_body = self._experiment_body() | {"expected_result_count": 10}
+        self.assertEqual(
+            self.client.post(self._endpoint(), failed_body, format="json").status_code, status.HTTP_201_CREATED
+        )
+        failed = self.client.post(self._endpoint(str(failed_body["id"]), "fail"), {}, format="json")
+        self.assertEqual(failed.status_code, status.HTTP_200_OK, failed.data)
+        self.assertEqual(failed.data["status"], "failed")
+        self.assertEqual(failed.data["accepted_result_count"], 0)
+
+    @parameterized.expand(
+        [
+            ("personal_missing", "personal_key", []),
+            ("personal_read", "personal_key", ["offline_evaluation_ingestion:read"]),
+            ("personal_evaluation_write", "personal_key", ["evaluation:write"]),
+            ("project_missing", "project_key", []),
+            ("project_read", "project_key", ["offline_evaluation_ingestion:read"]),
+            ("project_evaluation_write", "project_key", ["evaluation:write"]),
+        ]
+    )
+    def test_ingestion_requires_its_own_write_scope(self, _name: str, auth_kind: str, scopes: list[str]) -> None:
+        self._authenticate(auth_kind, scopes=scopes)
+        response = self.client.post(self._endpoint(), self._experiment_body(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(OfflineExperiment.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand([("personal_key",), ("project_key",)])
+    def test_project_scoped_key_cannot_write_to_another_project(self, auth_kind: str) -> None:
+        _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        self._authenticate(auth_kind)
+        response = self.client.post(self._endpoint(team_id=other_team.id), self._experiment_body(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(OfflineExperiment.objects.for_team(other_team.id).exists())
+
+    @parameterized.expand([("session",), ("personal_key",), ("project_key",)])
+    def test_rollout_flag_is_required_for_every_authentication_method(self, auth_kind: str) -> None:
+        self._authenticate(auth_kind)
+        self.feature_flag.return_value = False
+        response = self.client.post(self._endpoint(), self._experiment_body(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(OfflineExperiment.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand(
+        [
+            ("session_viewer", "session", "viewer", status.HTTP_403_FORBIDDEN),
+            ("session_editor", "session", "editor", status.HTTP_201_CREATED),
+            ("personal_key_viewer", "personal_key", "viewer", status.HTTP_403_FORBIDDEN),
+            ("personal_key_editor", "personal_key", "editor", status.HTTP_201_CREATED),
+            ("project_key", "project_key", "none", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_human_callers_require_evaluation_editor_access(
+        self, _name: str, auth_kind: str, access_level: str, expected_status: int
+    ) -> None:
+        member = User.objects.create_and_join(self.organization, "eval-member@example.com", "test-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=None,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+        self._authenticate(auth_kind, user=member)
+        response = self.client.post(self._endpoint(), self._experiment_body(), format="json")
+        self.assertEqual(response.status_code, expected_status, response.data)
+
+    def test_ingestion_key_cannot_manage_scorers(self) -> None:
+        self._authenticate("personal_key")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/llm_analytics/score_definitions/",
+            {"name": "Correct", "kind": "boolean", "config": {"true_label": "Yes", "false_label": "No"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(ScoreDefinition.objects.filter(team=self.team).exists())
+
+    def test_create_validates_the_request_body(self) -> None:
+        body = self._experiment_body() | {"run_source": ""}
+        response = self.client.post(self._endpoint(), body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(OfflineExperiment.objects.for_team(self.team.id).exists())

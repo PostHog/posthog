@@ -37,6 +37,374 @@ export const AiObservabilityInstrumentationChecklistRestoreCreateBody = /* @__PU
         ),
 })
 
+export const aiObservabilityOfflineExperimentsCreateBodyNameMax = 400
+
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMin = 0
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMin = 0
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyPromptVersionMax = 255
+
+export const AiObservabilityOfflineExperimentsCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid().describe('Caller-generated experiment UUID. Reuse it for exact retries.'),
+    name: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyNameMax)
+        .describe('Display name for this experiment execution.'),
+    started_at: zod.iso
+        .datetime({ offset: true })
+        .describe('Execution start time in ISO 8601 format, supplied by the caller.'),
+    run_source: zod
+        .union([
+            zod
+                .enum(['ci', 'local', 'scheduled'])
+                .describe('\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Where the execution started: ci, local, or scheduled. Omit or use null when unknown.\n\n\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'
+        ),
+    expected_item_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMin)
+        .max(aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMax)
+        .nullish()
+        .describe('Expected number of distinct items. Completion must match this count when supplied.'),
+    expected_result_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMin)
+        .max(aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMax)
+        .nullish()
+        .describe('Expected number of distinct item\/scorer-version results, including non-success statuses.'),
+    suite_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax)
+        .nullish()
+        .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    dataset_source: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax)
+        .nullish()
+        .describe('Source of an external dataset. Hosted dataset provenance is derived from its revision.'),
+    dataset_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetIdentifierMax)
+        .nullish()
+        .describe('Stable identifier for the external dataset.'),
+    dataset_revision_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetRevisionIdentifierMax)
+        .nullish()
+        .describe('Pinned revision identifier of the external dataset.'),
+    dataset_revision_id: zod.uuid().nullish().describe('UUID of a hosted dataset revision in this project.'),
+    application_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyApplicationVersionMax)
+        .nullish()
+        .describe('Version of the application under evaluation.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyModelVersionMax)
+        .nullish()
+        .describe('Version of the model under evaluation.'),
+    prompt_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyPromptVersionMax)
+        .nullish()
+        .describe('Version of the prompt under evaluation.'),
+})
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyNameMax = 400
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedItemCountMin = 0
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedItemCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedResultCountMin = 0
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedResultCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodySuiteKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCompleteCreateBodyPromptVersionMax = 255
+
+export const AiObservabilityOfflineExperimentsCompleteCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid().describe('Caller-generated experiment UUID. Reuse it for exact retries.'),
+    name: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyNameMax)
+        .describe('Display name for this experiment execution.'),
+    started_at: zod.iso
+        .datetime({ offset: true })
+        .describe('Execution start time in ISO 8601 format, supplied by the caller.'),
+    run_source: zod
+        .union([
+            zod
+                .enum(['ci', 'local', 'scheduled'])
+                .describe('\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Where the execution started: ci, local, or scheduled. Omit or use null when unknown.\n\n\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'
+        ),
+    expected_item_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedItemCountMin)
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedItemCountMax)
+        .nullish()
+        .describe('Expected number of distinct items. Completion must match this count when supplied.'),
+    expected_result_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedResultCountMin)
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyExpectedResultCountMax)
+        .nullish()
+        .describe('Expected number of distinct item\/scorer-version results, including non-success statuses.'),
+    suite_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodySuiteKeyMax)
+        .nullish()
+        .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    dataset_source: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyDatasetSourceMax)
+        .nullish()
+        .describe('Source of an external dataset. Hosted dataset provenance is derived from its revision.'),
+    dataset_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyDatasetIdentifierMax)
+        .nullish()
+        .describe('Stable identifier for the external dataset.'),
+    dataset_revision_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyDatasetRevisionIdentifierMax)
+        .nullish()
+        .describe('Pinned revision identifier of the external dataset.'),
+    dataset_revision_id: zod.uuid().nullish().describe('UUID of a hosted dataset revision in this project.'),
+    application_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyApplicationVersionMax)
+        .nullish()
+        .describe('Version of the application under evaluation.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyModelVersionMax)
+        .nullish()
+        .describe('Version of the model under evaluation.'),
+    prompt_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCompleteCreateBodyPromptVersionMax)
+        .nullish()
+        .describe('Version of the prompt under evaluation.'),
+})
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyNameMax = 400
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyExpectedItemCountMin = 0
+export const aiObservabilityOfflineExperimentsFailCreateBodyExpectedItemCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyExpectedResultCountMin = 0
+export const aiObservabilityOfflineExperimentsFailCreateBodyExpectedResultCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsFailCreateBodySuiteKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsFailCreateBodyPromptVersionMax = 255
+
+export const AiObservabilityOfflineExperimentsFailCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid().describe('Caller-generated experiment UUID. Reuse it for exact retries.'),
+    name: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyNameMax)
+        .describe('Display name for this experiment execution.'),
+    started_at: zod.iso
+        .datetime({ offset: true })
+        .describe('Execution start time in ISO 8601 format, supplied by the caller.'),
+    run_source: zod
+        .union([
+            zod
+                .enum(['ci', 'local', 'scheduled'])
+                .describe('\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Where the execution started: ci, local, or scheduled. Omit or use null when unknown.\n\n\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'
+        ),
+    expected_item_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsFailCreateBodyExpectedItemCountMin)
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyExpectedItemCountMax)
+        .nullish()
+        .describe('Expected number of distinct items. Completion must match this count when supplied.'),
+    expected_result_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsFailCreateBodyExpectedResultCountMin)
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyExpectedResultCountMax)
+        .nullish()
+        .describe('Expected number of distinct item\/scorer-version results, including non-success statuses.'),
+    suite_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodySuiteKeyMax)
+        .nullish()
+        .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    dataset_source: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyDatasetSourceMax)
+        .nullish()
+        .describe('Source of an external dataset. Hosted dataset provenance is derived from its revision.'),
+    dataset_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyDatasetIdentifierMax)
+        .nullish()
+        .describe('Stable identifier for the external dataset.'),
+    dataset_revision_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyDatasetRevisionIdentifierMax)
+        .nullish()
+        .describe('Pinned revision identifier of the external dataset.'),
+    dataset_revision_id: zod.uuid().nullish().describe('UUID of a hosted dataset revision in this project.'),
+    application_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyApplicationVersionMax)
+        .nullish()
+        .describe('Version of the application under evaluation.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyModelVersionMax)
+        .nullish()
+        .describe('Version of the model under evaluation.'),
+    prompt_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsFailCreateBodyPromptVersionMax)
+        .nullish()
+        .describe('Version of the prompt under evaluation.'),
+})
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyNameMax = 400
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyExpectedItemCountMin = 0
+export const aiObservabilityOfflineExperimentsUploadCreateBodyExpectedItemCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyExpectedResultCountMin = 0
+export const aiObservabilityOfflineExperimentsUploadCreateBodyExpectedResultCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodySuiteKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyPromptVersionMax = 255
+
+export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid().describe('Caller-generated experiment UUID. Reuse it for exact retries.'),
+    name: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyNameMax)
+        .describe('Display name for this experiment execution.'),
+    started_at: zod.iso
+        .datetime({ offset: true })
+        .describe('Execution start time in ISO 8601 format, supplied by the caller.'),
+    run_source: zod
+        .union([
+            zod
+                .enum(['ci', 'local', 'scheduled'])
+                .describe('\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Where the execution started: ci, local, or scheduled. Omit or use null when unknown.\n\n\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'
+        ),
+    expected_item_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsUploadCreateBodyExpectedItemCountMin)
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyExpectedItemCountMax)
+        .nullish()
+        .describe('Expected number of distinct items. Completion must match this count when supplied.'),
+    expected_result_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsUploadCreateBodyExpectedResultCountMin)
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyExpectedResultCountMax)
+        .nullish()
+        .describe('Expected number of distinct item\/scorer-version results, including non-success statuses.'),
+    suite_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodySuiteKeyMax)
+        .nullish()
+        .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    dataset_source: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyDatasetSourceMax)
+        .nullish()
+        .describe('Source of an external dataset. Hosted dataset provenance is derived from its revision.'),
+    dataset_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyDatasetIdentifierMax)
+        .nullish()
+        .describe('Stable identifier for the external dataset.'),
+    dataset_revision_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyDatasetRevisionIdentifierMax)
+        .nullish()
+        .describe('Pinned revision identifier of the external dataset.'),
+    dataset_revision_id: zod.uuid().nullish().describe('UUID of a hosted dataset revision in this project.'),
+    application_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyApplicationVersionMax)
+        .nullish()
+        .describe('Version of the application under evaluation.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyModelVersionMax)
+        .nullish()
+        .describe('Version of the model under evaluation.'),
+    prompt_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyPromptVersionMax)
+        .nullish()
+        .describe('Version of the prompt under evaluation.'),
+})
+
 /**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
