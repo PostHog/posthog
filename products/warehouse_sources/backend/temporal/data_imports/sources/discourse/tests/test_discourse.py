@@ -24,10 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.settings import (
-    USER_ACTION_PUBLIC_TYPES,
-    USER_ACTIONS_PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.settings import USER_ACTIONS_PAGE_SIZE
 
 # RESTClient builds its pipeline session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -613,12 +610,10 @@ class TestGroupMembers:
 class TestUserActions:
     @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
     @patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_admin_users_and_asks_only_for_public_action_types(
-        self, MockSession: Any, _safe: Any
-    ) -> None:
-        # Types 12 and 13 are private messages. An admin key can read them, and the endpoint
-        # only drops them on its own when no filter is sent, so the filter is what keeps private
-        # message rows out of the warehouse.
+    def test_fans_out_over_admin_users_without_a_server_side_action_filter(self, MockSession: Any, _safe: Any) -> None:
+        # Discourse drops private message topics from the stream only while `filter` is blank,
+        # and for an admin identity a non-blank `filter` removes the exclusion entirely. Sending
+        # one would pull replies and likes made inside private messages into the table.
         session = MockSession.return_value
         action = _action("2026-03-05T00:00:00.000Z")
         params = _wire(
@@ -633,9 +628,28 @@ class TestUserActions:
         rows = _rows(_source(_make_manager(), "user_actions"))
         assert rows == [action]
         assert _urls(session)[1] == f"{BASE_URL}/user_actions.json?username=alice"
-        assert params[1]["filter"] == USER_ACTION_PUBLIC_TYPES
-        assert "12" not in params[1]["filter"].split(",")
-        assert "13" not in params[1]["filter"].split(",")
+        assert "filter" not in params[1]
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_narrows_to_public_actions_and_drops_post_text(self, MockSession: Any, _safe: Any) -> None:
+        # With no server-side filter the stream carries every action type, and the admin
+        # identity also reads whispers and hidden posts, so both narrowing steps run over the
+        # response instead.
+        session = MockSession.return_value
+        reply = _action("2026-03-05T00:00:00.000Z", excerpt="post body", edit_reason="typo")
+        private_message = _action("2026-03-04T00:00:00.000Z", action_type=12)
+        _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "alice"}]),
+                _json_response({"user_actions": [reply, private_message]}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "user_actions"))
+        assert rows == [_action("2026-03-05T00:00:00.000Z")]
 
     @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
     @patch(CLIENT_SESSION_PATCH)

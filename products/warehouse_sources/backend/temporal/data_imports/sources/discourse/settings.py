@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -24,13 +26,18 @@ USER_ACTIONS_PAGE_SIZE = 100
 ADMIN_USERS_PARAMS = {"order": "created", "asc": "true"}
 
 # Public UserAction types: 1 like, 2 was_liked, 4 new_topic, 5 reply, 6 response, 7 mention,
-# 9 quote, 11 edit. Types 12/13 (new/got private message) are deliberately absent, because an
-# admin key can read private messages and the endpoint only drops them on its own when no filter
-# is sent. Naming the public types is what keeps private message rows out of the warehouse.
-USER_ACTION_PUBLIC_TYPES = "1,2,4,5,6,7,9,11"
+# 9 quote, 11 edit.
+#
+# This allowlist is applied to the returned rows, not sent as the `filter` query param.
+# Discourse excludes private message topics from the stream only when `filter` is blank, and for
+# an admin identity a non-blank `filter` removes that exclusion entirely. Sending the allowlist
+# would therefore pull replies, likes and quotes made inside private message topics into the
+# table, carrying their titles and excerpts. Leaving `filter` off keeps the topic-level
+# exclusion, and the action types are narrowed afterwards.
+USER_ACTION_PUBLIC_TYPES = frozenset({1, 2, 4, 5, 6, 7, 9, 11})
 
 
-@dataclass
+@frozen
 class DiscourseEndpointConfig:
     name: str
     path: str
@@ -95,7 +102,8 @@ USER_ACTIONS_FANOUT = DependentEndpointConfig(
     # is nothing left to carry over from the parent row.
     include_from_parent=[],
     parent_params=dict(ADMIN_USERS_PARAMS),
-    child_params={"filter": USER_ACTION_PUBLIC_TYPES},
+    # No `filter` param: see USER_ACTION_PUBLIC_TYPES for why the action types are narrowed
+    # after the response instead.
     # Discourse answers 404 (not 403) both for a profile the key cannot see and for a user
     # deleted between the listing and this fetch.
     child_response_actions=[{"status_code": 404, "action": "ignore"}],

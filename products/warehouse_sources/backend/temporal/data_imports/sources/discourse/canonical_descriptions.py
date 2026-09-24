@@ -162,7 +162,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "user_actions": {
-        "description": "One row per public action in a member's activity stream: likes given and received, new topics, replies, mentions, quotes and edits. Private messages are excluded.",
+        "description": "One row per public action in a member's activity stream: likes given and received, new topics, replies, mentions, quotes and edits. Actions inside private message topics are excluded, and post text is not synced. Post bodies live in the posts table.",
         "docs_url": "https://docs.discourse.org/#tag/Users/operation/listUserActions",
         "columns": {
             "action_type": "What the action was: 1 like, 2 was liked, 4 new topic, 5 reply, 6 response, 7 mention, 9 quote, 11 edit.",
@@ -183,8 +183,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "post_number": "Position within the topic of the post the action was aimed at. 1 when the action targets the topic itself.",
             "post_id": "id of the post the action was aimed at, when the action targets a post.",
             "reply_to_post_number": "Post number this post replies to. Only set on reply actions.",
-            "excerpt": "Short plain-text extract of the post the action was aimed at.",
-            "edit_reason": "Reason given for the edit. Only set on edit actions.",
             "action_code": "Small-action code for posts that record an event (e.g. a topic being closed) rather than content.",
             "post_type": "Type of the target post: regular, moderator action, small action, or whisper.",
             "deleted": "Whether the target post or topic has been deleted.",

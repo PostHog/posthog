@@ -1,5 +1,4 @@
 import re
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from typing import Any, Optional
@@ -9,6 +8,7 @@ import requests
 from requests import PreparedRequest, Request, Response
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.settings import (
     DISCOURSE_ENDPOINTS,
     POSTS_PAGE_SIZE,
+    USER_ACTION_PUBLIC_TYPES,
     DiscourseEndpointConfig,
 )
 
@@ -51,7 +52,7 @@ class DiscourseHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class DiscourseResumeConfig:
     # Next page to fetch for `PageNumberPaginator`-based endpoints (topics, groups, users).
     page: Optional[int] = None
@@ -230,6 +231,28 @@ def _flatten_directory_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+# The admin identity reads whispers plus hidden and deleted posts, so post text on an activity
+# row can be content the same warehouse reader cannot open in Discourse. Post bodies belong in
+# the posts table, which a user chooses separately.
+_POST_CONTENT_FIELDS = ("excerpt", "edit_reason")
+
+
+def _public_activity_rows(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce an activity page to public actions, without their post text.
+
+    `USER_ACTION_PUBLIC_TYPES` explains why the action types are narrowed here instead of in the
+    request, and `_POST_CONTENT_FIELDS` why the text is dropped.
+    """
+    rows: list[dict[str, Any]] = []
+    for row in batch:
+        if row.get("action_type") not in USER_ACTION_PUBLIC_TYPES:
+            continue
+        for field_name in _POST_CONTENT_FIELDS:
+            row.pop(field_name, None)
+        rows.append(row)
+    return rows
+
+
 def _coerce_incremental_cursor(value: Any) -> Optional[int]:
     if value is None:
         return None
@@ -354,8 +377,9 @@ def discourse_source(
         # or now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
         _check_host(base_url, team_id)
         for batch in build_resource():
-            if batch:
-                yield batch
+            rows = _public_activity_rows(batch) if endpoint == "user_actions" else batch
+            if rows:
+                yield rows
 
     return SourceResponse(
         name=endpoint,
