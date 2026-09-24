@@ -217,7 +217,7 @@ A separate circuit-breaker service decides; how it decides is out of scope. Capt
 
 ### Step 23 · Target selection at runtime
 
-The `select` policy's live target becomes swappable state with no lock on the request path. Each batch reads the live target once, and its acks and retries stay on that target, so a switch never splits a batch or sends it twice. Step 17's arming sets its boot value. A signal switches the target. No signal, or an unreachable control plane, keeps the current target: missing information must never move traffic. The Step-17 gauge reports the live target. With no service configured, behavior matches Step 17 exactly.
+The `select` policy's live target becomes swappable state with no lock on the request path. Each batch reads the live target once, and its acks and retries stay on that target, so a switch never splits a batch or sends it twice. Step 17's arming sets its boot value. A signal switches the target. No signal, or an unreachable control plane, keeps the current target: missing information must never move traffic. The Step-17 gauge reports the live target. With no service configured, behavior matches Step 17 exactly. As in Step 17, a switch moves only where capture writes. Repointing consumers happens outside capture and outside this plan, and must be coordinated with the switch before it is automated.
 
 ### Step 24 · Producer health out
 
