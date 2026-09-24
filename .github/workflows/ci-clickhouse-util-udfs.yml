@@ -6,7 +6,7 @@ on:
             - '.github/workflows/ci-clickhouse-util-udfs.yml'
             - 'clickhouse-udfs/util/**'
             - 'docker/clickhouse/user_defined_function.xml'
-            - 'posthog/user_scripts/close_inherited_fds.sh'
+            - 'posthog/user_scripts/run_udf.sh'
             - 'posthog/user_scripts/decompress_udf*'
             - 'posthog/user_scripts/json_clean_posthog_event_properties_udf*'
             - 'posthog/user_scripts/json_drop_keys_udf*'

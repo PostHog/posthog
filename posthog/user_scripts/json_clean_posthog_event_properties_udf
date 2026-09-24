@@ -1,19 +1,2 @@
 #!/bin/bash
-
-DIR_NAME=$(dirname "$0")
-. "$DIR_NAME/close_inherited_fds.sh"
-TEMP_DIR=$(mktemp -d -p /tmp "json_clean_posthog_event_properties_udf_XXXXXXXXXX")
-trap 'rm -rf "$TEMP_DIR"; exit' 0
-
-case $(uname -m) in
-aarch64)
-    EXECUTABLE_NAME="json_clean_posthog_event_properties_udf_aarch64"
-    ;;
-*)
-    EXECUTABLE_NAME="json_clean_posthog_event_properties_udf_x86_64"
-    ;;
-esac
-
-cp "$DIR_NAME/$EXECUTABLE_NAME" "$TEMP_DIR/$EXECUTABLE_NAME"
-chmod +x "$TEMP_DIR/$EXECUTABLE_NAME"
-"$TEMP_DIR/$EXECUTABLE_NAME" "$@"
+. "$(dirname "$0")/run_udf.sh"
