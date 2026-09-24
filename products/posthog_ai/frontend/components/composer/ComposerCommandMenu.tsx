@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useMemo, useState } from 'react'
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonMenu, type LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 
@@ -9,6 +9,25 @@ export interface ComposerCommandMenuProps {
     commands: SlashCommand[]
     /** The element the menu anchors to, usually `Composer.Field`. It must forward a ref. */
     children: ReactElement
+}
+
+/** Keeps the highlighted command in view: the popover caps its height, so a long list scrolls. */
+function CommandMenuItemLabel({ command, active }: { command: SlashCommand; active: boolean }): JSX.Element {
+    const ref = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        if (active) {
+            ref.current?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [active])
+    return (
+        <div className="min-w-0" ref={ref}>
+            <div className="font-mono truncate">
+                /{command.name}
+                {command.hint && <span className="text-muted"> {command.hint}</span>}
+            </div>
+            {command.description && <div className="text-muted text-xs truncate">{command.description}</div>}
+        </div>
+    )
 }
 
 /**
@@ -26,6 +45,12 @@ export function ComposerCommandMenu({ commands, children }: ComposerCommandMenuP
     useEffect(() => {
         setActiveIndex(0)
     }, [filtered])
+
+    // Dismissal is keyed on the draft it was pressed on, so a later edit re-opens the menu. Drop it once
+    // the draft moves on, otherwise deleting the draft and typing the same text again stays dismissed.
+    useEffect(() => {
+        setDismissedFor((dismissed) => (dismissed === null || dismissed === value ? dismissed : null))
+    }, [value])
 
     const select = (command: SlashCommand | undefined): void => {
         if (!command) {
@@ -68,17 +93,7 @@ export function ComposerCommandMenu({ commands, children }: ComposerCommandMenuP
         ...filtered.map(
             (command, index): LemonMenuItem => ({
                 key: command.name,
-                label: (
-                    <div className="min-w-0">
-                        <div className="font-mono truncate">
-                            /{command.name}
-                            {command.hint && <span className="text-muted"> {command.hint}</span>}
-                        </div>
-                        {command.description && (
-                            <div className="text-muted text-xs truncate">{command.description}</div>
-                        )}
-                    </div>
-                ),
+                label: <CommandMenuItemLabel command={command} active={index === activeIndex} />,
                 onClick: () => select(command),
                 active: index === activeIndex,
                 'data-attr': `sandbox-composer-slash-command-${command.source}`,

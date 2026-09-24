@@ -47,6 +47,7 @@ export function TaskRunComposer({
         defaultModel,
         selectedEffort,
         consentBlocked,
+        consentBlockedSource,
         selectedMode,
         composerActive,
         steerPending,
@@ -193,7 +194,16 @@ export function TaskRunComposer({
                     showArrow
                     ignoreDismissal
                     hidden={!consentBlocked}
-                    onApprove={submitAfterConsent}
+                    // A draft may be a slash command, so it resubmits through the command path rather than
+                    // straight to the agent. Queue and steer have no command form and go back as they were.
+                    onApprove={() => {
+                        if (consentBlockedSource === 'draft') {
+                            clearConsentBlock()
+                            submitComposer()
+                        } else {
+                            submitAfterConsent()
+                        }
+                    }}
                     onDismiss={() => clearConsentBlock()}
                 >
                     <Composer.Submit data-attr="sandbox-composer-send" />

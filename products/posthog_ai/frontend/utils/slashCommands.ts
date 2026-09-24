@@ -16,6 +16,8 @@ export interface AppCommand extends SlashCommand {
     source: 'app'
     /** Set when the command needs text after its name. The value is the error shown when it is missing. */
     requiredInputError?: string
+    /** Shown when the command is typed on a run that does not offer it. */
+    unavailableError?: string
 }
 
 export const APP_COMMANDS: AppCommand[] = [
@@ -25,6 +27,7 @@ export const APP_COMMANDS: AppCommand[] = [
         hint: 'your question',
         source: 'app',
         requiredInputError: 'Add a question after /btw',
+        unavailableError: 'Side questions only work while a Claude run is live',
     },
     { name: 'good', description: 'Send positive feedback', hint: 'optional comment', source: 'app' },
     { name: 'bad', description: 'Send negative feedback', hint: 'optional comment', source: 'app' },

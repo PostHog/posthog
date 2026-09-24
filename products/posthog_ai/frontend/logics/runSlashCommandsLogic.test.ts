@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { initKeaTests } from '~/test/init'
@@ -40,8 +41,10 @@ jest.mock('./runInteractionLogic', () => {
             actions({
                 setDraft: (draft: string) => ({ draft }),
                 setStubTerminal: (terminal: boolean) => ({ terminal }),
+                setStubConsent: (accepted: boolean) => ({ accepted }),
                 submitComposerForm: true,
                 resetComposerForm: true,
+                blockOnConsent: true,
             }),
             reducers({
                 composerForm: [
@@ -52,6 +55,7 @@ jest.mock('./runInteractionLogic', () => {
                     },
                 ],
                 isTerminal: [false, { setStubTerminal: (_: boolean, { terminal }: any) => terminal }],
+                dataProcessingAccepted: [true, { setStubConsent: (_: boolean, { accepted }: any) => accepted }],
             }),
         ]),
     }
@@ -82,6 +86,7 @@ describe('runSlashCommandsLogic', () => {
     let interaction: ReturnType<typeof runInteractionLogic.build>
 
     const setDraft = (draft: string): void => (interaction.actions as any).setDraft(draft)
+    let releasePendingSideQuestion: (() => void) | null = null
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -94,6 +99,11 @@ describe('runSlashCommandsLogic', () => {
         ])
         logic = runSlashCommandsLogic(logicProps)
         logic.mount()
+    })
+
+    afterEach(() => {
+        releasePendingSideQuestion?.()
+        releasePendingSideQuestion = null
     })
 
     it.each([
@@ -151,6 +161,58 @@ describe('runSlashCommandsLogic', () => {
             params: { question: 'what is this?' },
         })
         expect(logic.values.commandResult).toEqual({ title: 'what is this?', body: 'It is a funnel.' })
+    })
+
+    it.each([
+        ['a finished run', () => (interaction.actions as any).setStubTerminal(true)],
+        [
+            'a side question already in flight',
+            () => {
+                ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+                    new Promise((resolve) => {
+                        releasePendingSideQuestion = () => resolve({ jsonrpc: '2.0', result: { answer: 'first' } })
+                    })
+                )
+                setDraft('/btw first question')
+                logic.actions.submitComposer()
+            },
+        ],
+        // Both rejections are synchronous, so the second submit is not awaited: the in-flight case
+        // only rejects while its own request is still pending.
+    ])('keeps the draft and refuses a side question on %s', async (_label, setUp) => {
+        setUp()
+        setDraft('/btw what is this?')
+
+        logic.actions.submitComposer()
+
+        expect(interaction.values.composerForm.draft).toEqual('/btw what is this?')
+        expect(lemonToast.error).toHaveBeenCalled()
+        await expectLogic(interaction).toNotHaveDispatchedActions(['submitComposerForm'])
+    })
+
+    it('asks for consent instead of sending a side question when AI data processing is not approved', async () => {
+        ;(interaction.actions as any).setStubConsent(false)
+        setDraft('/btw what is this?')
+
+        await expectLogic(logic, () => logic.actions.submitComposer()).toFinishAllListeners()
+
+        await expectLogic(interaction).toDispatchActions(['blockOnConsent'])
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(interaction.values.composerForm.draft).toEqual('/btw what is this?')
+    })
+
+    it('attributes a /ticket handover to the run', async () => {
+        setDraft('/ticket the diff looks wrong')
+
+        await expectLogic(logic, () => logic.actions.submitComposer()).toFinishAllListeners()
+
+        expect(interaction.values.composerForm.draft).toEqual('')
+        await expectLogic(supportLogic).toDispatchActions([
+            (action: any) =>
+                action.type === supportLogic.actionTypes.openSupportForm &&
+                action.payload.ai_conversation_id === 'task-1' &&
+                action.payload.ai_trace_id === 'trace-1',
+        ])
     })
 
     it('offers /btw only on a live Claude run', async () => {
