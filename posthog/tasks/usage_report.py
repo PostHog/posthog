@@ -3207,23 +3207,27 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
     return all_data
 
 
-def _get_teams_for_usage_reports() -> Iterator[Team]:
-    """Yield the teams a usage report covers, each with its organization attached.
+def iter_billable_teams(*, team_fields: Sequence[str], organization_fields: Sequence[str]) -> Iterator[Team]:
+    """Yield every team a billing or usage run covers, each with its organization attached.
 
-    A join copies the organization columns onto every one of its teams, so the organizations are
-    read once and attached in Python instead. The subquery hits the for_internal_metrics partial
-    index, so Postgres does not read every organization row to exclude the internal ones.
+    Demo teams and internal-metrics teams are excluded. A join copies the organization columns onto
+    every one of its teams, so the organizations are read once and attached in Python instead. The
+    subquery hits the for_internal_metrics partial index, so Postgres does not read every
+    organization row to exclude the internal ones.
     """
     organizations_by_id = {
         organization.id: organization
-        for organization in Organization.objects.exclude(for_internal_metrics=True).only("id", "name", "created_at")
+        for organization in Organization.objects.exclude(for_internal_metrics=True).only(*organization_fields)
     }
     teams = (
         Team.objects.exclude(is_demo=True)
         .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
-        .only("id", "name", "organization_id")
+        .only(*team_fields, "organization_id")
         .order_by("id")
     )
+    # iterator() skips the queryset result cache, so a caller that consumes the teams one at a time
+    # never holds the whole estate as model instances. Behind pgbouncer the driver still buffers the
+    # rows, because DISABLE_SERVER_SIDE_CURSORS turns the chunked fetch off.
     for team in teams.iterator(chunk_size=TEAM_BATCH_SIZE):
         organization = organizations_by_id.get(team.organization_id)
         if organization is None:
@@ -3232,6 +3236,10 @@ def _get_teams_for_usage_reports() -> Iterator[Team]:
             continue
         team.organization = organization
         yield team
+
+
+def _get_teams_for_usage_reports() -> Iterator[Team]:
+    return iter_billable_teams(team_fields=("id", "name"), organization_fields=("id", "name", "created_at"))
 
 
 def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounters:

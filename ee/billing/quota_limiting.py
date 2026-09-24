@@ -48,12 +48,11 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
     get_teams_with_workflow_push_sent_in_period,
+    iter_billable_teams,
 )
 from posthog.utils import get_current_day
 
 logger = structlog.get_logger(__name__)
-
-TEAM_BATCH_SIZE = 1000
 
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
@@ -1208,36 +1207,21 @@ def update_all_orgs_billing_quotas(
     if progress_callback:
         progress_callback("queries_done", f"duration={queries_duration_s}s", f"query_count={len(all_data)}")
 
-    organizations_by_id = {
-        organization.id: organization
-        for organization in Organization.objects.exclude(for_internal_metrics=True).only(
-            "id",
-            "usage",
-            "created_at",
-            "never_drop_data",
-            "customer_trust_scores",
-            "customer_id",
+    # Materialized, because the loops below walk the teams twice. The rows are small: the wide
+    # organization columns are attached in Python rather than joined onto every team.
+    teams: Sequence[Team] = list(
+        iter_billable_teams(
+            team_fields=("id", "api_token"),
+            organization_fields=(
+                "id",
+                "usage",
+                "created_at",
+                "never_drop_data",
+                "customer_trust_scores",
+                "customer_id",
+            ),
         )
-    }
-
-    # Subquery on the for_internal_metrics partial index, so Postgres does not read every organization row.
-    # The organizations above are attached in Python, because a join copies the organization columns onto
-    # every one of its teams and the usage and customer_trust_scores JSON columns are wide.
-    teams: list[Team] = []
-    for team in (
-        Team.objects.exclude(is_demo=True)
-        .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
-        .only("id", "api_token", "organization_id")
-        .order_by("id")
-        .iterator(chunk_size=TEAM_BATCH_SIZE)
-    ):
-        organization = organizations_by_id.get(team.organization_id)
-        if organization is None:
-            # The organization was created after the snapshot above, so it has no usage yet and the
-            # next run covers it.
-            continue
-        team.organization = organization
-        teams.append(team)
+    )
 
     todays_usage_report: dict[str, UsageCounters] = {}
     orgs_by_id: dict[str, Organization] = {}
