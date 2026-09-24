@@ -30,6 +30,7 @@ from products.feature_flags.backend.local_evaluation import (
     _build_flag_definitions_hypercache,
     _get_flags_response_for_local_evaluation,
     _get_flags_response_for_local_evaluation_batch,
+    _transform_flag_property_dependencies,
     _update_flag_definitions,
     clear_flag_definition_caches,
     flag_definitions_hypercache,
@@ -1368,23 +1369,24 @@ class TestLocalEvaluationBatch(BaseTest):
 
     @parameterized.expand(
         [
-            (2, True, False, True),
-            (2.0, False, False, False),
-            ("2", True, True, False),
-            (None, False, True, True),
-            (True, True, False, False),
-            (3, True, False, True),
-            (2, True, False, False, "encrypted"),
-            (2, True, False, True, "survey"),
-            (1, True, True, True),
-            (1, True, False, True, "encrypted"),
-            (1, True, False, False, "survey"),
-            (2, True, True, True, None, "key"),
-            (2, True, True, False, None, "integer"),
+            ("v2_depends_true", 2, True, False, True),
+            ("v2_float_inactive_depends_false", 2.0, False, False, False),
+            ("v2_string_deleted_depends_false", "2", True, True, False),
+            ("null_version_inactive_deleted_depends_true", None, False, True, True),
+            ("bool_version_depends_false", True, True, False, False),
+            ("v3_depends_true", 3, True, False, True),
+            ("v2_encrypted_depends_false", 2, True, False, False, "encrypted"),
+            ("v2_survey_depends_true", 2, True, False, True, "survey"),
+            ("v1_deleted_depends_true", 1, True, True, True),
+            ("v1_encrypted_depends_true", 1, True, False, True, "encrypted"),
+            ("v1_survey_depends_false", 1, True, False, False, "survey"),
+            ("v2_deleted_key_reference", 2, True, True, True, None, "key"),
+            ("v2_deleted_integer_reference", 2, True, True, False, None, "integer"),
         ]
     )
     def test_batch_excludes_unsupported_targets_and_preserves_supported_missing_dependencies(
         self,
+        _name: str,
         version: object,
         active: bool,
         deleted: bool,
@@ -1477,11 +1479,18 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"properties": [{"type": "flag", "key": bad.pk, "value": False}]}]},
         )
         FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
-        FeatureFlag.objects.create(team=other, key="other", filters={"groups": []})
+        # The other team's healthy flag shares the malformed flag's key, and its dependent
+        # references it by key, so an exclusion leaking across teams would drop both.
+        FeatureFlag.objects.create(team=other, key="malformed", filters={"groups": []})
+        FeatureFlag.objects.create(
+            team=other,
+            key="other-dependent",
+            filters={"groups": [{"properties": [{"type": "flag", "key": "malformed", "value": True}]}]},
+        )
         dropped_before = FLAG_PROCESSING_ERROR_COUNTER._value.get()
         result = _get_flags_response_for_local_evaluation_batch([self.team, other])
         assert [flag["key"] for flag in result[self.team.id]["flags"]] == ["healthy"]
-        assert [flag["key"] for flag in result[other.id]["flags"]] == ["other"]
+        assert [flag["key"] for flag in result[other.id]["flags"]] == ["malformed", "other-dependent"]
         assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + (not deleted)
 
     @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
@@ -1568,9 +1577,10 @@ class TestLocalEvaluationBatch(BaseTest):
             (f"cohort_{value}", {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": value}]})
             for value in ("not-an-id", True, False, 7.5, 7.0)
         ]
+        + [("list_missing_leaf_key", [{"type": "person", "value": "example"}])]
     )
     def test_batch_malformed_nested_cohort_keeps_independent_flags(
-        self, _name: str, properties: dict[str, Any]
+        self, _name: str, properties: list[dict[str, Any]] | dict[str, Any]
     ) -> None:
         child = self._create_cohort(self.team, "Malformed child")
         parent = Cohort.objects.create(
@@ -1589,10 +1599,37 @@ class TestLocalEvaluationBatch(BaseTest):
             key="dependent",
             filters={"groups": [{"properties": [{"type": "flag", "key": affected.pk, "value": False}]}]},
         )
-        FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
+        valid = self._create_cohort(self.team, "Valid")
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="healthy",
+            filters={"groups": [{"properties": [{"type": "cohort", "key": "id", "value": valid.pk}]}]},
+        )
         result = _get_flags_response_for_local_evaluation(self.team)
         assert [flag["key"] for flag in result["flags"]] == ["healthy"]
-        assert result["cohorts"] == {}
+        assert result["cohorts"] == {str(valid.pk): valid.properties.to_dict()}
+
+    def test_batch_team_failure_keeps_other_teams(self) -> None:
+        other = self._create_team_with_project("Independent")
+        FeatureFlag.objects.create(team=self.team, key="poison", filters={"groups": []})
+        FeatureFlag.objects.create(team=other, key="other", filters={"groups": []})
+
+        def transform(flags: list[dict[str, Any]], flag_id_to_key: dict[str, str]) -> list[dict[str, Any]]:
+            if any(flag["key"] == "poison" for flag in flags):
+                raise RuntimeError("transformation failed")
+            return _transform_flag_property_dependencies(flags, flag_id_to_key)
+
+        with patch(
+            "products.feature_flags.backend.local_evaluation._transform_flag_property_dependencies",
+            side_effect=transform,
+        ):
+            results = _get_flags_response_for_local_evaluation_batch([self.team, other])
+            with self.assertRaises(RuntimeError):
+                _get_flags_response_for_local_evaluation(self.team)
+
+        # The failed team is left out rather than published empty.
+        assert self.team.id not in results
+        assert [flag["key"] for flag in results[other.id]["flags"]] == ["other"]
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -1715,6 +1752,20 @@ class TestFlagDefinitionsCache(BaseTest):
             result = update_flag_definitions_cache(self.team)
 
         assert result is False
+
+    def test_update_flag_definitions_cache_keeps_previous_entry_when_transformation_fails(self) -> None:
+        FeatureFlag.objects.create(team=self.team, key="first", created_by=self.user, filters={"groups": []})
+        assert update_flag_definitions_cache(self.team) is True
+        previous = flag_definitions_hypercache.get_from_cache(self.team)
+        FeatureFlag.objects.create(team=self.team, key="second", created_by=self.user, filters={"groups": []})
+
+        with patch(
+            "products.feature_flags.backend.local_evaluation._transform_flag_property_dependencies",
+            side_effect=RuntimeError("transformation failed"),
+        ):
+            assert update_flag_definitions_cache(self.team) is False
+
+        assert flag_definitions_hypercache.get_from_cache(self.team) == previous
 
     def test_update_flag_definitions_cache_passes_custom_ttl(self):
         FeatureFlag.objects.create(
