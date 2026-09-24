@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from time import monotonic
 from typing import Any
 from uuid import UUID
 
 import structlog
+from pydantic import ValidationError
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async
@@ -43,7 +45,7 @@ from products.conversations.backend.temporal.helpers import (
     resolve_user_id_for_support,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import EmptyAgentTurnError, MultiTurnSession, extract_json_from_text
+from products.tasks.backend.facade.agents import EmptyAgentTurnError, MultiTurnSession
 
 logger = structlog.get_logger(__name__)
 
@@ -56,15 +58,46 @@ _DRAFT_JSON_NUDGE = (
 _DRAFT_NUDGE_POLL_SECONDS = 90
 
 
+class DraftNotProducedError(RuntimeError):
+    """The draft agent gave no usable draft. Raised only while a retry attempt remains."""
+
+
 def _parse_draft(text: str | None) -> SupportReplyDraft | None:
-    try:
-        return SupportReplyDraft.model_validate(extract_json_from_text(text=text, label="support draft"))
-    except ValueError:
+    """Return the last JSON object in `text` that is a valid draft.
+
+    The agent may quote an example or echo ticket JSON before its answer, so the final
+    object wins over the first one.
+    """
+    if not text:
         return None
+    decoder = json.JSONDecoder()
+    candidates: list[Any] = []
+    start = 0
+    while (brace := text.find("{", start)) != -1:
+        try:
+            value, _ = decoder.raw_decode(text, brace)
+        except json.JSONDecodeError:
+            value = None
+        if isinstance(value, dict):
+            candidates.append(value)
+        start = brace + 1
+    for candidate in reversed(candidates):
+        try:
+            return SupportReplyDraft.model_validate(candidate)
+        except ValidationError:
+            continue
+    return None
 
 
-def _blocked_draft(reason: str) -> SupportReplyDraft:
-    # An agent turn with no draft JSON used to raise and leave the ticket in_progress.
+def _give_up(reason: str) -> SupportReplyDraft:
+    """Retry while an attempt remains. On the last attempt, return a draft that blocks auto-send.
+
+    A raise on the last attempt fails the workflow before it records a result, which leaves the
+    ticket in_progress.
+    """
+    if llm_attempts() < DRAFT_ACTIVITY_MAX_ATTEMPTS:
+        raise DraftNotProducedError(reason)
+    logger.warning("support_draft_blocked_last_attempt", reason=reason)
     return SupportReplyDraft(
         reply="",
         citations=[],
@@ -84,12 +117,11 @@ async def _draft_from_session(session: MultiTurnSession, first_text: str) -> Sup
         followup = await session.send_followup_raw(_DRAFT_JSON_NUDGE, label="support draft json")
     except Exception:
         logger.warning("support_draft_json_nudge_failed", task_run_id=str(session.task_run.id), exc_info=True)
-        followup = None
+        return _give_up("The draft agent failed while it was asked for the draft JSON.")
     draft = _parse_draft(followup)
     if draft is not None:
         return draft
-    logger.warning("support_draft_no_json_after_nudge", task_run_id=str(session.task_run.id))
-    return _blocked_draft("The draft agent ended without a JSON object.")
+    return _give_up("The draft agent ended without a JSON object.")
 
 
 _TEAM_DOCS_SOURCE_TYPES = frozenset({"url", "file"})
@@ -378,14 +410,10 @@ Return your response as a JSON object with keys: reply, citations, confidence (a
         except EmptyAgentTurnError:
             # start_raw already ended the run, so there is no session to nudge.
             logger.warning("support_draft_empty_first_turn", team_id=input.team_id)
-            result = _blocked_draft("The draft agent ended the turn with no reply.")
+            result = _give_up("The draft agent ended the turn with no reply.")
         except Exception:
-            # A crashed or timed-out agent run gets its retry. On the last attempt a raise would
-            # fail the workflow before it records a result, which leaves the ticket in_progress.
-            if llm_attempts() < DRAFT_ACTIVITY_MAX_ATTEMPTS:
-                raise
-            logger.exception("support_draft_agent_failed_last_attempt", team_id=input.team_id)
-            result = _blocked_draft("The draft agent failed before it returned a reply.")
+            logger.exception("support_draft_agent_failed", team_id=input.team_id)
+            result = _give_up("The draft agent failed before it returned a reply.")
         else:
             result = await _draft_from_session(session, first_text)
         return DraftOutput(

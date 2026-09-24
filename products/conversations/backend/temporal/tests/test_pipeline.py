@@ -17,7 +17,7 @@ from posthog.models import Organization, Team
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.clarify import _clarify_sync
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
-from products.conversations.backend.temporal.ai_reply.activities.draft import _draft_async
+from products.conversations.backend.temporal.ai_reply.activities.draft import DraftNotProducedError, _draft_async
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
     support_persist_knowledge_gap_activity,
 )
@@ -2123,77 +2123,81 @@ class TestUntrustedTicketGuard:
         assert "If a fact you need can only come from the customer" not in captured["prompt"]
 
 
+_EMPTY_TURN = EmptyAgentTurnError("empty", total_lines=1, printed_lines=0)
+
+
 class TestDraftWithoutJson:
-    @parameterized.expand(
-        [
-            ("nudge_returns_json", "I'll wait for the background search", _OK_DRAFT_JSON, "ok", "answerable"),
-            ("nudge_still_prose", "I'll wait for the background search", "still waiting", "", "blocked_on_knowledge"),
-            (
-                "nudge_empty",
-                "",
-                EmptyAgentTurnError("empty", total_lines=1, printed_lines=0),
-                "",
-                "blocked_on_knowledge",
-            ),
-            ("nudge_crash", "I'll wait", RuntimeError("Agent server crashed"), "", "blocked_on_knowledge"),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_recovers_or_blocks_instead_of_failing(
-        self, _name: str, first_text: str, followup: object, expected_reply: str, expected_verdict: str
-    ) -> None:
+    async def _draft(self, *, attempt: int, start_raw: AsyncMock) -> DraftOutput:
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.llm_attempts", return_value=attempt),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=start_raw),
+        ):
+            return await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+
+    @staticmethod
+    def _session(followup: object) -> MagicMock:
         session = MagicMock()
         session.end = AsyncMock()
         if isinstance(followup, Exception):
             session.send_followup_raw = AsyncMock(side_effect=followup)
         else:
             session.send_followup_raw = AsyncMock(return_value=followup)
+        return session
 
-        with (
-            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
-            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
-            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(return_value=(session, first_text))),
-        ):
-            output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+    @parameterized.expand(
+        [
+            ("first_turn_json", _OK_DRAFT_JSON, None, "ok"),
+            (
+                "example_json_before_answer",
+                '{"reply": "example", "citations": [], "confidence": 0.9} then ' + _OK_DRAFT_JSON,
+                None,
+                "ok",
+            ),
+            ("nudge_returns_json", "I'll wait for the background search", _OK_DRAFT_JSON, "ok"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_uses_the_final_draft_json(
+        self, _name: str, first_text: str, followup: object, expected: str
+    ) -> None:
+        session = self._session(followup)
 
-        assert (output.reply, output.verdict) == (expected_reply, expected_verdict)
-        session.send_followup_raw.assert_awaited_once()
+        output = await self._draft(attempt=1, start_raw=AsyncMock(return_value=(session, first_text)))
+
+        assert (output.reply, output.verdict) == (expected, "answerable")
         session.end.assert_awaited_once()
 
     @parameterized.expand(
         [
-            ("empty_first_turn", EmptyAgentTurnError("empty", total_lines=1, printed_lines=0), 1),
-            ("agent_crash_last_attempt", RuntimeError("Agent server crashed: Internal error"), 2),
+            ("nudge_still_prose", "I'll wait for the background search", "still waiting"),
+            ("nudge_empty", "", _EMPTY_TURN),
+            ("nudge_crash", "I'll wait", RuntimeError("Agent server crashed")),
         ]
     )
     @pytest.mark.asyncio
-    async def test_failed_first_turn_returns_blocked_draft(self, _name: str, error: Exception, attempt: int) -> None:
-        with (
-            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
-            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
-            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.llm_attempts", return_value=attempt),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=error)),
-        ):
-            output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+    async def test_no_draft_retries_then_blocks(self, _name: str, first_text: str, followup: object) -> None:
+        with pytest.raises(DraftNotProducedError):
+            await self._draft(attempt=1, start_raw=AsyncMock(return_value=(self._session(followup), first_text)))
 
-        assert (output.verdict, output.confidence, output.task_run_id) == ("blocked_on_knowledge", 0.0, "")
+        output = await self._draft(attempt=2, start_raw=AsyncMock(return_value=(self._session(followup), first_text)))
+        assert (output.reply, output.verdict, output.confidence) == ("", "blocked_on_knowledge", 0.0)
 
+    @parameterized.expand(
+        [
+            ("empty_first_turn", _EMPTY_TURN),
+            ("agent_crash", RuntimeError("Agent server crashed: Internal error")),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_agent_crash_before_last_attempt_is_retried(self) -> None:
-        with (
-            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
-            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
-            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.llm_attempts", return_value=1),
-            patch(
-                f"{DRAFT_MODULE}.MultiTurnSession.start_raw",
-                new=AsyncMock(side_effect=RuntimeError("Agent server crashed: Internal error")),
-            ),
-        ):
-            with pytest.raises(RuntimeError, match="Agent server crashed"):
-                await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+    async def test_failed_first_turn_retries_then_blocks(self, _name: str, error: Exception) -> None:
+        with pytest.raises(DraftNotProducedError):
+            await self._draft(attempt=1, start_raw=AsyncMock(side_effect=error))
+
+        output = await self._draft(attempt=2, start_raw=AsyncMock(side_effect=error))
+        assert (output.verdict, output.confidence, output.task_run_id) == ("blocked_on_knowledge", 0.0, "")
 
 
 class TestDiagnosticScopes:
