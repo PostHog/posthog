@@ -3074,8 +3074,9 @@ def update_task_run(
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
     has_state_merge = "state" in validated_data and isinstance(validated_data["state"], dict)
     if has_state_merge:
-        state = validated_data["state"]
-        validated_data["state"] = {k: v for k, v in state.items() if k not in _PROTECTED_RUN_STATE_KEYS}
+        validated_data["state"] = {
+            k: v for k, v in validated_data["state"].items() if k not in _PROTECTED_RUN_STATE_KEYS
+        }
     state_remove_keys = [
         k for k in (validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
     ]

@@ -3551,7 +3551,7 @@ export interface TaskRunBootstrapCreateRequestApi {
 }
 
 /**
- * Object of run state values to merge.
+ * State of the run
  */
 export type PatchedTaskRunUpdateApiState = { [key: string]: unknown }
 
@@ -3601,7 +3601,7 @@ export interface PatchedTaskRunUpdateApi {
     stage?: string | null
     /** Output from the run */
     output?: unknown
-    /** Object of run state values to merge. */
+    /** State of the run */
     state?: PatchedTaskRunUpdateApiState
     /** State keys to remove atomically before applying any state updates. */
     state_remove_keys?: string[]

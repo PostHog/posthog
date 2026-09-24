@@ -76652,9 +76652,9 @@ export namespace Schemas {
     }
 
     /**
-     * Object of run state values to merge.
+     * State of the run
      */
-    export type PatchedTaskRunUpdateState = {[key: string]: unknown};
+    export type PatchedTaskRunUpdateState = { [key: string]: unknown };
 
     /**
      * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
@@ -76683,7 +76683,7 @@ export namespace Schemas {
       stage?: string | null;
       /** Output from the run */
       output?: unknown;
-      /** Object of run state values to merge. */
+      /** State of the run */
       state?: PatchedTaskRunUpdateState;
       /** State keys to remove atomically before applying any state updates. */
       state_remove_keys?: string[];

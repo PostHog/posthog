@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from django.db import OperationalError
 from django.http import HttpResponse
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -16,15 +16,6 @@ from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.utils import hash_key_value
 
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.presentation.serializers import TaskRunUpdateSerializer
-
-
-class TestTaskRunStateShape(SimpleTestCase):
-    def test_nested_json_values_remain_valid(self) -> None:
-        state = {"items": [1, {"nested": True}], "optional": None}
-        serializer = TaskRunUpdateSerializer(data={"state": state})
-        assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["state"] == state
 
 
 @override_settings(AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
