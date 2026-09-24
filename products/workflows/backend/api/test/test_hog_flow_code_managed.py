@@ -1,3 +1,4 @@
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -9,6 +10,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.workflows.backend.api.hog_flow import HogFlowViewSet
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
 TRIGGER_ACTION = {
     "id": "trigger_node",
@@ -212,11 +214,14 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json().get("code") != "immutable", response.json()
 
-    def test_a_schedule_write_is_refused_because_the_file_owns_the_trigger(self) -> None:
-        response = self.client.post(self._url("/schedules"), {"rrule": "FREQ=DAILY"})
+    @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
+    def test_the_ui_sets_the_schedule_of_a_code_managed_workflow(self) -> None:
+        response = self.client.post(
+            self._url("/schedules"), {"rrule": "FREQ=DAILY", "starts_at": "2026-01-02T00:00:00+00:00"}
+        )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert response.json()["code"] == "immutable"
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert HogFlowSchedule.objects.filter(hog_flow=self.workflow, rrule="FREQ=DAILY").exists()
 
     @parameterized.expand(
         [
