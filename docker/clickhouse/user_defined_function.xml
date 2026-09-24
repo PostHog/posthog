@@ -660,4 +660,23 @@
         <stderr_reaction>throw</stderr_reaction>
         <deterministic>true</deterministic>
     </function>
+
+    <function>
+        <type>executable_pool</type>
+        <name>JSONDropKeysPool</name>
+        <return_type>String</return_type>
+        <argument>
+            <type>String</type>
+            <name>json</name>
+        </argument>
+        <argument>
+            <type>Array(String)</type>
+            <name>keys</name>
+        </argument>
+        <format>RowBinary</format>
+        <command>json_drop_keys_udf --row-binary</command>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <deterministic>true</deterministic>
+    </function>
 </functions>
