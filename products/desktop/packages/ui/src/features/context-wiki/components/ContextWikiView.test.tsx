@@ -1,13 +1,24 @@
+import { ServiceProvider } from "@posthog/di/react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Container } from "inversify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextWikiView } from "./ContextWikiView";
 
 const hoisted = vi.hoisted(() => ({
+  mapEnabled: false,
   paths: ["AGENTS.md", "channels/growth.md"],
   mutate: vi.fn(),
   reset: vi.fn(),
   refetch: vi.fn(),
+}));
+
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => hoisted.mapEnabled,
+}));
+
+vi.mock("@posthog/ui/features/system-map/SystemMapView", () => ({
+  SystemMapView: () => <div>Repository map</div>,
 }));
 
 vi.mock("../hooks/useContextWiki", () => ({
@@ -76,27 +87,47 @@ describe("ContextWikiView", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps an unsaved draft when another page is opened and this one comes back", async () => {
-    const user = userEvent.setup();
-    render(<ContextWikiView />);
+  it.each([false, true])(
+    "keeps an unsaved draft across page and map navigation (map enabled: %s)",
+    async (mapEnabled) => {
+      hoisted.mapEnabled = mapEnabled;
+      const user = userEvent.setup();
+      render(
+        <ServiceProvider container={new Container()}>
+          <ContextWikiView />
+        </ServiceProvider>,
+      );
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.change(
-      screen.getByPlaceholderText("Write markdown for this page…"),
-      { target: { value: "half-written thought" } },
-    );
+      await user.click(screen.getByRole("button", { name: "Edit" }));
+      fireEvent.change(
+        screen.getByPlaceholderText("Write markdown for this page…"),
+        { target: { value: "half-written thought" } },
+      );
 
-    // The explorer sits beside the editor, so clicking a sibling page mid-edit
-    // is ordinary use — and used to discard the draft with the pane.
-    await user.click(
-      screen.getByRole("button", { name: "select channels/growth.md" }),
-    );
-    expect(screen.queryByDisplayValue("half-written thought")).toBeNull();
+      if (mapEnabled) {
+        await user.click(screen.getByRole("button", { name: "System map" }));
+        await user.click(
+          screen.getByRole("button", { name: "Back to context" }),
+        );
+        expect(
+          screen.getByPlaceholderText("Write markdown for this page…"),
+        ).toHaveValue("half-written thought");
+      }
 
-    await user.click(screen.getByRole("button", { name: "select AGENTS.md" }));
+      // The explorer sits beside the editor, so clicking a sibling page mid-edit
+      // is ordinary use — and used to discard the draft with the pane.
+      await user.click(
+        screen.getByRole("button", { name: "select channels/growth.md" }),
+      );
+      expect(screen.queryByDisplayValue("half-written thought")).toBeNull();
 
-    expect(
-      screen.getByPlaceholderText("Write markdown for this page…"),
-    ).toHaveValue("half-written thought");
-  });
+      await user.click(
+        screen.getByRole("button", { name: "select AGENTS.md" }),
+      );
+
+      expect(
+        screen.getByPlaceholderText("Write markdown for this page…"),
+      ).toHaveValue("half-written thought");
+    },
+  );
 });

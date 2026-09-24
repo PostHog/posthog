@@ -1,5 +1,6 @@
-import { BookOpenTextIcon, LockSimpleIcon } from "@phosphor-icons/react";
+import { BookOpenTextIcon, Graph, LockSimpleIcon } from "@phosphor-icons/react";
 import { ContextWikiUnavailableError } from "@posthog/api-client/posthog-client";
+import { SYSTEM_MAP_FLAG } from "@posthog/core/system-map/schemas";
 import {
   Button,
   Empty,
@@ -13,6 +14,8 @@ import {
   TabsList,
   TabsTrigger,
 } from "@posthog/quill";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { SystemMapView } from "@posthog/ui/features/system-map/SystemMapView";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { FileExplorer } from "@posthog/ui/primitives/FileExplorer";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
@@ -24,6 +27,7 @@ import {
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useContextWikiTree,
@@ -44,22 +48,42 @@ export function ContextWikiView({ initialPath }: { initialPath?: string }) {
   // Root-level page: its own header names the view, so the breadcrumb row
   // collapses (same treatment as Command Center).
   useSetHeaderContent(null);
+  const mapEnabled = useFeatureFlag(SYSTEM_MAP_FLAG, import.meta.env.DEV);
+  const { localWorkspaces } = useHostCapabilities();
+  const [showMap, setShowMap] = useState(false);
+  const mapVisible = mapEnabled && localWorkspaces && showMap;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader>
         <PageHeaderHeading>
           <PageHeaderTitleRow>
-            <PageHeaderTitle>Context</PageHeaderTitle>
+            <PageHeaderTitle>
+              {mapVisible ? "System map" : "Context"}
+            </PageHeaderTitle>
+            {mapEnabled && localWorkspaces && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowMap(!showMap)}
+              >
+                <Graph />
+                {mapVisible ? "Back to context" : "System map"}
+              </Button>
+            )}
           </PageHeaderTitleRow>
           <PageHeaderDescription>
-            The shared wiki agents read before they work and update as they
-            learn. Pages are markdown files in one organization-wide repo.
+            {mapVisible
+              ? "Explore the areas in your repository and how they connect."
+              : "The shared wiki agents read before they work and update as they learn. Pages are markdown files in one organization-wide repo."}
           </PageHeaderDescription>
         </PageHeaderHeading>
       </PageHeader>
       <div className="min-h-0 flex-1">
-        <ContextWikiBody initialPath={initialPath} />
+        <div hidden={mapVisible} className="h-full">
+          <ContextWikiBody initialPath={initialPath} />
+        </div>
+        {mapVisible && <SystemMapView />}
       </div>
     </div>
   );

@@ -1753,6 +1753,10 @@ export const ANALYTICS_EVENTS = {
   DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
 
   // Setup / onboarding events
+  SYSTEM_MAP_ANALYSIS_STARTED: "System map analysis started",
+  SYSTEM_MAP_ANALYSIS_COMPLETED: "System map analysis completed",
+  SYSTEM_MAP_ANALYSIS_FAILED: "System map analysis failed",
+  SYSTEM_MAP_INSPECTED: "System map inspected",
   SETUP_DISCOVERY_STARTED: "Setup discovery started",
   SETUP_DISCOVERY_COMPLETED: "Setup discovery completed",
   SETUP_DISCOVERY_FAILED: "Setup discovery failed",
@@ -1973,6 +1977,16 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
 
   // Setup / onboarding events
+  [ANALYTICS_EVENTS.SYSTEM_MAP_ANALYSIS_STARTED]: never;
+  [ANALYTICS_EVENTS.SYSTEM_MAP_ANALYSIS_COMPLETED]: {
+    area_count: number;
+    component_count: number;
+    relationship_count: number;
+  };
+  [ANALYTICS_EVENTS.SYSTEM_MAP_ANALYSIS_FAILED]: {
+    reason: "cancelled" | "failed";
+  };
+  [ANALYTICS_EVENTS.SYSTEM_MAP_INSPECTED]: { kind: "area" | "component" };
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_STARTED]: SetupDiscoveryStartedProperties;
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_COMPLETED]: SetupDiscoveryCompletedProperties;
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_FAILED]: SetupDiscoveryFailedProperties;

@@ -297,6 +297,43 @@ MCP Apps render tool-provided HTML UIs inside sandboxed iframes.
 
 The core service manages MCP server connections, caches resources, and proxies UI calls. `useAppBridge` handles `@modelcontextprotocol/ext-apps` host communication, tRPC routing, theme, display mode, and dimensions.
 
+## System map
+
+In Desktop, open **Context > System map**, select a local repository, and select **Analyze repository**.
+The `posthog-desktop-system-map` feature flag controls access and defaults off in production.
+Development builds enable the view by default.
+
+The core service at `packages/core/src/system-map/` uses the existing Claude task runner with structured output.
+It creates a local run record through the Tasks API, then sets the adapter and plan mode directly on the local agent.
+It inventories source packages and nested modules before it groups them into areas and components.
+The output includes scan coverage, public operations, connections, unchecked assumptions, and source citations.
+Coverage links source scopes to component IDs and distinguishes reviewed, partly reviewed, and unreviewed source.
+This is an agent report of its reading, not a measured completeness score.
+Shell, file-write, delegation, and MCP tools are disabled for the analysis.
+The result is an agent interpretation of inspected source, not a verified model of runtime behavior.
+The schema rejects duplicate IDs, invalid connections, and absolute or parent-relative source paths.
+
+The map shows areas at low zoom, components at medium zoom, and source paths at high zoom.
+Compact cards show summaries and connection counts. Connected areas are placed near each other.
+Hover or focus a card to highlight its direct connections and connected components. Other cards fade while the card is active.
+Select **Fit map** to return to the area overview.
+Select a node or use the details list to inspect its source citations and connections.
+Expand **Scan coverage** in the overview to see the source scopes and any gaps.
+Select a component to see its public operations and whether each operation reads state, changes state, or has an unknown effect.
+Connection assumptions have source evidence but remain unchecked. The map does not prove that these conditions hold.
+Analysis uses AI credits, stops after ten minutes, and can be canceled.
+Changing the repository, leaving the view, or switching the authenticated project cancels an active analysis.
+Desktop saves the last successful scan's task ID, run ID, and timestamp in its local encrypted store, scoped to the cloud host, user, project, and repository path.
+Reopening the same repository loads and validates the saved run's output through the existing Tasks API. This requires sign-in and an internet connection.
+Failed or canceled scans keep the last successful map. A failed load offers a retry without starting another analysis.
+The local store contains the scan reference, not the map content. Other computers do not share these references, and unfinished scans do not resume after a restart.
+The map remains a snapshot. Analyze again after code changes.
+Web and mobile hosts do not start local analysis.
+
+The initial version does not infer properties or generate tests or formal specifications.
+Existing Desktop analytics record analysis starts, completions, failures, and area or component selections.
+Events contain counts and outcome labels, without repository paths, source text, or map content.
+
 ## References
 
 - [AGENTS.md](../AGENTS.md)
