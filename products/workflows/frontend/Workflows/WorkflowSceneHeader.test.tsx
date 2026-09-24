@@ -98,4 +98,37 @@ describe('WorkflowSceneHeader', () => {
         // The pointer has not moved, so neither has the button under it.
         expect(toolbar()).toEqual(clean)
     })
+
+    it('renders neither save nor publish for a code-managed workflow, even with edits in the form', async () => {
+        logic.unmount()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    ...ACTIVE_WITH_DRAFT,
+                    managed_by: 'code',
+                    source_repository: 'github.com/example/flows',
+                    source_path: 'workflows/welcome.ts',
+                },
+            },
+        })
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await act(async () => {
+            await logic.asyncActions.loadWorkflow()
+        })
+        render(
+            <Provider>
+                <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
+                    <WorkflowSceneHeader id={WORKFLOW_ID} />
+                </BindLogic>
+            </Provider>
+        )
+
+        act(() => {
+            logic.actions.setWorkflowValue('name', 'Edited in the UI')
+        })
+
+        expect(toolbar()).toEqual([])
+        expect(document.querySelector('[data-attr="workflow-managed-by-code"]')).not.toBeNull()
+    })
 })

@@ -167,6 +167,13 @@ tools:
             workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
+        exclude_params:
+            # Only a push may claim a workflow for code or say where its file lives; the API refuses
+            # either from an agent, so offering the fields only invites a failed call.
+            - managed_by
+            - source_repository
+            - source_path
+            - source_ref
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
@@ -482,6 +489,12 @@ tools:
             - status
             - actions
             - edges
+            # An agent must not be able to release a workflow a repository owns and then edit it, and
+            # it cannot know where the file lives either. The API refuses both anyway.
+            - managed_by
+            - source_repository
+            - source_path
+            - source_ref
         ui_app: workflow
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,6 +10,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { UserBasicType } from '~/types'
 
 import type { HogFlowRevisionBasicApi } from '../generated/api.schemas'
+import { workflowSource } from './codeManagedWorkflow'
 import { workflowLogic } from './workflowLogic'
 import { workflowRevisionsLogic } from './workflowRevisionsLogic'
 
@@ -17,9 +18,14 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
     const logic = workflowRevisionsLogic({ id })
     const { revisions, revisionsCount, revisionsResponseLoading, restoringVersion } = useValues(logic)
     const { restoreRevision } = useActions(logic)
-    const { originalWorkflow, workflowUserAccessLevel } = useValues(workflowLogic({ id }))
+    const { originalWorkflow, workflowUserAccessLevel, workflowSaveDisabledReason, isCodeManaged } = useValues(
+        workflowLogic({ id })
+    )
 
     const liveVersion = originalWorkflow?.version
+    // The revision list does not return the source each revision records, so only the live version
+    // can show the ref of the push that produced it.
+    const liveSource = isCodeManaged ? workflowSource(originalWorkflow) : null
 
     return (
         <div className="flex flex-col gap-2">
@@ -72,6 +78,29 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                         key: 'created_at',
                         render: (_, revision) => <TZLabel time={revision.created_at} />,
                     },
+                    ...(liveSource
+                        ? [
+                              {
+                                  title: 'Source',
+                                  key: 'source',
+                                  render: (_: unknown, revision: HogFlowRevisionBasicApi) =>
+                                      revision.version === liveVersion && liveSource.ref ? (
+                                          liveSource.refUrl ? (
+                                              <Link
+                                                  to={liveSource.refUrl}
+                                                  target="_blank"
+                                                  className="font-mono"
+                                                  data-attr="workflow-revision-source-ref"
+                                              >
+                                                  {liveSource.ref}
+                                              </Link>
+                                          ) : (
+                                              <span className="font-mono">{liveSource.ref}</span>
+                                          )
+                                      ) : null,
+                              },
+                          ]
+                        : []),
                     {
                         key: 'actions',
                         width: 0,
@@ -91,11 +120,14 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                                         onClick={() => restoreRevision(revision.version)}
                                         loading={restoringVersion === revision.version}
                                         disabledReason={
-                                            revision.version === liveVersion
+                                            // A restore stages a draft, which the API refuses on a
+                                            // workflow a repository owns.
+                                            workflowSaveDisabledReason ??
+                                            (revision.version === liveVersion
                                                 ? 'This is the live version'
                                                 : restoringVersion !== null && restoringVersion !== revision.version
                                                   ? 'Another restore is in progress'
-                                                  : undefined
+                                                  : undefined)
                                         }
                                     >
                                         Restore as draft

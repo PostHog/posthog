@@ -48423,6 +48423,36 @@ export namespace Schemas {
       Broadcasts: 'broadcasts',
     } as const;
 
+    /**
+     * * `gui` - GUI
+     * * `code` - Code
+     */
+    export type HogFlowManagedByEnum = typeof HogFlowManagedByEnum[keyof typeof HogFlowManagedByEnum];
+
+
+    export const HogFlowManagedByEnum = {
+      Gui: 'gui',
+      Code: 'code',
+    } as const;
+
+    /**
+     * * `web` - Web
+     * * `api` - API
+     * * `mcp` - MCP
+     * * `wizard` - Wizard
+     * * `self_driving` - Self-driving
+     */
+    export type HogFlowCreatedViaEnum = typeof HogFlowCreatedViaEnum[keyof typeof HogFlowCreatedViaEnum];
+
+
+    export const HogFlowCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+      SelfDriving: 'self_driving',
+    } as const;
+
     export interface HogFlowMasking {
       /**
          * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
@@ -48716,6 +48746,12 @@ export namespace Schemas {
     export interface HogFlow {
       readonly id: string;
       /**
+         * Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.
+         * @maxLength 400
+         * @nullable
+         */
+      key?: string | null;
+      /**
          * Workflow name.
          * @maxLength 400
          * @nullable
@@ -48735,6 +48771,37 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts */
       origin_product?: HogFlowOriginProductEnum | null;
+      /** What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      managed_by?: HogFlowManagedByEnum | null;
+      /** How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+       *
+       * * `web` - Web
+       * * `api` - API
+       * * `mcp` - MCP
+       * * `wizard` - Wizard
+       * * `self_driving` - Self-driving */
+      readonly created_via: HogFlowCreatedViaEnum | null;
+      /**
+         * Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com/acme/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_repository?: string | null;
+      /**
+         * Repository-relative path of the pushed file (e.g. `workflows/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_path?: string | null;
+      /**
+         * Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_ref?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -48928,12 +48995,25 @@ export namespace Schemas {
      */
     export interface HogFlowMinimal {
       readonly id: string;
+      /**
+         * Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.
+         * @nullable
+         */
+      readonly key: string | null;
       /** @nullable */
       readonly name: string | null;
       readonly description: string;
       readonly version: number;
       readonly status: HogFlowStateEnum;
       readonly origin_product: HogFlowOriginProductEnum | null;
+      readonly managed_by: HogFlowManagedByEnum | null;
+      readonly created_via: HogFlowCreatedViaEnum | null;
+      /** @nullable */
+      readonly source_repository: string | null;
+      /** @nullable */
+      readonly source_path: string | null;
+      /** @nullable */
+      readonly source_ref: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -49049,7 +49129,7 @@ export namespace Schemas {
       readonly version: number;
       readonly created_at: string;
       readonly created_by: UserBasic | null;
-      /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+      /** Snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. A version that a push produced also records `source_repository`, `source_path` and `source_ref`, the file and commit it came from. Restoring a version copies only the content fields. */
       readonly content: unknown;
     }
 
@@ -49185,6 +49265,11 @@ export namespace Schemas {
     export interface HogFlowUpdate {
       readonly id: string;
       /**
+         * Client-chosen identifier, unique within this environment. This value cannot change after creation.
+         * @nullable
+         */
+      readonly key: string | null;
+      /**
          * Workflow name.
          * @maxLength 400
          * @nullable
@@ -49204,6 +49289,37 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts */
       readonly origin_product: HogFlowOriginProductEnum | null;
+      /** What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      managed_by?: HogFlowManagedByEnum | null;
+      /** How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+       *
+       * * `web` - Web
+       * * `api` - API
+       * * `mcp` - MCP
+       * * `wizard` - Wizard
+       * * `self_driving` - Self-driving */
+      readonly created_via: HogFlowCreatedViaEnum | null;
+      /**
+         * Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com/acme/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_repository?: string | null;
+      /**
+         * Repository-relative path of the pushed file (e.g. `workflows/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_path?: string | null;
+      /**
+         * Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_ref?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -72318,6 +72434,11 @@ export namespace Schemas {
     export interface PatchedHogFlowUpdate {
       readonly id?: string;
       /**
+         * Client-chosen identifier, unique within this environment. This value cannot change after creation.
+         * @nullable
+         */
+      readonly key?: string | null;
+      /**
          * Workflow name.
          * @maxLength 400
          * @nullable
@@ -72337,6 +72458,37 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
+      /** What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      managed_by?: HogFlowManagedByEnum | null;
+      /** How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+       *
+       * * `web` - Web
+       * * `api` - API
+       * * `mcp` - MCP
+       * * `wizard` - Wizard
+       * * `self_driving` - Self-driving */
+      readonly created_via?: HogFlowCreatedViaEnum | null;
+      /**
+         * Repository that holds this workflow's file, as the pushing client resolved it from the git remote (e.g. `github.com/acme/flows`). Stored as given: the host may be GitHub, GitLab or self-hosted. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_repository?: string | null;
+      /**
+         * Repository-relative path of the pushed file (e.g. `workflows/welcome.ts`). A push compares the path it was given against this one, so a copied file cannot overwrite the wrong workflow. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_path?: string | null;
+      /**
+         * Commit sha or branch of the last push, so a link can point at the revision that produced what you see. Overwritten by every push. Null unless a push wrote it.
+         * @maxLength 400
+         * @nullable
+         */
+      source_ref?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
@@ -109282,6 +109434,7 @@ export namespace Schemas {
      */
     created_by?: string;
     id?: string;
+    key?: string;
     /**
      * Number of results to return per page.
      */

@@ -20,6 +20,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
+    key: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     origin_product: zod
@@ -59,6 +60,8 @@ export const HogFlowsCreateParams = () => zod.object({
         ),
 })
 
+export const hogFlowsCreateBodyKeyMax = 400
+
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
@@ -82,6 +85,13 @@ export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDef
 
 export const HogFlowsCreateBody = () => zod
     .object({
+        key: zod
+            .string()
+            .max(hogFlowsCreateBodyKeyMax)
+            .nullish()
+            .describe(
+                'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+            ),
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
         status: zod

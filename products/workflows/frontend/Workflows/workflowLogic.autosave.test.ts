@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -68,6 +69,180 @@ describe('workflowLogic auto-save', () => {
 
     afterEach(() => {
         jest.useRealTimers()
+    })
+
+    describe('a workflow the editor may not save', () => {
+        const codeManagedFields: Partial<HogFlow> = {
+            managed_by: 'code',
+            source_repository: 'github.com/example/flows',
+            source_path: 'workflows/welcome.ts',
+        }
+        let patchBodies: Record<string, unknown>[]
+        let scheduleWrites: number
+
+        beforeEach(() => {
+            patchBodies = []
+            scheduleWrites = 0
+        })
+
+        const mocksFor = (loaded: HogFlow): Parameters<typeof useMocks>[0] => ({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': loaded,
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                '/api/environments/:team_id/hog_flows/:id/schedules': [],
+            },
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/schedules': () => {
+                    scheduleWrites += 1
+                    return [200, { id: 'sched-1', rrule: 'FREQ=DAILY', starts_at: '2026-07-01T00:00:00.000Z' }]
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                    updateCalls += 1
+                    const body = (await request.json()) as Record<string, unknown>
+                    patchBodies.push(body)
+                    return [200, { ...loaded, ...body }]
+                },
+            },
+        })
+
+        const mountLogic = async (): Promise<void> => {
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        }
+
+        it('keeps an edit to a code-managed workflow in the form and never saves it', async () => {
+            useMocks(mocksFor(makeWorkflow(codeManagedFields)))
+            await mountLogic()
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowInfo({ name: 'Edited in the UI' })
+            await jest.advanceTimersByTimeAsync(5000)
+
+            expect(logic.values.workflow.name).toBe('Edited in the UI')
+            expect(updateCalls).toBe(0)
+            // The badge tooltip shows this, and it has to name the file
+            expect(logic.values.workflowSaveDisabledReason).toContain('workflows/welcome.ts')
+        })
+
+        it('leaves a viewer edit to an ordinary workflow for the API to refuse', async () => {
+            useMocks(mocksFor(makeWorkflow({ user_access_level: AccessControlLevel.Viewer })))
+            await mountLogic()
+            jest.useFakeTimers()
+
+            logic.actions.partialSetWorkflowActionConfig('exit_node', { reason: 'Edited in the UI' })
+            await jest.advanceTimersByTimeAsync(5000)
+
+            expect(logic.values.workflow.actions.find((action) => action.id === 'exit_node')?.config).toEqual({
+                reason: 'Edited in the UI',
+            })
+            expect(patchBodies).toHaveLength(1)
+            expect(logic.values.workflowSaveDisabledReason).toBeNull()
+        })
+
+        it('sends only the status of a code-managed workflow and keeps the edits in the form', async () => {
+            useMocks(mocksFor(makeWorkflow({ ...codeManagedFields, status: 'active' })))
+            await mountLogic()
+
+            logic.actions.setWorkflowInfo({ name: 'Edited in the UI' })
+            logic.actions.saveWorkflowPartial({ status: 'draft' })
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+            expect(patchBodies.map((body) => Object.keys(body).sort())).toEqual([['base_updated_at', 'status']])
+            expect(logic.values.originalWorkflow?.status).toBe('draft')
+            expect(logic.values.workflow.name).toBe('Edited in the UI')
+            expect(logic.values.workflowChanged).toBe(true)
+        })
+
+        it('saves the schedule of a code-managed workflow on its own and keeps the graph edits', async () => {
+            useMocks(mocksFor(makeWorkflow(codeManagedFields)))
+            await mountLogic()
+
+            logic.actions.setWorkflowInfo({ name: 'Edited in the UI' })
+            logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+            logic.actions.saveSchedule()
+            await expectLogic(logic).toDispatchActions(['saveScheduleFinished']).toFinishAllListeners()
+
+            expect(scheduleWrites).toBe(1)
+            expect(patchBodies).toEqual([])
+            expect(logic.values.isSavingSchedule).toBe(false)
+            expect(logic.values.workflow.name).toBe('Edited in the UI')
+        })
+
+        it.each([
+            { description: 'writes it for a workflow the app owns', overrides: {}, expectedWrites: 1 },
+            {
+                description: 'leaves it staged for a code-managed workflow',
+                overrides: codeManagedFields,
+                expectedWrites: 0,
+            },
+        ])('a status save with a staged schedule $description', async ({ overrides, expectedWrites }) => {
+            useMocks(mocksFor(makeWorkflow({ ...overrides, status: 'active' })))
+            await mountLogic()
+
+            logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+            logic.actions.saveWorkflowPartial({ status: 'draft' })
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+            expect(scheduleWrites).toBe(expectedWrites)
+        })
+
+        it('refuses publish and discard on a code-managed workflow with a staged draft', async () => {
+            useMocks(
+                mocksFor(
+                    makeWorkflow({
+                        ...codeManagedFields,
+                        status: 'active',
+                        draft: { name: 'Autosave test', actions: [], edges: [] },
+                        draft_updated_at: '2026-05-01T00:01:00.000Z',
+                    })
+                )
+            )
+            await mountLogic()
+
+            // The header drops both buttons, but the menu bar still lists them while a draft is
+            // staged. Reading only the draft state would leave them live and send a request the API
+            // answers with a 403.
+            expect(logic.values.showDraftActions).toBe(false)
+            expect(logic.values.publishDisabledReason).toContain('workflows/welcome.ts')
+            expect(logic.values.discardDisabledReason).toContain('workflows/welcome.ts')
+        })
+    })
+
+    describe('disabling a workflow', () => {
+        const active = makeWorkflow({ status: 'active' })
+        let patchBody: Record<string, unknown> | null
+
+        beforeEach(async () => {
+            patchBody = null
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': active,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        patchBody = (await request.json()) as Record<string, unknown>
+                        return [200, { ...active, status: 'draft' }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('sends the status alone, so the graph cannot ride along', async () => {
+            logic.actions.saveWorkflowPartial({ status: 'draft' })
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(Object.keys(patchBody ?? {}).sort()).toEqual(['base_updated_at', 'status'])
+            expect(patchBody?.status).toBe('draft')
+        })
     })
 
     describe('debouncing existing workflow', () => {

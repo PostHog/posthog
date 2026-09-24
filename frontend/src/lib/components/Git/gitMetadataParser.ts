@@ -8,6 +8,11 @@ export type ParsedRemoteUrl = {
     providerUrl: string | undefined
 }
 
+// Keeps the slashes of a path or of a branch like `feature/x`, and escapes the other characters a URL reserves.
+function encodePathSegments(value: string): string {
+    return value.split('/').map(encodeURIComponent).join('/')
+}
+
 export class GitMetadataParser {
     static getCommitLink(remote_url?: string, commit_id?: string): string | undefined {
         if (!commit_id || !remote_url) {
@@ -31,6 +36,31 @@ export class GitMetadataParser {
         return this.buildBranchLink(parsedRemoteUrl, branch)
     }
 
+    /** Links a sha to its commit and anything else, such as a branch or a tag, to its tree. */
+    static getRefLink(remote_url?: string, ref?: string): string | undefined {
+        if (!ref) {
+            return undefined
+        }
+        return this.isCommitSha(ref) ? this.getCommitLink(remote_url, ref) : this.getBranchLink(remote_url, ref)
+    }
+
+    /** Links a repository-relative file path as it was at a commit, branch or tag. */
+    static getFileLink(remote_url?: string, ref?: string, path?: string): string | undefined {
+        if (!remote_url || !ref || !path) {
+            return undefined
+        }
+        const parsedRemoteUrl = this.parseRemoteUrl(remote_url)
+        if (!parsedRemoteUrl) {
+            return undefined
+        }
+        return this.buildFileLink(parsedRemoteUrl, ref, path)
+    }
+
+    /** A full or abbreviated commit sha. A branch named like one reads as a sha too. */
+    static isCommitSha(ref: string): boolean {
+        return /^[0-9a-f]{7,40}$/i.test(ref)
+    }
+
     static getRepoLink(remote_url?: string): string | undefined {
         if (!remote_url) {
             return undefined
@@ -43,7 +73,11 @@ export class GitMetadataParser {
     }
 
     static parseRemoteUrl(remoteUrl: string): ParsedRemoteUrl | undefined {
-        return this.parseSshRemoteUrl(remoteUrl) || this.parseHttpsRemoteUrl(remoteUrl)
+        return (
+            this.parseSshRemoteUrl(remoteUrl) ||
+            this.parseHttpsRemoteUrl(remoteUrl) ||
+            this.parseSchemelessRemoteUrl(remoteUrl)
+        )
     }
 
     private static buildRemoteLink(parsedUrl: ParsedRemoteUrl): string | undefined {
@@ -76,6 +110,22 @@ export class GitMetadataParser {
                 return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/commit/${commitSha}`
             case 'gitlab':
                 return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/-/commit/${commitSha}`
+            default:
+                return undefined
+        }
+    }
+
+    private static buildFileLink(parsedUrl: ParsedRemoteUrl, ref: string, path: string): string | undefined {
+        const encodedRef = encodePathSegments(ref)
+        const encodedPath = encodePathSegments(path.replace(/^\.?\//, ''))
+        const base = `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}`
+        switch (parsedUrl.provider) {
+            case 'github':
+                return `${base}/blob/${encodedRef}/${encodedPath}`
+            case 'gitlab':
+                return `${base}/-/blob/${encodedRef}/${encodedPath}`
+            case 'bitbucket':
+                return `${base}/src/${encodedRef}/${encodedPath}`
             default:
                 return undefined
         }
@@ -128,15 +178,30 @@ export class GitMetadataParser {
             return undefined
         }
 
+        const [provider, providerUrl] = this.parseDomain(domain)
         const owner = pathParts[0]
-        let repository = pathParts[1]
+        let repository = provider === 'gitlab' ? this.gitlabProjectPath(pathParts.slice(1)) : pathParts[1]
         if (repository.endsWith('.git')) {
             repository = repository.slice(0, -4)
         }
 
-        const [provider, providerUrl] = this.parseDomain(domain)
-
         return { provider, owner, repository, providerUrl }
+    }
+
+    // A GitLab project can sit in nested subgroups, so every part up to the `-` that starts a page
+    // within the project belongs to its path. Keeping only the first part would link a parent group.
+    private static gitlabProjectPath(partsAfterOwner: string[]): string {
+        const pageStart = partsAfterOwner.indexOf('-')
+        const projectParts = pageStart === -1 ? partsAfterOwner : partsAfterOwner.slice(0, pageStart)
+        return projectParts.filter(Boolean).join('/')
+    }
+
+    private static parseSchemelessRemoteUrl(remoteUrl: string): ParsedRemoteUrl | undefined {
+        // github.com/user/repo, which is how the workflows CLI records a repository
+        if (remoteUrl.includes('://') || remoteUrl.includes('@')) {
+            return undefined
+        }
+        return this.parseHttpsRemoteUrl(`https://${remoteUrl}`)
     }
 
     private static parseDomain(domain: string): [GitProvider, string | undefined] {
