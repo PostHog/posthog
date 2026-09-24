@@ -26,8 +26,7 @@ class TestFeatureFlagConfigVersionValidation(SimpleTestCase):
                 ("empty", {"filters": {}}),
                 ("supplied", {"filters": {"groups": "invalid"}}),
             ]
-            # A filters-less update of a stored version 2 row takes the v2 path, which needs the
-            # database (test_feature_flag_config_v2_updates covers it).
+            # A filters-less update of a stored v2 row takes the v2 path, which needs the database.
             if not (version == 2 and shape == "omitted")
         ]
     )

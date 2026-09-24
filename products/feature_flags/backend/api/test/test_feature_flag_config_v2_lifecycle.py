@@ -315,7 +315,6 @@ class TestM1PilotScenario(AdmittedV2TestCase):
             {"active", "version"},
             {"deleted", "version"},
         ]
-        # A generic reconstruction is acceptable for the pilot; a v2 row must only not break the endpoint.
         history = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/versions/1/")
         assert history.status_code == status.HTTP_200_OK, history.json()
         assert (history.json()["filters"]["rules"], history.json()["active"]) == (stored["rules"], False)

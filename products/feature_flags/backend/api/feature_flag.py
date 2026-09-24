@@ -1751,8 +1751,7 @@ class FeatureFlagSerializer(
 
     @functools.cached_property
     def _write_team(self) -> Team:
-        # Derived the way the approval gate derives it, instance fallback included: a caller with
-        # no get_team context (internal service paths, organization copy) must not skip the policy check.
+        # Derived like the approval gate, instance fallback included, so a caller with no get_team context cannot skip the policy check.
         get_team = self.context.get("get_team")
         team = get_team() if get_team else None
         if team is not None:
@@ -1812,9 +1811,8 @@ class FeatureFlagSerializer(
         """
         admitted = self._v2_limits is not None
         assert isinstance(self.instance, FeatureFlag)
-        # A submitted value equal to the stored one is an echo, not an operation: neither judged nor
-        # written. A PUT must repeat `key`, and a bulk delete does not bump `version`, so an echoed
-        # `deleted: false` written under the lock would otherwise restore a row deleted in between.
+        # An echo (a value equal to the stored one) is neither judged nor written: PUT must repeat `key`,
+        # and a bulk delete does not bump `version`, so a written `deleted: false` could undo one.
         echoed = {
             field for field in attrs if field != "get_filters" and attrs[field] == getattr(self.instance, field, attrs)
         }
