@@ -4,10 +4,11 @@ when configured, else the Python LLM gateway."""
 from typing import Any, Literal
 
 import structlog
-from openai import APIError, Omit, OpenAI, omit
+from openai import APIConnectionError, APIError, Omit, OpenAI, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, team_distinct_id
 from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 
@@ -21,6 +22,21 @@ logger = structlog.get_logger(__name__)
 
 def _is_gpt5_model(model: OpenAIModel) -> bool:
     return str(model).startswith("gpt-5")
+
+
+def _provider_status(error: Exception) -> int | None:
+    status_code = getattr(error, "status_code", None)
+    return status_code if isinstance(status_code, int) else None
+
+
+def _failure_reason(error: Exception) -> str | None:
+    """A short reason a user can read and quote to support. None when we have nothing to add."""
+    status_code = _provider_status(error)
+    if status_code is not None:
+        return f"the model provider returned {status_code}"
+    if isinstance(error, APIConnectionError):
+        return "we could not reach the model provider"
+    return None
 
 
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
@@ -120,5 +136,31 @@ def summarize_with_openai(
     except exceptions.ValidationError:
         raise
     except Exception as e:
-        logger.exception("OpenAI API call failed", error=str(e), team_id=team_id, model=model)
-        raise exceptions.APIException("Failed to generate summary")
+        status_code = _provider_status(e)
+        reason = _failure_reason(e)
+        logger.exception(
+            "OpenAI API call failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            provider_status=status_code,
+            team_id=team_id,
+            model=model,
+            flex=flex,
+        )
+        # The raised exception is a DRF APIException, which the exceptions-hog handler never
+        # reports, so capture it here. The fingerprint splits the causes that used to share one
+        # issue: a capacity refusal, a malformed request and a provider outage each get their own.
+        capture_exception(
+            e,
+            additional_properties={
+                "$exception_fingerprint": f"aio_summarization.{type(e).__name__}"
+                + (f".{status_code}" if status_code is not None else ""),
+                "team_id": team_id,
+                "model": str(model),
+                "provider_status": status_code,
+                "flex": flex,
+            },
+        )
+        raise exceptions.APIException(
+            f"Failed to generate summary ({reason})" if reason else "Failed to generate summary"
+        )
