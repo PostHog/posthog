@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.uuidt import UUIDT
+
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
@@ -32,8 +34,15 @@ class TestHogFlowCancelInvocations(APIBaseTest):
             format="json",
         )
 
-    def test_cancel_by_ids_proxies_with_team_and_flow_pinned(self):
-        invocation_id = str(uuid.uuid4())
+    @parameterized.expand(
+        [
+            # The invocation store issues UUIDTs, which carry no RFC version. Cancel must forward
+            # such an id untouched, so a version-aware check here would reject every real run.
+            ("issued_invocation_id", str(UUIDT())),
+            ("rfc_uuid", str(uuid.uuid4())),
+        ]
+    )
+    def test_cancel_by_ids_proxies_with_team_and_flow_pinned(self, _name, invocation_id):
         with patch(CANCEL_PROXY, return_value=_cdp_response()) as mock_cancel:
             response = self._cancel({"invocation_ids": [invocation_id]})
 
