@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { colors as brand } from '@posthog/brand/colors'
+
 import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
@@ -65,6 +67,25 @@ const FALLBACK_DATA_COLOR_THEME_COLORS = [
     '#a56eff',
     '#30d5c8',
 ] as const
+
+// Order keeps neighbors distinct. Low-contrast hues use "darker" so lines stay visible on white.
+export const BRAND_DATA_COLORS: readonly string[] = [
+    brand.cobalt.core,
+    brand.tangerine.core,
+    brand.green.darker,
+    brand.purple.core,
+    brand.yellow.darker,
+    brand['corn-blue'].darker,
+    brand.coral.core,
+    brand.teal.darker,
+    brand.lime.darker,
+    brand.blue.core,
+    brand.violet.core,
+    brand.lemon.darker,
+    brand.coral.darker,
+    brand.violet.darker,
+    brand.blue.darker,
+]
 
 export const FALLBACK_DATA_COLOR_THEME: DataColorTheme = FALLBACK_DATA_COLOR_THEME_COLORS.reduce(
     (theme, color, index) => {

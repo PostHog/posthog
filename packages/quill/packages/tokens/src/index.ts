@@ -10,7 +10,7 @@ export {
 export type { SemanticColorKey, ColorTuple, StylesConfig, ThemeConfig } from './colors'
 
 // Data-visualization tokens (categorical palette + graph chrome)
-export { brandDataColorPalette, dataColors, dataColorPalette, dataColorVarName, generateDataVizVars } from './data-viz'
+export { dataColors, dataColorPalette, dataColorVarName, generateDataVizVars } from './data-viz'
 export type { DataColorTuple } from './data-viz'
 
 // Spacing

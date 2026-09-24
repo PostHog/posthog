@@ -2,9 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { brandDataColorPalette } from '@posthog/quill-tokens'
-
-import { dataColorVars } from 'lib/colors'
+import { BRAND_DATA_COLORS, dataColorVars } from 'lib/colors'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -36,7 +34,7 @@ export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dar
     useEffect(() => {
         dataColorVars.forEach((name, index) =>
             brandDataColors
-                ? document.body.style.setProperty(`--${name}`, brandDataColorPalette[index])
+                ? document.body.style.setProperty(`--${name}`, BRAND_DATA_COLORS[index])
                 : document.body.style.removeProperty(`--${name}`)
         )
     }, [brandDataColors])

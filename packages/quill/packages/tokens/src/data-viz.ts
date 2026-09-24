@@ -46,25 +46,6 @@ export const dataColors: readonly DataColorTuple[] = [
  *  fallback when the CSS vars aren't loaded (see quill-charts `DEFAULT_CHART_COLORS`). */
 export const dataColorPalette: readonly string[] = dataColors.map(([light]) => light)
 
-/** Palette built from brand.posthog.com/colors. Low-contrast hues use their "darker" tone so lines stay visible on white. */
-export const brandDataColorPalette: readonly string[] = [
-    '#0457FF', // cobalt
-    '#FF5C1C', // tangerine
-    '#35B14E', // green darker
-    '#A737D2', // purple
-    '#E58E00', // yellow darker
-    '#1A89AD', // corn blue darker
-    '#FF474D', // coral
-    '#25BC95', // teal darker
-    '#8BAF1D', // lime darker
-    '#1490E8', // blue
-    '#6D4FFF', // violet
-    '#F0BC00', // lemon darker
-    '#F00008', // coral darker
-    '#512EFF', // violet darker
-    '#106FB2', // blue darker
-]
-
 /** CSS custom property name for the categorical color at `index` (0-based). */
 export function dataColorVarName(index: number): string {
     return `--data-color-${index + 1}`
