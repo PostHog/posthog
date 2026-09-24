@@ -73,7 +73,7 @@ from posthog.models.user_integration import (
 )
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
-from posthog.team_notifications.slack import is_shared_channel
+from posthog.slack.channels import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models import BatchExport, BatchExportDestination
@@ -194,7 +194,7 @@ class TestSlackIntegration:
 
         channels = SlackIntegration(self.integration).list_public_channels()
 
-        # team_notifications reads all three flags to keep an internal message out of a channel
+        # posthog.slack.channels reads all three flags to keep an internal message out of a channel
         # shared beyond the workspace. A dropped flag reads as not shared.
         assert is_shared_channel(channels[0])
 

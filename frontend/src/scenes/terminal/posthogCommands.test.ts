@@ -153,6 +153,7 @@ describe('PostHog terminal commands', () => {
                     ref: 'shortnote',
                     type: 'notebook',
                     path: 'Research/Notes',
+                    meta: { content_type: 'text/markdown' },
                     user_access_level: 'editor',
                 } as FileSystemApi,
             ],
