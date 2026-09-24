@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from io import BytesIO
 from urllib.parse import urlparse
 from zipfile import ZipFile
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -31,7 +33,14 @@ from products.streamlit_apps.backend.models import (
 )
 from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.sandbox import SandboxBase, SandboxConfig, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.facade.sandbox import (
+    SandboxBase,
+    SandboxConfig,
+    SandboxExecutionError,
+    SandboxTemplate,
+    SandboxTimeoutError,
+    get_sandbox_class,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -41,10 +50,11 @@ STREAMLIT_APP_PATH = "/app"
 BRIDGE_TOKEN_PATH = "/run/bridge_token"
 MAX_RESTART_COUNT = 3
 STARTING_TIMEOUT_SECONDS = 600
-# Wall-clock budgets for boot health checks; together they bound how long a
-# lifecycle task can occupy a Celery worker on a sandbox that never comes up.
-AUTH_PROXY_HEALTH_DEADLINE_SECONDS = 30
-STREAMLIT_HEALTH_DEADLINE_SECONDS = 60
+# Budget for one health probe. curl gets the shorter one so a socket that
+# accepts before the app answers ends the probe itself, leaving the exec to
+# report a genuinely wedged sandbox instead.
+HEALTH_PROBE_CURL_TIMEOUT_SECONDS = 3
+HEALTH_PROBE_EXEC_TIMEOUT_SECONDS = 10
 # Sandbox must stay RUNNING for this long before restart_count resets; shorter
 # lifecycles are treated as part of the same crash loop that incremented it.
 RESTART_COUNT_STABILITY_SECONDS = 5 * 60
@@ -52,6 +62,24 @@ RESTART_COUNT_STABILITY_SECONDS = 5 * 60
 # 24h TTL). The auto-restart task keys off this exact string to distinguish
 # crashes from user/idle stops.
 TTL_TIMEOUT_LAST_ERROR = "Sandbox terminated (TTL timeout)"
+
+
+def _setup_command_timeout_seconds() -> int:
+    return settings.STREAMLIT_SANDBOX_SETUP_COMMAND_TIMEOUT_SECONDS
+
+
+@contextmanager
+def _boot_step(step: str) -> Iterator[None]:
+    """Name the boot step in the error a failed start reports.
+
+    The sandbox errors say what went wrong ("timed out after 5 seconds") but not
+    which step spent the budget, and that error is the whole of what the app
+    author sees in `last_error`.
+    """
+    try:
+        yield
+    except Exception as error:
+        raise AppRuntimeError(f"{step}: {error}") from error
 
 
 def _get_sandbox_callback_url() -> str:
@@ -63,8 +91,6 @@ def _get_sandbox_callback_url() -> str:
     localhost. Honoring a stale tunnel here would point a local Docker sandbox at a
     dead URL and break token introspection.
     """
-    from django.conf import settings
-
     if getattr(settings, "SANDBOX_PROVIDER", None) == "docker":
         return settings.SITE_URL
 
@@ -179,7 +205,7 @@ def _write_bridge_token(sandbox: SandboxBase, token: str) -> None:
     on boot, so a later write would race the unlink.
     """
     sandbox.write_file(BRIDGE_TOKEN_PATH, token.encode("utf-8"))
-    result = sandbox.execute(f"chmod 600 {BRIDGE_TOKEN_PATH}", timeout_seconds=5)
+    result = sandbox.execute(f"chmod 600 {BRIDGE_TOKEN_PATH}", timeout_seconds=_setup_command_timeout_seconds())
     if result.exit_code != 0:
         raise AppRuntimeError(f"Failed to chmod bridge token file: {result.stderr}")
 
@@ -189,7 +215,7 @@ def _start_auth_proxy(sandbox: SandboxBase) -> None:
     # so the real liveness check is _wait_for_health below.
     result = sandbox.execute(
         "setsid -f sh -c 'python /usr/local/bin/streamlit_auth_proxy.py >/tmp/auth_proxy.log 2>&1'",
-        timeout_seconds=10,
+        timeout_seconds=_setup_command_timeout_seconds(),
     )
     if result.exit_code != 0:
         raise AppRuntimeError(f"Failed to start auth proxy: {result.stderr}")
@@ -203,7 +229,7 @@ def _start_streamlit_process(sandbox: SandboxBase) -> None:
     """
     chown_result = sandbox.execute(
         f"chown -R streamlit:streamlit {STREAMLIT_APP_PATH}",
-        timeout_seconds=5,
+        timeout_seconds=_setup_command_timeout_seconds(),
     )
     if chown_result.exit_code != 0:
         raise AppRuntimeError(f"Failed to chown {STREAMLIT_APP_PATH} to streamlit user: {chown_result.stderr}")
@@ -216,7 +242,7 @@ def _start_streamlit_process(sandbox: SandboxBase) -> None:
         f"--server.port {STREAMLIT_PORT} "
         f"--server.headless true "
         f">/tmp/streamlit.log 2>&1'",
-        timeout_seconds=10,
+        timeout_seconds=_setup_command_timeout_seconds(),
     )
     if result.exit_code != 0:
         raise AppRuntimeError(f"Failed to start Streamlit: {result.stderr}")
@@ -227,19 +253,32 @@ def _wait_for_health(
 ) -> bool:
     """Poll the URL until it returns 200 or the wall-clock deadline passes.
 
-    Deadline-based rather than attempt-based: each attempt can cost up to ~6s
-    (5s curl budget + the sleep), so N attempts could otherwise occupy a
-    Celery worker for ~6N seconds on a sandbox that never becomes ready.
+    Deadline-based rather than attempt-based: each attempt can cost up to the
+    probe budget plus the sleep, so N attempts could otherwise occupy a Celery
+    worker far longer than the deadline on a sandbox that never becomes ready.
+
+    A probe that times out or errors is one unready sample, not a verdict. Only
+    the deadline ends the loop, so a single slow probe during boot cannot fail
+    the start of an app that comes up a second later.
     """
-    health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' {url}"
+    health_cmd = f"curl -s --max-time {HEALTH_PROBE_CURL_TIMEOUT_SECONDS} -o /dev/null -w '%{{http_code}}' {url}"
     deadline = time.monotonic() + deadline_seconds
     attempt = 0
     while time.monotonic() < deadline:
         attempt += 1
-        result = sandbox.execute(health_cmd, timeout_seconds=5)
-        if result.stdout.strip() == "200":
-            logger.info(f"{name} health check passed on attempt {attempt}")
-            return True
+        try:
+            result = sandbox.execute(health_cmd, timeout_seconds=HEALTH_PROBE_EXEC_TIMEOUT_SECONDS)
+        except (SandboxTimeoutError, SandboxExecutionError) as error:
+            logger.warning(
+                "streamlit_health_probe_failed",
+                check=name,
+                attempt=attempt,
+                error=str(error),
+            )
+        else:
+            if result.stdout.strip() == "200":
+                logger.info(f"{name} health check passed on attempt {attempt}")
+                return True
         time.sleep(poll_interval_seconds)
     return False
 
@@ -374,9 +413,10 @@ class AppRuntimeService:
 
         sandbox = None
         try:
-            config = _build_sandbox_config(app, version)
-            sandbox_class = get_sandbox_class()
-            sandbox = sandbox_class.create(config)
+            with _boot_step("Provisioning the sandbox"):
+                config = _build_sandbox_config(app, version)
+                sandbox_class = get_sandbox_class()
+                sandbox = sandbox_class.create(config)
             sandbox_record.sandbox_id = sandbox.id
             sandbox_record.save(update_fields=["sandbox_id"])
 
@@ -388,25 +428,34 @@ class AppRuntimeService:
                 if zip_content is None:
                     raise AppRuntimeError("No zip content available for cold start")
 
-                _upload_app_files(sandbox, zip_content)
+                with _boot_step("Uploading the app files"):
+                    _upload_app_files(sandbox, zip_content)
 
-                modal_image_id = sandbox.create_snapshot()
+                with _boot_step("Snapshotting the sandbox"):
+                    modal_image_id = sandbox.create_snapshot()
 
                 snapshot_id = tasks_facade.create_completed_sandbox_snapshot(external_id=modal_image_id)
                 version.snapshot_id = str(snapshot_id)
                 version.snapshot_created_at = timezone.now()
                 version.save(update_fields=["snapshot_id", "snapshot_created_at"])
 
-            # Write before the proxy boots so it can read+unlink the file.
-            bridge_token = create_sandbox_bridge_token(user=version.created_by, team_id=app.team_id)
-            _write_bridge_token(sandbox, bridge_token)
+            with _boot_step("Writing the bridge token"):
+                # Write before the proxy boots so it can read+unlink the file.
+                bridge_token = create_sandbox_bridge_token(user=version.created_by, team_id=app.team_id)
+                _write_bridge_token(sandbox, bridge_token)
 
-            _start_auth_proxy(sandbox)
-            _start_streamlit_process(sandbox)
+            with _boot_step("Starting the auth proxy"):
+                _start_auth_proxy(sandbox)
+
+            with _boot_step("Starting Streamlit"):
+                _start_streamlit_process(sandbox)
 
             proxy_url = f"http://localhost:{AUTH_PROXY_PORT}/healthz"
             if not _wait_for_health(
-                sandbox, proxy_url, "Auth proxy", deadline_seconds=AUTH_PROXY_HEALTH_DEADLINE_SECONDS
+                sandbox,
+                proxy_url,
+                "Auth proxy",
+                deadline_seconds=settings.STREAMLIT_AUTH_PROXY_HEALTH_DEADLINE_SECONDS,
             ):
                 try:
                     tail_result = sandbox.execute(
@@ -421,7 +470,7 @@ class AppRuntimeService:
             # live; without this second gate the iframe 502s against upstream.
             streamlit_url = f"http://localhost:{STREAMLIT_PORT}/_stcore/health"
             if not _wait_for_health(
-                sandbox, streamlit_url, "Streamlit", deadline_seconds=STREAMLIT_HEALTH_DEADLINE_SECONDS
+                sandbox, streamlit_url, "Streamlit", deadline_seconds=settings.STREAMLIT_HEALTH_DEADLINE_SECONDS
             ):
                 raise AppRuntimeError("Streamlit failed to become ready")
 
@@ -444,7 +493,7 @@ class AppRuntimeService:
         except Exception as e:
             StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(
                 status=StreamlitAppSandbox.Status.ERROR,
-                last_error=str(e),
+                last_error=str(e)[:1000],
             )
             if sandbox is not None:
                 try:

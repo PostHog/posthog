@@ -21,6 +21,7 @@ from products.streamlit_apps.backend.logic.app_runtime import (
     _get_sandbox_callback_url,
 )
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
+from products.tasks.backend.facade.sandbox import SandboxExecutionError, SandboxTimeoutError
 
 
 def _make_zip_bytes(files: dict[str, str]) -> bytes:
@@ -190,6 +191,7 @@ class TestAppRuntimeStartApp(BaseTest):
         record = StreamlitAppSandbox.objects.get(app=app)
         assert record.status == StreamlitAppSandbox.Status.ERROR
         assert "Boom" in record.last_error
+        assert "Writing the bridge token" in record.last_error
 
     def test_start_app_starts_auth_proxy_and_streamlit(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
@@ -247,6 +249,56 @@ class TestAppRuntimeStartApp(BaseTest):
         service = AppRuntimeService()
         with self.assertRaises(AppRuntimeError, msg="Auth proxy failed to become ready"):
             service.start_app(app)
+
+
+@patch("products.streamlit_apps.backend.logic.app_runtime.time.sleep")
+@patch("products.streamlit_apps.backend.logic.app_runtime.get_sandbox_class")
+@override_settings(STREAMLIT_AUTH_PROXY_HEALTH_DEADLINE_SECONDS=30, STREAMLIT_HEALTH_DEADLINE_SECONDS=30)
+class TestAppRuntimeHealthProbes(BaseTest):
+    def _create_started_app(self):
+        app = StreamlitApp.objects.create(team=self.team, name="Minimal App", created_by=self.user)
+        version = StreamlitAppVersion.objects.create(
+            app=app,
+            version_number=1,
+            zip_file="s3://bucket/app.zip",
+            zip_hash="abc123",
+            created_by=self.user,
+        )
+        app.active_version = version
+        app.save(update_fields=["active_version"])
+        return app
+
+    @parameterized.expand(
+        [
+            ("timed out", SandboxTimeoutError("Execution timed out after 5 seconds", {}, None, capture=False)),
+            ("errored", SandboxExecutionError("Failed to execute command", {}, None, capture=False)),
+        ]
+    )
+    def test_a_probe_that_fails_once_does_not_fail_the_start(
+        self, mock_get_sandbox_class, _mock_sleep, _name, probe_error
+    ):
+        """Streamlit accepts on its port before it answers, so the first probe can
+        block past its budget. That is one unready sample: the app comes up a second
+        later, and the start must wait for the deadline instead of aborting."""
+        probes_seen = []
+
+        def execute(command, timeout_seconds=None):
+            if "_stcore/health" not in command:
+                return MagicMock(exit_code=0, stdout="200", stderr="")
+            probes_seen.append(command)
+            if len(probes_seen) == 1:
+                raise probe_error
+            return MagicMock(exit_code=0, stdout="200", stderr="")
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.execute.side_effect = execute
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app = self._create_started_app()
+        record = AppRuntimeService().start_app(app, zip_content=_make_zip_bytes({"app.py": "import streamlit as st"}))
+
+        assert record.status == StreamlitAppSandbox.Status.RUNNING
+        assert len(probes_seen) == 2
 
 
 @patch("products.streamlit_apps.backend.logic.app_runtime.get_sandbox_class")
