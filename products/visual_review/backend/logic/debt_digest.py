@@ -877,7 +877,7 @@ def send_debt_digest(repo: Repo, mode: str) -> list[str]:
     if integration is None:
         logger.info("visual_review.debt_digest_no_slack_integration", team_id=repo.team_id)
         return []
-    channels_by_name = fetch_channel_map(integration)
+    channels_by_name = fetch_channel_map(integration, source="visual_review")
 
     rendered: list[str] = []
     for post in posts:
@@ -928,7 +928,7 @@ def _send_one(
     if delivery is None:
         return ""
 
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="visual_review")
     try:
         thread_ts = post_with_join(
             slack, delivery.channel_id, post.lead.blocks, post.lead.text, channel_name=delivery.channel_name

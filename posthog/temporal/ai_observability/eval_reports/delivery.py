@@ -393,7 +393,7 @@ def deliver_slack_report(
             integration = Integration.objects.select_related("team__organization").get(
                 id=integration_id, team_id=team_id, kind="slack"
             )
-            client = SlackIntegration(integration).client
+            client = SlackIntegration(integration, source="eval_reports").client
 
             # Main message: header + context + metrics grid + first section (if any)
             blocks: list[dict] = [
