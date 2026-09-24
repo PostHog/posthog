@@ -1,9 +1,22 @@
 import { branch, delay, email, onEvent, path, person, workflow } from '@posthog/workflows'
 
+const SENDER_VARIABLE = 'POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID'
+
+// Integration ids belong to one project, and PostHog fails every send from an integration of
+// another project. So the environment of the push names the sender, and the file never guesses one.
+function senderIntegrationId(): number {
+    const raw = process.env[SENDER_VARIABLE]?.trim() ?? ''
+    if (!/^[1-9][0-9]*$/.test(raw)) {
+        throw new Error(
+            `Set ${SENDER_VARIABLE} to the id of an email integration in the project you push to. Find the id under Workflows, Channels, in that project. repo:check sets a stand-in id when the variable is not set.`
+        )
+    }
+    return Number(raw)
+}
+
 const welcomeEmail = email({
     name: 'Send the welcome email',
-    // The id of the project's verified email sender, listed under Workflows, Channels.
-    from: { integrationIds: [1] },
+    from: { integrationIds: [senderIntegrationId()] },
     to: '{person.properties.email}',
     subject: 'Welcome to PostHog',
     text: 'Thanks for signing up. Your first events show up in Activity as soon as your SDK sends them.',

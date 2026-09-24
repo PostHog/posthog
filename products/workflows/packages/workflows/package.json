@@ -33,7 +33,7 @@
         "prepack": "pnpm run build",
         "typecheck": "tsc -p tsconfig.json",
         "test": "tsc -p tsconfig.build.json && tsc -p tsconfig.test.json && node --test \".test-build/tests/**/*.test.js\"",
-        "repo:check": "pnpm run build && for file in ../../workflows/*.ts; do [ -e \"$file\" ] || continue; node dist/cli/main.js check \"$file\" || exit 1; done",
+        "repo:check": "pnpm run build && if [ -z \"$POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID\" ]; then echo 'POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID is not set, so the check uses the stand-in sender id 1.'; export POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID=1; fi && for file in ../../workflows/*.ts; do [ -e \"$file\" ] || continue; node dist/cli/main.js check \"$file\" || exit 1; done",
         "repo:push": "pnpm run build && for file in ../../workflows/*.ts; do [ -e \"$file\" ] || continue; node dist/cli/main.js push \"$file\" || exit 1; done"
     },
     "dependencies": {
