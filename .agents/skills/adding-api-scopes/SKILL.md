@@ -44,7 +44,9 @@ Everything else is a public object: OAuth advertises it, MCP can request it, and
    `list` and `retrieve` need `read`.
    `create`, `update`, `partial_update`, `patch` and `destroy` need `write`.
    A custom `@action` is in neither list, so tokens get "This action does not support personal API key access" until you declare it.
-   Put `required_scopes=["<object>:read"]` on the `@action`, or list the action names in `scope_object_read_actions` or `scope_object_write_actions` on the viewset.
+   Put `required_scopes=["<object>:read"]` on an action that only reads data, and `required_scopes=["<object>:write"]` on an action that creates, changes or deletes data.
+   A read scope on a write action lets a read-only token change data.
+   You can also list the action names in `scope_object_read_actions` or `scope_object_write_actions` on the viewset.
    Those two lists replace the defaults, so name every action they must cover.
    `scope_object = "INTERNAL"` keeps the endpoint session-only.
    Use `dangerously_get_required_scopes` only when the required scope depends on the request itself.
@@ -90,6 +92,9 @@ Test a custom action with a personal API key that carries only the new scope, an
 
 Personal API keys, OAuth grants and application ceilings store scope strings, so a rename breaks every existing grant.
 Keep the old object until no grant uses it.
-While it waits, give it a "Pending removal" entry in `API_SCOPES_OMITTED_FROM_MODAL`, like `batch_import`, so nobody new can grant it.
+While it waits, give it a "Pending removal" entry in `API_SCOPES_OMITTED_FROM_MODAL`, like `batch_import`.
+That only removes the picker row.
+The API still accepts the scope in a personal API key, and OAuth still lists it.
+To stop OAuth clients from discovering it, also add it to `OAUTH_HIDDEN_SCOPE_OBJECTS`.
 Removing an object needs the same care as removing a field.
 Search for the string in fixtures, MCP tool definitions and docs before you delete it.
