@@ -96,14 +96,17 @@ def _find_account(
     candidates = Account.objects.for_team(team_id).select_related("team").order_by("created_at")
     for lookup, value in (
         ("external_id", organization_id),
-        ("_properties__billing_id", billing_id),
-        ("_properties__stripe_customer_id", stripe_customer_id),
+        ("billing_id", billing_id),
+        ("stripe_customer_id", stripe_customer_id),
     ):
         if not value:
             continue
-        # The _properties__* JSON fields have no uniqueness constraint; fetch up to 2 to detect
-        # (and warn about) an ambiguous match without loading all rows.
-        matches = list(candidates.filter(**{lookup: str(value)})[:2])
+        # A `_properties__<key>` lookup compiles to `properties -> '<key>'`, which the GIN index
+        # on the column cannot serve; top-level containment can.
+        criteria = {lookup: str(value)} if lookup == "external_id" else {"_properties__contains": {lookup: str(value)}}
+        # The billing_id and stripe_customer_id properties have no uniqueness constraint; fetch up
+        # to 2 to detect (and warn about) an ambiguous match without loading all rows.
+        matches = list(candidates.filter(**criteria)[:2])
         if not matches:
             continue
         if len(matches) > 1:

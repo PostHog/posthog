@@ -414,7 +414,7 @@ def get_account_ref_by_slack_channel_id(team_id: int, slack_channel_id: str) -> 
         return None
     rows = list(
         Account.objects.for_team(team_id)
-        .filter(_properties__slack_channel_id=slack_channel_id)
+        .filter(_properties__contains={"slack_channel_id": slack_channel_id})
         .values("id", "name", "external_id")[:2]
     )
     if not rows:

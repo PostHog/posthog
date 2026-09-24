@@ -74,14 +74,14 @@ def account_search_q(query: str, *, member_external_ids: Collection[str] = ()) -
     normalized = query.strip().lower()
     email = parse_email_search(normalized)
     if email is not None:
-        predicate |= Q(_properties__known_emails__contains=[email])
+        predicate |= Q(_properties__contains={"known_emails": [email]})
         if member_external_ids:
             predicate |= Q(external_id__in=member_external_ids)
         domain = email.rsplit("@", 1)[-1]
     else:
         domain = normalized if "@" not in normalized else ""
     if "." in domain:
-        predicate |= Q(_properties__email_domains__contains=[domain])
+        predicate |= Q(_properties__contains={"email_domains": [domain]})
     return predicate
 
 
