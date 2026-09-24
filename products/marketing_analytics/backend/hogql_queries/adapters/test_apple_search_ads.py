@@ -105,9 +105,21 @@ class TestAppleSearchAdsAdapter(SimpleTestCase):
         assert "applesearchads_ad_group_report.local_spend['amount']" in sql
         assert "applesearchads_campaign_report" not in sql
 
-    def test_missing_spend_is_reported_as_invalid(self) -> None:
-        adapter = self._adapter(["total_installs"], MarketingAnalyticsDrillDownLevel.CAMPAIGN)
-        del adapter.config.stats_table.columns["local_spend"]
+    @parameterized.expand(
+        [
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN, "stats_table", "local_spend"),
+            (MarketingAnalyticsDrillDownLevel.AD_GROUP, "adset_table", "campaign_id"),
+            (MarketingAnalyticsDrillDownLevel.AD_GROUP, "campaign_table", "id"),
+            (MarketingAnalyticsDrillDownLevel.AD_GROUP, "campaign_table", "name"),
+        ]
+    )
+    def test_missing_required_columns_are_reported_as_invalid(
+        self, level: MarketingAnalyticsDrillDownLevel, table_name: str, column: str
+    ) -> None:
+        adapter = self._adapter(["total_installs"], level)
+        table = getattr(adapter.config, table_name)
+        assert table.columns is not None
+        del table.columns[column]
         result = adapter.validate()
         assert not result.is_valid
-        assert "local_spend" in result.errors[0]
+        assert column in result.errors[0]

@@ -1,4 +1,4 @@
-from posthog.schema import NativeMarketingSource
+from posthog.schema import MarketingAnalyticsDrillDownLevel, NativeMarketingSource
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -23,12 +23,20 @@ class AppleSearchAdsAdapter(MarketingSourceAdapter[HierarchicalNativeAdsConfig])
 
     def validate(self) -> ValidationResult:
         tables = self._level_tables()
+        required_columns = [
+            (tables.entity_table, (tables.entity_id_column, tables.entity_name_column)),
+            (tables.stats_table, (tables.stats_entity_id_column, "date", "impressions", "taps", "local_spend")),
+        ]
+        if self.context.drill_down_level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            required_columns.extend(
+                [
+                    (tables.entity_table, (self._adset_campaign_fk_column,)),
+                    (self.config.campaign_table, (self._campaign_pk_column, self._campaign_name_column)),
+                ]
+            )
         errors = [
             f"Apple Ads is missing '{column}' in '{table.name}'. Sync this table again."
-            for table, columns in (
-                (tables.entity_table, (tables.entity_id_column, tables.entity_name_column)),
-                (tables.stats_table, (tables.stats_entity_id_column, "date", "impressions", "taps", "local_spend")),
-            )
+            for table, columns in required_columns
             for column in columns
             if not self._table_has_column(table, column)
         ]

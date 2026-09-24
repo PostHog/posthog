@@ -731,7 +731,9 @@ export function createMarketingTile(
         return null
     }
 
-    const table = source.tables.find((t) => t.name.split('.').pop() === integrationConfig.statsTableName)
+    const table = source.tables.find(
+        (t) => extractSchemaName(t.name, sourceType) === integrationConfig.statsTableName.toLowerCase()
+    )
     if (!table) {
         return null
     }

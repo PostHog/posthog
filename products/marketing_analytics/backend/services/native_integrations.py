@@ -13,6 +13,7 @@ from typing import Literal
 from posthog.schema import NativeMarketingSource
 
 NativeIntegration = Literal[
+    "apple_ads",
     "google_ads",
     "meta_ads",
     "bing_ads",
@@ -27,6 +28,7 @@ NativeIntegration = Literal[
 # Mapping from NativeMarketingSource to the snake-case key used everywhere
 # downstream (URL params, scope hints, suggestion targets).
 NATIVE_TO_KEY: dict[NativeMarketingSource, NativeIntegration] = {
+    NativeMarketingSource.APPLE_SEARCH_ADS: "apple_ads",
     NativeMarketingSource.GOOGLE_ADS: "google_ads",
     NativeMarketingSource.META_ADS: "meta_ads",
     NativeMarketingSource.BING_ADS: "bing_ads",
@@ -44,6 +46,7 @@ KEY_TO_NATIVE: dict[NativeIntegration, NativeMarketingSource] = {v: k for k, v i
 # layer uses) to NativeMarketingSource. Pinned explicitly because
 # ExternalDataSourceType has many non-marketing entries.
 EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
+    "AppleSearchAds": NativeMarketingSource.APPLE_SEARCH_ADS,
     "GoogleAds": NativeMarketingSource.GOOGLE_ADS,
     "MetaAds": NativeMarketingSource.META_ADS,
     "BingAds": NativeMarketingSource.BING_ADS,
@@ -56,6 +59,7 @@ EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
 
 # Human-facing names for surfaces that produce text (LLMs, UI, error messages).
 DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
+    NativeMarketingSource.APPLE_SEARCH_ADS: "Apple Ads",
     NativeMarketingSource.GOOGLE_ADS: "Google Ads",
     NativeMarketingSource.META_ADS: "Meta Ads",
     NativeMarketingSource.BING_ADS: "Bing Ads",

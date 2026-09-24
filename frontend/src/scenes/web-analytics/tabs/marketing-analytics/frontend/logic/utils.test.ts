@@ -365,6 +365,13 @@ describe('marketing analytics utils', () => {
             }
         }
 
+        it.each(['', 'custom_', 'warehouse.custom_'])('resolves AppleSearchAds tables with prefix %s', (prefix) => {
+            const source = makeMockSource('AppleSearchAds', sourceFields.AppleSearchAds)
+            source.tables[0].name = `${prefix}applesearchads_${MARKETING_INTEGRATION_CONFIGS.AppleSearchAds.statsTableName.toLowerCase()}`
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.table_name).toBe(source.tables[0].name)
+        })
+
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(
                 (column) =>
