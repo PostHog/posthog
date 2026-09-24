@@ -3097,6 +3097,79 @@ async fn test_s3_hit_enqueues_rebuild_when_enabled(#[case] rebuild_on_s3_hit: bo
     }
 }
 
+/// Send one S3-served request for `team`, and return the response.
+async fn get_definitions_served_from_s3(
+    server: &common::ServerHandle,
+    api_token: &str,
+    secret_token: &str,
+    if_none_match: Option<&str>,
+) -> reqwest::Response {
+    let mut request = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"));
+    if let Some(etag) = if_none_match {
+        request = request.header("if-none-match", etag);
+    }
+    request.send().await.unwrap()
+}
+
+/// The whole point of the rebuild: an S3-served response has no validator, so the SDK
+/// re-downloads on every poll. Once the drain writes the payload and its ETag back into
+/// Redis, the next conditional request gets a 304. This covers the sequence end to end,
+/// standing in for the Celery drain with the same pair of Redis writes it makes.
+#[tokio::test]
+async fn test_rebuilt_entry_restores_conditional_requests() {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::{static_s3_client, TestContext},
+    };
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config_with_s3(
+        config.clone(),
+        Some(static_s3_client(r#"{"flags": [], "cohorts": {}}"#)),
+    )
+    .await;
+
+    let before =
+        get_definitions_served_from_s3(&server, &team.api_token, &secret_token, None).await;
+    assert_eq!(before.status(), 200);
+    assert!(
+        before.headers().get("etag").is_none(),
+        "an S3-served response carries no validator for the SDK to send back"
+    );
+
+    context
+        .populate_cache_for_team_with_etag(team.id, "rebuilt-etag")
+        .await
+        .unwrap();
+
+    let after = get_definitions_served_from_s3(
+        &server,
+        &team.api_token,
+        &secret_token,
+        Some("W/\"rebuilt-etag\""),
+    )
+    .await;
+    assert_eq!(
+        after.status(),
+        304,
+        "after the rebuild the SDK should revalidate instead of downloading again"
+    );
+}
+
 #[tokio::test]
 async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
     use feature_flags::{

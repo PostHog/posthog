@@ -2,11 +2,17 @@
 Self-heal queue for the flag-definitions HyperCache.
 
 The Rust ``/flags/definitions`` endpoint reads cohort-inclusive flag definitions
-straight from HyperCache with no DB fallback, so a missing entry returns 503 until
-something rewrites it. On every such miss the Rust service enqueues the team into a
-Redis sorted set (see ``rust/feature-flags/src/api/flag_definitions.rs``); this
-module drains that set and rebuilds the cache, so a missing entry self-heals within
-~1 minute instead of waiting for the hourly verifier or a manual rewarm.
+straight from HyperCache with no DB fallback. Two states put a team in this queue
+(see ``rust/feature-flags/src/api/flag_definitions.rs``):
+
+- Nothing holds the entry, so the request returns 503 until something rewrites it.
+- Redis lost the entry and S3 still has it, so the request succeeds but carries no
+  ETag, and the SDK re-downloads the payload on every poll.
+
+This module drains the set and rebuilds the cache, so either state self-heals within
+~1 minute instead of waiting for the hourly verifier or a manual rewarm. The rebuild
+writes the payload and the ETag together and re-stamps expiry tracking, which returns
+the team to the normal refresh cycle.
 
 Throttling keeps a permanently-failing team from being rebuilt on a loop:
 - a per-team cooldown bounds attempts to one per ``COOLDOWN_SECONDS``, and
@@ -36,9 +42,10 @@ from products.feature_flags.backend.local_evaluation import (
 
 logger = structlog.get_logger(__name__)
 
-# Sorted set the Rust service writes misses to (member = team_id, score = enqueue
-# time in epoch MILLIS). MUST match FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET in the
-# Rust service.
+# Sorted set the Rust service writes rebuild requests to (member = team_id, score =
+# epoch MILLIS). The Rust side writes it with ZADD NX, so the score stays at the first
+# request and repeated polls cannot reorder the queue or reset the age gauge. MUST match
+# FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET in the Rust service.
 REBUILD_REQUESTS_ZSET = "flag_definitions:rebuild_requests"
 
 # Sorted set of teams with an open circuit (member = team_id, score = expiry epoch
@@ -70,9 +77,10 @@ REBUILD_QUEUE_DEPTH = Gauge(
 )
 REBUILD_OLDEST_AGE = Gauge(
     "posthog_flag_definitions_rebuild_oldest_age_seconds",
-    # Score refreshes on every re-enqueue, so this is seconds since the oldest queued
-    # team's most recent miss, not time-stuck. Read alongside queue_depth.
-    "Seconds since the oldest queued team's most recent miss (read with queue_depth)",
+    # The NX write keeps a team's first score, so this measures how long a request has
+    # waited rather than how often the team polls. A drained team that is still broken
+    # re-enters the queue with a new score.
+    "Seconds since the oldest queued rebuild request was made",
 )
 REBUILD_DEAD_LETTER = Gauge(
     "posthog_flag_definitions_rebuild_dead_letter_teams",
@@ -184,10 +192,6 @@ def _emit_queue_gauges(redis: redis_lib.Redis, now: float) -> None:
     _emit_unread_cluster_gauge()
     oldest = redis.zrange(REBUILD_REQUESTS_ZSET, 0, 0, withscores=True)
     if oldest:
-        # score is the most-recent enqueue time in epoch millis. Rust re-enqueues with
-        # zadd (not NX), so a team polled every ~30s keeps its score refreshed: this is
-        # "time since last miss", bounded by the SDK poll interval, not "time since first
-        # miss". A small value is not proof the queue is healthy — read it with depth.
         _, score_ms = oldest[0]
         REBUILD_OLDEST_AGE.set(max(0.0, now - float(score_ms) / 1000.0))
     else:
