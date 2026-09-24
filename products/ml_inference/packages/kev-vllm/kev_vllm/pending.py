@@ -8,7 +8,7 @@ from dataclasses import dataclass
 PENDING_MAX_AGE_SECONDS = 300
 
 
-@dataclass
+@dataclass(frozen=False)
 class _Entry[T]:
     request_id: str | None
     value: T
