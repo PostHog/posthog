@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconPencil, IconStack, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { cn } from 'lib/utils/css-classes'
 
 import type { QueuedMessage } from '../logics/runInteractionLogic'
 
@@ -27,7 +28,7 @@ interface QueuedMessageItemProps {
     onRemove: (id: string) => void
 }
 
-/** One staged "Up next" message — read row with edit/remove, or an inline editor. Logic-free (controlled). */
+/** One staged message — read row with edit/remove, or an inline editor. Logic-free (controlled). */
 function QueuedMessageItem({
     message,
     isEditing,
@@ -86,9 +87,9 @@ function QueuedMessageItem({
     }
 
     return (
-        <div className="group flex items-center gap-2 py-1 px-2 rounded-md hover:bg-bg-light">
-            <p className="flex-1 text-sm text-secondary truncate mb-0">{message.content}</p>
-            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2 py-1 px-2 rounded-md border border-primary bg-surface-primary">
+            <p className="flex-1 text-sm truncate mb-0">{message.content}</p>
+            <div className="flex gap-0.5">
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
@@ -109,8 +110,8 @@ function QueuedMessageItem({
 }
 
 /**
- * The editable "Up next" buffer rendered above the composer while the agent is busy. Purely presentational
- * (no kea): the consumer owns the queue state and passes `onUpdate` / `onRemove`. Modeled on PostHog AI's
+ * The editable queue rendered above the composer while the agent is busy. Purely presentational (no kea):
+ * the consumer owns the queue state and passes `onUpdate` / `onRemove`. Modeled on PostHog AI's
  * `QueuedMessageItem`, minus the conversation/Max coupling.
  */
 export function QueuedMessageList({
@@ -123,17 +124,39 @@ export function QueuedMessageList({
     held = false,
 }: QueuedMessageListProps): JSX.Element | null {
     const [editingId, setEditingId] = useState<string | null>(null)
+    const [collapsed, setCollapsed] = useState(false)
 
     if (messages.length === 0) {
         return null
     }
 
     return (
-        <div className="flex flex-col gap-0.5 pb-2">
-            <div className="flex flex-wrap items-center justify-between gap-1 px-2">
-                <p className="text-xs font-medium text-muted mb-0">
-                    {held ? `Not sent yet. Steer to send ${messages.length > 1 ? 'them' : 'it'}.` : 'Up next'}
-                </p>
+        <div className="flex flex-col gap-1 pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-1">
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    data-attr="run-queue-toggle"
+                    onClick={() => setCollapsed(!collapsed)}
+                    icon={
+                        <IconChevronDown
+                            className={cn(
+                                'transition-transform duration-150 ease-out motion-reduce:transition-none',
+                                collapsed && '-rotate-90'
+                            )}
+                        />
+                    }
+                    tooltip={collapsed ? 'Show queued messages' : 'Hide queued messages'}
+                >
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+                        <IconStack />
+                        <span data-attr="run-queue-label">
+                            {held
+                                ? `Not sent yet. Steer to send ${messages.length > 1 ? 'them' : 'it'}.`
+                                : `${messages.length} queued`}
+                        </span>
+                    </span>
+                </LemonButton>
                 {onSteer && (
                     <LemonButton
                         size="xsmall"
@@ -151,20 +174,21 @@ export function QueuedMessageList({
                     </LemonButton>
                 )}
             </div>
-            {messages.map((message) => (
-                <QueuedMessageItem
-                    key={message.id}
-                    message={message}
-                    isEditing={editingId === message.id}
-                    onEdit={() => setEditingId(message.id)}
-                    onCancel={() => setEditingId(null)}
-                    onSave={(id, content) => {
-                        onUpdate(id, content)
-                        setEditingId(null)
-                    }}
-                    onRemove={onRemove}
-                />
-            ))}
+            {!collapsed &&
+                messages.map((message) => (
+                    <QueuedMessageItem
+                        key={message.id}
+                        message={message}
+                        isEditing={editingId === message.id}
+                        onEdit={() => setEditingId(message.id)}
+                        onCancel={() => setEditingId(null)}
+                        onSave={(id, content) => {
+                            onUpdate(id, content)
+                            setEditingId(null)
+                        }}
+                        onRemove={onRemove}
+                    />
+                ))}
         </div>
     )
 }
