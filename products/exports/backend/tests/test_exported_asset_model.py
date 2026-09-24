@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import NotFound
 
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -14,12 +15,25 @@ from products.exports.backend.models.exported_asset import (
     SIX_MONTHS,
     THIRTY_DAYS,
     ExportedAsset,
+    asset_for_token,
     get_content_response,
+    get_public_access_token,
+    get_render_access_token,
     save_content_from_file,
 )
 
 
 class TestExportedAssetModel(APIBaseTest):
+    def test_historical_heatmap_artifacts_require_a_renderer_token(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_context={"historical_heatmap": True, "session_recording_id": "synthetic-session"},
+        )
+        with self.assertRaises(NotFound):
+            asset_for_token(get_public_access_token(asset))
+        assert asset_for_token(get_render_access_token(asset))[0].id == asset.id
+
     def test_large_content_preserves_object_storage_failure(self) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,

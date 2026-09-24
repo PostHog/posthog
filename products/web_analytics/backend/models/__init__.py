@@ -1,4 +1,5 @@
 from .content_autopilot import ContentAutopilotProposal, ContentAutopilotRun, ContentAutopilotSiteProfile
+from .heatmap_analysis import HeatmapAnalysis, HeatmapAnalysisRecording
 from .heatmap_capture_config_version import HeatmapCaptureConfigVersion
 from .heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from .web_analytics_achievement_progress import WebAnalyticsAchievementProgress
@@ -9,6 +10,8 @@ from .web_analytics_visit import WebAnalyticsVisit
 
 __all__ = [
     "HeatmapCaptureConfigVersion",
+    "HeatmapAnalysis",
+    "HeatmapAnalysisRecording",
     "HeatmapSnapshot",
     "SavedHeatmap",
     "ContentAutopilotProposal",

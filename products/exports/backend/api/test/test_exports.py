@@ -751,6 +751,16 @@ class TestExports(APIBaseTest):
             team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=None
         )
 
+        historical_asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format="image/png",
+            export_context={"historical_heatmap": True, "session_recording_id": "synthetic-session"},
+        )
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/exports/{historical_asset.id}/").status_code, 404
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)

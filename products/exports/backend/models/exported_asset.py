@@ -328,6 +328,8 @@ def get_subscription_delivery_access_token(asset: ExportedAsset, expiry_delta: O
 def asset_for_token(token: str) -> tuple[ExportedAsset, str | None]:
     info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
     asset = ExportedAsset.objects.select_related("dashboard", "insight", "team__organization").get(pk=info["id"])
+    if (asset.export_context or {}).get("historical_heatmap") and info.get("purpose") != EXPORTED_ASSET_PURPOSE_RENDER:
+        raise NotFound()
     return asset, info.get("purpose")
 
 
@@ -335,6 +337,13 @@ def asset_for_token(token: str) -> tuple[ExportedAsset, str | None]:
 # are size-bounded; videos and spreadsheets are not, and read_bytes loads the whole object,
 # so unbounded formats keep the presigned redirect regardless of ?direct.
 _DIRECT_CONTENT_FORMATS = frozenset({ExportedAsset.ExportFormat.PNG})
+
+
+def read_content(asset: ExportedAsset) -> bytes | None:
+    content = asset.content
+    if content is None and asset.content_location:
+        content = object_storage.read_bytes(asset.content_location)
+    return None if content is None else bytes(content)
 
 
 def get_content_response(asset: ExportedAsset, download: bool = False, direct: bool = False):
@@ -353,9 +362,7 @@ def get_content_response(asset: ExportedAsset, download: bool = False, direct: b
         if presigned_url and not (DEBUG and urlparse(presigned_url).hostname in ("localhost", "127.0.0.1")):
             return HttpResponseRedirect(presigned_url)
 
-    content = asset.content
-    if content is None and asset.content_location:
-        content = object_storage.read_bytes(asset.content_location)
+    content = read_content(asset)
     if content is None:
         raise NotFound()
 
