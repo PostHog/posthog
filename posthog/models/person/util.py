@@ -16,6 +16,7 @@ from django.utils.timezone import now
 
 import structlog
 from dateutil.parser import isoparse
+from prometheus_client import Counter, Histogram
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
@@ -857,6 +858,21 @@ def publish_person_tombstone(
 
 TOMBSTONE_DELIVERY_TIMEOUT_SECONDS = 10
 
+PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS = Histogram(
+    "posthog_person_tombstone_delivery_wait_seconds",
+    "Time a delete waits for Kafka to deliver the ClickHouse tombstones it published, before acking the queue.",
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, float("inf")),
+)
+
+# outcome: "acked" counts queue rows the ack call cleared, which can be fewer than the persons sent
+# because an ack is idempotent. "ack_failed" counts the persons sent in a call that raised; they stay
+# queued for the weekly sweep.
+PERSON_TOMBSTONE_ACKS_COUNTER = Counter(
+    "posthog_person_tombstone_acks_total",
+    "Tombstone queue rows cleared after Kafka delivery, or persons left queued because the ack call failed.",
+    labelnames=["outcome"],
+)
+
 
 @frozen
 class PersonTombstonePublishFailure:
@@ -895,8 +911,10 @@ class PersonTombstonePublication:
         if not pending:
             return
 
+        started = time.monotonic()
         if not all(result.done() for _, results in pending for result in results):
             _flush_person_producers(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
+        PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS.observe(time.monotonic() - started)
 
         delivered: list[tuple[UUID, int]] = []
         for tombstone, results in pending:
@@ -910,11 +928,14 @@ class PersonTombstonePublication:
         if not delivered:
             return
         try:
-            ack_person_tombstones(self.team_id, delivered)
+            cleared = ack_person_tombstones(self.team_id, delivered)
         except Exception:
+            PERSON_TOMBSTONE_ACKS_COUNTER.labels(outcome="ack_failed").inc(len(delivered))
             logger.warning(
                 "person_tombstones.ack_failed", team_id=self.team_id, person_count=len(delivered), exc_info=True
             )
+            return
+        PERSON_TOMBSTONE_ACKS_COUNTER.labels(outcome="acked").inc(cleared)
 
 
 def _flush_person_producers(timeout: float) -> None:

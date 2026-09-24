@@ -8,6 +8,7 @@ from django.test import override_settings
 
 from confluent_kafka import KafkaError
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -26,6 +27,10 @@ from posthog.models.person.util import TOMBSTONE_DELIVERY_TIMEOUT_SECONDS, tombs
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.personhog_client.proto import DeletePersonsMode
 from posthog.test.persons import create_person
+
+
+def _sample(name: str, **labels: str) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
 def _person_with_distinct_ids(*distinct_ids: str) -> Person:
@@ -90,12 +95,14 @@ class QueueEventDeletionTests(BaseTest):
 class DeletePersonsProfileTests(BaseTest):
     def test_deletes_persons_via_helpers(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        legacy_before = _sample("posthog_person_deletion_mode_persons_total", mode="legacy")
         with (
             patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
             patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
         ):
             result = delete_persons_profile(self.team.pk, [p], actor=self.user)
         assert result.deleted_count == 1
+        assert _sample("posthog_person_deletion_mode_persons_total", mode="legacy") == legacy_before + 1
         assert result.errors == []
         ch_delete.assert_called_once()
         assert ch_delete.call_args.kwargs["person"] == p
@@ -185,6 +192,8 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
     def test_tombstones_postgres_first_then_publishes_clickhouse_at_the_returned_versions_and_acks(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         fake = get_active_fake()
+        mode_before = _sample("posthog_person_deletion_mode_persons_total", mode="tombstone")
+        acked_before = _sample("posthog_person_tombstone_acks_total", outcome="acked")
         with (
             patch("posthog.models.person.bulk_delete.delete_person") as legacy_ch_delete,
             patch("posthog.models.person.util.publish_person_tombstone", return_value=[]) as publish,
@@ -203,6 +212,8 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         assert [(d.id, d.version) for d in tombstone.distinct_ids] == [("a", 1)]
         assert publish.call_args.kwargs["created_at"] == p.created_at
         assert fake.tombstone_queue == {}
+        assert _sample("posthog_person_deletion_mode_persons_total", mode="tombstone") == mode_before + 1
+        assert _sample("posthog_person_tombstone_acks_total", outcome="acked") == acked_before + 1
 
     @parameterized.expand([("produce_raises",), ("delivery_fails",)])
     def test_counts_and_logs_a_person_whose_clickhouse_publish_failed_and_keeps_it_queued(self, case):
@@ -232,6 +243,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         producer = MagicMock()
         if delivered:
             producer.flush.side_effect = lambda timeout: pending.set_result(None, None)
+        waits_before = _sample("posthog_person_tombstone_delivery_wait_seconds_count")
         with (
             patch("posthog.models.person.util.publish_person_tombstone", return_value=[pending]),
             patch("posthog.models.person.util.get_producer", return_value=producer),
@@ -241,6 +253,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         # Both person topics resolve to this one producer, so it is flushed once, inside the delivery timeout.
         producer.flush.assert_called_once()
         assert 0 < producer.flush.call_args.args[0] <= TOMBSTONE_DELIVERY_TIMEOUT_SECONDS
+        assert _sample("posthog_person_tombstone_delivery_wait_seconds_count") == waits_before + 1
         assert result.deleted_count == 1
         if delivered:
             assert result.failures == []
@@ -327,6 +340,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
 
     def test_a_failed_queue_ack_is_only_logged(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        failed_before = _sample("posthog_person_tombstone_acks_total", outcome="ack_failed")
         with (
             patch("posthog.models.person.util.publish_person_tombstone", return_value=[]),
             patch("posthog.models.person.util.ack_person_tombstones", side_effect=RuntimeError("personhog down")),
@@ -337,6 +351,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         assert result.deleted_count == 1
         assert result.failures == []
         assert list(get_active_fake().tombstone_queue) == [(self.team.pk, str(p.uuid))]
+        assert _sample("posthog_person_tombstone_acks_total", outcome="ack_failed") == failed_before + 1
 
 
 class ProcessQueuedPersonDeletionTests(BaseTest):

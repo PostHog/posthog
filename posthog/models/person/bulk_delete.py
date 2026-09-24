@@ -78,6 +78,14 @@ PERSON_DELETION_PERSONS_COUNTER = Counter(
     labelnames=["path", "outcome"],
 )
 
+# mode: "tombstone" under PERSON_DELETE_TOMBSTONE, "legacy" otherwise. Nothing else exposes which
+# order an environment runs, so a dashboard reads the active mode from this counter.
+PERSON_DELETION_MODE_COUNTER = Counter(
+    "posthog_person_deletion_mode_persons_total",
+    "Persons a profile delete attempted, by deletion order.",
+    labelnames=["mode"],
+)
+
 PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
     "posthog_person_deletion_distinct_ids_per_person",
     "Distinct IDs fetched per person by the queued deletion, which shows how wide deleted persons are.",
@@ -484,8 +492,10 @@ def _tombstone_and_delete_persons(
     """
     failures: builtins.list[PersonDeletionFailure] = []
     if settings.PERSON_DELETE_TOMBSTONE:
+        PERSON_DELETION_MODE_COUNTER.labels(mode="tombstone").inc(len(persons))
         deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures)
     else:
+        PERSON_DELETION_MODE_COUNTER.labels(mode="legacy").inc(len(persons))
         deleted = _tombstone_then_hard_delete_persons(team_id, persons, distinct_ids_for, failures)
 
     if organization_id is not None and deleted:
