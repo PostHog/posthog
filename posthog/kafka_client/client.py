@@ -77,7 +77,7 @@ def _log_delivery_failure(topic: str, error_name: str, msg: Optional[Message]) -
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class ProduceResult:
     """
     A Future-like wrapper for confluent-kafka delivery results.
