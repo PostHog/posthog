@@ -18,7 +18,7 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
-import { broadcastSentLogic } from './broadcastSentLogic'
+import { SEND_STATUSES, broadcastSentLogic } from './broadcastSentLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
@@ -57,11 +57,10 @@ function RunRecipients({ workflowId, runId }: { workflowId: string; runId: strin
 
 function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element {
     const {
-        filteredSends,
+        sends,
         sendsLoading,
         sendsFailed,
         statusFilter,
-        statuses,
         selectedSend,
         recipientCount,
         recipientSearch,
@@ -138,11 +137,8 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                         ? 'Loading recipients'
                         : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
                               recipientCount === 1 ? 'recipient' : 'recipients'
-                          }${recipientSearch ? ' matching' : ''}`}
+                          }${recipientSearch || statusFilter ? ' matching' : ''}`}
                 </span>
-                {statusFilter ? (
-                    <span className="text-sm text-muted">· showing {humanFriendlyNumber(filteredSends.length)}</span>
-                ) : null}
                 <LemonDivider vertical />
                 <LemonInput
                     size="small"
@@ -162,13 +158,13 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                         data-attr="broadcast-sent-status-filter"
                         options={[
                             { value: null, label: 'All statuses' },
-                            ...statuses.map((status) => ({ value: status, label: capitalizeFirstLetter(status) })),
+                            ...SEND_STATUSES.map((status) => ({ value: status, label: capitalizeFirstLetter(status) })),
                         ]}
                     />
                 </div>
             </div>
             <LemonTable
-                dataSource={filteredSends}
+                dataSource={sends}
                 loading={sendsLoading}
                 rowKey="invocation_id"
                 columns={columns}

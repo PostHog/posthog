@@ -1881,6 +1881,11 @@ export type HogFlowsAssetsRetrieveParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * Only return assets whose latest status matches, e.g. 'sent', 'delivered', 'opened', 'clicked', 'bounced' or 'failed'.
+     * @minLength 1
+     */
+    status?: string
 }
 
 export type HogFlowsAssetContentRetrieveParams = {

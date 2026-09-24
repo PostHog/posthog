@@ -35,6 +35,8 @@ export interface MessageAssetsParams {
     invocation_id?: string
     distinct_id?: string
     search?: string
+    /** Matches the latest status of each send, e.g. 'bounced'. */
+    status?: string
     after?: string
     before?: string
     limit?: number
