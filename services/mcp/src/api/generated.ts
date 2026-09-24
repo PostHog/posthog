@@ -18658,6 +18658,23 @@ export namespace Schemas {
     }
 
     /**
+     * The build a publish queued, as it stood when the response was sent.
+     */
+    export interface CanvasPublishedBuild {
+      /** The build's id. */
+      id: string;
+      /** 'ready': the build finished. The canvas is live with this version when canvas.published_build_id equals this id; then you do not need canvas-builds-retrieve. 'failed': fix the error diagnostics and save again. 'queued' or 'building': poll canvas-builds-retrieve until the build is terminal.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum;
+      /** Structured diagnostics recorded by the build (errors explain a failed status). */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
      * Payload for reporting a runtime error observed while rendering a canvas build.
      */
     export interface CanvasReportError {
@@ -18804,24 +18821,57 @@ export namespace Schemas {
     }
 
     /**
-     * One per-file edit: set a file's content, or delete it.
+     * * `write` - Write
+     * * `delete` - Delete
+     * * `rename` - Rename
+     * * `str_replace` - Str Replace
+     */
+    export type CanvasSourceEditOpEnum = typeof CanvasSourceEditOpEnum[keyof typeof CanvasSourceEditOpEnum];
+
+
+    export const CanvasSourceEditOpEnum = {
+      Write: 'write',
+      Delete: 'delete',
+      Rename: 'rename',
+      StrReplace: 'str_replace',
+    } as const;
+
+    /**
+     * One file edit: replace text in a file, write a whole file, delete it, or rename it.
      */
     export interface CanvasSourceEditOperation {
-      /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+      /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and content null means 'delete'. An operation with none of these fields is rejected.
+       *
+       * * `write` - Write
+       * * `delete` - Delete
+       * * `rename` - Rename
+       * * `str_replace` - Str Replace */
+      op?: CanvasSourceEditOpEnum;
+      /** Project-relative path of the file to edit (e.g. "src/canvas.tsx"). */
       path: string;
       /**
-         * The file's complete new content. Null (or omitted) deletes the file.
+         * For 'write': the file's complete new content.
          * @nullable
          */
       content?: string | null;
+      /** For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted. */
+      old_string?: string;
+      /** For 'str_replace': the text that replaces old_string. An empty string deletes old_string. */
+      new_string?: string;
+      /** For 'str_replace': replace every exact match of old_string instead of requiring exactly one. */
+      replace_all?: boolean;
+      /** For 'rename': the file's new project-relative path. */
+      new_path?: string;
     }
 
     /**
      * Payload for publishing per-file edits against the canvas's current source.
      */
     export interface CanvasSourceEdit {
-      /** Edits applied in order to the canvas's current source project. */
-      operations: CanvasSourceEditOperation[];
+      /** Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities. */
+      operations?: CanvasSourceEditOperation[];
+      /** The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities. */
+      capabilities?: CanvasCapabilities;
       /** Short description of the change, stored on the appended version history entry. */
       prompt?: string;
       /**
@@ -18878,6 +18928,8 @@ export namespace Schemas {
       current_version_id: string;
       /** Advisory (warning-severity) diagnostics recorded for the published project. */
       diagnostics: CanvasDiagnostic[];
+      /** The queued build. The server waits a few seconds for it, so it is often already terminal. */
+      build: CanvasPublishedBuild;
     }
 
     /**
@@ -109262,6 +109314,10 @@ export namespace Schemas {
     };
 
     export type FileSystemListParams = {
+    /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean;
     /**
      * Number of results to return per page.
      */
