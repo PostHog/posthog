@@ -12,7 +12,15 @@ import {
 import { POSTHOG_PROJECT_ID_HEADER } from "@posthog/shared/posthog-property-headers";
 import { inject, injectable } from "inversify";
 import type { AuthProxyService } from "../auth-proxy/auth-proxy";
-import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
+import {
+  type ResolvedGatewayProxy,
+  resolveGatewayProxy,
+} from "../auth-proxy/gateway-proxy";
+import {
+  AUTH_PROXY_SERVICE,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "../auth-proxy/identifiers";
+import type { GatewayCredentialSource } from "../auth-proxy/ports";
 import { MCP_PROXY_SERVICE } from "../mcp-proxy/identifiers";
 import type { McpProxyService } from "../mcp-proxy/mcp-proxy";
 import { AGENT_AUTH, AGENT_LOGGER } from "./identifiers";
@@ -75,6 +83,9 @@ export class AgentAuthAdapter {
     private readonly mcpProxy: McpProxyService,
     @inject(AGENT_LOGGER)
     loggerFactory: AgentLogger,
+    // Required: an unbound source would silently keep every session on legacy.
+    @inject(GATEWAY_CREDENTIAL_SOURCE)
+    private readonly gatewaySource: GatewayCredentialSource,
   ) {
     this.log = loggerFactory.scope("agent-auth-adapter");
   }
@@ -218,8 +229,18 @@ export class AgentAuthAdapter {
     };
   }
 
-  async ensureGatewayProxy(apiHost: string): Promise<string> {
-    return this.authProxy.start(getLlmGatewayUrl(apiHost));
+  async ensureGatewayProxy(
+    apiHost: string,
+    projectId: number | null,
+    options: { awaitRecheck?: boolean } = {},
+  ): Promise<ResolvedGatewayProxy> {
+    return resolveGatewayProxy({
+      authProxy: this.authProxy,
+      source: this.gatewaySource,
+      legacyGatewayUrl: getLlmGatewayUrl(apiHost),
+      projectId,
+      awaitRecheck: options.awaitRecheck,
+    });
   }
 
   /**

@@ -1,5 +1,6 @@
 import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
 import { ElectronSettingsBackupFiles } from "../platform-adapters/electron-settings-backup-files";
+import { desktopGatewayTokenHost } from "../utils/gateway-override";
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
@@ -68,11 +69,17 @@ import { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import { OpenTargetLinkService } from "@posthog/core/links/open-target-link";
 import { ScoutLinkService } from "@posthog/core/links/scout-link";
 import { TaskLinkService } from "@posthog/core/links/task-link";
+import type { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
 import {
+  GATEWAY_TOKEN_HOST,
+  GATEWAY_TOKEN_SERVICE,
   LLM_GATEWAY_HOST,
   LLM_GATEWAY_SERVICE,
 } from "@posthog/core/llm-gateway/identifiers";
-import type { LlmGatewayService } from "@posthog/core/llm-gateway/llm-gateway";
+import {
+  desktopUsageUrl,
+  type LlmGatewayService,
+} from "@posthog/core/llm-gateway/llm-gateway";
 import { llmGatewayModule } from "@posthog/core/llm-gateway/llm-gateway.module";
 import { MCP_APPS_SERVICE } from "@posthog/core/mcp-apps/identifiers";
 import { mcpAppsModule } from "@posthog/core/mcp-apps/mcp-apps.module";
@@ -167,7 +174,10 @@ import {
   ARCHIVE_SESSION_CANCELLER,
 } from "@posthog/workspace-server/services/archive/identifiers";
 import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/auth-proxy.module";
-import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import {
+  AUTH_PROXY_AUTH,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
 import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
@@ -435,6 +445,9 @@ container.bind(AUTH_PROXY_AUTH).toDynamicValue((ctx) => ({
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
 }));
+container
+  .bind(GATEWAY_CREDENTIAL_SOURCE)
+  .toDynamicValue((ctx) => ctx.get<GatewayTokenService>(GATEWAY_TOKEN_SERVICE));
 container.load(mcpProxyModule);
 container.bind(MCP_PROXY_AUTH).toDynamicValue((ctx) => {
   const auth = () => ctx.get<AuthService>(MAIN_AUTH_SERVICE);
@@ -555,12 +568,15 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     getValidAccessToken: () => auth().getValidAccessToken(),
     authenticatedFetch: (url: string, init?: RequestInit) =>
       auth().authenticatedFetch(fetch, url, init),
+    fetch: (url: string, init?: RequestInit) => fetch(url, init),
     messagesUrl: (apiHost: string) =>
       `${getLlmGatewayUrl(apiHost)}/v1/messages`,
-    usageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
+    usageUrl: desktopUsageUrl,
+    legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
+container.bind(GATEWAY_TOKEN_HOST).toConstantValue(desktopGatewayTokenHost());
 container.bind(MAIN_LLM_GATEWAY_SERVICE).toService(LLM_GATEWAY_SERVICE);
 container.load(mcpAppsModule);
 container.bind(MAIN_MCP_APPS_SERVICE).toService(MCP_APPS_SERVICE);

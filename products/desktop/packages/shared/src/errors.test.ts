@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  aiGatewayDenialCode,
+  aiGatewayRemintReason,
   classifyGatewayLimitError,
   classifyPromptFailure,
   getErrorMessage,
@@ -156,12 +158,123 @@ describe("classifyGatewayLimitError", () => {
   });
 
   it.each([
+    [
+      'API Error: 402 {"error":{"code":"credit_bucket_exhausted","message":"Your organization has reached its PostHog Desktop usage limit"}}',
+      "org_limit",
+    ],
+    [
+      'API Error: 402 {"error":{"code":"token_cap_exceeded","message":"admission rejected"}}',
+      "org_limit",
+    ],
+    ['{"code":"cap_exceeded","message":"admission rejected"}', "org_limit"],
+    ['{"code":"insufficient_credits","message":"x"}', "org_limit"],
+    ["budget_exceeded:team", "org_limit"],
+    ["API Error: 402 admission rejected", "org_limit"],
+    [
+      'API Error: 403 {"error":{"code":"model_not_allowed","message":"model not allowed for this credential"}}',
+      "model_gate",
+    ],
+    ['{"code":"effort_not_allowed"}', "model_gate"],
+    ["API Error: 400 router rejected request", "model_gate"],
+    [
+      'API Error: 403 {"type":"error","error":{"type":"permission_error","message":"reasoning effort not allowed for this credential"}}',
+      "model_gate",
+    ],
+    [
+      'API Error: 403 {"type":"error","error":{"type":"permission_error","message":"this credential requires an explicit reasoning effort"}}',
+      "model_gate",
+    ],
+    [
+      'API Error: 402 {"type":"error","error":{"type":"billing_error","message":"admission rejected"}}',
+      "org_limit",
+    ],
+  ])("classifies Go gateway refusal %j as %s", (message, expected) => {
+    expect(classifyGatewayLimitError(message)).toBe(expected);
+  });
+
+  it.each([
+    "API Error: 503 router rejected request",
+    "API Error: 500 router rejected request",
+    "API Error: 500 admission rejected",
+    "API Error: 401 admission rejected",
+    "API Error: 500 reasoning effort not allowed for this credential",
+    "router rejected request",
+    "admission rejected",
+  ])("does not read Go outage or auth prose %j as a limit", (message) => {
+    expect(classifyGatewayLimitError(message)).toBeNull();
+  });
+
+  it("prefers a Go model refusal over the admission fallback", () => {
+    expect(
+      classifyGatewayLimitError(
+        'admission rejected {"code":"model_not_allowed"}',
+      ),
+    ).toBe("model_gate");
+  });
+
+  it.each([
     "Rate limit exceeded",
     "Rate limit exceeded: Product rate limit exceeded",
     "Your team has used its monthly PostHog AI credits.",
     "network down",
   ])("returns null for %j", (message) => {
     expect(classifyGatewayLimitError(message)).toBeNull();
+  });
+});
+
+describe("aiGatewayDenialCode", () => {
+  it.each([
+    [
+      "the header over the body",
+      "token_cap_exceeded:team",
+      '{"error":{"code":"cap_exceeded"}}',
+      "token_cap_exceeded",
+    ],
+    [
+      "the body's error.code without a header",
+      null,
+      '{"error":{"code":"cap_exceeded"}}',
+      "cap_exceeded",
+    ],
+    [
+      "a top-level code",
+      undefined,
+      { code: "insufficient_credits" },
+      "insufficient_credits",
+    ],
+    [
+      "nothing from an Anthropic-dialect body",
+      null,
+      '{"type":"error","error":{"type":"x","message":"y"}}',
+      undefined,
+    ],
+    [
+      "a padded header",
+      " token_cap_exceeded :team",
+      null,
+      "token_cap_exceeded",
+    ],
+    [
+      "error.code over a top-level code",
+      null,
+      '{"code":"cap_exceeded","error":{"code":"token_cap_exceeded"}}',
+      "token_cap_exceeded",
+    ],
+    ["nothing from a non-JSON body", "", "<html>", undefined],
+  ])("reads %s", (_label, header, body, expected) => {
+    expect(aiGatewayDenialCode(header, body)).toBe(expected);
+  });
+});
+
+describe("aiGatewayRemintReason", () => {
+  it.each([
+    [401, undefined, "unauthorized"],
+    [402, "token_cap_exceeded", "token_cap_exceeded"],
+    [402, "cap_exceeded", null],
+    [402, undefined, null],
+    [403, "token_cap_exceeded", null],
+  ] as const)("maps %s %s to %s", (status, code, expected) => {
+    expect(aiGatewayRemintReason(status, code)).toBe(expected);
   });
 });
 
@@ -208,6 +321,14 @@ describe("isFatalSessionError", () => {
     expect(
       isFatalSessionError(
         `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.","type":"permission_error","code":"model_gate","reason":"model_not_available"}}`,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat the auth proxy's body-size refusal as fatal", () => {
+    expect(
+      isFatalSessionError(
+        'Internal error: API Error: 413 {"error":{"type":"request_too_large","message":"request body too large"}}',
       ),
     ).toBe(false);
   });

@@ -2825,6 +2825,7 @@ export class SessionService {
       execution_type: "local",
       initial_mode: executionMode,
       adapter,
+      ...(result.gatewayMode && { gateway_mode: result.gatewayMode }),
     });
 
     if (initialPrompt?.length) {

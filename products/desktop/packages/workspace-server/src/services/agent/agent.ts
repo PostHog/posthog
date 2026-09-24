@@ -369,6 +369,7 @@ interface ManagedSession {
   steering?: string;
   /** Adapter's negotiated side-question capability from initialize (`_meta.posthog.sideQuestion`). */
   sideQuestion?: boolean;
+  gatewayMode: "legacy" | "go";
   /** Tracks in-flight MCP tool calls (toolCallId → toolKey) for cancellation */
   inFlightMcpToolCalls: Map<string, string>;
   /** Count of "/btw" side questions awaiting a response, so the idle timer does not reap the session mid-answer. */
@@ -959,9 +960,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
 
     const channel = `agent-event:${taskRunId}`;
-    const proxyUrl = await this.agentAuthAdapter.ensureGatewayProxy(
+    const gatewayProxy = await this.agentAuthAdapter.ensureGatewayProxy(
       credentials.apiHost,
+      credentials.projectId,
     );
+    const proxyUrl = gatewayProxy.proxyUrl;
     // The wiki mount only needs the auth adapter, so it runs alongside the
     // env configuration instead of serializing another round-trip before it.
     const [, contextWiki] = await Promise.all([
@@ -1352,6 +1355,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         configOptions,
         steering,
         sideQuestion,
+        gatewayMode: gatewayProxy.mode,
         inFlightMcpToolCalls: new Map(),
         pendingSideQuestions: 0,
         mcpToolApprovals: toolApprovals,
@@ -2362,6 +2366,7 @@ For git operations while detached:
       configOptions: session.configOptions,
       steering: session.steering,
       sideQuestion: session.sideQuestion,
+      gatewayMode: session.gatewayMode,
     };
   }
 
@@ -2560,13 +2565,47 @@ For git operations while detached:
   }
 
   async getPiModelCatalog(apiHost: string, region: CloudRegion) {
-    const gatewayUrl = getLlmGatewayUrl(apiHost);
+    const models = await this.catalogueSource(apiHost);
     return fetchPosthogPiModelCatalog(
-      gatewayUrl,
+      models.gatewayUrl,
       region,
-      (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
-      this.agentAuthAdapter.gatewayProjectId() ?? undefined,
+      models.authToken,
+      models.projectId,
     );
+  }
+
+  /**
+   * Where the pickers read `/v1/models`: through the proxy for the selected
+   * project, so Go's list gets the same filter and marks a session sees.
+   */
+  private async catalogueSource(apiHost: string): Promise<{
+    gatewayUrl: string;
+    authToken: string | undefined;
+    projectId: number | undefined;
+  }> {
+    const projectId = this.agentAuthAdapter.gatewayProjectId();
+    const authToken =
+      (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined;
+    if (projectId !== null) {
+      try {
+        // The pickers keep no mode, so a due re-check runs in the background.
+        const proxy = await this.agentAuthAdapter.ensureGatewayProxy(
+          apiHost,
+          projectId,
+          { awaitRecheck: false },
+        );
+        return { gatewayUrl: proxy.proxyUrl, authToken, projectId };
+      } catch (err) {
+        this.log.warn("Gateway proxy unavailable for the model catalogue", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return {
+      gatewayUrl: getLlmGatewayUrl(apiHost),
+      authToken,
+      projectId: projectId ?? undefined,
+    };
   }
 
   async getPreviewConfigOptions(
@@ -2574,12 +2613,9 @@ For git operations while detached:
     adapter: Adapter = "claude",
     allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
-    const gatewayUrl = getLlmGatewayUrl(apiHost);
-    const gatewayModels = await fetchGatewayModels({
-      gatewayUrl,
-      authToken: (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
-      projectId: this.agentAuthAdapter.gatewayProjectId() ?? undefined,
-    });
+    const gatewayModels = await fetchGatewayModels(
+      await this.catalogueSource(apiHost),
+    );
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,
       adapter,

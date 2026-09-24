@@ -9,6 +9,7 @@ import {
   buildPosthogPropertyHeaderRecord,
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
+  collapsePropertyHeadersForAiGateway,
 } from "./posthog-property-headers";
 
 describe("PostHog project headers", () => {
@@ -338,5 +339,112 @@ describe("buildPosthogPropertiesHeaderLines", () => {
 
   it("returns an empty string when there is nothing to send", () => {
     expect(buildPosthogPropertiesHeaderLines({ ai_stage: null })).toBe("");
+  });
+});
+
+describe("collapsePropertyHeadersForAiGateway", () => {
+  it("folds per-property headers into one blob and keeps other headers", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      {
+        "content-type": "application/json",
+        "x-posthog-property-task_id": "t1",
+        "x-posthog-property-ai_stage": "chat",
+      },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(out["content-type"]).toBe("application/json");
+    expect(
+      Object.keys(out).some((k) => k.startsWith("x-posthog-property-")),
+    ).toBe(false);
+    expect(JSON.parse(out["X-PostHog-Properties"])).toEqual({
+      task_id: "t1",
+      ai_stage: "chat",
+      ai_product: "posthog_code",
+      team_id: 7,
+    });
+  });
+
+  it("lets trusted values win over the client's headers and inbound blob", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      {
+        "x-posthog-property-team_id": "999",
+        "X-PostHog-Properties": JSON.stringify({ ai_product: "wizard", a: 1 }),
+      },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(JSON.parse(out["X-PostHog-Properties"])).toEqual({
+      a: 1,
+      ai_product: "posthog_code",
+      team_id: 7,
+    });
+  });
+
+  it("lifts $ai_session_id into the session header", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      { "x-posthog-property-$ai_session_id": "task-1" },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(out["X-PostHog-Session-Id"]).toBe("task-1");
+    expect(JSON.parse(out["X-PostHog-Properties"])).not.toHaveProperty(
+      "$ai_session_id",
+    );
+  });
+
+  it("keeps the trusted keys when the client's values overflow the cap", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      {
+        "x-posthog-property-a": "x".repeat(5000),
+        "x-posthog-property-b": "y".repeat(5000),
+      },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    const blob = JSON.parse(out["X-PostHog-Properties"]);
+    expect(blob.ai_product).toBe("posthog_code");
+    expect(blob.team_id).toBe(7);
+  });
+
+  it("falls back to the trusted keys alone when non-string values overflow", () => {
+    const blob = JSON.stringify(
+      Object.fromEntries(Array.from({ length: 2000 }, (_, i) => [`m${i}`, i])),
+    );
+    const out = collapsePropertyHeadersForAiGateway(
+      { "x-posthog-properties": blob },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(JSON.parse(out["X-PostHog-Properties"])).toEqual({
+      ai_product: "posthog_code",
+      team_id: 7,
+    });
+  });
+
+  it("drops client keys that sanitize to a trusted key", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      {
+        "x-posthog-properties": JSON.stringify({
+          ai_product: "x",
+          team_id: 1,
+          "ai_prod\u00fcct": "evil",
+          "team_\u0001id": 999,
+          other: "kept",
+        }),
+      },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(JSON.parse(out["X-PostHog-Properties"])).toEqual({
+      other: "kept",
+      ai_product: "posthog_code",
+      team_id: 7,
+    });
+  });
+
+  it("ignores an inbound blob that is not a JSON object", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      { "x-posthog-properties": "not json" },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(JSON.parse(out["X-PostHog-Properties"])).toEqual({
+      ai_product: "posthog_code",
+      team_id: 7,
+    });
   });
 });

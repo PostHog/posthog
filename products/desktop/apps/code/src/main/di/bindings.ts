@@ -73,7 +73,11 @@ import type { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import type { OpenTargetLinkService } from "@posthog/core/links/open-target-link";
 import type { ScoutLinkService } from "@posthog/core/links/scout-link";
 import type { TaskLinkService } from "@posthog/core/links/task-link";
+import type { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
 import type {
+  GATEWAY_TOKEN_HOST,
+  GATEWAY_TOKEN_SERVICE,
+  GatewayTokenHost,
   LLM_GATEWAY_HOST,
   LlmGatewayHost,
 } from "@posthog/core/llm-gateway/identifiers";
@@ -172,8 +176,14 @@ import type {
   ArchiveFileWatcher,
   SessionCanceller,
 } from "@posthog/workspace-server/services/archive/ports";
-import type { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
-import type { AuthProxyAuth } from "@posthog/workspace-server/services/auth-proxy/ports";
+import type {
+  AUTH_PROXY_AUTH,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import type {
+  AuthProxyAuth,
+  GatewayCredentialSource,
+} from "@posthog/workspace-server/services/auth-proxy/ports";
 import type { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import type {
   ENRICHMENT_AUTH,
@@ -398,6 +408,7 @@ export interface MainBindings {
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;
+  [GATEWAY_CREDENTIAL_SOURCE]: GatewayCredentialSource;
   [MCP_PROXY_AUTH]: McpProxyAuth;
   [MCP_RELAY_SERVICE]: McpRelayService;
   [MCP_RELAY_EXECUTOR]: McpRelayExecutor;
@@ -433,6 +444,8 @@ export interface MainBindings {
 
   // Llm gateway
   [LLM_GATEWAY_HOST]: LlmGatewayHost;
+  [GATEWAY_TOKEN_HOST]: GatewayTokenHost;
+  [GATEWAY_TOKEN_SERVICE]: GatewayTokenService;
   [MAIN_LLM_GATEWAY_SERVICE]: LlmGatewayService;
 
   // Mcp apps

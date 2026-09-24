@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import http from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type StreamProgress, streamBodyToResponse } from "./proxy-stream";
@@ -125,5 +126,30 @@ describe("streamBodyToResponse", () => {
     await fetch(url).then((r) => r.text());
 
     expect(progress.bytesWritten).toBe(0);
+  });
+  it("returns and cancels the body when the response was already destroyed", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new TextEncoder().encode("data\n\n"));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    // A response whose client left before the copy started: "close" is gone.
+    const res = Object.assign(new EventEmitter(), {
+      destroyed: true,
+      write: vi.fn(() => false),
+      end: vi.fn(),
+    }) as unknown as http.ServerResponse;
+
+    const outcome = await Promise.race([
+      streamBodyToResponse(body, res).then(() => "returned"),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 200)),
+    ]);
+
+    expect(outcome).toBe("returned");
+    await vi.waitFor(() => expect(cancelled).toBe(true));
   });
 });

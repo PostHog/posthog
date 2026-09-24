@@ -27,7 +27,12 @@ import type {
   McpServerConnectionSource,
 } from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
-import { AUTH_PROXY_SERVICE } from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import { resolveGatewayProxy } from "@posthog/workspace-server/services/auth-proxy/gateway-proxy";
+import {
+  AUTH_PROXY_SERVICE,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import type { GatewayCredentialSource } from "@posthog/workspace-server/services/auth-proxy/ports";
 import type { PiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/identifiers";
 import { inject, injectable } from "inversify";
 
@@ -43,6 +48,9 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     private readonly mcpServerSource: McpServerConnectionSource,
     @inject(AGENT_MCP_APPS) private readonly mcpApps: AgentMcpApps,
     @inject(ROOT_LOGGER) private readonly rootLogger: RootLogger,
+    // Required: an unbound source would silently keep Pi on legacy.
+    @inject(GATEWAY_CREDENTIAL_SOURCE)
+    private readonly gatewaySource: GatewayCredentialSource,
   ) {}
 
   async create(
@@ -154,18 +162,21 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     }
   }
 
-  private getProxyUrl(
+  private async getProxyUrl(
     region: CloudRegion,
     projectId: number,
     taskId: string,
   ): Promise<string> {
-    const gatewayUrl = getLlmGatewayUrl(getCloudUrlFromRegion(region));
-    return this.authProxy.start(
-      gatewayUrl,
-      buildPosthogScopedPropertyHeaderRecord(
+    const { proxyUrl } = await resolveGatewayProxy({
+      authProxy: this.authProxy,
+      source: this.gatewaySource,
+      legacyGatewayUrl: getLlmGatewayUrl(getCloudUrlFromRegion(region)),
+      projectId,
+      headers: buildPosthogScopedPropertyHeaderRecord(
         { task_id: taskId, $ai_session_id: taskId },
         projectId,
       ),
-    );
+    });
+    return proxyUrl;
   }
 }

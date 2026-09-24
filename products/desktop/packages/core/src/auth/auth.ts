@@ -103,6 +103,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionGeneration = 0;
+  private sessionEpoch = 0;
   // A refresh already refused, keyed to the session generation so every teardown
   // invalidates it. `until: null` is a proven-dead token, a timestamp is a pause.
   private refusedRefresh: {
@@ -143,6 +144,28 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   getState(): AuthState {
     return { ...this.state };
+  }
+  reportDesktopAccessBlocked(projectId: number, access: unknown): void {
+    if (this.state.currentProjectId !== projectId) return;
+    const parsed = desktopAccessResponseSchema.safeParse(access);
+    if (!parsed.success || parsed.data.allowed) return;
+    this.updateState({
+      desktopAccess: {
+        projectId,
+        status: "blocked",
+        reason: parsed.data.reason,
+      },
+    });
+  }
+  getCachedAccountKey(): string | null {
+    return this.session?.accountKey ?? null;
+  }
+  /**
+   * Changes with every sign-in, including one that replaces a live session
+   * without signing out first; token refreshes keep it. Null when signed out.
+   */
+  getSessionEpoch(): number | null {
+    return this.session ? this.sessionEpoch : null;
   }
   async getAccountKey(): Promise<string | null> {
     const generation = this.sessionGeneration;
@@ -1125,11 +1148,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       cloudRegion: region,
       selectedProjectId: this.state.currentProjectId,
     });
-    await this.syncAuthenticatedSession(session, sessionGeneration);
+    await this.syncAuthenticatedSession(session, sessionGeneration, true);
   }
   private async syncAuthenticatedSession(
     session: InMemorySession,
     sessionGeneration: number,
+    signIn = false,
   ): Promise<boolean> {
     if (this.sessionGeneration !== sessionGeneration) {
       return false;
@@ -1155,6 +1179,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     }
     this.persistProjectPreference(session);
     const desktopAccess = this.carryDesktopAccessInto(session);
+    if (signIn) this.sessionEpoch += 1;
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({

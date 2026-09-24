@@ -496,3 +496,64 @@ export function buildCloudTaskConfigOptions(
 
   return configOptions;
 }
+
+export const PAID_PLAN_REQUIRED_REASON = "paid_plan_required";
+
+export interface AllowedModelsPin {
+  /** The desktop product's model list; empty keeps every entry. */
+  productModels: readonly string[];
+  /** What the token can call; null (the dev override) allows every entry. */
+  allowedModels: readonly string[] | null;
+}
+
+function modelNames(entry: Record<string, unknown>): string[] {
+  const names = typeof entry.id === "string" ? [entry.id] : [];
+  if (Array.isArray(entry.aliases)) {
+    for (const alias of entry.aliases) {
+      if (typeof alias === "string") names.push(alias);
+    }
+  }
+  return names;
+}
+
+/**
+ * Filters the Go gateway's unfiltered `/v1/models` body to the desktop product
+ * list and marks `allowed` from the token's pin, keeping the response shape.
+ */
+export function applyAllowedModels(
+  body: unknown,
+  pin: AllowedModelsPin,
+): unknown {
+  const product = new Set(pin.productModels);
+  const allowed = pin.allowedModels && new Set(pin.allowedModels);
+  const rewrite = (entries: unknown[]): unknown[] =>
+    entries.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const record = entry as Record<string, unknown>;
+      const names = modelNames(record);
+      if (names.length === 0) return [];
+      if (product.size > 0 && !names.some((name) => product.has(name))) {
+        return [];
+      }
+      const isAllowed =
+        allowed === null || names.some((name) => allowed.has(name));
+      return [
+        {
+          ...record,
+          allowed: isAllowed,
+          restriction_reason: isAllowed ? null : PAID_PLAN_REQUIRED_REASON,
+        },
+      ];
+    });
+
+  if (Array.isArray(body)) return rewrite(body);
+  if (!body || typeof body !== "object") return body;
+  const response = body as GatewayModelsResponse & Record<string, unknown>;
+  if (Array.isArray(response.data)) {
+    return { ...response, data: rewrite(response.data) };
+  }
+  if (Array.isArray(response.models)) {
+    return { ...response, models: rewrite(response.models) };
+  }
+  return body;
+}
