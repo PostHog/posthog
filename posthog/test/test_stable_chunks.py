@@ -88,6 +88,7 @@ class TestStableChunks(SimpleTestCase):
         assert (cookie.value if cookie else None) == expected_value
         assert (cookie["max-age"] if cookie else None) == expected_max_age
         if expected_value == "1":
+            assert cookie is not None
             # Only the server reads the choice, so scripts on the page never need it.
             assert cookie["httponly"] is True
 
