@@ -49,7 +49,7 @@ export function AccountViewRenderer({ view, accountId, externalId }: AccountView
                         className={`col-span-12 min-w-0 overflow-hidden p-0 ${SPAN_CLASSES[component.span] ?? SPAN_CLASSES[12]}`}
                     >
                         <div className="border-b px-2 py-1 text-xs font-medium text-secondary">{definition?.label}</div>
-                        <div className="min-w-0 px-2 pt-2 pb-0 [&_.LemonTable]:-mx-2">
+                        <div className="min-w-0 px-2 pt-2 pb-0 [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]">
                             <AccountViewComponent
                                 kind={component.kind}
                                 accountId={accountId}
