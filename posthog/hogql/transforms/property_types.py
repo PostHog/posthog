@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtual_feature_flag_property
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
@@ -349,13 +349,16 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
-        # The compatibility pass resolves this virtual map for every JSONExtract* function.
+        # Property resolution rewrites every JSON function over a virtual flag key to parse the flag read.
         if (
             table_name == "events"
             and database_field.name == "properties"
             and len(node.args) > 1
             and isinstance(node.args[1], ast.Constant)
-            and node.args[1].value == "$feature_flags"
+            and isinstance(node.args[1].value, str)
+            and is_virtual_feature_flag_property(
+                node.args[1].value, uses_new_events_schema=self.context.uses_new_events_schema()
+            )
         ):
             return None
 
