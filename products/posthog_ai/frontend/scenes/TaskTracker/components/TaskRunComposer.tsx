@@ -10,11 +10,14 @@ import { userLogic } from 'scenes/userLogic'
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
 import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { runSlashCommandsLogic } from 'products/posthog_ai/frontend/logics/runSlashCommandsLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel, pickerModels } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
+import { CommandResultCard } from '../../../components/composer/CommandResultCard'
+import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
@@ -44,11 +47,14 @@ export function TaskRunComposer({
         defaultModel,
         selectedEffort,
         consentBlocked,
+        consentBlockedSource,
         selectedMode,
         composerActive,
         steerPending,
         cancellationState,
     } = useValues(runInteractionLogic(logicProps))
+    const { slashCommands, commandResult } = useValues(runSlashCommandsLogic(logicProps))
+    const { submitComposer, dismissCommandResult } = useActions(runSlashCommandsLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
     const offeredModels = useMemo(() => pickerModels(catalogue, selectedModel), [catalogue, selectedModel])
     const { user } = useValues(userLogic)
@@ -61,7 +67,6 @@ export function TaskRunComposer({
         setComposerFormValues,
         enableTaskDraftPersistence,
         setComposerFocused,
-        submitComposerForm,
         requestCancellation,
         updateQueuedMessage,
         removeQueuedMessage,
@@ -96,7 +101,7 @@ export function TaskRunComposer({
                 onChange={draft.onChange}
                 onSubmit={() =>
                     draft.submit(() => {
-                        submitComposerForm()
+                        submitComposer()
                         return runInteractionLogic(logicProps).values.composerForm.draft
                     })
                 }
@@ -105,6 +110,15 @@ export function TaskRunComposer({
                 isTurnActive={isBusy}
                 onStop={requestCancellation}
             >
+                {commandResult && (
+                    <Composer.Banner>
+                        <CommandResultCard
+                            title={commandResult.title}
+                            body={commandResult.body}
+                            onDismiss={dismissCommandResult}
+                        />
+                    </Composer.Banner>
+                )}
                 {draftRecovery && composerForm.draft && (
                     <Composer.Banner>
                         <p className="text-xs text-muted px-2 mb-2" data-attr="task-draft-restored">
@@ -130,12 +144,16 @@ export function TaskRunComposer({
                     <Composer.Header>
                         <AttachedContextBar />
                     </Composer.Header>
-                    <Composer.Field>
-                        <Composer.Placeholder>
-                            {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
-                        </Composer.Placeholder>
-                        <Composer.Textarea data-attr="sandbox-composer-input" autoFocus={autoFocus} />
-                    </Composer.Field>
+                    <ComposerCommandMenu commands={slashCommands}>
+                        <Composer.Field>
+                            <Composer.Placeholder>
+                                {isTerminal
+                                    ? 'Send a message to start a new run, or type / for commands…'
+                                    : 'Send a follow-up message, or type / for commands…'}
+                            </Composer.Placeholder>
+                            <Composer.Textarea data-attr="sandbox-composer-input" autoFocus={autoFocus} />
+                        </Composer.Field>
+                    </ComposerCommandMenu>
                     <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                         <fieldset
                             disabled={!controlsReady}
@@ -177,7 +195,16 @@ export function TaskRunComposer({
                     showArrow
                     ignoreDismissal
                     hidden={!consentBlocked}
-                    onApprove={submitAfterConsent}
+                    // A draft may be a slash command, so it resubmits through the command path rather than
+                    // straight to the agent. Queue and steer have no command form and go back as they were.
+                    onApprove={() => {
+                        if (consentBlockedSource === 'draft') {
+                            clearConsentBlock()
+                            submitComposer()
+                        } else {
+                            submitAfterConsent()
+                        }
+                    }}
                     onDismiss={() => clearConsentBlock()}
                 >
                     <Composer.Submit data-attr="sandbox-composer-send" />
