@@ -673,7 +673,53 @@ def _safe_format_message_body(msg: dict[str, Any], options: FormatterOptions | N
         return body_lines
 
 
-def has_message_content(messages: list[Any]) -> bool:
+def _normalize_output_messages(choices: list[Any]) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+
+        # The Responses API can send its items at the top level of the array, with no `role`
+        # and no `content`. Pass those straight to `format_messages_array`, which knows their
+        # shapes, rather than dropping them for failing the role check below.
+        if _is_responses_item(choice):
+            messages.append(choice)
+            continue
+
+        # Extract message from choice
+        # Handle both OpenAI format (choice.message) and Anthropic format (choice is the message)
+        message = choice.get("message")
+        if not message or not isinstance(message, dict):
+            # Anthropic/direct format - choice IS the message
+            if "role" in choice or "content" in choice:
+                message = choice
+            else:
+                continue
+
+        # Normalize tool_calls - extract from content if present
+        tool_calls = message.get("tool_calls", [])
+        content = message.get("content", "")
+        content_tool_calls = extract_tool_calls_from_content(content)
+        if content_tool_calls:
+            tool_calls = content_tool_calls
+
+        # Create normalized message
+        normalized_message = {
+            "role": message.get("role", "assistant"),
+            "content": content,
+            "tool_calls": tool_calls,
+        }
+        # Defer parts expansion until the budgeted renderer consumes each message.
+        if "parts" in message:
+            normalized_message["parts"] = message["parts"]
+        messages.append(normalized_message)
+
+    return messages
+
+
+def has_message_content(messages: list[Any], *, is_output: bool = False) -> bool:
+    if is_output:
+        messages = _normalize_output_messages(messages)
     return any(
         line.strip()
         for msg in _flatten_parts_messages(messages)
@@ -785,47 +831,7 @@ def format_output_messages(
 
     # Output choices (most common format)
     if choices and isinstance(choices, list) and len(choices) > 0:
-        # Extract messages from choices
-        messages = []
-        for choice in choices:
-            if not isinstance(choice, dict):
-                continue
-
-            # The Responses API can send its items at the top level of the array, with no `role`
-            # and no `content`. Pass those straight to `format_messages_array`, which knows their
-            # shapes, rather than dropping them for failing the role check below.
-            if _is_responses_item(choice):
-                messages.append(choice)
-                continue
-
-            # Extract message from choice
-            # Handle both OpenAI format (choice.message) and Anthropic format (choice is the message)
-            message = choice.get("message")
-            if not message or not isinstance(message, dict):
-                # Anthropic/direct format - choice IS the message
-                if "role" in choice or "content" in choice:
-                    message = choice
-                else:
-                    continue
-
-            # Normalize tool_calls - extract from content if present
-            tool_calls = message.get("tool_calls", [])
-            content = message.get("content", "")
-            content_tool_calls = extract_tool_calls_from_content(content)
-            if content_tool_calls:
-                tool_calls = content_tool_calls
-
-            # Create normalized message
-            normalized_message = {
-                "role": message.get("role", "assistant"),
-                "content": content,
-                "tool_calls": tool_calls,
-            }
-            # Defer parts expansion until the budgeted renderer consumes each message.
-            if "parts" in message:
-                normalized_message["parts"] = message["parts"]
-            messages.append(normalized_message)
-
+        messages = _normalize_output_messages(choices)
         if messages:
             lines.append("")
             lines.append("OUTPUT:")

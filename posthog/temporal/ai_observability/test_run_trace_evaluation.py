@@ -630,6 +630,25 @@ class TestExecuteTraceLLMJudgeActivity:
                 ["get_weather()"],
             ),
             (create_trace([], outputState={"score": 0}), ['"score": 0']),
+            pytest.param(
+                create_trace(
+                    [],
+                    outputState=[
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": "\n"},
+                                {
+                                    "type": "function",
+                                    "function": {"name": "get_weather", "arguments": {"city": "Paris"}},
+                                },
+                            ],
+                        }
+                    ],
+                ),
+                ['get_weather(city="Paris")'],
+                id="root_tool_call_with_whitespace",
+            ),
         ],
     )
     def test_judges_full_trace_transcript(

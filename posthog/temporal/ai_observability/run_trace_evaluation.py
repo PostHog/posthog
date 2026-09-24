@@ -576,11 +576,11 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     return text
 
 
-def _has_state_content(state: object) -> bool:
+def _has_state_content(state: object, *, is_output: bool = False) -> bool:
     # Message headers and whitespace can render without any content for the judge to grade.
     if isinstance(state, list) and state and isinstance(state[0], dict):
         if "role" in state[0] or "content" in state[0]:
-            return has_message_content(state)
+            return has_message_content(state, is_output=is_output)
     return bool(state.strip()) if isinstance(state, str) else bool(state)
 
 
@@ -592,7 +592,11 @@ def _has_judge_transcript(trace: LLMTrace) -> bool:
     A Hog eval has no such requirement: it reads trace-level cost and latency straight off the root
     event, so this gate belongs to the judge rather than to the fetch.
     """
-    return bool(trace.events) or _has_state_content(trace.inputState) or _has_state_content(trace.outputState)
+    return (
+        bool(trace.events)
+        or _has_state_content(trace.inputState)
+        or _has_state_content(trace.outputState, is_output=True)
+    )
 
 
 def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:

@@ -14,6 +14,7 @@ They do not change with the selected judge model.
 
 Trace evaluations skip the LLM judge when a trace has no child events and no readable trace-level input or output.
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
+Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
 Root-only traces with readable state still reach the judge, and Hog evaluations can grade root-only traces from their metadata.
 
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.
