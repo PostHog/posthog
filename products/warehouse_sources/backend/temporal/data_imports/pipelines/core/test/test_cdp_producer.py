@@ -1403,7 +1403,7 @@ async def test_view_rows_are_produced_when_the_record_is_unreadable():
 @pytest.mark.asyncio
 async def test_the_record_never_holds_more_than_the_tracked_row_limit():
     # One key per view, so a view big enough to pass the limit must not be able to grow it without
-    # bound. The rows past the limit repeat once more, which is the cheaper failure.
+    # bound. The rows past the limit repeat on every run instead, which is the cheaper failure.
     key = f"test_emitted_rows:{uuid.uuid4()}"
     store = EmittedRowStore(key, mock.AsyncMock())
 

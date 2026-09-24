@@ -42,9 +42,10 @@ CDP_PRODUCER_ROWS_SUPPRESSED_TOTAL = Counter(
 # longer lifetime only keeps the record of a view that stopped running for longer.
 EMITTED_ROWS_TTL_SECONDS = 35 * 24 * 60 * 60
 
-# Above this, the run stops recording, and the rows past the limit repeat once more. Suppression is
-# best effort, like the rest of this path, and a view large enough to pass the limit must not be
-# able to grow one Redis key without bound.
+# Above this, the run stops recording, and the rows it did not record trigger again on the next run.
+# The record keeps the first rows a run sees, so a view that stays past the limit repeats the rows
+# past it on every run. Suppression is best effort, like the rest of this path, and a view large
+# enough to pass the limit must not be able to grow one Redis key without bound.
 MAX_TRACKED_ROWS = 200_000
 
 # Kept well under Redis' argument limit, so a large run cannot build a command the server rejects.
