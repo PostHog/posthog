@@ -1,13 +1,8 @@
-import logging
-
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamExperimentsConfig(models.Model):
@@ -122,6 +117,3 @@ class TeamExperimentsConfig(models.Model):
             "to the team's GitHub installation at cleanup time or it is ignored."
         ),
     )
-
-
-register_team_extension_signal(TeamExperimentsConfig, logger=logger)
