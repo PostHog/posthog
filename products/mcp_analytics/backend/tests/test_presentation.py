@@ -76,7 +76,6 @@ def _tool_blob(tool: str, cluster_ids: list[int]) -> dict:
 
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -99,6 +98,35 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand(
+        [
+            (
+                "feedback_create",
+                "post",
+                "feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+                status.HTTP_201_CREATED,
+            ),
+            (
+                "missing_capability_create",
+                "post",
+                "missing_capabilities/",
+                {"goal": "debug surveys", "missing_capability": "Need an eligibility explainer"},
+                status.HTTP_201_CREATED,
+            ),
+            ("feedback_list", "get", "feedback/", None, status.HTTP_200_OK),
+            ("missing_capability_list", "get", "missing_capabilities/", None, status.HTTP_200_OK),
+        ]
+    )
+    def test_endpoints_do_not_require_any_feature_flag(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None, expected_status: int
+    ) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            request = getattr(self.client, method)
+            response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
+
+        assert response.status_code == expected_status
 
     def test_create_feedback_submission(self) -> None:
         response = self.client.post(
@@ -604,7 +632,6 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     def _url(self, session_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
 
@@ -851,15 +878,13 @@ class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    """Team A must never reach Team B's submissions. Now that the submission endpoints are
-    reachable by anyone inside the mcp-analytics flag (no longer staff-only), pin the tenant
-    boundary: another team's rows never appear in this team's list, and a user who is not a
+    """Team A must never reach Team B's submissions. The submission endpoints are reachable by
+    every project, so pin the tenant boundary: another team's rows never appear in this team's list, and a user who is not a
     member of another team's org is denied when hitting that team's URL.
     """
 
     def setUp(self) -> None:
         super().setUp()
-        # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
         # A team in a different organization that self.user is NOT a member of.
         self.other_org = Organization.objects.create(name="other-org")
         self.other_team = Team.objects.create(organization=self.other_org, name="other-team")

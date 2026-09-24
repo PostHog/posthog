@@ -3,29 +3,14 @@ from contextlib import AbstractContextManager
 from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
-from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.user_access_control import (
-    AccessControlLevel,
-    UserAccessControl,
-    UserAccessControlError,
-)
 from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 
 
-def _only_mcp_analytics_flag(flag_key: str, *args: object, **kwargs: object) -> bool:
+def _only_intent_routing_flag(flag_key: str, *args: object, **kwargs: object) -> bool:
     # Enable just the intent-routing flag; leave every other flag off so tests don't silently
     # mask unrelated flag-gated behavior.
     return flag_key == MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
-
-
-def _deny_mcp_analytics_viewer(resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
-    assert (resource, required_level) == ("mcp_analytics", "viewer")
-    raise UserAccessControlError(resource, required_level)
-
-
-def deny_mcp_analytics_access() -> AbstractContextManager[object]:
-    return patch.object(UserAccessControl, "assert_access_level_for_resource", side_effect=_deny_mcp_analytics_viewer)
 
 
 class _MCPAnalyticsTeamScopedTestMixin:
@@ -46,7 +31,7 @@ class _MCPAnalyticsTeamScopedTestMixin:
         cm = team_scope(self.team.id)  # type: ignore[attr-defined]
         cm.__enter__()
         self._team_scope_cm = cm
-        flag_patcher = patch("posthoganalytics.feature_enabled", side_effect=_only_mcp_analytics_flag)
+        flag_patcher = patch("posthoganalytics.feature_enabled", side_effect=_only_intent_routing_flag)
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)  # type: ignore[attr-defined]
 

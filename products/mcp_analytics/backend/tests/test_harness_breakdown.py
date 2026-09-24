@@ -16,10 +16,9 @@ from posthog.schema import (
 
 from posthog.hogql.parser import parse_expr
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin, deny_mcp_analytics_access
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
 def test_harness_labels_tuple_matches_multiif_branches() -> None:
@@ -247,13 +246,3 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         assert "OpenAI Codex" in by_harness
         assert "Cursor" not in by_harness
-
-    def test_allows_access_by_default(self) -> None:
-        runner = MCPHarnessBreakdownQueryRunner(query=MCPHarnessBreakdownQuery(), team=self.team, user=self.user)
-        assert runner.validate_query_runner_access(self.user) is True
-
-    def test_blocks_access_without_mcp_analytics_access(self) -> None:
-        runner = MCPHarnessBreakdownQueryRunner(query=MCPHarnessBreakdownQuery(), team=self.team, user=self.user)
-        with deny_mcp_analytics_access():
-            with self.assertRaises(UserAccessControlError):
-                runner.validate_query_runner_access(self.user)

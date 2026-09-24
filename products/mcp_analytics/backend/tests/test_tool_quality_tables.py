@@ -22,7 +22,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
@@ -31,7 +30,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolQualityDailyStatsQueryRunner,
     MCPToolQualityRowsQueryRunner,
 )
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin, deny_mcp_analytics_access
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 
@@ -327,26 +326,3 @@ class TestMCPToolQualitySharedFilters(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         ]
         self.team.save()
         assert run(filterTestAccounts=True) == expected_filtered
-
-
-class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    # The whole point of the migration: each kind gates on `mcp-analytics`, so the generic /query/
-    # endpoint can't reach it without the flag. Every other test here calls calculate() with the flag
-    # already on, so a runner that lost its validate_query_runner_access override would stay green.
-    @parameterized.expand(
-        [
-            (MCPToolQualityRowsQueryRunner, MCPToolQualityRowsQuery()),
-            (MCPToolQualityDailyStatsQueryRunner, MCPToolQualityDailyStatsQuery()),
-            (MCPToolCategoryCountsQueryRunner, MCPToolCategoryCountsQuery()),
-            (MCPToolCategoriesQueryRunner, MCPToolCategoriesQuery()),
-            (MCPToolCategoryMapQueryRunner, MCPToolCategoryMapQuery()),
-        ]
-    )
-    def test_runner_gates_on_mcp_analytics_access(self, runner_cls: Any, query: Any) -> None:
-        runner = runner_cls(query=query, team=self.team, user=self.user)
-
-        assert runner.validate_query_runner_access(self.user) is True
-
-        with deny_mcp_analytics_access():
-            with self.assertRaises(UserAccessControlError):
-                runner.validate_query_runner_access(self.user)
