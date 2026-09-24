@@ -1,6 +1,19 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "auto_resolve_after_days": {
+            "anyOf": [
+                {
+                    "maximum": 365,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Automatically resolve active issues that have received no new exceptions for this many days. Null disables auto-resolve."
+        },
         "per_issue_rate_limit_bucket_size_minutes": {
             "anyOf": [
                 {
