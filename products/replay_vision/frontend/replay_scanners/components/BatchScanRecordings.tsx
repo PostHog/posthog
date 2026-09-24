@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -23,69 +23,13 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { ObservationStatusTag } from '../../components/ObservationCard'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { formatCreditCount } from '../../utils/credits'
 import { recordingScanBlock } from '../../utils/scanEligibility'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
 
-/** Manual entry: scan one session by pasting its recording ID. */
-function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scanner, triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
-        replayScannerLogic({ id: scannerId })
-    )
-    const { triggerOnDemandObservation } = useActions(replayScannerLogic({ id: scannerId }))
-    const [sessionId, setSessionId] = useState('')
-    const lastSeenSuccessCount = useRef(onDemandObservationSuccessCount)
-    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
-
-    useEffect(() => {
-        if (onDemandObservationSuccessCount > lastSeenSuccessCount.current) {
-            lastSeenSuccessCount.current = onDemandObservationSuccessCount
-            setSessionId('')
-        }
-    }, [onDemandObservationSuccessCount])
-
-    const trimmed = sessionId.trim()
-    const submit = (): void => {
-        if (!trimmed || triggeringOnDemandObservation) {
-            return
-        }
-        triggerOnDemandObservation(trimmed)
-    }
-
-    return (
-        <div className="border rounded p-4 bg-surface-primary space-y-3">
-            <div>
-                <h3 className="text-sm font-medium mb-1">Scan a session by ID</h3>
-                <p className="text-muted text-sm m-0">
-                    Run this scanner against a specific session recording right now, without waiting for the schedule.
-                    Paste the recording's session ID below.
-                </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <LemonInput
-                    value={sessionId}
-                    onChange={setSessionId}
-                    onPressEnter={submit}
-                    placeholder="Session ID"
-                    fullWidth
-                    data-attr="vision-scanner-scan-session-input"
-                />
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlay />}
-                    onClick={submit}
-                    loading={triggeringOnDemandObservation}
-                    disabledReason={editDisabledReason ?? (!trimmed ? 'Paste a session ID first' : undefined)}
-                    data-attr="vision-scanner-scan-session-submit"
-                >
-                    Scan recording
-                </LemonButton>
-            </div>
-        </div>
-    )
-}
-
 function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
+    const [selectionBarTarget, setSelectionBarTarget] = useState<HTMLElement | null>(null)
     const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
@@ -240,6 +184,12 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                     compactActions
                 />
             </div>
+            {/* A fixed-height row right above the table: the selection bar renders into it, so selecting rows
+                moves nothing, and the hint keeps it from reading as empty space before anything is selected. */}
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-9">
+                <span className="text-muted text-sm">Select recordings to scan them together.</span>
+                <div ref={setSelectionBarTarget} />
+            </div>
             <LemonTable
                 columns={columns}
                 dataSource={sessionRecordings}
@@ -249,6 +199,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 data-attr="vision-run-recordings-table"
                 bulkSelection={{
                     noun: ['recording', 'recordings'],
+                    barPortalTarget: selectionBarTarget,
                     // Only not-yet-scanned rows are selectable — a scanned or in-flight session has nothing
                     // to (re)scan, matching the per-row button that swaps to "View observation". Rows the
                     // gate would refuse are out too, so a bulk run can't spend scans on them.
@@ -273,6 +224,8 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                             data-attr="vision-run-bulk-scan"
                         >
                             Scan {selectedCount} selected
+                            {scanner?.credits_per_observation != null &&
+                                ` · ${formatCreditCount(selectedCount * scanner.credits_per_observation)}`}
                         </LemonButton>
                     ),
                 }}
@@ -293,8 +246,8 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     )
 }
 
-/** Browse and filter recordings, then fire this scanner against any of them. */
-function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
+/** Browse and filter recordings, then scan the ones you select. */
+export function BatchScanRecordings({ scannerId }: { scannerId: string }): JSX.Element {
     // Seed the picker from the scanner's saved triggers so it opens scoped to the sessions this scanner cares about.
     // originalScanner is null until loaded, and the playlist logic reads filters only at mount, so gate on it.
     const { originalScanner } = useValues(replayScannerLogic({ id: scannerId }))
@@ -310,15 +263,11 @@ function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
         : null
 
     return (
-        <div className="border rounded p-4 bg-surface-primary space-y-3">
-            <div>
-                <h3 className="text-sm font-medium mb-1">Pick from your recordings</h3>
-                <p className="text-muted text-sm m-0">
-                    Filter your session recordings and run this scanner against any of them. Filters start from this
-                    scanner's triggers, so adjust them to backfill or scan un-sampled sessions. Each scan produces one
-                    observation.
-                </p>
-            </div>
+        <div className="flex flex-col gap-5">
+            <p className="text-muted text-sm m-0">
+                Filter your recordings, select the ones you want, and scan them together. Each scan produces one
+                observation.
+            </p>
             {logicProps ? (
                 <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
                     <RecordingsList scannerId={scannerId} />
@@ -328,26 +277,6 @@ function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
                     <Spinner className="mr-1" /> Loading recordings…
                 </div>
             )}
-        </div>
-    )
-}
-
-function OrDivider(): JSX.Element {
-    return (
-        <div className="flex items-center justify-center gap-4 text-muted text-base font-semibold uppercase tracking-wide">
-            <div className="w-24 border-t-2" />
-            or
-            <div className="w-24 border-t-2" />
-        </div>
-    )
-}
-
-export function ScannerRunTab({ scannerId }: { scannerId: string }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-8">
-            <ScanBySessionId scannerId={scannerId} />
-            <OrDivider />
-            <ScanFromRecordings scannerId={scannerId} />
         </div>
     )
 }

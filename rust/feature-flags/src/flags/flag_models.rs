@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::cohorts::cohort_models::Cohort;
 use crate::flags::feature_flag_list::PreparedFlags;
-use crate::properties::property_models::PropertyFilter;
+use crate::properties::property_models::{PropertyFilter, ESTIMATED_COMPILED_REGEX_BYTES};
 
 // NOTE: The `evaluation_tags` field was renamed to `evaluation_contexts` in the Python
 // serializer (PR #52186). The Rust field keeps the old name for internal compatibility,
@@ -475,7 +475,11 @@ fn estimate_filters_size(filters: &FlagFilters) -> usize {
                 std::mem::size_of::<PropertyFilter>()
                     + p.key.len()
                     + p.value.as_ref().map_or(0, estimate_json_size)
-                    + if p.compiled_regex.is_some() { 2048 } else { 0 }
+                    + if p.compiled_regex.is_some() {
+                        ESTIMATED_COMPILED_REGEX_BYTES
+                    } else {
+                        0
+                    }
                     + estimate_json_map_size(&p.extra)
             })
             .sum()
