@@ -80,7 +80,7 @@ def validate_event_target(target_event: str, *, error_key: str) -> None:
     _validate_target_event_value(target_event, error_key=error_key)
 
 
-def _require_action_scope(request: Request | None) -> None:
+def require_action_scope(request: Request | None) -> None:
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if scopes is not None and not any(scope in scopes for scope in _ACTION_READ_SCOPES):
         raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
@@ -124,7 +124,7 @@ def resolve_target(
             raise serializers.ValidationError(
                 {"target_definition": "Action target requires a positive integer 'action_id'."}
             )
-        _require_action_scope(request)
+        require_action_scope(request)
         try:
             action_name, action_id = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:

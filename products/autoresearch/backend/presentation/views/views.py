@@ -71,6 +71,7 @@ from .serializers import (
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
+    require_action_scope,
     resolve_target,
     validate_event_target,
 )
@@ -408,6 +409,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
+            # Training labels on the action's steps, so an action target needs the same scope it took to set.
+            if api.get_pipeline(self.team_id, self.kwargs["pk"]).target_definition.get("type") == "action":
+                require_action_scope(request)
             training_run = api.start_training(
                 self.team_id,
                 self.kwargs["pk"],

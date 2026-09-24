@@ -400,6 +400,31 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         data = resp.json()
         assert data["status"] == "running"
 
+    def test_start_training_on_an_action_target_needs_the_action_scope(self):
+        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        pipeline = self._make_pipeline(
+            target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
+        )
+        scopes = ["autoresearch:write", "query:read", "insight:read"]
+        self.client.logout()
+        without = self.create_personal_api_key_with_scopes(scopes)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
+        with patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == "target_definition"
+        mock_run_training.assert_not_called()
+
+        with_action = self.create_personal_api_key_with_scopes([*scopes, "action:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
+        with patch(
+            "products.autoresearch.backend.training.runner.run_training",
+            side_effect=lambda **kw: AutoresearchTrainingRun.objects.create(
+                pipeline=kw["pipeline"], status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=5
+            ),
+        ):
+            assert self.client.post(f"{self.base_url}/{pipeline.id}/train/").status_code == status.HTTP_200_OK
+
     def test_start_training_with_a_deleted_target_action_returns_400(self):
         action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
         pipeline = self._make_pipeline(
