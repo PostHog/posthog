@@ -1183,7 +1183,11 @@ const runningObservationDetail = observation({
 
 export const ObservationDetailNotScanned: StoryObj = observationDetailStory(notScannedObservationDetail)
 
-export const ObservationDetailRunning: StoryObj = observationDetailStory(runningObservationDetail)
+export const ObservationDetailRunning: StoryObj = {
+    ...observationDetailStory(runningObservationDetail),
+    // A running scan keeps its progress and status spinners going, so the page never settles for a snapshot.
+    tags: ['test-skip'],
+}
 
 // The observation outlived its recording, so the player's place explains why and shows the saved frame.
 export const ObservationDetailRecordingExpired: StoryObj = {
