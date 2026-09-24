@@ -142,8 +142,8 @@ class Command(BaseCommand):
 
 
 def display_existing(*, existing_export: BatchExportDetail, verbose: bool):
-    existing_backfill = batch_exports_api.get_backfill_for_export(existing_export.id, existing_export.team_id)
-    if existing_backfill is None:
+    existing_backfills = batch_exports_api.list_backfills_for_export(existing_export.id, existing_export.team_id)
+    if not existing_backfills:
         raise CommandError("The existing migration has no backfill, so we don't know enough to proceed")
     most_recent_run = batch_exports_api.get_latest_run(existing_export.id, existing_export.team_id)
 
@@ -158,14 +158,15 @@ def display_existing(*, existing_export: BatchExportDetail, verbose: bool):
             exclude_events=list(existing_export.exclude_events),
             include_events=list(existing_export.include_events),
         )
-        display(
-            "Existing migration backfill (verbose details)",
-            backfill_id=existing_backfill.id,
-            status=existing_backfill.status,
-            start_at=existing_backfill.start_at,
-            created_at=existing_backfill.created_at,
-            last_updated_at=existing_backfill.last_updated_at,
-        )
+        for existing_backfill in existing_backfills:
+            display(
+                "Existing migration backfill (verbose details)",
+                backfill_id=existing_backfill.id,
+                status=existing_backfill.status,
+                start_at=existing_backfill.start_at,
+                created_at=existing_backfill.created_at,
+                last_updated_at=existing_backfill.last_updated_at,
+            )
 
     if not most_recent_run:
         display("No batch export runs found, is the migration brand new?")
@@ -175,7 +176,16 @@ def display_existing(*, existing_export: BatchExportDetail, verbose: bool):
         )
 
         if most_recent_completed_run:
-            data_start_at = existing_backfill.adjusted_start_at or existing_backfill.start_at
+            # A later backfill can cover a narrower range than the one the command started, so
+            # the migrated data begins at the earliest start of any backfill.
+            data_start_at = min(
+                (
+                    start
+                    for backfill in existing_backfills
+                    if (start := backfill.adjusted_start_at or backfill.start_at) is not None
+                ),
+                default=None,
+            )
             data_end_at = most_recent_completed_run.data_interval_end
             display(
                 "Found an existing migration, range of data migrated:",

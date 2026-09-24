@@ -51,13 +51,13 @@ __all__ = [
     "create_batch_export",
     "delete_batch_export",
     "delete_batch_exports_for_teams",
-    "get_backfill_for_export",
     "get_batch_export_by_name",
     "get_latest_completed_run",
     "get_latest_run",
     "get_run_failure",
     "get_teams_with_active_batch_exports",
     "get_teams_with_billable_rows_exported",
+    "list_backfills_for_export",
     "list_batch_exports_using_integration",
     "list_latest_failed_runs",
     "list_supported_intervals",
@@ -278,12 +278,10 @@ def get_batch_export_by_name(team_id: int, name: str, destination_type: str) -> 
     return _to_detail(batch_export)
 
 
-def get_backfill_for_export(export_id: UUID, team_id: int) -> contracts.BatchExportBackfillSummary | None:
-    """Return the most recent backfill of an export, or None if it has never been backfilled."""
-    backfill = (
-        BatchExportBackfill.objects.filter(batch_export_id=export_id, team_id=team_id).order_by("-created_at").first()
-    )
-    return _to_backfill_summary(backfill) if backfill is not None else None
+def list_backfills_for_export(export_id: UUID, team_id: int) -> list[contracts.BatchExportBackfillSummary]:
+    """Return every backfill of an export, oldest first. An export can have any number of them."""
+    backfills = BatchExportBackfill.objects.filter(batch_export_id=export_id, team_id=team_id).order_by("created_at")
+    return [_to_backfill_summary(backfill) for backfill in backfills]
 
 
 def get_latest_run(export_id: UUID, team_id: int) -> contracts.BatchExportRunSummary | None:
