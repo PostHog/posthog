@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
     LemonBanner,
@@ -16,31 +16,55 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
 import type { SlackUserApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { slackChannelId } from './slackChannel'
+import { slackConnectLogic } from './slackConnectLogic'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
+
+export type SlackNotConfiguredBannerProps = Partial<Pick<LemonBannerProps, 'type' | 'className'>> & {
+    /** Replaces the lead sentence, so a caller can say what connecting Slack is for. */
+    description?: string
+    onConnected?: (integrationId: number) => void
+    onConnectClick?: () => void
+}
 
 export function SlackNotConfiguredBanner({
     type = 'info',
     className,
-}: Partial<Pick<LemonBannerProps, 'type' | 'className'>>): JSX.Element {
+    description,
+    onConnected,
+    onConnectClick,
+}: SlackNotConfiguredBannerProps): JSX.Element {
+    const connectKey = useId()
+    const logic = slackConnectLogic({ connectKey, onConnected })
+    const { waitingForSlack } = useValues(logic)
+    const { connectSlackClicked } = useActions(logic)
+
     return (
         <LemonBanner type={type} className={className}>
             <div className="flex flex-col gap-2">
-                <div className="flex justify-between gap-2 items-center">
+                <div className="flex flex-wrap justify-between gap-2 items-center">
                     <span>
-                        Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.
+                        {description ??
+                            'Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.'}
                     </span>
                     <Link
                         to={api.integrations.authorizeUrl({
                             kind: 'slack',
-                            next: window.location.pathname + '?target_type=slack',
+                            next: urls.settings('project-integrations'),
                         })}
+                        target="_blank"
                         disableClientSideRouting
+                        onClick={() => {
+                            connectSlackClicked()
+                            onConnectClick?.()
+                        }}
                     >
                         <img
                             alt="Add to Slack"
@@ -51,9 +75,15 @@ export function SlackNotConfiguredBanner({
                         />
                     </Link>
                 </div>
+                {waitingForSlack ? (
+                    <span className="flex items-center gap-1 text-sm text-secondary">
+                        <Spinner className="text-sm" />
+                        Waiting for Slack to connect
+                    </span>
+                ) : null}
                 <span className="text-sm text-secondary">
-                    Adding PostHog creates a public #posthog-inbox channel in your Slack workspace, where PostHog posts
-                    what it finds.
+                    Slack opens in a new tab. Adding PostHog creates a public #posthog-inbox channel in your Slack
+                    workspace, where PostHog posts what it finds.
                 </span>
             </div>
         </LemonBanner>
