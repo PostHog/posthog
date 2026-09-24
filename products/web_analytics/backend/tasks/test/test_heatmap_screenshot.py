@@ -109,6 +109,31 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert "429" in (heatmap.exception or "")
         assert "example.com" in (heatmap.exception or "")
         assert not HeatmapSnapshot.objects.filter(heatmap=heatmap).exists()
+        assert self.captured_events[0]["properties"]["credential_delivery_reason"] == "no_secret"
+
+    @parameterized.expand(
+        [
+            ("delivery_off", False, True, "delivery_disabled"),
+            ("no_hostname_approved", True, False, "no_approved_hostnames"),
+            ("cookie_sent", True, True, "sent"),
+        ]
+    )
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
+    def test_event_carries_the_cookie_delivery_reason(
+        self, _name: str, delivery_enabled: bool, approved: bool, expected: str, render: MagicMock
+    ) -> None:
+        render.return_value = _make_response()
+        TeamHeatmapConfig.objects.create(
+            team=self.team,
+            screenshot_secret="phh_abc",
+            allowed_hostnames=["example.com"] if approved else [],
+        )
+
+        with self.settings(HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED=delivery_enabled):
+            generate_heatmap_screenshot(self._make_heatmap().id)
+
+        assert self.captured_events[0]["properties"]["credential_delivery_reason"] == expected
 
     @parameterized.expand(["remove", "rotate"])
     @override_settings(**BROWSERLESS_SETTINGS)
