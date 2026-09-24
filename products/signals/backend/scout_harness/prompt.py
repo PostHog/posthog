@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART
-from products.signals.backend.report_links import PULL_REQUEST_LINK_RULE
+from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -78,6 +78,7 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+    "PLAIN_TEXT_FIELDS_RULE": PLAIN_TEXT_FIELDS_RULE,
     "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
 }
@@ -941,9 +942,9 @@ A bare id leaves the reader copying a string and guessing which page it belongs 
 # reverse) can only happen there, and *Attaching charts* is in that tail alone, so naming it from
 # the signal channel would dangle. The second names report fields (`title`, the report `summary`)
 # the signal channel never writes.
-_LINKING_REPORT_CLAUSES = """
+_LINKING_REPORT_CLAUSES = f"""
 - **A `chart:` target is not a URL.** `[Daily signups](chart:signups-drop)` places a chart (see *Attaching charts*); swapping in a link draws nothing, and pointing a `chart:` target at a page the reader could open is a broken chart reference instead.
-- **A report `title` and the first line of its `summary` stay plain text.** The inbox renders the title as text and lifts the summary's first line out verbatim as the card headline, so a markdown link in either shows up as literal brackets beside a raw URL. Name the entity in words there, and link it where the body picks it up again."""
+{PLAIN_TEXT_FIELDS_RULE}"""
 
 
 def _linking_section(*, report_channel: bool) -> str:

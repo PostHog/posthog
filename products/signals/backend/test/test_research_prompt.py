@@ -17,7 +17,7 @@ from products.signals.backend.report_generation.research import (
     build_signal_investigation_prompt,
     build_supersede_prompt,
 )
-from products.signals.backend.report_links import PULL_REQUEST_LINK_RULE
+from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -258,7 +258,7 @@ class TestBuildReportPresentationPrompt:
     def test_summary_guidance_requires_linked_pull_requests(self):
         on = build_report_presentation_prompt(2)
         assert PULL_REQUEST_LINK_RULE in on
-        assert "summary's first line stay plain text" in on
+        assert PLAIN_TEXT_FIELDS_RULE in on
 
     def test_previous_charts_context_rendered_when_present(self):
         chart = _make_chart()

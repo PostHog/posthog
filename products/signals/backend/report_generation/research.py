@@ -27,7 +27,7 @@ from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART, ReportChart
 from products.signals.backend.report_checks import DEFAULT_CHECK_SOAK_HOURS, MAX_ACTIVE_CHECKS_PER_REPORT, CheckSpec
-from products.signals.backend.report_links import PULL_REQUEST_LINK_RULE
+from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -712,7 +712,7 @@ def _render_own_pull_request_carve_out(own_pr_url: str | None) -> str:
 _PRESENTATION_LINKING = f"""## Linking what you reference
 
 {PULL_REQUEST_LINK_RULE}
-- **The title and the summary's first line stay plain text.** The inbox renders the title as text and lifts the first line out verbatim as the card headline, so a markdown link in either shows up as literal brackets beside a raw URL. Name the pull request in words there, and link it where the body picks it up again."""
+{PLAIN_TEXT_FIELDS_RULE}"""
 
 
 _ACTIONABILITY_CRITERIA = f"""## Actionability criteria
