@@ -73,16 +73,25 @@ export function createPushSubscriptionsHandler(service: PushSubscriptionsService
         }
 
         const startedAt = process.hrtime.bigint()
-        const body = await readBody(req)
-        const result = await service.handle({
-            method: req.method ?? 'GET',
-            body,
-            contentType: header(req, 'content-type'),
-            contentEncoding: header(req, 'content-encoding'),
-            query,
-        })
-
         const methodLabel = req.method === 'POST' || req.method === 'DELETE' ? req.method : 'other'
+        const body = await readBody(req)
+        let result: Awaited<ReturnType<PushSubscriptionsService['handle']>>
+        try {
+            result = await service.handle({
+                method: req.method ?? 'GET',
+                body,
+                contentType: header(req, 'content-type'),
+                contentEncoding: header(req, 'content-encoding'),
+                query,
+            })
+        } catch (error) {
+            // The server answers a throw with a 500, and the error-rate alert reads this histogram.
+            requestDuration.observe(
+                { method: methodLabel, status: '500' },
+                Number(process.hrtime.bigint() - startedAt) / 1e9
+            )
+            throw error
+        }
 
         if (result.rejection) {
             rejectionCounter.inc({ code: result.rejection.code, method: methodLabel })

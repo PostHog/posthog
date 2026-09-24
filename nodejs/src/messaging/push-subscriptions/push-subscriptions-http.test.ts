@@ -1,5 +1,6 @@
 import { Server, createServer, request as httpRequest } from 'http'
 import { AddressInfo } from 'net'
+import { register } from 'prom-client'
 import { gzipSync } from 'zlib'
 
 import { FetchResponse, internalFetch } from '~/common/utils/request'
@@ -12,10 +13,12 @@ describe('push subscriptions http', () => {
     let base: string
     let seen: { method: string; body: string; contentType?: string; compression?: string | null }[]
     let answer: PushHandlerResult
+    let failure: Error | null
 
     beforeEach(async () => {
         seen = []
         answer = { status: 200, body: { distinct_id: 'user-1' } }
+        failure = null
         const service = {
             handle: (request: any) => {
                 seen.push({
@@ -24,12 +27,17 @@ describe('push subscriptions http', () => {
                     contentType: request.contentType,
                     compression: request.query?.get('compression') ?? null,
                 })
-                return Promise.resolve(answer)
+                return failure ? Promise.reject(failure) : Promise.resolve(answer)
             },
         } as unknown as PushSubscriptionsService
 
         const handler = createPushSubscriptionsHandler(service)
-        server = createServer((req, res) => void handler(req, res))
+        server = createServer(
+            (req, res) =>
+                void handler(req, res).catch(() => {
+                    res.writeHead(500).end()
+                })
+        )
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     })
@@ -155,6 +163,24 @@ describe('push subscriptions http', () => {
             detail: 'Invalid project token.',
             attr: null,
         })
+    })
+
+    it('counts a request the service throws on as a 500', async () => {
+        const failedRequests = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('push_subscription_request_duration_seconds')!.get()
+            return metric.values
+                .filter(
+                    (v) => 'metricName' in v && String(v.metricName).endsWith('_count') && v.labels.status === '500'
+                )
+                .reduce((sum, v) => sum + v.value, 0)
+        }
+        const before = await failedRequests()
+        failure = new Error('postgres is down')
+
+        const response = await post('/api/push_subscriptions/', { body: '{}' })
+
+        expect(response.status).toEqual(500)
+        expect((await failedRequests()) - before).toEqual(1)
     })
 
     it('does not hang when the client disconnects mid-body', async () => {
