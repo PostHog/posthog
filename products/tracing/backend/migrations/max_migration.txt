@@ -1,1 +1,1 @@
-0006_teamtracingconfig_retention
+0007_tracesretentionrule

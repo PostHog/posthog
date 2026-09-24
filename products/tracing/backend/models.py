@@ -8,6 +8,8 @@ from django.db import models
 from django.db.models import Value
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -140,8 +142,8 @@ class TeamTracingConfig(models.Model):
     )
 
     # How long spans are kept before ClickHouse expires them. Applied at ingest, so a change
-    # only affects spans received after it. Span retention rules (`LogsRetentionRule` with
-    # `source=spans`) override this per span; spans matching no rule keep this period.
+    # only affects spans received after it. `TracesRetentionRule` rows override this per span;
+    # spans matching no rule keep this period.
     retention_days = models.PositiveIntegerField(
         default=DEFAULT_TRACES_RETENTION_DAYS, db_default=Value(DEFAULT_TRACES_RETENTION_DAYS)
     )
@@ -151,6 +153,43 @@ class TeamTracingConfig(models.Model):
 
 
 register_team_extension_signal(TeamTracingConfig, logger=logger)
+
+
+class TracesRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules that override how long matching spans are retained (evaluated in ingestion
+    when enabled). First matching rule by (priority, created_at) wins; spans matching no rule keep
+    the environment's default retention (`TeamTracingConfig.retention_days`)."""
+
+    # Rules are per-environment, like `TeamTracingConfig`. `EnvironmentScopedManager` filters by the
+    # literal team id, so one environment can never read or rewrite a sibling's rules.
+    # db_constraint=False on the hot-table FKs (team, created_by) keeps the CreateModel migration
+    # lock-free. Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14 or a multiple of 30>}
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    all_teams = models.Manager()
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "tracing_tracesretentionrule"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="traces_ret_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"
 
 
 class TracingView(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):

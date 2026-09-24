@@ -56088,10 +56088,10 @@ export namespace Schemas {
      * * `logs` - Logs
      * * `spans` - Spans
      */
-    export type LogsMetricRuleSourceEnum = typeof LogsMetricRuleSourceEnum[keyof typeof LogsMetricRuleSourceEnum];
+    export type LogsMetricRuleRecordSourceEnum = typeof LogsMetricRuleRecordSourceEnum[keyof typeof LogsMetricRuleRecordSourceEnum];
 
 
-    export const LogsMetricRuleSourceEnum = {
+    export const LogsMetricRuleRecordSourceEnum = {
       Logs: 'logs',
       Spans: 'spans',
     } as const;
@@ -56128,7 +56128,7 @@ export namespace Schemas {
        *
        * * `logs` - Logs
        * * `spans` - Spans */
-      source?: LogsMetricRuleSourceEnum;
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
       readonly created_by: number;
@@ -72977,7 +72977,7 @@ export namespace Schemas {
        *
        * * `logs` - Logs
        * * `spans` - Spans */
-      source?: LogsMetricRuleSourceEnum;
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
       readonly created_by?: number;
@@ -104087,6 +104087,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -104189,6 +104190,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -104277,6 +104279,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -104367,6 +104370,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
