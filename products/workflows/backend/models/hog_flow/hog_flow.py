@@ -121,6 +121,9 @@ class HogFlow(UUIDTModel):
 
         constraints = [
             models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
+            models.UniqueConstraint(
+                fields=["team", "key"], condition=models.Q(key__isnull=False), name="unique_key_for_team"
+            ),
         ]
 
     class State(models.TextChoices):
@@ -139,6 +142,13 @@ class HogFlow(UUIDTModel):
         BROADCASTS = "broadcasts", "Broadcasts"
 
     name = models.CharField(max_length=400, null=True, blank=True)
+    key = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="Client-chosen identifier, unique within this environment. Set only when creating a workflow. "
+        "Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.",
+    )
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
