@@ -432,6 +432,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 setName: (_, { name }) => name,
                 hydrateFromBroadcast: (state, { broadcast }) => broadcast.name || state,
+                // Every field a save writes follows the saved copy, or the next save would send the
+                // stale value back under a fresh base and overwrite the other edit without a conflict.
+                applyExternalEdit: (state, { broadcast }) => broadcast.name || state,
             },
         ],
         audienceProperties: [
@@ -442,6 +445,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     const trigger = findAction(broadcast, 'trigger')
                     return (trigger?.config?.filters?.properties as AnyPropertyFilter[]) ?? state
                 },
+                applyExternalEdit: (state, { broadcast }) =>
+                    (findAction(broadcast, 'trigger')?.config?.filters?.properties as AnyPropertyFilter[]) ?? state,
             },
         ],
         goalEnabled: [
@@ -455,6 +460,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     }
                     return (conversion.events?.length ?? 0) > 0 || (conversion.filters?.length ?? 0) > 0
                 },
+                applyExternalEdit: (_, { broadcast }) =>
+                    (broadcast.conversion?.events?.length ?? 0) > 0 || (broadcast.conversion?.filters?.length ?? 0) > 0,
             },
         ],
         conversion: [
@@ -463,6 +470,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 setConversion: (_, { conversion }) => conversion,
                 hydrateFromBroadcast: (state, { broadcast }) =>
                     broadcast.conversion ? { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion } : state,
+                applyExternalEdit: (state, { broadcast }) =>
+                    broadcast.conversion ? { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion } : state,
             },
         ],
         emailRateLimit: [
@@ -470,6 +479,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 setEmailRateLimit: (_, { emailRateLimit }) => emailRateLimit,
                 hydrateFromBroadcast: (state, { broadcast }) => broadcast.email_sending_rate_limit ?? state,
+                applyExternalEdit: (_, { broadcast }) => broadcast.email_sending_rate_limit ?? null,
             },
         ],
         email: [
