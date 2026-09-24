@@ -191,6 +191,7 @@ export type SettingId =
     | 'group-analytics'
     | 'heatmaps'
     | 'heatmap-screenshot-cookie'
+    | 'heatmaps-capture'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'
@@ -392,14 +393,6 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * product's own configuration scene).
      */
     hideFromNavigation?: boolean
-
-    /**
-     * When true, navigating to this section prompts for re-authentication if the sensitive
-     * session has expired — matching how user- and organization-level settings behave. Use for
-     * environment/project sections that manage credentials, which otherwise only surface the
-     * re-auth modal reactively when a write is attempted.
-     */
-    requiresReauthentication?: boolean
 
     /**
      * Gate every setting in the section behind one billing feature. The section renders a single

@@ -445,7 +445,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # attempt that ran out of budget. The checkpoint is the only signal available here, because a
         # killed attempt records no outcome of its own. Otherwise a large table that converges one
         # worker death per sync is abandoned at the cap, and `_give_up` discards its progress too.
-        if _last_attempt_advanced_rewrite(schema, pending):
+        if _last_run_advanced_rewrite(schema, pending):
             logger.warning(
                 f"repartition: attempts are spent but the rewrite advanced to "
                 f"{_rewrite_rows_written(schema)} rows, resetting the count and resuming "
@@ -735,11 +735,13 @@ def _handle_budget_exceeded(
     run and finishing nothing, because the cap could never count to three.
 
     Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
-    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    a genuine first attempt — one with no checkpoint it could build on — that persisted a checkpoint the
     next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
-    keeps that first attempt apart from a restart that inherited nothing because it discarded an
-    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
-    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
+    keeps that first attempt apart from a restart that inherited nothing because it discarded a
+    checkpoint it could have resumed: the restart re-covered ground the last attempt already covered,
+    however much it wrote, so only it (and an attempt that saved no checkpoint at all) falls through to
+    `_handle_failure`. A checkpoint the resume path rejected does not make an attempt a restart, because
+    it was left by an attempt killed at an arbitrary point and the rows it covered measure nothing.
 
     Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
     the rewrite broke new ground, otherwise whatever `_handle_failure` returns.
@@ -805,18 +807,26 @@ def _rewrite_rows_written(schema: ExternalDataSchema) -> int:
     return int((schema.repartition_rewrite or {}).get("rows_written") or 0)
 
 
-def _last_attempt_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str, Any] | None) -> bool:
-    """Whether the last attempt left the rewrite checkpoint further along than it found it.
+def _last_run_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str, Any] | None) -> bool:
+    """Whether the last sync run left the rewrite checkpoint further along than it found it.
 
-    Every attempt stamps `attempt_rows` with the checkpoint it is about to run from (see
-    `_charge_attempt`), so a checkpoint reading past that stamp is the only trace an attempt killed
-    outright can leave of the rows it committed. Strictly past: a checkpoint standing exactly where
-    the attempt began is the stalled rewrite the cap exists to stop. A marker written before that
-    stamp existed carries no `attempt_rows` and claims no progress.
+    A checkpoint reading past the stamp the run began on is the only trace an attempt killed
+    outright can leave of the rows it committed. The stamp has to be the run's, because the cap
+    counts sync runs and not the Temporal retries inside one (see `_charge_attempt`): `attempt_rows`
+    is re-stamped by every retry, so measuring against it asks only whether the run's *last* retry
+    moved anything. A run whose first retry streams for an hour and whose second dies on arrival
+    reads as stalled on that stamp, so a rewrite converging a budget per sync is abandoned
+    mid-flight. `run_rows` is written once per charged run and answers for the whole of it.
+
+    Strictly past: a checkpoint standing exactly where the run began is the stalled rewrite the cap
+    exists to stop. A marker written before `run_rows` existed falls back to `attempt_rows`, and one
+    carrying neither claims no progress.
     """
     if pending is None:
         return False
-    started_from = pending.get("attempt_rows")
+    started_from = pending.get("run_rows")
+    if started_from is None:
+        started_from = pending.get("attempt_rows")
     return started_from is not None and _rewrite_rows_written(schema) > int(started_from)
 
 
@@ -933,15 +943,18 @@ def _charge_attempt(
 
     Every attempt also stamps `attempt_rows`, the rewrite checkpoint it is about to run from, charged
     or not: an attempt killed outright records nothing itself, so that stamp is the only thing a
-    retry can judge the attempt it retries against (see `_retrying_a_killed_attempt`).
+    retry can judge the attempt it retries against (see `_retrying_a_killed_attempt`). `run_rows` is
+    the same reading kept once per charged run, so the give-up check weighs the run the cap actually
+    counted rather than whichever retry happened to end it (see `_last_run_advanced_rewrite`).
     """
     if pending is None:
         return None
     prior = int(pending.get("attempts", 0))
     already_charged = pending.get("charged_job_id") == job_id
-    marker = {**pending, "attempt_rows": _rewrite_rows_written(schema)}
+    rows_at_start = _rewrite_rows_written(schema)
+    marker = {**pending, "attempt_rows": rows_at_start}
     if not already_charged:
-        marker |= {"attempts": prior + 1, "charged_job_id": job_id}
+        marker |= {"attempts": prior + 1, "charged_job_id": job_id, "run_rows": rows_at_start}
     try:
         schema.set_repartition_pending(marker)
     except Exception:

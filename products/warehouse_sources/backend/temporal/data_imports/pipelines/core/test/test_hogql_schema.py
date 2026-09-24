@@ -176,22 +176,36 @@ class TestMergeColumnsRaceCondition:
 
         assert result["user_id"] == {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}
 
-    def test_merge_columns_skips_column_when_hogql_type_missing_from_schema(self):
-        existing_columns = {
-            "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-        }
-        db_columns = {"user_id": "String", "new_col": "Int64"}
+    @parameterized.expand(
+        [
+            ("text_column", "Nullable(String)", {}, "StringDatabaseField"),
+            ("timestamp_column", "Nullable(DateTime64(6))", {}, "DateTimeDatabaseField"),
+            ("integer_column", "Int64", {}, "IntegerDatabaseField"),
+            ("boolean_bookkeeping_column", "Bool", {}, "BooleanDatabaseField"),
+            ("clickhouse_type_absent_from_the_mapping", "Ring", {}, "UnknownDatabaseField"),
+            (
+                "prior_json_typing_wins_over_the_fallback",
+                "Nullable(String)",
+                {"extra_col": {"clickhouse": "String", "hogql": "StringJSONDatabaseField"}},
+                "StringJSONDatabaseField",
+            ),
+        ]
+    )
+    def test_merge_columns_types_column_from_clickhouse_when_absent_from_schema(
+        self, _name, clickhouse_type, existing_columns, expected_hogql
+    ):
+        db_columns = {"user_id": "String", "extra_col": clickhouse_type}
         table_schema = {"user_id": "StringDatabaseField"}
 
         result = merge_columns(db_columns, table_schema, existing_columns)
 
-        assert "user_id" in result
-        assert "new_col" not in result
+        assert result["user_id"]["hogql"] == "StringDatabaseField"
+        assert result["extra_col"] == {"clickhouse": clickhouse_type, "hogql": expected_hogql}
 
     def test_merge_columns_keeps_binary_column_registered_by_hogql_schema(self):
         # A binary Arrow column (e.g. a BigQuery BYTES field) is read back by ClickHouse's
-        # deltaLake() reader as String, so HogQLSchema must register a type for it or this
-        # column is dropped from `columns` on every sync.
+        # deltaLake() reader as String, so HogQLSchema must map it to the same HogQL type
+        # the ClickHouse reader implies, or the two disagree on the column's type.
         table = pa.table({"key": pa.array([b"abc"], type=pa.binary())})
         schema = HogQLSchema()
         schema.add_pyarrow_table(table)

@@ -567,6 +567,22 @@ services:
             db:
                 condition: service_healthy
 
+    property-defs-ai:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        logging: *default-logging
+        environment:
+            KAFKA_CONSUMER_TOPIC: clickhouse_ai_events_json
+            KAFKA_CONSUMER_GROUP: property-defs-ai
+        depends_on:
+            kafka-init:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
+
     livestream:
         extends:
             file: docker-compose.base.yml

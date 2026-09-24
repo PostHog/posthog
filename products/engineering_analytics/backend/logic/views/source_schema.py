@@ -116,10 +116,14 @@ REVIEWS_COLUMNS: dict[str, dict[str, str]] = {
 # Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
 # are GitHub user objects with the parent team's identity injected by the source fan-out
 # (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the
-# membership-based merge timing reads. Same Nullable discipline as above.
+# membership-based merge timing reads, and ``role`` (``maintainer`` / ``member``) is what the
+# roster read orders reviewers by. Same Nullable discipline as above. GitHub omits ``role`` from
+# the documented member object, so a real table can land without it and the source resolver
+# probes for it rather than assuming it (see MEMBER_ROLE_COLUMN).
 TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "login": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "role": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "team_slug": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

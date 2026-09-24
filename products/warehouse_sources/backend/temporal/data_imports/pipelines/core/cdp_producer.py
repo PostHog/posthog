@@ -32,6 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
     EmittedRowStore,
     emitted_rows_key,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_write,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -293,14 +296,19 @@ class CDPProducer:
         if isinstance(table, pa.RecordBatch):
             table = pa.Table.from_batches([table])
 
+        path = f"{self._get_path_prefix()}/chunk_{chunk}.parquet"
         # Write operations in pyarrow are CPU-bound, so run in thread pool
-        await asyncio.to_thread(
-            write_table,
-            table,
-            f"{self._get_path_prefix()}/chunk_{chunk}.parquet",
-            filesystem=self._get_fs(),
-            compression="zstd",
-            use_dictionary=True,
+        await aretry_staged_write(
+            lambda: asyncio.to_thread(
+                write_table,
+                table,
+                path,
+                filesystem=self._get_fs(),
+                compression="zstd",
+                use_dictionary=True,
+            ),
+            path=path,
+            logger=self.logger,
         )
 
     def _build_emitted_row_store(self) -> EmittedRowStore:
