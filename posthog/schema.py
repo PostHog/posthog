@@ -25810,9 +25810,16 @@ class AssistantTrendsActorsQuery(BaseModel):
         default=None,
         description=("Whether to pull from the previous period when `compare` is enabled in the source."),
     )
-    day: str = Field(
-        ...,
-        description=("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    day: str | None = Field(
+        default=None,
+        description=(
+            "Bucket date for one data point, as an ISO date string (YYYY-MM-DD), e.g."
+            " '2024-01-15'. Omit it to list the persons behind the whole date range"
+            " instead of one bucket. A source that shows one value per series rather"
+            " than a time series (`trendsFilter.display` set to `BoldNumber`,"
+            " `ActionsPie`, `ActionsTable`, and the like) has no buckets, so it takes"
+            " no day."
+        ),
     )
     includeRecordings: bool | None = Field(
         default=True,

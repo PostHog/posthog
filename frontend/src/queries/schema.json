@@ -5313,7 +5313,7 @@
                     "type": "string"
                 },
                 "day": {
-                    "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "description": "Bucket date for one data point, as an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. Omit it to list the persons behind the whole date range instead of one bucket. A source that shows one value per series rather than a time series (`trendsFilter.display` set to `BoldNumber`, `ActionsPie`, `ActionsTable`, and the like) has no buckets, so it takes no day.",
                     "type": "string"
                 },
                 "includeRecordings": {
@@ -5344,7 +5344,7 @@
                     "description": "The source insight query whose data point we are drilling into."
                 }
             },
-            "required": ["kind", "source", "day"],
+            "required": ["kind", "source"],
             "type": "object"
         },
         "AssistantTrendsBreakdownFilter": {

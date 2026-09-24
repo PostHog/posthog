@@ -598,6 +598,32 @@ function isTaken(taken: ReadonlySet<string>, destination: string): boolean {
 }
 
 /**
+ * Whether a key the outer schema and the wrapper both declare holds a value only the
+ * wrapper's field accepts.
+ *
+ * The actors wrappers reuse a source query's field names for their own selectors:
+ * `series` is an array of event nodes inside `source`, and a 0-based index beside it.
+ * A caller that flattened the source query sends the array, so keeping the key at the
+ * top level because the outer schema declares the name leaves the rebuild rejected on
+ * a field the caller did fill, and the nesting mistake goes unnamed.
+ *
+ * Only a value the top-level field rejects moves, so a caller that did mean the selector
+ * keeps it. Nothing moves without a wrapper field of the same name to hold it.
+ */
+function belongsInWrapper(
+    schema: ZodObjectAny,
+    name: string,
+    wrapperField: string | undefined,
+    value: unknown
+): boolean {
+    if (wrapperField === undefined || !(schema instanceof z.ZodObject)) {
+        return false
+    }
+    const sibling = (schema.shape as Record<string, z.ZodType | undefined>)[name]
+    return sibling !== undefined && !sibling.safeParse(value).success
+}
+
+/**
  * Sorts a flattened payload into the call the caller meant.
  *
  * Keys the outer schema declares beside the wrapper stay at the top level, and keys the
@@ -632,7 +658,7 @@ function splitFlattenedPayload(
     for (const [name, value] of Object.entries(input)) {
         const field = fields.get(matchableName(name))
         const placement = placements.get(matchableName(name))
-        if (name !== key && siblings.has(name)) {
+        if (name !== key && siblings.has(name) && !belongsInWrapper(schema, name, field, value)) {
             rebuilt[name] = value
         } else if (field !== undefined && !isTaken(taken, field)) {
             taken.add(field)
@@ -693,9 +719,16 @@ function looksLikeUnwrappedPayload(
         const parsed = (wrapped.data as Record<string, unknown>)[key]
         return isRecord(parsed) && Object.keys(parsed).length > 0
     }
-    // Every remaining complaint sits under the wrapper: the nested schema read the
-    // content and rejected specific fields, so the nesting itself was the mistake.
-    return wrapped.error.issues.every((issue) => issue.path.length > 1 && String(issue.path[0]) === key)
+    // Every remaining complaint sits under the wrapper, or names a top-level field the
+    // caller never sent. The first means the nested schema read the content and rejected
+    // specific fields; the second is a field the rebuild could not have broken, and on the
+    // actors wrappers it is the norm — a caller that sends a source query flattened omits
+    // the cell selectors beside it too. Either way the nesting is the mistake to name.
+    return wrapped.error.issues.every(
+        (issue) =>
+            (issue.path.length > 1 && String(issue.path[0]) === key) ||
+            (issue.path.length === 1 && String(issue.path[0]) !== key && !(String(issue.path[0]) in input))
+    )
 }
 
 /** Bound on how many stray object keys the check tries, because each try costs a
@@ -759,19 +792,30 @@ function acceptedTopLevelShape(nested: unknown, schema: ZodObjectAny | undefined
  * `splitFlattenedPayload` decides where each key belongs. Returns undefined when a key belongs
  * nowhere, or when the rebuilt payload does not parse, so a payload malformed for some other
  * reason keeps its own rejection instead of being guessed at.
+ *
+ * One rejection names the omitted wrapper; the rest may be fallout from the same mistake, such as
+ * a source query's `series` array read against the selector index of the same name. They are left
+ * to the rebuilt payload to answer for, which is what the final parse checks.
  */
 export function rewrapFlattenedArguments(
     error: z.ZodError,
     input: unknown,
     schema: ZodObjectAny | undefined
 ): Record<string, unknown> | undefined {
-    if (!schema || !isRecord(input) || error.issues.length !== 1) {
+    if (!schema || !isRecord(input)) {
         return undefined
     }
-    const issue = error.issues[0]!
-    if (issue.code !== 'invalid_type' || !('input' in issue) || issue.input !== undefined) {
+    const missing = error.issues.filter(
+        (candidate) =>
+            candidate.code === 'invalid_type' &&
+            'input' in candidate &&
+            candidate.input === undefined &&
+            candidate.path.length === 1
+    )
+    if (missing.length !== 1) {
         return undefined
     }
+    const issue = missing[0]!
     if (!looksLikeUnwrappedPayload(issue.path, input, schema)) {
         return undefined
     }
