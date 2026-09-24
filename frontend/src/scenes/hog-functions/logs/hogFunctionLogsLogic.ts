@@ -382,14 +382,15 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                                 })),
                             ]
 
-                            // The worker reports a filtered retry at info level only, which reads as a normal run.
                             if (res.status === 'skipped') {
+                                // The worker reports a filtered retry at info level only, which reads as a normal run.
+                                const now = dayjs()
                                 entries.push({
-                                    timestamp: dayjs(),
-                                    level: 'WARN' as LogEntryLevel,
+                                    timestamp: now,
+                                    level: 'WARN',
                                     message: RETRY_SKIPPED_MESSAGE,
                                     instanceId: groupedLogEntry.instanceId,
-                                    rawTimestamp: dayjs().toISOString(),
+                                    rawTimestamp: now.toISOString(),
                                 })
                             }
 
