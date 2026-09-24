@@ -794,9 +794,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             cache.emailEditPending = true
             await breakpoint(1000)
-            // An earlier autosave still in flight moves updated_at when it lands. Wait for it, or this save
-            // sends the old base, gets a 409, and the reload drops what the user typed since.
-            while ((cache.autosavesInFlight ?? 0) > 0) {
+            // An earlier autosave or a Continue still in flight moves updated_at when it lands. Wait for it,
+            // or this save sends the old base, gets a 409, and the reload drops what the user typed since.
+            while ((cache.autosavesInFlight ?? 0) > 0 || values.saving) {
                 await breakpoint(100)
             }
             const broadcastId = values.broadcastId
@@ -819,6 +819,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     const fresh = await hogFlowsRetrieve(projectId, broadcastId).catch(() => null)
                     if (fresh) {
                         cache.emailEditPending = false
+                        cache.autosaveConflict = true
                         actions.applyExternalEdit(fresh)
                         lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
                     } else {
@@ -910,13 +911,24 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.setRecurringStartsAt(dayjs.tz(wallClock, timezone).toISOString())
             }
         },
-        continueStep: async () => {
+        continueStep: async (_, breakpoint) => {
             if (values.currentStepHasErrors || !values.currentProjectId) {
                 actions.saveBroadcastFinished(null)
                 return
             }
             // A draft created on entering the content step must land first, or this would create a second.
             await cache.draftCreation?.catch(() => null)
+            // An autosave in flight moves updated_at when it lands. Save after it, or this save sends the
+            // old base and fails on the user's own autosave.
+            cache.autosaveConflict = false
+            while ((cache.autosavesInFlight ?? 0) > 0) {
+                await breakpoint(100)
+            }
+            if (cache.autosaveConflict) {
+                // That autosave loaded an edit made elsewhere and said so. Let the user review it first.
+                actions.saveBroadcastFinished(null)
+                return
+            }
             const projectId = String(values.currentProjectId)
             try {
                 let saved: HogFlowApi
@@ -939,7 +951,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
-        launchBroadcast: async () => {
+        launchBroadcast: async (_, breakpoint) => {
             if (!values.currentProjectId) {
                 actions.launchBroadcastFinished()
                 return
@@ -951,6 +963,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             const projectId = String(values.currentProjectId)
             await cache.draftCreation?.catch(() => null)
+            // Same ordering as Continue: an autosave that trails the content step must land first.
+            cache.autosaveConflict = false
+            while ((cache.autosavesInFlight ?? 0) > 0) {
+                await breakpoint(100)
+            }
+            if (cache.autosaveConflict) {
+                actions.launchBroadcastFinished()
+                return
+            }
             let broadcastId = values.broadcastId
             let activated: HogFlowApi | null = null
             try {
