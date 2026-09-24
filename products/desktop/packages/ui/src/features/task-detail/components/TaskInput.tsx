@@ -979,7 +979,7 @@ export function TaskInput({
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     agentRuntime: runtime,
-    runtimeAdapter: adapter ?? null,
+    runtimeAdapter: adapter ?? "claude",
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
     permissionMode: currentExecutionMode,
