@@ -477,6 +477,9 @@ def test_failed_run_still_dismisses_the_stale_approval_first(team, stamphog_chai
     assert prior.approval_dismissed_at is not None
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert [w["review_id"] for w in dismissals] == [777]
+    minimized = [w for w in recorder.github_writes if w["kind"] == "minimize_review"]
+    assert [w["node_id"] for w in minimized] == ["PRR_777"]
+    assert "classifier: OUTDATED" in minimized[0]["query"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
