@@ -15,6 +15,7 @@ describe('evaluationsSetupLogic', () => {
     let directoriesSpy: jest.SpyInstance
 
     beforeEach(() => {
+        localStorage.clear()
         evaluationsSpy = jest.spyOn(generatedApi, 'evaluationsList')
         directoriesSpy = jest.spyOn(generatedApi, 'evaluationDirectoriesList')
         initKeaTests()

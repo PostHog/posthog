@@ -14,6 +14,7 @@ describe('cohortsSetupLogic', () => {
     let listSpy: jest.SpyInstance
 
     beforeEach(() => {
+        localStorage.clear()
         listSpy = jest.spyOn(generatedApi, 'cohortsList')
         initKeaTests()
     })

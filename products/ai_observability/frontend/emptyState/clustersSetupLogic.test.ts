@@ -19,6 +19,7 @@ describe('clustersSetupLogic', () => {
     let querySpy: jest.SpyInstance
 
     beforeEach(() => {
+        localStorage.clear()
         jest.clearAllMocks()
         querySpy = jest.spyOn(api, 'queryHogQL')
         initKeaTests()

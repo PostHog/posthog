@@ -13,6 +13,10 @@ import type { TeamType } from '~/types'
 import { sessionReplaySetupLogic } from './sessionReplaySetupLogic'
 
 describe('sessionReplaySetupLogic', () => {
+    beforeEach(() => {
+        localStorage.clear()
+    })
+
     // Guards the three-state mapping the scene gate hangs off: recordings must
     // outrank the toggle (turning recording off keeps old recordings, and this
     // scene is the only place to watch them), and opt-in without recordings must

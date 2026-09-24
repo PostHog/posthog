@@ -15,6 +15,7 @@ describe('annotationsSetupLogic', () => {
     let listSpy: jest.SpyInstance
 
     beforeEach(() => {
+        localStorage.clear()
         listSpy = jest.spyOn(generatedApi, 'annotationsList')
         initKeaTests()
     })

@@ -12,6 +12,7 @@ jest.mock('../generated/api', () => ({ surveysList: jest.fn() }))
 
 describe('surveysSetupLogic', () => {
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
     })
 

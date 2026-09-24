@@ -51,6 +51,15 @@ export interface SetupDetectionLogicOptions {
      * and a query on every scene entry.
      */
     cacheHasData?: boolean
+    /**
+     * With `cacheHasData`, still run detection once in the background after a cached
+     * has-data answer opens the gate. For products whose data users can delete (entity
+     * counts: dashboards, cohorts, notebooks) or that age out of the probe's window
+     * (retention, lookbacks). The gate never waits for this check. A `needs-setup` or
+     * `waiting-for-data` answer replaces the cached status and clears the cache, so
+     * the empty state shows again. A failure, `null` or `unknown` keeps has-data.
+     */
+    revalidateCachedHasData?: boolean
 }
 
 export interface SetupDetectionValues {
@@ -69,30 +78,29 @@ export interface SetupDetectionActions {
     ) => { detectedStatus: ProductSetupStatus | null }
     detectStatusFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     setDetectedStatus: (status: ProductSetupStatus) => { status: ProductSetupStatus }
+    applyDetectedStatus: (
+        status: ProductSetupStatus,
+        teamId: number | null
+    ) => { status: ProductSetupStatus; teamId: number | null }
 }
 
 export type SetupDetectionLogicType = MakeLogicType<SetupDetectionValues, SetupDetectionActions>
 
-/**
- * Builds a product's empty-state detection logic: the piece that answers "is this
- * product set up?" and pushes the answer into `productSetupStatusLogic`. Wraps the
- * contract every adoption re-implemented by hand - detect on mount, poll until data
- * arrives, fail open on errors - so a product only supplies its `detect` function:
- *
- * ```ts
- * export const logsSetupLogic = createSetupDetectionLogic({
- *     productKey: ProductKey.LOGS,
- *     path: ['products', 'logs', 'frontend', 'emptyState', 'logsSetupLogic'],
- *     detect: async () => ((await api.logs.hasLogs()) ? 'has-data' : 'needs-setup'),
- *     pollIntervalMs: 20000,
- * })
- * ```
- *
- * Products whose detection drives more than the gate (extra selectors, multi-stage
- * dashboards like MCP analytics) keep a bespoke logic instead.
- */
+const HAS_DATA_CACHE_PREFIX = 'ph-product-setup-has-data/'
+
 function hasDataCacheKey(teamId: number, productKey: ProductKey): string {
-    return `ph-product-setup-has-data/${teamId}/${productKey}`
+    return `${HAS_DATA_CACHE_PREFIX}${teamId}/${productKey}`
+}
+
+/** Drops every product's cached has-data answer, so isolated renders (stories) detect afresh. */
+export function clearAllCachedHasData(): void {
+    try {
+        Object.keys(window.localStorage)
+            .filter((key) => key.startsWith(HAS_DATA_CACHE_PREFIX))
+            .forEach((key) => window.localStorage.removeItem(key))
+    } catch {
+        // Storage is unavailable, so nothing was cached either.
+    }
 }
 
 // localStorage can throw (private modes, disabled storage); a cache miss is always safe.
@@ -114,12 +122,48 @@ function writeCachedHasData(teamId: number | null, productKey: ProductKey): void
     }
 }
 
+function clearCachedHasData(teamId: number | null, productKey: ProductKey): void {
+    try {
+        if (teamId !== null) {
+            window.localStorage.removeItem(hasDataCacheKey(teamId, productKey))
+        }
+    } catch {
+        // A stale entry only means the next mount revalidates again.
+    }
+}
+
+/**
+ * Builds a product's empty-state detection logic: the piece that answers "is this
+ * product set up?" and pushes the answer into `productSetupStatusLogic`. Wraps the
+ * contract every adoption re-implemented by hand - detect on mount, poll until data
+ * arrives, fail open on errors - so a product only supplies its `detect` function:
+ *
+ * ```ts
+ * export const logsSetupLogic = createSetupDetectionLogic({
+ *     productKey: ProductKey.LOGS,
+ *     path: ['products', 'logs', 'frontend', 'emptyState', 'logsSetupLogic'],
+ *     detect: async () => ((await api.logs.hasLogs()) ? 'has-data' : 'needs-setup'),
+ *     pollIntervalMs: 20000,
+ * })
+ * ```
+ *
+ * Products whose detection drives more than the gate (extra selectors, multi-stage
+ * dashboards like MCP analytics) keep a bespoke logic instead.
+ */
 export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): LogicWrapper<SetupDetectionLogicType> {
-    const { productKey, detect, pollIntervalMs, onDetected, recheckActionTypes, cacheHasData } = options
+    const {
+        productKey,
+        detect,
+        pollIntervalMs,
+        onDetected,
+        recheckActionTypes,
+        cacheHasData,
+        revalidateCachedHasData,
+    } = options
     return buildKea<SetupDetectionLogicType>([
         path(options.path),
         connect(() => ({
-            actions: [productSetupStatusLogic({ productKey }), ['setDetectedStatus']],
+            actions: [productSetupStatusLogic({ productKey }), ['setDetectedStatus', 'applyDetectedStatus']],
             values: [
                 productSetupStatusLogic({ productKey }),
                 ['status as setupStatus'],
@@ -144,13 +188,29 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 (recheckActionTypes?.() ?? []).map((actionType) => [
                     actionType,
                     () => {
-                        if (values.currentProjectId) {
+                        // Rechecks exist to flip the gate open after the first entity is created
+                        // in place; once it is open, another probe changes nothing.
+                        if (values.currentProjectId && values.setupStatus !== 'has-data') {
                             actions.detectStatus()
                         }
                     },
                 ])
             ),
             detectStatusSuccess: ({ detectedStatus }) => {
+                const revalidating = !!cache.revalidating
+                cache.revalidating = false
+                if (revalidating) {
+                    // The cached has-data already opened the gate and ran onDetected. Only a
+                    // definite "no data" answer changes anything, and it must bypass the
+                    // guard that stops needs-setup replacing has-data.
+                    if (detectedStatus === 'needs-setup' || detectedStatus === 'waiting-for-data') {
+                        clearCachedHasData(values.currentTeamId, productKey)
+                        actions.applyDetectedStatus(detectedStatus, values.currentTeamId)
+                        onDetected?.(detectedStatus)
+                        startPoll(cache, actions, values, pollIntervalMs)
+                    }
+                    return
+                }
                 if (!detectedStatus) {
                     if (values.setupStatus === 'loading') {
                         actions.setDetectedStatus('unknown')
@@ -168,6 +228,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 }
             },
             detectStatusFailure: ({ errorObject }) => {
+                cache.revalidating = false
                 // Never strand the gate on its spinner: if nothing (preload included)
                 // has answered yet, fail open to the real scene. The poll keeps
                 // retrying, and a failure never downgrades an existing answer.
@@ -183,7 +244,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             },
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
                 // Covers non-polling products mounted before bootstrap settled.
-                if (values.detectedStatus === null && !values.detectedStatusLoading) {
+                if (!cache.servedFromCache && values.detectedStatus === null && !values.detectedStatusLoading) {
                     actions.detectStatus()
                 }
             },
@@ -194,22 +255,42 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // The cache skips detection, not the side effects - returning users take
                 // this path on every later visit.
                 onDetected?.('has-data')
+                if (revalidateCachedHasData) {
+                    // Before bootstrap settles, the loadCurrentProjectSuccess listener runs it.
+                    cache.revalidating = true
+                    detectIfProjectKnown(actions, values)
+                } else {
+                    cache.servedFromCache = true
+                }
                 return
             }
-            // The API layer resolves the project from bootstrap state, so a check fired
-            // before that settles throws instead of answering - skip those ticks.
-            const detectIfProjectKnown = (): void => {
-                if (values.currentProjectId) {
-                    actions.detectStatus()
-                }
-            }
-            detectIfProjectKnown()
-            if (pollIntervalMs) {
-                cache.disposables.add(() => {
-                    const id = window.setInterval(detectIfProjectKnown, pollIntervalMs)
-                    return () => clearInterval(id)
-                }, 'poll')
-            }
+            detectIfProjectKnown(actions, values)
+            startPoll(cache, actions, values, pollIntervalMs)
         }),
     ])
+}
+
+// The API layer resolves the project from bootstrap state, so a check fired before
+// that settles throws instead of answering - skip those ticks.
+function detectIfProjectKnown(
+    actions: Pick<SetupDetectionLogicType['actions'], 'detectStatus'>,
+    values: Pick<SetupDetectionValues, 'currentProjectId'>
+): void {
+    if (values.currentProjectId) {
+        actions.detectStatus()
+    }
+}
+
+function startPoll(
+    cache: Record<string, any>,
+    actions: Pick<SetupDetectionLogicType['actions'], 'detectStatus'>,
+    values: Pick<SetupDetectionValues, 'currentProjectId'>,
+    pollIntervalMs: number | undefined
+): void {
+    if (pollIntervalMs) {
+        cache.disposables.add(() => {
+            const id = window.setInterval(() => detectIfProjectKnown(actions, values), pollIntervalMs)
+            return () => clearInterval(id)
+        }, 'poll')
+    }
 }
