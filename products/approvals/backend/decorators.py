@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 # ChangeRequest creates that raised inside the approval gate. The caller always gets
 # "Failed to create approval request", but that message does not tell a responder
 # whether the row exists. The counted block covers get_display_data (before the
-# insert), the insert itself, and the post-insert analytics call. The row is missing
-# only when get_display_data or the insert itself raised. A responder must check for a
-# PENDING request before advising a retry. The on_commit notification is only queued
-# here, not run. It cannot raise inside this block. Drives the
+# insert), the insert itself, and the post-insert analytics call. A failure before or
+# in the insert leaves no row. A failure in the analytics call can leave a PENDING
+# row, unless an enclosing transaction rolls the insert back. A responder must check
+# for a PENDING request before advising a retry. The on_commit notification is only
+# queued here, not run. It cannot raise inside this block. Drives the
 # ApprovalsChangeRequestCreateFailing alert in PostHog/charts.
 # error_type carries the exception class name only, because the message would make the
 # label unbounded.
