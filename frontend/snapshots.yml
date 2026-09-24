@@ -7684,6 +7684,22 @@ snapshots:
         hash: v1.k794b7964.c4b1a6986db44af6a8e496ec80f9d177d131a2db6e5fa09cc87a79ec6c53a6f4.09YBKQpa28bk-h-ntRltPIPEGy_XRWA3Ner82vwyHRc
     scenes-app-batchexports--runs-with-data--light:
         hash: v1.k794b7964.4c1646577dc53efffd814b1a2e723f9da6b10d3641e979f48c5d0447859e2348.fkHuUw1l_9c3rJKSi467jx-6Nv81nNp-PjeRmsgU7l0
+    scenes-app-businessknowledge-knowledgesourcedetails--file--dark:
+        hash: v1.k794b7964.6fce4fcb3dbf4153e1803231c31de01442077368bc563d1e461374db36c8de54.OV6BI-ljYwtd1ZvU0lxpX70ZH8YDfYqq2kbILbe_dH4
+    scenes-app-businessknowledge-knowledgesourcedetails--file--light:
+        hash: v1.k794b7964.ba7083911c27961d1050951d8f15f388cb91e880402b7c7fd701fbccef66d07c.b8CnCawVdQo9b5DcE4MIGqmYoeHTiee8kDNxPwi4vds
+    scenes-app-businessknowledge-knowledgesourcedetails--learned--dark:
+        hash: v1.k794b7964.c30245544fe59122dd4dcdd784acb6938af94ed99bb5093072804961686147d5.KhpS0OJ20syyeinctRlJE40zjmN8xuDCYBjXWm9kdZk
+    scenes-app-businessknowledge-knowledgesourcedetails--learned--light:
+        hash: v1.k794b7964.15e551ed8e0c09c8a8117df3ea29fb333b125af787e0d3f2aa43c0c44a9e846e.KLGmpYF8efOXI89n4hoMgEmMlTf48wNk96WBzpJiQdw
+    scenes-app-businessknowledge-knowledgesourcedetails--text--dark:
+        hash: v1.k794b7964.f16ff52a8628939bb64ec44713155455d9c5bfab9bdc06d81fed67f55f29d75e.ltD-2rSDPPvEVCEPb9MjpGiCCeUnAicC-lYoC2GShuM
+    scenes-app-businessknowledge-knowledgesourcedetails--text--light:
+        hash: v1.k794b7964.db5144bba913475024aceaac85922bf9ad7f4f6d619bd99bc23deffa6cb1564a.tSwwIvqtNg2OLxdpOl-nijCWNhFX0g55gRKK6Ntyceg
+    scenes-app-businessknowledge-knowledgesourcedetails--url--dark:
+        hash: v1.k794b7964.d0914f08041ecd372a0552e1a5345feebf055db15315a2ce9d31d86e374c888c.A5mzE5WueezZmwuekpiPiRe7Y-avmS9-NHyTdOm3Sx8
+    scenes-app-businessknowledge-knowledgesourcedetails--url--light:
+        hash: v1.k794b7964.9758a1ea2f664dc94c5a1395a285cde271db374a797c5c2e95efa4053ed52285.moGQ7fT6k--YLwPyIz-h2dRnpCHNQyRxHikh1nnLo7k
     scenes-app-businessknowledge-knowledgesourcenamecell--learned-from-ticket--dark:
         hash: v1.k794b7964.a46d4d71b7c29d97eb5e21a51ea6f3e094057423f4ba8d4056478f8dee07511d.Mz_2JgSjfjfty0b5EX1bU9eBPi9g1Ijhfs0Sl6L9MLM
     scenes-app-businessknowledge-knowledgesourcenamecell--learned-from-ticket--light:
