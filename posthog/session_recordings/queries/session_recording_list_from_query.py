@@ -168,10 +168,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
         self.events_subqueries_sampled = False
-        self._event_query_strategy = "separate"
-        self._event_filter_count = 0
-        self._event_query_has_properties = False
-        self._combined_event_query_eligible = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
@@ -284,14 +280,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 listing_tags["experiment_exposures_in_session"] = True
             if self._query.event_match_scope == EventMatchScope.RECORDING:
                 listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
-                listing_tags["replay_event_query_strategy"] = self._event_query_strategy
-                listing_tags["replay_event_filter_count"] = self._event_filter_count
-                listing_tags["replay_event_query_has_properties"] = self._event_query_has_properties
-                listing_tags["replay_combined_event_query_eligible"] = self._combined_event_query_eligible
-                listing_tags["replay_event_query_operand"] = self._query.operand
-                listing_tags["replay_event_query_range_days"] = (
-                    self.query_date_range.date_to() - self.query_date_range.date_from()
-                ).total_seconds() / 86400
             with tags_context(**listing_tags):
                 paginated_response = self._paginator.execute_hogql_query(
                     # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
@@ -564,14 +552,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             events_timestamp_floor=self._events_timestamp_floor,
             resolve_group_properties=self._resolve_group_properties,
         )
-        events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching(allow_combined_filters=True)
-        self._event_query_strategy = "combined" if events_sub_query_builder.used_combined_query else "separate"
-        self._event_filter_count = events_sub_query_builder.event_filter_count
-        self._event_query_has_properties = bool(
-            events_sub_query_builder.event_properties
-            or any(entity.properties for entity in events_sub_query_builder.entities)
-        )
-        self._combined_event_query_eligible = events_sub_query_builder.combined_query_eligible
+        events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(

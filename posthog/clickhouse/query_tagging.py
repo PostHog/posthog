@@ -7,7 +7,7 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, TypedDict, assert_never
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, assert_never
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -498,12 +498,6 @@ class QueryTags(BaseModel):
     # That path adds a GLOBAL JOIN on the per-recording bounds to every events subquery, so the tag
     # separates its cost from the default session-scoped listing in the query log.
     replay_event_match_scope: Optional[str] = None  # "recording"; absent for the default session scope
-    replay_event_query_strategy: Optional[Literal["separate", "combined"]] = None
-    replay_event_filter_count: Optional[int] = None
-    replay_event_query_has_properties: Optional[bool] = None
-    replay_combined_event_query_eligible: Optional[bool] = None
-    replay_event_query_operand: Optional[str] = None
-    replay_event_query_range_days: Optional[float] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
