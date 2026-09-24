@@ -730,6 +730,30 @@ export const FailedFetchOffersRetry: Story = {
     },
 }
 
+export const CustomEventName: Story = {
+    render: (args) => {
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+        useOnMountEffect(() => setSearchQuery('purchase_confirmed'))
+        return <TaxonomicFilter {...args} />
+    },
+    args: {
+        taxonomicFilterLogicKey: 'custom-event-name',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        groupType: TaxonomicFilterGroupType.Events,
+        allowNonCapturedEvents: true,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': () => [200, { results: [], count: 0 }],
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForSelector: '[data-attr="prop-filter-event-option-custom"]' } },
+}
+
 export const CohortsWithRealtimeStates: Story = {
     args: {
         taxonomicFilterLogicKey: 'cohorts-realtime',
