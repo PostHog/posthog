@@ -229,6 +229,23 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 is False
             )
 
+    def test_warehouse_sql_filter_keeps_a_block_local_over_the_column(self):
+        # The `let` inside the lambda is a local named like the column; only the outer read is the column.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let organization := 'acme'; return organization = 'acme' }, [1]) and organization = 'globex'",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "globex"}}).result is True
+
     def test_event_filters_still_reject_a_bare_unknown_column(self):
         # Only a warehouse row lives under properties; an event filter naming an unknown root is a typo.
         response = compile_filters_bytecode(

@@ -195,8 +195,8 @@ class _WarehouseRowFields(CloningVisitor):
     """
     A warehouse row reaches the filter with its columns under `properties`. A hand-written filter
     names a column bare, the way the column hint lists it, or as `record.<column>` the way an input
-    template does. Both resolve there. Only the given roots move, and a lambda parameter shadows
-    them inside its body. A global the runtime does provide, such as `timestamp` or `event`, is
+    template does. Both resolve there. Only the given roots move, and a lambda parameter or a `let`
+    inside a lambda body shadows them there. A global the runtime does provide, such as `timestamp` or `event`, is
     never moved, so a column with such a name has to be read as `record.<column>`.
     """
 
@@ -209,6 +209,13 @@ class _WarehouseRowFields(CloningVisitor):
         self.locals.append(set(node.args))
         try:
             return super().visit_lambda(node)
+        finally:
+            self.locals.pop()
+
+    def visit_block(self, node: ast.Block) -> ast.Block:
+        self.locals.append({d.name for d in node.declarations if isinstance(d, ast.VariableDeclaration)})
+        try:
+            return super().visit_block(node)
         finally:
             self.locals.pop()
 
