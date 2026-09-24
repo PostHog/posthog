@@ -82,11 +82,22 @@ def _dedicated_cache(registered: bool) -> Iterator[None]:
 
 def test_drain_rebuilds_queued_team_and_clears_it(fake_redis):
     _enqueue(fake_redis, 140414)
-    with _rebuilds():
+    with _rebuilds() as set_cache:
+
+        def poll_during_rebuild(team, payload):
+            overlap = drain_rebuild_requests(batch_size=1)
+            assert overlap["skipped_cooldown"] == 1
+            assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, str(team.id)) is not None
+            assert fake_redis.zadd(REBUILD_REQUESTS_ZSET, {str(team.id): 1000}, nx=True) == 0
+
+        set_cache.side_effect = poll_during_rebuild
         stats = drain_rebuild_requests()
+        next_stats = drain_rebuild_requests()
 
     assert stats["success"] == 1
     assert fake_redis.zcard(REBUILD_REQUESTS_ZSET) == 0
+    assert next_stats == {"success": 0, "failure": 0, "skipped_cooldown": 0, "circuit_open": 0}
+    set_cache.assert_called_once()
 
 
 def test_invalid_member_is_discarded_without_rebuild(fake_redis):
@@ -110,6 +121,7 @@ def test_cooldown_prevents_a_second_rebuild_within_the_window(fake_redis):
 
     assert stats["skipped_cooldown"] == 1
     assert stats["success"] == 0  # not retried during cooldown
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "1") is None
 
 
 def test_circuit_opens_after_repeated_failures_then_skips(fake_redis):
@@ -127,6 +139,7 @@ def test_circuit_opens_after_repeated_failures_then_skips(fake_redis):
 
     assert stats["circuit_open"] == 1
     assert fake_redis.zscore(CIRCUIT_ZSET, str(team_id)) is not None
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, str(team_id)) is None
 
 
 def test_successful_rebuild_after_circuit_expiry_clears_streak_and_circuit(fake_redis):
@@ -162,6 +175,12 @@ def test_rebuild_exception_is_caught_and_counts_as_failure(fake_redis):
     # that advances the streak.
     assert stats["failure"] == 1
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=5)) == b"1"
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "5") is None
+    assert fake_redis.zadd(REBUILD_REQUESTS_ZSET, {"5": 1}, nx=True) == 1
+    fake_redis.delete(COOLDOWN_KEY.format(team_id=5))
+    with _rebuilds():
+        retry = drain_rebuild_requests()
+    assert retry["success"] == 1
 
 
 def test_batch_load_failure_counts_every_team_as_failure(fake_redis):
@@ -187,6 +206,7 @@ def test_group_mapping_guard_skips_write_without_counting_failure(fake_redis):
     set_cache.assert_not_called()
     assert stats["success"] == 0 and stats["failure"] == 0
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=8)) is None
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "8") is None
     # Cooldown released so the team retries next drain once the mapping is available.
     assert not fake_redis.exists(COOLDOWN_KEY.format(team_id=8))
 
@@ -199,6 +219,8 @@ def test_soft_time_limit_propagates_and_is_not_counted_as_failure(fake_redis):
             drain_rebuild_requests()
 
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=3)) is None
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "3") is None
+    assert fake_redis.zadd(REBUILD_REQUESTS_ZSET, {"3": 1}, nx=True) == 1
     # Cooldown released on wind-down so the next drain retries promptly (~1 min).
     assert not fake_redis.exists(COOLDOWN_KEY.format(team_id=3))
 

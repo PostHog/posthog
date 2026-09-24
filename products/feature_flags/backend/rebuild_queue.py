@@ -31,6 +31,7 @@ import redis as redis_lib
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter, Gauge
+from redis.exceptions import WatchError
 
 from posthog.models.team import Team
 from posthog.redis import get_client
@@ -73,7 +74,7 @@ REBUILD_PROCESSED = Counter(
 )
 REBUILD_QUEUE_DEPTH = Gauge(
     "posthog_flag_definitions_rebuild_queue_depth",
-    "Teams currently waiting in the flag-definitions rebuild queue",
+    "Teams queued or rebuilding in the flag-definitions rebuild queue",
 )
 REBUILD_OLDEST_AGE = Gauge(
     "posthog_flag_definitions_rebuild_oldest_age_seconds",
@@ -114,6 +115,21 @@ def _redis() -> redis_lib.Redis:
     return get_client(flag_definitions_hypercache.redis_url)
 
 
+def _discard_unless_rebuilding(redis: redis_lib.Redis, cooldown_key: str, member: bytes | str) -> None:
+    # The cooldown can change while another drain finishes, so check and remove atomically.
+    try:
+        with redis.pipeline() as pipe:
+            pipe.watch(cooldown_key)
+            if pipe.get(cooldown_key) == b"inflight":
+                return
+            pipe.multi()
+            pipe.zrem(REBUILD_REQUESTS_ZSET, member)
+            pipe.execute()
+    except WatchError:
+        # Leave the member for the owner or the next drain after a concurrent change.
+        return
+
+
 def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]:
     """Drain the rebuild request set and rebuild each team's cache once.
 
@@ -131,38 +147,44 @@ def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]
 
     eligible: list[int] = []
     for raw in redis.zrange(REBUILD_REQUESTS_ZSET, 0, batch_size - 1):
-        # Remove first: a still-missing team is re-enqueued by its next miss, so we
-        # never drop a genuinely-needed rebuild, but we also don't spin on one entry.
-        redis.zrem(REBUILD_REQUESTS_ZSET, raw)
-
         team_id = _parse_team_id(raw)
         if team_id is None:
+            redis.zrem(REBUILD_REQUESTS_ZSET, raw)
             continue
 
+        cooldown_key = COOLDOWN_KEY.format(team_id=team_id)
         if redis.zscore(CIRCUIT_ZSET, str(team_id)) is not None:
+            _discard_unless_rebuilding(redis, cooldown_key, raw)
             stats["circuit_open"] += 1
             REBUILD_PROCESSED.labels(result="circuit_open").inc()
             continue
 
-        # Cooldown bounds attempts even while the team keeps polling and re-enqueuing.
-        if not redis.set(COOLDOWN_KEY.format(team_id=team_id), 1, nx=True, ex=COOLDOWN_SECONDS):
+        # Keep the member while rebuilding so SDK polls cannot enqueue it again.
+        if not redis.set(cooldown_key, "inflight", nx=True, ex=COOLDOWN_SECONDS):
+            _discard_unless_rebuilding(redis, cooldown_key, raw)
             stats["skipped_cooldown"] += 1
             REBUILD_PROCESSED.labels(result="skipped_cooldown").inc()
             continue
 
         eligible.append(team_id)
 
+    results: dict[int, bool] = {}
+    timed_out = False
     try:
         results = _rebuild_batch(redis, eligible)
     except SoftTimeLimitExceeded:
-        # Winding down mid-batch. The cooldown was set up front (it doubles as a mutex
-        # against overlapping drains), so un-rebuilt teams would otherwise wait out the
-        # full 5-minute cooldown. Release the whole batch's cooldowns so the next drain
-        # retries them in ~1 minute; already-rebuilt teams won't re-enqueue, so clearing
-        # theirs too is harmless.
-        for team_id in eligible:
-            redis.delete(COOLDOWN_KEY.format(team_id=team_id))
+        timed_out = True
         raise
+    finally:
+        for team_id in eligible:
+            cooldown_key = COOLDOWN_KEY.format(team_id=team_id)
+            with redis.pipeline() as pipe:
+                pipe.zrem(REBUILD_REQUESTS_ZSET, str(team_id))
+                if timed_out or team_id not in results:
+                    pipe.delete(cooldown_key)
+                else:
+                    pipe.set(cooldown_key, "cooldown", xx=True, keepttl=True)
+                pipe.execute()
 
     for ok in results.values():
         result = "success" if ok else "failure"
@@ -237,9 +259,7 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
         if _skip_write_if_group_mapping_emptied(team, payload):
             # personhog lag would cache an emptied group_type_mapping; skip the write
             # without counting a failure (that would wrongly advance the circuit breaker).
-            # Release the cooldown so the team retries on the next drain once the mapping
-            # is available, rather than staying missing for the full cooldown window.
-            redis.delete(COOLDOWN_KEY.format(team_id=team_id))
+            # Omit the result so the drain releases the cooldown for the next poll.
             continue
         try:
             flag_definitions_hypercache.set_cache_value(team, payload)
