@@ -20,15 +20,16 @@ from django.core.exceptions import ValidationError
 import structlog
 
 from posthog.comment.access import task_comment_target_is_accessible
-from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
+from posthog.comment.formatting import rich_content_to_slack_payload
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_identity import resolve_slack_user
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import NOTIFICATION_DEFAULTS, User
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.identity import resolve_slack_user
 from posthog.user_permissions import UserPermissions
 
 from products.canvas.backend.models import Canvas

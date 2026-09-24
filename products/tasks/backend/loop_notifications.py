@@ -22,6 +22,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.tasks.push_notifications import send_user_push
 
 from products.notifications.backend.facade.api import (
@@ -195,8 +196,8 @@ def _send_slack(
             return
         report = payload.get("report")
         slack_body = str(report) if report else body
-        text = _truncate(f"*{_escape_slack_mrkdwn(title)}*\n{_escape_slack_mrkdwn(slack_body)}", _SLACK_BODY_MAX_CHARS)
-        SlackIntegration(integration).client.chat_postMessage(
+        text = _truncate(f"*{escape_slack_mrkdwn(title)}*\n{escape_slack_mrkdwn(slack_body)}", _SLACK_BODY_MAX_CHARS)
+        SlackIntegration(integration, source="loop_notifications").client.chat_postMessage(
             channel=channel, text=text, unfurl_links=False, unfurl_media=False
         )
     except SlackApiError as e:
@@ -250,7 +251,3 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
-
-
-def _escape_slack_mrkdwn(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

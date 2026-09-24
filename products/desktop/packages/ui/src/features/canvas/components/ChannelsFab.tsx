@@ -25,6 +25,7 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { isContentEmpty } from "@posthog/ui/features/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { useNavRailMetrics } from "@posthog/ui/features/sidebar/navRailSize";
 import { isTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -47,6 +48,7 @@ export function ChannelsFab({
 }) {
   const channelsLayout = useChannelsLayout();
   const inRail = placement === "rail";
+  const { iconSize: railIconSize } = useNavRailMetrics();
   const [modalOpen, setModalOpen] = useState(false);
   const hasDraft = useDraftStore((state) =>
     Object.entries(state.drafts).some(
@@ -93,7 +95,7 @@ export function ChannelsFab({
   const trigger = (
     <Button
       variant="primary"
-      size={inRail ? "icon" : "icon-lg"}
+      size="icon-lg"
       aria-label={label}
       className={
         inRail
@@ -102,13 +104,13 @@ export function ChannelsFab({
       }
       onClick={newTaskOnly ? newTask : undefined}
     >
-      <PlusIcon size={inRail ? 16 : 20} weight="bold" />
+      <PlusIcon size={inRail ? railIconSize : 20} weight="bold" />
       {draftDot}
     </Button>
   );
 
   const tooltip = (
-    <TooltipContent side={inRail ? "right" : "top"} align="center">
+    <TooltipContent side={inRail ? "right" : "top"} sideOffset={-310}>
       {channelsLayout ? (
         <>
           {/* The draft dot needs saying out loud, and the button is where
@@ -124,10 +126,12 @@ export function ChannelsFab({
 
   if (newTaskOnly) {
     return (
-      <Tooltip>
-        <TooltipTrigger render={trigger} />
-        {tooltip}
-      </Tooltip>
+      <div className="flex h-12 w-full items-center justify-center">
+        <Tooltip>
+          <TooltipTrigger render={trigger} />
+          {tooltip}
+        </Tooltip>
+      </div>
     );
   }
 
