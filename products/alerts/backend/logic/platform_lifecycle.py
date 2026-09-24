@@ -168,25 +168,27 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
     """
-    configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
-        legacy_configuration_id=upsert.legacy_configuration_id,
-        defaults={
-            "team_id": upsert.team_id,
-            "name": upsert.name,
-            "enabled": upsert.enabled,
-            "source_kind": upsert.source_kind.value,
-            "source_config": upsert.source_config,
-            "threshold_count": upsert.threshold_count,
-            "threshold_operator": upsert.threshold_operator,
-            "window_minutes": upsert.window_minutes,
-            "check_interval_minutes": upsert.check_interval_minutes,
-            "evaluation_periods": upsert.evaluation_periods,
-            "datapoints_to_alarm": upsert.datapoints_to_alarm,
-            "cooldown_minutes": upsert.cooldown_minutes,
-            "schedule_restriction": upsert.schedule_restriction,
-            "next_check_at": upsert.next_check_at,
-        },
-    )
-    alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
-    PlatformAlert.objects.for_team(upsert.team_id).filter(id=alert.id).update(snooze_until=upsert.snooze_until)
+    # One transaction, so a due check never reads the new configuration with the old snooze.
+    with transaction.atomic():
+        configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
+            legacy_configuration_id=upsert.legacy_configuration_id,
+            defaults={
+                "team_id": upsert.team_id,
+                "name": upsert.name,
+                "enabled": upsert.enabled,
+                "source_kind": upsert.source_kind.value,
+                "source_config": upsert.source_config,
+                "threshold_count": upsert.threshold_count,
+                "threshold_operator": upsert.threshold_operator,
+                "window_minutes": upsert.window_minutes,
+                "check_interval_minutes": upsert.check_interval_minutes,
+                "evaluation_periods": upsert.evaluation_periods,
+                "datapoints_to_alarm": upsert.datapoints_to_alarm,
+                "cooldown_minutes": upsert.cooldown_minutes,
+                "schedule_restriction": upsert.schedule_restriction,
+                "next_check_at": upsert.next_check_at,
+            },
+        )
+        alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
+        PlatformAlert.objects.for_team(upsert.team_id).filter(id=alert.id).update(snooze_until=upsert.snooze_until)
     return created
