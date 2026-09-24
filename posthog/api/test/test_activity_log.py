@@ -505,6 +505,18 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert (log.credential_type, log.credential_id) == (credential_type, expected_id)
         assert log.client == "session"
 
+    def test_login_records_the_session_it_creates(self) -> None:
+        self.user.is_email_verified = True
+        self.user.save()
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        log = ActivityLog.objects.get(scope="User", activity="logged_in", item_id=str(self.user.id))
+        session_key = self.client.session.session_key
+        assert session_key is not None
+        assert (log.credential_type, log.credential_id) == ("session", str(session_public_id(session_key)))
+
     def test_internal_jwt_write_is_attributed_to_the_token_user(self) -> None:
         token = encode_jwt({"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER)
 
