@@ -392,7 +392,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
     code_challenge_method = serializers.CharField(required=False, allow_null=True, default=None)
     nonce = serializers.CharField(required=False, allow_null=True, default=None)
     claims = serializers.CharField(required=False, allow_null=True, default=None)
-    scope = serializers.CharField()
+    scope = serializers.CharField(allow_blank=True)
     allow = serializers.BooleanField()
     prompt = serializers.CharField(required=False, allow_null=True, default=None)
     approval_prompt = serializers.CharField(required=False, allow_null=True, default=None)
@@ -408,7 +408,28 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             raise ValueError("OAuthAuthorizationSerializer requires 'user' in context")
         super().__init__(*args, **kwargs)
 
+    def validate(self, attrs: dict) -> dict:
+        # A denial needs no scope, so the field accepts a blank one. A grant still does.
+        if attrs.get("allow") and not attrs.get("scope", "").strip():
+            raise serializers.ValidationError({"scope": "This field may not be blank."})
+        return attrs
+
+    def _is_denial(self) -> bool:
+        """Whether the request refuses the grant rather than making one.
+
+        A denial mints nothing, so the scoping controls it carries are irrelevant. Without
+        this the consent screen can reach a state it cannot leave: pick "Organizations",
+        select none, and both Authorize and Cancel fail the same validator, so the person
+        cannot even refuse.
+        """
+        try:
+            return not self.fields["allow"].to_internal_value(self.initial_data.get("allow"))
+        except (serializers.ValidationError, TypeError):
+            return False
+
     def validate_scoped_organizations(self, scoped_organization_ids: list[str]) -> list[str]:
+        if self._is_denial():
+            return []
         access_level = self.initial_data.get("access_level")
         requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
@@ -432,6 +453,8 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
         return []
 
     def validate_scoped_teams(self, scoped_team_ids: list[int]) -> list[int]:
+        if self._is_denial():
+            return []
         access_level = self.initial_data.get("access_level")
         requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
@@ -1520,7 +1543,19 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         requested_scope_tokens = (request.query_params.get("scope") or "").split()
         scope_was_truncated = is_truncated_scope_request(requested_scope_tokens)
-        scopes_were_defaulted = not requested_scope_tokens or scope_was_truncated
+
+        # `validate_scopes` clamps a request whose every resource token is unknown down to
+        # nothing. That is a valid outcome for a token, but not for a consent screen: the
+        # screen shows no permissions, and its Authorize button posts a blank scope the
+        # POST rejects. Resolve such a request the way an omitted scope resolves instead.
+        # A client sends one by accident when it builds the URL from an unsubstituted
+        # scope placeholder, so every token arrives as junk.
+        requested_resource_tokens = set(requested_scope_tokens) - ALWAYS_ALLOWED_SCOPES
+        nothing_grantable = bool(requested_resource_tokens) and not (set(scopes) - ALWAYS_ALLOWED_SCOPES)
+        if nothing_grantable:
+            scopes = sorted(effective_ceiling(application.ceiling_scopes) | ALWAYS_ALLOWED_SCOPES)
+
+        scopes_were_defaulted = not requested_scope_tokens or scope_was_truncated or nothing_grantable
 
         # Track OAuth authorization attempts with the authenticated user
         registration_type = self._registration_type(application)
@@ -1532,6 +1567,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 "requested_scope_count": len(requested_scope_tokens),
                 "has_resource": bool(request.query_params.get("resource")),
                 "scope_was_truncated": scope_was_truncated,
+                "nothing_grantable": nothing_grantable,
             },
         )
 

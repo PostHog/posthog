@@ -37,6 +37,7 @@ from products.experiments.backend.running_time_calculator import BaselineStats, 
 from products.experiments.backend.setup_context import (
     SDK_PROFILE_MAX_LIBS,
     SERVER_LIBS,
+    TARGET_SURFACE_MAX_LIBS,
     SetupContextInputs,
     build_setup_context,
     classify_lib,
@@ -492,8 +493,25 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         assert surface.unique_persons == 3
         assert surface.exposures_per_day_estimate == 3 / 14
         assert [(lib.lib, lib.category, lib.unique_persons) for lib in surface.libs] == [("web", "web", 3)]
+        assert surface.libs_truncated is False
         assert surface.anonymous_share == 2 / 3
         assert surface.device_id_share == 2 / 3
+
+    @parameterized.expand(
+        [
+            ("at_the_cap", TARGET_SURFACE_MAX_LIBS, False),
+            ("above_the_cap", TARGET_SURFACE_MAX_LIBS + 2, True),
+        ]
+    )
+    def test_libs_are_truncated_only_above_the_cap(self, _name: str, lib_count: int, truncated: bool) -> None:
+        for index in range(lib_count):
+            _create_person(team=self.team, distinct_ids=[f"user-{index}"])
+            self._event(f"user-{index}", "$pageview", 1, **{"$lib": f"lib-{index:02d}"})
+
+        surface = get_target_surface(self.team, SetupContextInputs(target_event="$pageview"))
+
+        assert len(surface.libs) == TARGET_SURFACE_MAX_LIBS
+        assert surface.libs_truncated is truncated
 
     def test_shares_come_from_the_rows_whichever_sdk_sent_them(self) -> None:
         # A mobile surface carries $is_identified and $device_id as well, so the shares have to

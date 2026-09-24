@@ -282,7 +282,7 @@ class TestCSPMiddleware(APIBaseTest):
             region, other_region = regions
             shadow = shadows[0]
             assert "*.posthog.com" not in shadow
-            assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
+            assert "https://internal-cf.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
             assert "&v=3&" in shadow
             connect_src = next(part for part in shadow.split("; ") if part.startswith("connect-src ")).split()
             assert f"https://live.{region}.posthog.com" in connect_src

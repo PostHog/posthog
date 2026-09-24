@@ -43,6 +43,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
+import type { MessagingNavTabKey } from '../../products/workflows/frontend/messagingTabs'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
     ActionType,
@@ -265,6 +266,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
+    '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
+    '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
     '/user_research/:id': ['UserInterview', 'userInterview'],
@@ -286,8 +289,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
-    '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
-    '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
     '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -295,6 +296,14 @@ export const productRoutes: Record<string, [string, string]> = {
         'WorkflowsLibraryTemplate',
         'workflowsLibraryTemplateFromMessage',
     ],
+    '/broadcasts': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/library': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/channels': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/new': ['Broadcast', 'broadcast'],
+    '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1046,6 +1055,20 @@ export const productConfiguration: Record<string, any> = {
         description: 'Latency distribution and sample traces for a single operation.',
         iconType: 'tracing',
     },
+    TracingRetentionNew: {
+        name: 'New retention rule',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        iconType: 'tracing',
+    },
+    TracingRetentionDetail: {
+        name: 'Retention rule',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        iconType: 'tracing',
+    },
     UserInterviews: {
         name: 'User research',
         projectBased: true,
@@ -1098,9 +1121,15 @@ export const productConfiguration: Record<string, any> = {
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    Broadcasts: {
+        name: 'Broadcasts',
+        iconType: 'broadcasts',
+        projectBased: true,
+        description: 'Send a one-time or scheduled email to a group of people',
+    },
     Broadcast: {
-        name: 'Broadcast',
-        iconType: 'workflows',
+        name: 'Broadcasts',
+        iconType: 'broadcasts',
         projectBased: true,
         description: 'Send a one-time or scheduled email to a group of people',
     },
@@ -1633,6 +1662,8 @@ export const productUrls = {
             name: spanName,
             ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
         }).url,
+    tracingRetentionNew: (): string => '/tracing/retention-rules/new',
+    tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
@@ -1668,9 +1699,9 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (): string => '/workflows/broadcasts',
-    broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
-    broadcastNew: (): string => '/workflows/broadcasts/new',
+    broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+    broadcast: (id: string): string => `/broadcasts/${id}`,
+    broadcastNew: (): string => '/broadcasts/new',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -2082,11 +2113,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.WORKFLOWS],
         href: urls.broadcasts(),
         type: 'broadcasts',
-        category: ProductItemCategory.TOOLS,
+        category: ProductItemCategory.MESSAGING,
         iconType: 'broadcasts',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
-        sceneKey: 'Broadcast',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
+        sceneKey: 'Broadcasts',
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
     },
     {
         path: 'Business knowledge',
@@ -2740,7 +2771,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',
-        sceneKeys: ['Tracing', 'TracingOperation'],
+        sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
         path: 'User research',
@@ -2818,11 +2849,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
         type: 'workflows',
-        category: ProductItemCategory.TOOLS,
+        category: ProductItemCategory.MESSAGING,
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
     },
 ]
 

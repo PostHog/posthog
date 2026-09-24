@@ -603,7 +603,7 @@ class PipelineV3(Generic[ResumableData]):
     async def _stamp_full_run(self) -> None:
         """Record that this run took the full extraction path, for the fast-return valve.
 
-        Writes only `last_full_run_at`, which `_fast_return_eligible` is the sole reader of.
+        Writes only `last_full_run_at`.
         `last_synced_at` is deliberately left alone: it feeds data freshness, the schemas UI and
         the signals watermark (`partition_field > last_synced_at`), so moving it on a run that
         loaded nothing would narrow the next run's signal window.

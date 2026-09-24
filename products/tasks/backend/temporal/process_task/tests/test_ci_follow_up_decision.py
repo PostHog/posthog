@@ -300,6 +300,22 @@ class TestBabysitFollowUpDecision:
 
         assert await wf._should_run_ci_follow_up() is expected_decision
 
+    @pytest.mark.parametrize(
+        "patch_recorded,expected_decision",
+        [
+            (True, CIFollowUpDecision.SKIP),
+            (False, CIFollowUpDecision.FIRE),
+        ],
+    )
+    async def test_merge_queue_skip_follows_the_patch_marker(self, monkeypatch, patch_recorded, expected_decision):
+        wf = _babysit_workflow()
+        _patch_snapshot(
+            monkeypatch, _babysit_snapshot(failing_checks=[BABYSIT_CHECK], merge_queue_push_would_eject=True)
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: patch_recorded)
+
+        assert await wf._should_run_ci_follow_up() is expected_decision
+
     async def test_dispatched_check_is_silenced_until_a_new_head(self, monkeypatch):
         wf = _babysit_workflow()
         sent = _capture_dispatched_messages(monkeypatch)

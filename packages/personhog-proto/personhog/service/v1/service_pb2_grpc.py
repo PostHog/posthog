@@ -300,6 +300,24 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
             _registered_method=True,
         )
+        self.GetPersonTombstones = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/GetPersonTombstones",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonTombstonesRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonTombstonesResponse.FromString,
+            _registered_method=True,
+        )
+        self.AckPersonTombstones = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/AckPersonTombstones",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.AckPersonTombstonesRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.AckPersonTombstonesResponse.FromString,
+            _registered_method=True,
+        )
+        self.ListPersonTombstoneQueue = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/ListPersonTombstoneQueue",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonTombstoneQueueRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonTombstoneQueueResponse.FromString,
+            _registered_method=True,
+        )
         self.SplitPerson = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/SplitPerson",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.SerializeToString,
@@ -597,6 +615,24 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def GetPersonTombstones(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def AckPersonTombstones(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def ListPersonTombstoneQueue(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def SplitPerson(self, request, context):
         """Person split
         WARNING: Same routing caveat as DeletePersons above — write operation on person data
@@ -835,6 +871,21 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeleteTombstonedPersons,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.SerializeToString,
+        ),
+        "GetPersonTombstones": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersonTombstones,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonTombstonesRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonTombstonesResponse.SerializeToString,
+        ),
+        "AckPersonTombstones": grpc.unary_unary_rpc_method_handler(
+            servicer.AckPersonTombstones,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.AckPersonTombstonesRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.AckPersonTombstonesResponse.SerializeToString,
+        ),
+        "ListPersonTombstoneQueue": grpc.unary_unary_rpc_method_handler(
+            servicer.ListPersonTombstoneQueue,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonTombstoneQueueRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonTombstoneQueueResponse.SerializeToString,
         ),
         "SplitPerson": grpc.unary_unary_rpc_method_handler(
             servicer.SplitPerson,
@@ -2142,6 +2193,96 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeleteTombstonedPersons",
             personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersonTombstones(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/GetPersonTombstones",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonTombstonesRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonTombstonesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def AckPersonTombstones(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/AckPersonTombstones",
+            personhog_dot_types_dot_v1_dot_person__pb2.AckPersonTombstonesRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.AckPersonTombstonesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def ListPersonTombstoneQueue(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/ListPersonTombstoneQueue",
+            personhog_dot_types_dot_v1_dot_person__pb2.ListPersonTombstoneQueueRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.ListPersonTombstoneQueueResponse.FromString,
             options,
             channel_credentials,
             insecure,

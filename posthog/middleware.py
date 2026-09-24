@@ -1487,6 +1487,9 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/experiments/setup_context/?$")),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: counts the persons a workflow audience matches. The action is named
+    # exactly, because the same `hog_flows/` prefix hosts the writing actions (publish, run).
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/hog_flows/user_blast_radius/?$")),
     # POST but read-only: the Logs product sends its queries as POST because the filter payload
     # is too large for a query string. Action names are enumerated rather than allowing the whole
     # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,

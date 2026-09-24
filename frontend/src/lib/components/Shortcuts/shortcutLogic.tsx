@@ -170,6 +170,11 @@ export const shortcutLogic = kea<shortcutLogicType>([
 
         cache.onKeyDown = (event: KeyboardEvent) => {
             const target = event.composedPath()[0]
+            if (target instanceof HTMLElement && target.closest('[data-shortcuts-ignore="all"]')) {
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+                return
+            }
             const controlKeyCapture =
                 target instanceof HTMLElement ? target.closest<HTMLElement>('[data-shortcuts-ignore="ctrl"]') : null
             if (
