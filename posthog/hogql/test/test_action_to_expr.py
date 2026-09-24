@@ -183,10 +183,18 @@ class TestStepsToExprRegexValidation:
     """#96347: a stored action step with an RE2-invalid regex fails with a clear
     QueryError instead of a ClickHouse CANNOT_COMPILE_REGEXP 500."""
 
-    def test_invalid_step_regex_raises_query_error(self):
+    @pytest.mark.parametrize(
+        "step",
+        [
+            ActionStepJSON(event="$pageview", url="/shardlibrary/\\d+\\", url_matching="regex"),
+            ActionStepJSON(event="$autocapture", href="/shardlibrary/\\d+\\", href_matching="regex"),
+            ActionStepJSON(event="$autocapture", text="/shardlibrary/\\d+\\", text_matching="regex"),
+        ],
+        ids=["url", "href", "text"],
+    )
+    def test_invalid_step_regex_raises_query_error(self, step):
         from posthog.hogql.errors import QueryError
 
-        step = ActionStepJSON(event="$pageview", url="/shardlibrary/\\d+\\", url_matching="regex")
         with pytest.raises(QueryError, match="Invalid regular expression"):
             steps_to_expr([step], team=None)  # type: ignore[arg-type]
 
