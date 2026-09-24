@@ -212,7 +212,9 @@ jobs:
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
-        name: Wait for GitHub Actions to hand off backend tests
+        # The check name carries the event, so GitHub Actions can tell this run's checks from other
+        # runs on the commit. .github/scripts/ci_backend_relay.py builds the same name; change both.
+        name: Wait for GitHub Actions to hand off backend tests${{ github.event_name == 'pull_request' && format(' (PR {0}, event {1})', github.event.pull_request.number, github.event.pull_request.updated_at) || '' }}
         # Depot scopes the ambient token by this block, and the workflow-level block has no
         # `checks`, so without it the check-runs read below answers 403.
         permissions:
@@ -261,10 +263,10 @@ jobs:
                           case "$code" in
                               200)
                                   mv /tmp/handoff-etag.new /tmp/handoff-etag
-                                  # When GitHub cancels a superseded run, it posts a cancelled check for each job
-                                  # that had not started, with started_at set to the cancel time. That check can
-                                  # pass the EVENT_AT filter, so a cancelled run loses to any other run of this event.
-                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select((.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | ((map(select(.conclusion != "cancelled")) | max_by(.id)) // max_by(.id)) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  # A cancelled hand-off comes from a GitHub run that was cancelled before its
+                                  # hand-off job finished, so it carries no decision, as in ci_backend_route.py.
+                                  # GitHub posts it with started_at set to the cancel time, which can follow this event.
+                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
@@ -272,8 +274,7 @@ jobs:
                           esac
                           case "$state" in
                               success) handed_off=true; break ;;
-                              # A cancelled hand-off can belong to a superseded run, so keep waiting for this event's run.
-                              absent|cancelled|queued|in_progress|pending|waiting|requested) ;;
+                              absent|queued|in_progress|pending|waiting|requested) ;;
                               *) break ;;
                           esac
                           [ "$attempt" -lt "$attempts" ] && sleep 20
