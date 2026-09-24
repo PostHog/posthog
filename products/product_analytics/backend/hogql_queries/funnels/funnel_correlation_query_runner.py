@@ -116,7 +116,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         user: Optional[User] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
-        self._use_new_events_schema = use_new_events_schema(team.pk)
+        self._use_new_events_schema = use_new_events_schema(team.pk, self.modifiers)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 

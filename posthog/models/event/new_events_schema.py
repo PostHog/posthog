@@ -1,16 +1,24 @@
+from typing import TYPE_CHECKING
+
 from django.conf import settings
 
 from posthog.models.instance_setting import get_instance_setting
 
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
-def use_new_events_schema(team_id: int | None = None) -> bool:
+
+def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
     """Whether HogQL reads should target the native-JSON events tables.
 
-    The instance setting flips it globally at runtime, and the *_TEAMS instance setting enables it
+    A query's `useNewEventsSchema` modifier decides when it is set, so one query can be run against either table.
+    Otherwise the instance setting flips it globally at runtime, and the *_TEAMS instance setting enables it
     for individual teams first (both cached for up to 60s per worker). Code running inside a query
     should prefer HogQLContext.uses_new_events_schema(), which resolves this once so a mid-query
     flip can't mix schemas.
     """
+    if modifiers is not None and modifiers.useNewEventsSchema is not None:
+        return modifiers.useNewEventsSchema
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
     if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):

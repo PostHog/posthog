@@ -1465,7 +1465,16 @@ class TestPrinter(BaseTest):
         # must pick up a runtime flip.
         with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", True):
             sql = self._select("SELECT event FROM events")
+            legacy_sql = self._select(
+                "SELECT event FROM events",
+                HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+                ),
+            )
         self.assertIn("FROM events_json", sql)
+        self.assertNotIn("events_json", legacy_sql)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_instance_setting_team_allowlist_enables_new_events_schema(self) -> None:
@@ -1474,10 +1483,19 @@ class TestPrinter(BaseTest):
                 sql = self._select("SELECT event FROM events")
             self.assertIn("FROM events_json", sql)
 
-            # A list naming only other teams must not flip this team.
+            # A list naming only other teams must not flip this team, unless the query's modifier asks for it.
             with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "999999"):
                 sql = self._select("SELECT event FROM events")
+                native_sql = self._select(
+                    "SELECT event FROM events",
+                    HogQLContext(
+                        team_id=self.team.pk,
+                        enable_select_queries=True,
+                        modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+                    ),
+                )
             self.assertNotIn("FROM events_json", sql)
+            self.assertIn("FROM events_json", native_sql)
 
             with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "invalid"):
                 with pytest.raises(ValueError):

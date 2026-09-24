@@ -190,7 +190,7 @@ class HogQLContext:
             from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
 
             # Pin per context so an instance-setting flip can't mix schemas within one query.
-            self.use_new_events_schema = use_new_events_schema(self.team_id)
+            self.use_new_events_schema = use_new_events_schema(self.team_id, self.modifiers)
         return self.use_new_events_schema
 
     def add_value(self, value: Any) -> str:
