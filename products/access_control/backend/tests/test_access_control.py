@@ -2910,7 +2910,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
     def test_rejects_scopes_that_store_an_inert_rule(self, _name, body):
         res = self._put("default", body)
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert not AccessControl.objects.filter(team=self.team).exclude(resource="project").exists()
+        assert not AccessControl.objects.filter(team=self.team).exists()
 
     def test_object_rule_on_a_hidden_object_is_404(self):
         owner = User.objects.create_and_join(self.organization, "owner@posthog.com", None)
