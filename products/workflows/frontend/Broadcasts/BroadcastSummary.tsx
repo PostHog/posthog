@@ -82,12 +82,14 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
         {
             title: 'Subject',
             key: 'subject',
-            render: (_, row) => <span>{row.subject || '-'}</span>,
+            render: (_, row) => <span className="wrap-anywhere">{row.subject || '-'}</span>,
         },
         {
             title: 'Recipient',
             key: 'recipient',
-            render: (_, row) => <span className="font-mono text-xs">{row.recipient}</span>,
+            // An address has no break points, so without break-all its full length would widen the
+            // table past the panel and push the View email button out of sight.
+            render: (_, row) => <span className="font-mono text-xs break-all">{row.recipient}</span>,
         },
         {
             title: '',
