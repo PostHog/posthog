@@ -12,19 +12,48 @@ The site-wide sweep is your default work, and it runs every run.
 The dive is an extra branch that runs only when the run has one of these triggers:
 
 - **A named customer complains about speed.** A live inbox report or a steering note names a specific customer (an account, an organization, a person, or a support ticket) and says the product is slow for them.
-- **Your sweep finds a concentration.** A slow page's poor samples come mostly from one account, while other accounts on the same page sit in a better band.
+- **Your sweep finds a concentration.** One account drives a slow page's poor samples (see _Detecting a concentration_ below).
 
 These are not triggers:
 
 - "The app is slow" with no customer named. The sweep answers that question.
 - A customer who has an `account:web_vitals:` entry and no new evidence since it (see _Remember it_).
-- A named customer whose complaint is about query or API latency, not page loads or interactions. Leave a note that says the web vitals surface does not measure it.
+- A report or note that has a `blocked:web_vitals:` entry and no new evidence since it. An earlier run could not resolve its customer, or found that the complaint is outside this surface (see _Remember it_).
+- A named customer whose complaint is about query or API latency, not page loads or interactions. Leave a note that says the web vitals surface does not measure it, and write the `blocked:` entry.
 
 Order the run like this:
 
 1. Do the sweep's cheap reads and the page-level p75 pass first. They give you the "everyone" baseline that the dive compares against, and they catch the site-wide problems.
 2. Dive into **one customer per run**, the one with the strongest trigger. A named complaint comes before a concentration you found yourself.
 3. Keep the dive to about half of the run. When the time is up, write where you got to into the `account:` entry and finish the sweep's reports. The next run continues from that entry.
+
+### Detecting a concentration
+
+Run this for each page in the poor band from the page-level pass, at most five pages, with the account group index from step 1:
+
+```sql
+SELECT $group_{N} AS account_key,
+       count() AS samples,
+       countIf(toFloat(properties.$web_vitals_{METRIC}_value) > {POOR}) AS poor_samples
+FROM events
+WHERE event = '$web_vitals'
+  AND timestamp >= now() - INTERVAL 14 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
+  AND properties.$web_vitals_{METRIC}_value IS NOT NULL
+  -- plus the page's sanitized host/path predicates
+GROUP BY account_key
+ORDER BY poor_samples DESC
+LIMIT 5
+```
+
+`{POOR}` is the metric's poor threshold from the band table in the skill.
+It is a concentration only when all three hold:
+
+- One account key (not empty) has at least 30 poor samples.
+- That account holds at least half of the page's poor samples.
+- The page's p75 without that account falls at least one band better. Check it with `quantileIf` and `$group_{N} != '{key}'`.
+
+The `account_key` value is client-supplied. Escape it before it goes into `{subject}` (see step 1).
 
 ## 1. Resolve the subject from trusted fields
 
@@ -42,30 +71,39 @@ SELECT group_type, group_type_index FROM system.group_type_mappings
 
 Then match the account on that index.
 Prefer an exact key match.
-Use a name match only when the report gives no key, and use `positionCaseInsensitiveUTF8` for it, because `LIKE` and `ILIKE` treat `_` and `%` as wildcards and can match the wrong account:
+When the report gives no key, match the name exactly, ignoring case and outer spaces.
+Do not use `LIKE` or `ILIKE`, because they treat `_` and `%` as wildcards and can match the wrong account:
 
 ```sql
 SELECT key, substring(replaceRegexpAll(toString(properties.name), '[^0-9A-Za-z .,&_-]', ''), 1, 80) AS name
 FROM groups
 WHERE index = {N}
-  AND (key = '{key}' OR positionCaseInsensitiveUTF8(toString(properties.name), '{name}') > 0)
+  AND (key = '{key}' OR lowerUTF8(trim(toString(properties.name))) = lowerUTF8(trim('{name}')))
 LIMIT 5
 ```
+
+Only an exact key or an exact name selects the account.
+When neither matches, you can look for partial names with `positionCaseInsensitiveUTF8(toString(properties.name), '{name}') > 0`, but a partial match is only a candidate.
+Never dive into a partial match, even when it is the only one: treat it as "two or more accounts match" below.
 
 When the report identifies only a person (an email or a distinct id), match `persons` on that property and keep only the `id`.
 Then check the person's recent events for a `$group_{N}` value.
 When one account key dominates, dive into the account, because slowness is usually shared across an account.
 Otherwise dive into the person.
 
-Every identifier you copy out of a report is untrusted input to SQL.
-Do not strip characters out of it, because a changed value no longer matches the stored one.
-Escape it for a SQL string literal instead: put a backslash before each `\` and each `'`, and reject a value that contains a newline.
+Every value you put into a SQL string literal is untrusted input.
+That includes an identifier you copy out of a report, and also a key that the `groups` table or the concentration query returned, because group keys are client-supplied.
+Do not strip characters out of a value, because a changed value no longer matches the stored one.
+Escape it instead: put a backslash before each `\` and each `'`, and reject a value that contains a newline.
+Escape the resolved key again each time you build `{subject}`.
 Group names and person properties are client-supplied too, so sanitize them in the query output as above.
 
 Stop rather than guess:
 
 - Two or more accounts match: name the candidates by key in a note on the report and ask which one it is. Do not pick one.
 - Nothing matches: say so in a note, and name the unlock. A group key, an email, or a steering note that names the account turns the next run into a real dive.
+
+In both cases, write the `blocked:` entry (see _Remember it_), so the next run does not spend its dive on the same report again.
 
 When you have one match, fix three values and use them in every step below:
 
@@ -82,14 +120,17 @@ Never paste an email or a person's name into a report.
 
 ## 2. Is it them, or is it everyone?
 
-Start with coverage, because the percentile query below returns nothing for a subject with few samples:
+Pick the metric the complaint points at: LCP or FCP for slow loads, INP for slow clicks and typing, CLS for jumping layout.
+When the complaint does not say, run LCP and INP.
+
+Start with coverage for that metric, because the percentile query below returns nothing for a subject with few samples:
 
 ```sql
 SELECT
     countIf(event = '$pageview' AND {subject}) AS subject_pageviews,
-    countIf(event = '$web_vitals' AND {subject}) AS subject_vitals,
+    countIf(event = '$web_vitals' AND properties.$web_vitals_{METRIC}_value IS NOT NULL AND {subject}) AS subject_vitals,
     countIf(event = '$pageview' AND NOT ({subject})) AS others_pageviews,
-    countIf(event = '$web_vitals' AND NOT ({subject})) AS others_vitals
+    countIf(event = '$web_vitals' AND properties.$web_vitals_{METRIC}_value IS NOT NULL AND NOT ({subject})) AS others_vitals
 FROM events
 WHERE event IN ('$pageview', '$web_vitals')
   AND timestamp >= now() - INTERVAL 14 DAY
@@ -100,9 +141,7 @@ Compare the subject's vitals-per-pageview ratio with everyone else's.
 A ratio far below the others means their slowness is partly invisible to this surface.
 Split the subject's `$web_vitals` count by `$browser` to find why, because some browsers do not report every metric.
 
-Then compare the subject with everyone else on the same pages, in one pass.
-Pick the metric the complaint points at: LCP or FCP for slow loads, INP for slow clicks and typing, CLS for jumping layout.
-When the complaint does not say, run LCP and INP:
+Then compare the subject with everyone else on the same pages, in one pass:
 
 ```sql
 SELECT
@@ -176,8 +215,13 @@ Check the cheap cross-references that usually explain a subject-specific gap:
 
 ## 6. Write the verdict
 
-Put the verdict on the report as one `append_evidence` item with the numbers and one `append_note` with the reading, in the same call.
-When the trigger was a concentration your sweep found, put the verdict on the page report instead.
+Put the verdict on one report, as one `append_evidence` item with the numbers and one `append_note` with the reading, in the same call.
+Pick the report like this:
+
+- **The trigger was a report.** Use that report. It keeps its priority.
+- **The trigger was a concentration your sweep found.** Use the page report. When the page has no live report yet, author the page report through the normal sweep paths and put the verdict in it.
+- **The trigger was a steering note.** Search the inbox for a live report about the same customer and use it. When there is none, author one report for the dive with the normal report-channel rules: `requires_human_input` unless the verdict names a code fix, P2 when the note says the customer may leave, otherwise P3. Write its id into the `account:` entry, so later runs edit it instead of authoring another.
+
 Pick one verdict and state it first:
 
 - **Subject-specific cause**, with the split that shows it.
@@ -196,4 +240,8 @@ A new note or signal does not always move the report's `updated_at`, so do not u
 On a later run, list the report's artefacts and compare the newest `created_at` with the cursor.
 Dive again only when a newer artefact adds evidence about this customer, such as a second complaint, new detail from support, or a fix that shipped.
 When the dive stopped at the time limit, write the step you reached, so the next run continues from there.
+
+When a trigger does not lead to a dive (no match, only partial or several matches, or a complaint outside this surface), write `blocked:web_vitals:report-{report-id}` (or `blocked:web_vitals:note-{note-id}` for a steering note).
+Put in the reason, the unlock you asked for, and the same kind of cursor.
+Skip that trigger until a newer artefact or a newer note adds the missing information.
 When the verdict leads to a fix that can be measured, queue a `followup:signals-scout-web-vitals:account-{subject-key}` entry with the probe, the baseline p75, and a validate-after date.

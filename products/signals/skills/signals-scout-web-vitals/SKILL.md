@@ -152,7 +152,8 @@ Five cheap reads cold-start a run:
 - **Deep-dive triggers** — look for a named customer who says the product is slow. The steering notes from `scout-notes-list` can name one directly.
   In the inbox, `search` matches only report titles and summaries, so run a few short terms (`slow`, `performance`, `load`, `lag`, `freez`, `unresponsive`, `ordering=-updated_at`), and also list the recent support-sourced reports (`source_product=conversations`) and read their titles.
   Open a candidate's artefacts only when its title or summary points at speed.
-  Skip a customer whose `account:web_vitals:` entry has a cursor at or after the report's newest artefact.
+  Skip a trigger whose `account:web_vitals:` or `blocked:web_vitals:` entry has a cursor at or after the report's newest artefact.
+  A note-triggered dive with no live report authors its own; the reference says how.
   Note the strongest trigger, but do the sweep first (see Explore).
 
 ### Profile shape — band × volume × trend
@@ -370,7 +371,7 @@ trending toward the boundary, or worth a `pattern:` entry to watch ripen.
 
 The site-wide sweep stays your default, every run.
 But a site-wide view can sit in the good band while one account waits five seconds for every page, and the sweep alone never sees that.
-So after the sweep's page-level pass, check for a deep-dive trigger: a named customer who says the product is slow (from Get oriented), or a slow page whose poor samples come mostly from one account.
+So after the sweep's page-level pass, check for a deep-dive trigger: a named customer who says the product is slow (from Get oriented), or a poor-band page that one account drives (run the bounded per-account breakdown in the reference's _Detecting a concentration_ on at most five poor pages).
 With no trigger, finish the sweep as usual.
 With a trigger, follow [`references/account-deep-dive.md`](references/account-deep-dive.md): resolve the customer from trusted fields, compare their p75 with everyone else on the same pages, read their slowest sessions, the exceptions and replays in them, and the flags and page mix that differ for them, then write one verdict and one to three concrete follow-ups onto the report.
 Dive into one customer per run, and keep the dive to about half of the run, so the sweep's own findings still land.
