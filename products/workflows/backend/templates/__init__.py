@@ -126,8 +126,10 @@ def load_global_templates() -> list[dict]:
     """
     global _TEMPLATE_CACHE
 
+    # Hand out a copy. A caller that sorts the result in place would otherwise reorder the
+    # cache for every later caller in the process.
     if _TEMPLATE_CACHE is not None:
-        return _TEMPLATE_CACHE
+        return list(_TEMPLATE_CACHE)
 
     templates = []
     templates_dir = Path(__file__).parent
@@ -157,7 +159,7 @@ def load_global_templates() -> list[dict]:
             logger.warning(f"Failed to load template from {template_file}", error=str(e))
 
     _TEMPLATE_CACHE = templates
-    return templates
+    return list(templates)
 
 
 def get_global_template_by_id(template_id: str) -> Optional[dict]:
