@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.core.management.base import CommandError
 
 from products.autoresearch.backend.models import AutoresearchPipeline
@@ -14,3 +15,5 @@ def resolve_pipeline(pipeline_id: str) -> AutoresearchPipeline:
         return AutoresearchPipeline.objects.unscoped().select_related("team").get(pk=pipeline_id)
     except AutoresearchPipeline.DoesNotExist:
         raise CommandError(f"Pipeline {pipeline_id} not found.")
+    except (ValidationError, ValueError):
+        raise CommandError(f"Pipeline id {pipeline_id!r} is not a valid UUID.")

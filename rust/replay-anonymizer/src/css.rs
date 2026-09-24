@@ -206,7 +206,13 @@ fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<Declarati
             b';' if paren_depth == 0 && bracket_depth == 0 => {
                 segment_start = position + 1;
             }
-            b':' if paren_depth == 0 && bracket_depth == 0 => {
+            // A colon in a custom property value, as in `--link: https://…` or a nested block, is not a new declaration.
+            b':' if paren_depth == 0
+                && bracket_depth == 0
+                && ranges
+                    .last()
+                    .is_none_or(|previous: &DeclarationRange| position >= previous.end) =>
+            {
                 if let Some((property, collect_remote_urls)) =
                     css_property(css[segment_start..position].trim())
                 {
@@ -689,6 +695,27 @@ mod tests {
         let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
         assert!(rewritten.css.contains(escaped_url));
         assert!(!rewritten.css.contains(&original));
+    }
+
+    #[test]
+    fn colons_and_blocks_inside_a_custom_property_value_do_not_start_a_declaration() {
+        let allow = AllowLists::default();
+        let ctx = Ctx::new(&allow);
+        let original = png_data_uri(8, 8, [10, 20, 30, 255]);
+        for (css, kept) in [
+            (
+                format!(":root{{--link:https://example.com/a;--hero:url('{original}')}}"),
+                ":root{--link:https://example.com/a;--hero:",
+            ),
+            (
+                format!(":root{{--block:{{--nested:url('{original}')}}}}"),
+                ":root{--block:{--nested:",
+            ),
+        ] {
+            let rewritten = rewrite(&ctx, &css, CssContext::Stylesheet).expect("image changes");
+            assert!(rewritten.css.starts_with(kept), "{}", rewritten.css);
+            assert!(!rewritten.css.contains(&original));
+        }
     }
 
     #[test]

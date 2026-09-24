@@ -1899,6 +1899,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -1920,6 +1921,7 @@ describe("PostHogAPIClient", () => {
         runtime_adapter: "codex",
         model: "gpt-5.5",
         reasoning_effort: "high",
+        initial_permission_mode: "auto",
       });
 
       expect(fetch).toHaveBeenCalledWith(
@@ -1932,6 +1934,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: "codex",
               model: "gpt-5.5",
               reasoning_effort: "high",
+              initial_permission_mode: "auto",
             }),
           },
         }),
@@ -1963,6 +1966,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
               sandbox_environment_id: "environment-123",
               custom_image_id: "image-123",
             }),
@@ -1994,6 +1998,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -2020,6 +2025,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
