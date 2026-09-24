@@ -17,6 +17,9 @@
  *
  * `window.ESBUILD_CSS_READY` resolves `true` once a stylesheet applies, and `false` once every
  * attempt has failed. The app entry waits on it before its first render (frontend/src/index.tsx).
+ *
+ * The loader also marks `<html data-boot-css="pending">` until a stylesheet applies, so the
+ * critical CSS in index.html can hold the few fallbacks the raw markup needs and drop them again.
  */
 
 export const CSS_READY_GLOBAL = 'ESBUILD_CSS_READY'
@@ -25,6 +28,9 @@ export const CSS_READY_GLOBAL = 'ESBUILD_CSS_READY'
 export const CSS_ATTEMPT_TIMEOUT_MS = 10000
 
 export const STYLESHEET_ERROR_TYPE = 'StylesheetLoadError'
+
+/** Marks the document while no stylesheet has applied yet. Read by the critical CSS in index.html. */
+export const BOOT_CSS_ATTRIBUTE = 'data-boot-css'
 
 /**
  * Inline loader script. `cssFile` is the hashed stylesheet and `cssFileFallback` the hashless copy
@@ -38,6 +44,9 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
             var paths = ${JSON.stringify(paths)};
             var lastPath = paths[paths.length - 1];
             paths.push(lastPath + (lastPath.indexOf('?') === -1 ? '?' : '&') + 'retry=' + Date.now());
+
+            var docEl = document.documentElement;
+            if (docEl) { docEl.setAttribute(${JSON.stringify(BOOT_CSS_ATTRIBUTE)}, 'pending'); }
 
             var resolveReady;
             window.${CSS_READY_GLOBAL} = new Promise(function (resolve) { resolveReady = resolve; });
@@ -115,6 +124,7 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     if (!link.sheet) { fail('loaded but did not apply'); return; }
                     isDone = true;
                     clearTimeout(timer);
+                    if (docEl) { docEl.removeAttribute(${JSON.stringify(BOOT_CSS_ATTRIBUTE)}); }
                     // A link left behind by an earlier timeout can still land and style the page,
                     // so a late load counts too.
                     settle(true);
