@@ -70,8 +70,10 @@ def backfill_report_actionability(apps, schema_editor):
             ids_by_value.setdefault(judgment, []).append(report_id)
         for (actionability, already_addressed), ids in ids_by_value.items():
             # `update()`, not `save()`: filling a cache must not bump `updated_at`, which the
-            # inbox sorts on.
-            SignalReport.objects.filter(id__in=ids).update(
+            # inbox sorts on. The UPDATE repeats the NULL conditions of the page query because a
+            # receiver can store a newer judgment after the artefact read above. Postgres
+            # re-checks the WHERE clause on the current row version, so that report is skipped.
+            unfilled.filter(id__in=ids).update(
                 latest_actionability=actionability, latest_already_addressed=already_addressed
             )
 
