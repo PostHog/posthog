@@ -540,6 +540,10 @@
                     "minLength": 1,
                     "description": "The final SQL query to be executed."
                 },
+                "context": {
+                    "description": "Why this query runs, and the governed-catalog outcome behind it: state \"governed catalog consulted: no match\" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
+                    "type": "string"
+                },
                 "truncate": {
                     "default": true,
                     "description": "Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).",
