@@ -442,43 +442,48 @@ export const terminalLogic = kea<terminalLogicType>([
             actions.setStatus('loading')
             try {
                 let confirmationQueue = Promise.resolve(false)
-                const filesystem = new PosthogFilesystem(String(projectId), controller.signal, (confirmation) => {
-                    const pending = confirmationQueue.then(() => {
-                        if (controller.signal.aborted) {
-                            return false
-                        }
-                        return new Promise<boolean>((resolve) => {
-                            disposables.add(
-                                () => {
-                                    const blockKeyboard = (event: KeyboardEvent): void => {
-                                        event.preventDefault()
-                                        event.stopImmediatePropagation()
-                                    }
-                                    for (const type of ['keydown', 'keypress', 'keyup'] as const) {
-                                        window.addEventListener(type, blockKeyboard, true)
-                                    }
-                                    cache.answerConfirmation = (approved: boolean): void => {
-                                        resolve(approved)
-                                        disposables.dispose('confirmation')
-                                    }
-                                    actions.setConfirmation(confirmation)
-                                    return () => {
-                                        resolve(false)
-                                        cache.answerConfirmation = null
-                                        actions.setConfirmation(null)
-                                        for (const type of ['keydown', 'keypress', 'keyup'] as const) {
-                                            window.removeEventListener(type, blockKeyboard, true)
+                const filesystem = new PosthogFilesystem(
+                    String(projectId),
+                    controller.signal,
+                    (confirmation) => {
+                        const pending = confirmationQueue.then(() => {
+                            if (controller.signal.aborted) {
+                                return false
+                            }
+                            return new Promise<boolean>((resolve) => {
+                                disposables.add(
+                                    () => {
+                                        const blockKeyboard = (event: KeyboardEvent): void => {
+                                            event.preventDefault()
+                                            event.stopImmediatePropagation()
                                         }
-                                    }
-                                },
-                                'confirmation',
-                                { pauseOnPageHidden: false }
-                            )
+                                        for (const type of ['keydown', 'keypress', 'keyup'] as const) {
+                                            window.addEventListener(type, blockKeyboard, true)
+                                        }
+                                        cache.answerConfirmation = (approved: boolean): void => {
+                                            resolve(approved)
+                                            disposables.dispose('confirmation')
+                                        }
+                                        actions.setConfirmation(confirmation)
+                                        return () => {
+                                            resolve(false)
+                                            cache.answerConfirmation = null
+                                            actions.setConfirmation(null)
+                                            for (const type of ['keydown', 'keypress', 'keyup'] as const) {
+                                                window.removeEventListener(type, blockKeyboard, true)
+                                            }
+                                        }
+                                    },
+                                    'confirmation',
+                                    { pauseOnPageHidden: false }
+                                )
+                            })
                         })
-                    })
-                    confirmationQueue = pending
-                    return pending
-                })
+                        confirmationQueue = pending
+                        return pending
+                    },
+                    true
+                )
                 cache.filesystem = filesystem
                 new PosthogCommands(String(projectId), controller.signal, filesystem, (url) => router.actions.push(url))
                 new TerminalAI(filesystem, String(projectId), controller.signal)

@@ -139,11 +139,10 @@ inside /posthog/files. Keep .md, .sql, or .json extensions when renaming files.
 Moves preserve object IDs and folder contents. Existing destinations cannot be
 replaced. Folders inferred from file paths cannot be moved; move their files instead.
 Use rm to remove files, rmdir for empty folders, and rm -r for folder trees.
-Deletes require a blocking confirmation. Click a button to approve or cancel;
-keyboard input cannot approve a deletion. rm groups all its PostHog targets into
+Project writes and connected tools require a blocking confirmation. Click a button
+to approve or cancel; keyboard input cannot approve changes. rm groups its PostHog targets into
 one confirmation. Other programs confirm each removal. Local Linux files do not
 require confirmation. Delete local and PostHog files in separate commands.
-JSON saves that mark an object deleted and connected tools also ask for confirmation.
 Removing the last file reference deletes the PostHog object, using your permissions.
 Files open for writing must be closed before removal. Use ph notebook-create to create notebooks.
 Work in /tmp for programs that save by renaming a temporary file,
@@ -333,7 +332,8 @@ export class PosthogFilesystem extends TerminalFilesystem {
     constructor(
         private projectId: string,
         private signal: AbortSignal,
-        private confirm: ConfirmTerminalOperation = async () => false
+        private confirm: ConfirmTerminalOperation = async () => false,
+        private confirmWrites = false
     ) {
         super()
         this.text('README.txt', this.root, TERMINAL_README)
@@ -355,6 +355,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 throw new FilesystemError(116)
             }
             const parts = [...directory.parts, this.storedName(name)]
+            await this.confirmWrite({
+                title: 'Create a PostHog folder?',
+                description: `Create a folder in project ${this.projectId}. This affects everyone in the project.`,
+                items: [joinPath(parts)],
+            })
             const entry = await fileSystemCreate(
                 this.projectId,
                 { path: joinPath(parts), type: 'folder' },
@@ -391,6 +396,12 @@ export class PosthogFilesystem extends TerminalFilesystem {
     async confirmOperation(confirmation: TerminalConfirmation): Promise<void> {
         if (this.signal.aborted || !(await this.confirm(confirmation)) || this.signal.aborted) {
             throw new Error('Canceled. No changes made.')
+        }
+    }
+
+    async confirmWrite(confirmation: TerminalConfirmation): Promise<void> {
+        if (this.confirmWrites) {
+            await this.confirmOperation(confirmation)
         }
     }
 
@@ -538,6 +549,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
             // Creating an implicit folder before moving it cannot be rolled back safely when it has children.
             throw new FilesystemError(95)
         }
+        await this.confirmWrite({
+            title: 'Move a PostHog file or folder?',
+            description: `Move or rename an item in project ${this.projectId}. This affects everyone in the project.`,
+            items: [`${this.mountedPath(node)} → /posthog/files/${joinPath(parts)}`],
+        })
         // The generated move body describes a filesystem row, but this action requires new_path.
         await apiMutator<FileSystemApi>(getFileSystemMoveCreateUrl(this.projectId, entry.id), {
             method: 'POST',
@@ -705,6 +721,12 @@ export class PosthogFilesystem extends TerminalFilesystem {
                                   description: `Save a deletion to ${entry.type} ${entry.ref} in project ${this.projectId}. This affects everyone in the project.`,
                                   items: [JSON.stringify(payload, null, 2)],
                               })
+                          } else {
+                              await this.confirmWrite({
+                                  title: 'Save changes to a PostHog object?',
+                                  description: `Update ${entry.type} ${entry.ref} in project ${this.projectId}. This affects everyone in the project.`,
+                                  items: [JSON.stringify(payload, null, 2)],
+                              })
                           }
                           if (entry.type === 'notebook' && 'content' in payload && !('text_content' in payload)) {
                               const node = markdownNode(payload.content)
@@ -752,6 +774,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 if (markdown === saved) {
                     return
                 }
+                await this.confirmWrite({
+                    title: 'Save changes to a PostHog notebook?',
+                    description: `Update notebook ${entry.ref} in project ${this.projectId}. This affects everyone in the project.`,
+                    items: [markdown],
+                })
                 notebook = await notebooksPartialUpdate(
                     this.projectId,
                     entry.ref!,
