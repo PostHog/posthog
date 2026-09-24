@@ -189,6 +189,21 @@ class TestLogsAlertEvaluation(APIBaseTest):
             assert not PlatformAlert.objects.filter(configuration=configuration).exists()
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
+    def test_a_destination_lookup_failure_is_not_the_checks_own_failure(self) -> None:
+        configuration = self._configuration()
+
+        # The second answer is what a retry inside the evaluation would reach. Reaching it means
+        # a lookup failure was recorded as a failed check, after a query that succeeded.
+        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=[RuntimeError("unreachable"), []]):
+            with pytest.raises(RuntimeError):
+                self._run(configuration)
+
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+        assert configuration.consecutive_failures == 0
+        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
+
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
             team=self.team,

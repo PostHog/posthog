@@ -35,6 +35,7 @@ from products.alerts.backend.facade.contracts import (
 from products.alerts.backend.facade.destinations import list_active_alert_destinations
 from products.alerts.backend.facade.lifecycle import (
     LOGS_ALERT_POLICY,
+    AlertCheckOutcome,
     AlertSnapshot,
     AlertState,
     CheckInput,
@@ -161,21 +162,30 @@ def _record_check_metrics(
             safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
 
 
-def _decide(
+def _verdict(
     check: PlatformAlertCheck,
     check_input: CheckInput,
     prior_breached: tuple[bool, ...],
     *,
-    window_end: datetime,
     now: datetime,
     reason: CheckOutcomeReason,
-) -> Decision:
-    """Runs one check through the shared machine and turns its verdict into a delivery.
+) -> AlertCheckOutcome:
+    """Runs one check through the shared machine.
 
     `LOGS_ALERT_POLICY` is how the shared machine expresses this source's semantics, so the
     decision is the one the logs stack reaches without routing through the logs product.
+
+    Separate from `_delivery` because a caller that catches evaluation errors must not also
+    catch a destination lookup. A lookup failure would otherwise be recorded as a failed check
+    and raise the alert's failure counter, after a query that succeeded.
     """
     outcome = evaluate_alert_check(_snapshot(check, prior_breached), check_input, now, policy=LOGS_ALERT_POLICY)
+    _record_check_metrics(check, outcome.new_state.value, outcome.notification, reason, now)
+    return outcome
+
+
+def _delivery(check: PlatformAlertCheck, outcome: AlertCheckOutcome, *, window_end: datetime) -> Decision:
+    """What the platform records for a verdict, and what delivery would announce for it."""
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
         new_state=outcome.new_state.value,
@@ -183,7 +193,6 @@ def _decide(
         consecutive_failures=outcome.consecutive_failures,
         disable=outcome.disable,
     )
-    _record_check_metrics(check, outcome.new_state.value, outcome.notification, reason, now)
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
@@ -205,23 +214,20 @@ def _decide(
     )
 
 
-def _evaluate_one(
-    check: PlatformAlertCheck, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
-) -> Decision:
+def _evaluate_one(check: PlatformAlertCheck, buckets: list[BucketedCount], *, now: datetime) -> AlertCheckOutcome:
     current_breached, *prior_windows_breached = _derive_breaches(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
     ) or (False,)
-    return _decide(
+    return _verdict(
         check,
         CheckInput(threshold_breached=current_breached),
         tuple(prior_windows_breached),
-        window_end=window_end,
         now=now,
         reason=CheckOutcomeReason.EVALUATED,
     )
 
 
-def _failed(check: PlatformAlertCheck, error: Exception, *, window_end: datetime, now: datetime) -> Decision:
+def _failed(check: PlatformAlertCheck, error: Exception, *, now: datetime) -> AlertCheckOutcome:
     """A check that could not reach a verdict, as the shared machine's error path sees it.
 
     The machine raises `consecutive_failures` and escalates to BROKEN, so an alert that fails
@@ -229,7 +235,7 @@ def _failed(check: PlatformAlertCheck, error: Exception, *, window_end: datetime
     as one so the policy can hold the counter.
     """
     classified = classify_alert_error(error)
-    return _decide(
+    return _verdict(
         check,
         CheckInput(
             threshold_breached=False,
@@ -237,7 +243,6 @@ def _failed(check: PlatformAlertCheck, error: Exception, *, window_end: datetime
             is_transient_error=classified.is_transient,
         ),
         (),
-        window_end=window_end,
         now=now,
         reason=CheckOutcomeReason.QUERY_FAILED,
     )
@@ -284,15 +289,18 @@ def _evaluate_cohort(
         # Deliberately not caught per check below. A check dropped there carries no outcome, so the
         # batch would advance every other check's schedule and leave this one due with its failure
         # counter unmoved, never reaching the escalation that stops it.
-        return [_failed(check, error, window_end=date_to, now=now) for check in checks]
+        return [_delivery(check, _failed(check, error, now=now), window_end=date_to) for check in checks]
 
     decided: list[Decision] = []
     for check in checks:
         try:
-            decided.append(_evaluate_one(check, result.per_alert.get(str(check.id), []), window_end=date_to, now=now))
+            outcome = _evaluate_one(check, result.per_alert.get(str(check.id), []), now=now)
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
-            decided.append(_failed(check, error, window_end=date_to, now=now))
+            outcome = _failed(check, error, now=now)
+        # Outside the block above on purpose. Resolving a destination reads the database, and a
+        # failure there is not this check's failure.
+        decided.append(_delivery(check, outcome, window_end=date_to))
     return decided
 
 
@@ -329,13 +337,16 @@ def _triage(
             # Through the machine as an inconclusive check, so the state and the failure counter
             # come from the one place allowed to decide them.
             decided.append(
-                _decide(
+                _delivery(
                     check,
-                    CheckInput(threshold_breached=False, is_inconclusive=True),
-                    (),
+                    _verdict(
+                        check,
+                        CheckInput(threshold_breached=False, is_inconclusive=True),
+                        (),
+                        now=now,
+                        reason=CheckOutcomeReason.QUIET_HOURS,
+                    ),
                     window_end=now,
-                    now=now,
-                    reason=CheckOutcomeReason.QUIET_HOURS,
                 )
             )
             continue
