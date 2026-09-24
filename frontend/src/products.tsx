@@ -43,6 +43,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
+import type { MessagingNavTabKey } from '../../products/workflows/frontend/messagingTabs'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
     ActionType,
@@ -294,6 +295,11 @@ export const productRoutes: Record<string, [string, string]> = {
         'workflowsLibraryTemplateFromMessage',
     ],
     '/broadcasts': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/library': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/channels': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -1675,7 +1681,7 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (): string => '/broadcasts',
+    broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
 }
