@@ -812,6 +812,20 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 ratingButtonColor: zod.string().optional(),
                 ratingButtonActiveColor: zod.string().optional(),
                 ratingButtonHoverColor: zod.string().optional(),
+                textSubtleColor: zod
+                    .string()
+                    .optional()
+                    .describe('Color of secondary text, such as question descriptions.'),
+                inputBackground: zod
+                    .string()
+                    .optional()
+                    .describe('Background color of open text inputs and rating buttons.'),
+                inputTextColor: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Text color of open text inputs and rating buttons. Calculated from inputBackground when not set.'
+                    ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
                 displayThankYouMessage: zod.boolean().optional(),
@@ -824,8 +838,31 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 thankYouMessageCloseButtonText: zod.string().optional(),
                 borderColor: zod.string().optional(),
                 placeholder: zod.string().optional(),
+                position: zod
+                    .enum([
+                        'top_left',
+                        'top_center',
+                        'top_right',
+                        'middle_left',
+                        'middle_center',
+                        'middle_right',
+                        'left',
+                        'center',
+                        'right',
+                        'next_to_trigger',
+                    ])
+                    .describe(
+                        '\* `top_left` - top_left\n\* `top_center` - top_center\n\* `top_right` - top_right\n\* `middle_left` - middle_left\n\* `middle_center` - middle_center\n\* `middle_right` - middle_right\n\* `left` - left\n\* `center` - center\n\* `right` - right\n\* `next_to_trigger` - next_to_trigger'
+                    )
+                    .optional()
+                    .describe(
+                        "Where a popover survey appears on the page. Defaults to 'right'.\n\n\* `top_left` - top_left\n\* `top_center` - top_center\n\* `top_right` - top_right\n\* `middle_left` - middle_left\n\* `middle_center` - middle_center\n\* `middle_right` - middle_right\n\* `left` - left\n\* `center` - center\n\* `right` - right\n\* `next_to_trigger` - next_to_trigger"
+                    ),
                 shuffleQuestions: zod.boolean().optional(),
-                surveyPopupDelaySeconds: zod.number().optional(),
+                surveyPopupDelaySeconds: zod
+                    .number()
+                    .nullish()
+                    .describe('Seconds to wait before a popover survey appears. Null shows it without a delay.'),
                 allowGoBack: zod
                     .boolean()
                     .optional()
@@ -843,11 +880,20 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 widgetSelector: zod.string().optional(),
                 widgetLabel: zod.string().optional(),
                 widgetColor: zod.string().optional(),
+                tabPosition: zod
+                    .enum(['top', 'left', 'right', 'bottom'])
+                    .describe('\* `top` - top\n\* `left` - left\n\* `right` - right\n\* `bottom` - bottom')
+                    .optional()
+                    .describe(
+                        "Which edge of the page holds the tab of a widget survey with widgetType 'tab'.\n\n\* `top` - top\n\* `left` - left\n\* `right` - right\n\* `bottom` - bottom"
+                    ),
                 fontFamily: zod.string().optional(),
                 maxWidth: zod.string().optional(),
                 zIndex: zod.string().optional(),
                 disabledButtonOpacity: zod.string().optional(),
                 boxPadding: zod.string().optional(),
+                boxShadow: zod.string().optional().describe('CSS box-shadow value of the survey box.'),
+                borderRadius: zod.string().optional().describe('CSS border-radius value of the survey box.'),
             }),
             zod.null(),
         ])
@@ -1671,6 +1717,20 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                 ratingButtonColor: zod.string().optional(),
                 ratingButtonActiveColor: zod.string().optional(),
                 ratingButtonHoverColor: zod.string().optional(),
+                textSubtleColor: zod
+                    .string()
+                    .optional()
+                    .describe('Color of secondary text, such as question descriptions.'),
+                inputBackground: zod
+                    .string()
+                    .optional()
+                    .describe('Background color of open text inputs and rating buttons.'),
+                inputTextColor: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Text color of open text inputs and rating buttons. Calculated from inputBackground when not set.'
+                    ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
                 displayThankYouMessage: zod.boolean().optional(),
@@ -1683,8 +1743,31 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                 thankYouMessageCloseButtonText: zod.string().optional(),
                 borderColor: zod.string().optional(),
                 placeholder: zod.string().optional(),
+                position: zod
+                    .enum([
+                        'top_left',
+                        'top_center',
+                        'top_right',
+                        'middle_left',
+                        'middle_center',
+                        'middle_right',
+                        'left',
+                        'center',
+                        'right',
+                        'next_to_trigger',
+                    ])
+                    .describe(
+                        '\* `top_left` - top_left\n\* `top_center` - top_center\n\* `top_right` - top_right\n\* `middle_left` - middle_left\n\* `middle_center` - middle_center\n\* `middle_right` - middle_right\n\* `left` - left\n\* `center` - center\n\* `right` - right\n\* `next_to_trigger` - next_to_trigger'
+                    )
+                    .optional()
+                    .describe(
+                        "Where a popover survey appears on the page. Defaults to 'right'.\n\n\* `top_left` - top_left\n\* `top_center` - top_center\n\* `top_right` - top_right\n\* `middle_left` - middle_left\n\* `middle_center` - middle_center\n\* `middle_right` - middle_right\n\* `left` - left\n\* `center` - center\n\* `right` - right\n\* `next_to_trigger` - next_to_trigger"
+                    ),
                 shuffleQuestions: zod.boolean().optional(),
-                surveyPopupDelaySeconds: zod.number().optional(),
+                surveyPopupDelaySeconds: zod
+                    .number()
+                    .nullish()
+                    .describe('Seconds to wait before a popover survey appears. Null shows it without a delay.'),
                 allowGoBack: zod
                     .boolean()
                     .optional()
@@ -1702,11 +1785,20 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                 widgetSelector: zod.string().optional(),
                 widgetLabel: zod.string().optional(),
                 widgetColor: zod.string().optional(),
+                tabPosition: zod
+                    .enum(['top', 'left', 'right', 'bottom'])
+                    .describe('\* `top` - top\n\* `left` - left\n\* `right` - right\n\* `bottom` - bottom')
+                    .optional()
+                    .describe(
+                        "Which edge of the page holds the tab of a widget survey with widgetType 'tab'.\n\n\* `top` - top\n\* `left` - left\n\* `right` - right\n\* `bottom` - bottom"
+                    ),
                 fontFamily: zod.string().optional(),
                 maxWidth: zod.string().optional(),
                 zIndex: zod.string().optional(),
                 disabledButtonOpacity: zod.string().optional(),
                 boxPadding: zod.string().optional(),
+                boxShadow: zod.string().optional().describe('CSS box-shadow value of the survey box.'),
+                borderRadius: zod.string().optional().describe('CSS border-radius value of the survey box.'),
             }),
             zod.null(),
         ])
@@ -2532,6 +2624,20 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 ratingButtonColor: zod.string().optional(),
                 ratingButtonActiveColor: zod.string().optional(),
                 ratingButtonHoverColor: zod.string().optional(),
+                textSubtleColor: zod
+                    .string()
+                    .optional()
+                    .describe('Color of secondary text, such as question descriptions.'),
+                inputBackground: zod
+                    .string()
+                    .optional()
+                    .describe('Background color of open text inputs and rating buttons.'),
+                inputTextColor: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Text color of open text inputs and rating buttons. Calculated from inputBackground when not set.'
+                    ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
                 displayThankYouMessage: zod.boolean().optional(),
@@ -2544,8 +2650,31 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 thankYouMessageCloseButtonText: zod.string().optional(),
                 borderColor: zod.string().optional(),
                 placeholder: zod.string().optional(),
+                position: zod
+                    .enum([
+                        'top_left',
+                        'top_center',
+                        'top_right',
+                        'middle_left',
+                        'middle_center',
+                        'middle_right',
+                        'left',
+                        'center',
+                        'right',
+                        'next_to_trigger',
+                    ])
+                    .describe(
+                        '\* `top_left` - top_left\n\* `top_center` - top_center\n\* `top_right` - top_right\n\* `middle_left` - middle_left\n\* `middle_center` - middle_center\n\* `middle_right` - middle_right\n\* `left` - left\n\* `center` - center\n\* `right` - right\n\* `next_to_trigger` - next_to_trigger'
+                    )
+                    .optional()
+                    .describe(
+                        "Where a popover survey appears on the page. Defaults to 'right'.\n\n\* `top_left` - top_left\n\* `top_center` - top_center\n\* `top_right` - top_right\n\* `middle_left` - middle_left\n\* `middle_center` - middle_center\n\* `middle_right` - middle_right\n\* `left` - left\n\* `center` - center\n\* `right` - right\n\* `next_to_trigger` - next_to_trigger"
+                    ),
                 shuffleQuestions: zod.boolean().optional(),
-                surveyPopupDelaySeconds: zod.number().optional(),
+                surveyPopupDelaySeconds: zod
+                    .number()
+                    .nullish()
+                    .describe('Seconds to wait before a popover survey appears. Null shows it without a delay.'),
                 allowGoBack: zod
                     .boolean()
                     .optional()
@@ -2563,11 +2692,20 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 widgetSelector: zod.string().optional(),
                 widgetLabel: zod.string().optional(),
                 widgetColor: zod.string().optional(),
+                tabPosition: zod
+                    .enum(['top', 'left', 'right', 'bottom'])
+                    .describe('\* `top` - top\n\* `left` - left\n\* `right` - right\n\* `bottom` - bottom')
+                    .optional()
+                    .describe(
+                        "Which edge of the page holds the tab of a widget survey with widgetType 'tab'.\n\n\* `top` - top\n\* `left` - left\n\* `right` - right\n\* `bottom` - bottom"
+                    ),
                 fontFamily: zod.string().optional(),
                 maxWidth: zod.string().optional(),
                 zIndex: zod.string().optional(),
                 disabledButtonOpacity: zod.string().optional(),
                 boxPadding: zod.string().optional(),
+                boxShadow: zod.string().optional().describe('CSS box-shadow value of the survey box.'),
+                borderRadius: zod.string().optional().describe('CSS border-radius value of the survey box.'),
             }),
             zod.null(),
         ])

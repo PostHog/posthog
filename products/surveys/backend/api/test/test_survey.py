@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.constants import AvailableFeature
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -37,6 +37,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
+    SurveyAppearanceSchemaSerializer,
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
@@ -4996,6 +4997,14 @@ class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
         assert set(value.keys()) <= {"id", "name", "steps"}, value
         assert "created_by" not in value
         assert value["name"] == "person subscribed"
+
+
+class TestSurveyAppearanceSchema(SimpleTestCase):
+    def test_documented_schema_keeps_every_default_appearance_key(self) -> None:
+        serializer = SurveyAppearanceSchemaSerializer(data=DEFAULT_SURVEY_APPEARANCE)
+
+        assert serializer.is_valid(), serializer.errors
+        assert set(serializer.validated_data) == set(DEFAULT_SURVEY_APPEARANCE)
 
 
 @time_machine.travel("2024-12-12 00:00:00", tick=False)
