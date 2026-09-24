@@ -78,7 +78,7 @@ Open loop at a Poisson arrival rate, with a 10 s client timeout as the gateway u
 | 23,260 (4 s) | 1.3x          | 13.1/s | 19%               | 0%        | 4.9 s          |
 | 23,260 (4 s) | 2.0x          | 12.9/s | 49%               | 0%        | 5.2 s          |
 
-Without a limit, overload makes the wait longer than the timeout, and the box answers less than a third of its capacity. With a limit, it keeps answering at capacity and rejects the rest at once. The entrypoint's default is about four seconds of an L4's throughput. At that limit, the box rejects nothing below capacity, and the slowest answers under overload arrive in about half the gateway's wait. A T4 serves JevK5 at about 1,270 tokens/s, a fifth of an L4. Kev, on the same backbone, served about 69,000 on an H100. Scale the limit with the GPU.
+Without a limit, overload makes the wait longer than the timeout, and the box answers less than a third of its capacity. With a limit, it keeps answering at capacity and rejects the rest at once. The entrypoint's default on an L4 is about four seconds of its throughput. At that limit, the box rejects nothing below capacity, and the slowest answers under overload arrive in about half the gateway's wait. A T4 serves JevK5 at about 1,270 tokens/s, a fifth of an L4. Kev, on the same backbone, served about 69,000 on an H100. The entrypoint sizes the limit for a T4 as well, and any other GPU needs it set.
 
 ## Container image
 
@@ -97,7 +97,7 @@ docker run -d --restart always --gpus all --network host --shm-size 8g \
 - The host network lets s5cmd read the instance role's credentials from the metadata service, and Caddy listens on the host's `PORT`. Keep the port closed to the network and reach it over the tailnet.
 - The named volume keeps the weights across container restarts; it starts owned by the serving user (uid 10001). A host directory mounted instead must be writable by that user.
 - `DTYPE=float16` on GPUs without bf16. `MODEL_NAME` (the served name the gateway asks for, default `jevk5-0.2`), `MAX_MODEL_LEN`, `GPU_MEMORY_UTILIZATION`, `PORT` and `VLLM_PORT` override the defaults; extra arguments go to `vllm serve`.
-- `MAX_NUM_QUEUED_TOKENS` is vLLM's backlog limit, sized for an L4 (see [Load test on an L4](#load-test-on-an-l4)). Set it for any other GPU.
+- `MAX_NUM_QUEUED_TOKENS` is vLLM's backlog limit. Unset, the entrypoint uses about four seconds of the GPU's measured prefill, which exists for an L4 and a T4 (see [Load test on an L4](#load-test-on-an-l4)). On any other GPU the container refuses to start until it is set.
 - The image sets `GLOO_SOCKET_IFNAME=lo`. vLLM otherwise resolves the host name at start-up and fails with "File name too long" where a VPC's DHCP domain makes it 64 characters.
 
 `kev-vllm-checkpoint verify <dir>` is the manifest check on its own.
