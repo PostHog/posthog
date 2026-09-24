@@ -81,6 +81,7 @@ from products.tasks.backend.constants import (
     SERVER_OWNED_RESUME_STATE_KEYS,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
+    TASK_RUN_TERMINATION_REASON_MARKERS as TASK_RUN_TERMINATION_REASON_MARKERS,  # re-exported for presentation
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
@@ -527,18 +528,8 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
-# The workflow records why a run ended as a state marker rather than as prose in
-# ``error_message``, and ``_TASK_RUN_PUBLIC_STATE_KEYS`` withholds those markers, so without this
-# a client sees a FAILED run with a null ``error_message`` and nothing that says why. Ordered
-# most specific first: a run whose sandbox disappeared also trips a timeout, and the lost sandbox
-# is what explains the timeout.
-TASK_RUN_TERMINATION_REASON_MARKERS = (
-    "sandbox_gone",
-    "timed_out_wall_clock",
-    "timed_out_inactivity",
-)
-
-
+# ``_TASK_RUN_PUBLIC_STATE_KEYS`` withholds the markers, so without this a client sees a FAILED
+# run with a null ``error_message`` and nothing that says why.
 def _task_run_termination_reason(state: dict | None) -> str | None:
     markers = state or {}
     return next((marker for marker in TASK_RUN_TERMINATION_REASON_MARKERS if markers.get(marker)), None)
