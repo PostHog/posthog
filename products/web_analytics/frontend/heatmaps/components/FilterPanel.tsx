@@ -1,107 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconFilter, IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
-import { HeatmapEventFilter } from 'lib/components/heatmaps/types'
-import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
-
-const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
-    ids.map((id) => ({
-        type: PropertyFilterType.Cohort,
-        key: 'id',
-        value: id,
-        operator: PropertyOperator.In,
-    }))
-
-const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
-    filters
-        .filter((f): f is CohortPropertyFilter => f.type === PropertyFilterType.Cohort)
-        .map((f) => f.value)
-        .filter((v): v is number => typeof v === 'number')
-
-export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
-    const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
-    const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
-
-    const options = [
-        {
-            value: 320,
-            icon: <IconPhone />,
-        },
-        {
-            value: 375,
-            icon: <IconPhone />,
-        },
-        {
-            value: 425,
-            icon: <IconPhone />,
-        },
-        {
-            value: 768,
-            icon: <IconTabletPortrait />,
-        },
-        {
-            value: 1024,
-            icon: <IconTabletLandscape />,
-        },
-        {
-            value: 1440,
-            icon: <IconLaptop />,
-        },
-        {
-            value: 1920,
-            icon: <IconLaptop />,
-        },
-    ]
-
-    const allOptions = lockedWidth ? [{ value: lockedWidth, icon: <IconLaptop /> }] : [...options]
-    if (!lockedWidth && widthOverride && !options.some((option) => option.value === widthOverride)) {
-        allOptions.push({
-            value: widthOverride,
-            icon: <IconLaptop />,
-        })
-    }
-
-    return (
-        <div className="flex justify-center items-center gap-2">
-            <span>Screen width:</span>
-            <LemonSelect
-                size="small"
-                onChange={setWindowWidthOverride}
-                value={lockedWidth ?? widthOverride}
-                disabledReason={lockedWidth ? 'Toolbar captures are saved at a single width' : undefined}
-                data-attr="viewport-chooser"
-                options={allOptions.map(({ value, icon }) => ({
-                    value,
-                    label: (
-                        <div className="flex items-center gap-1">
-                            {icon}
-                            <div className="text-xs">{value} px</div>
-                        </div>
-                    ),
-                }))}
-            />
-        </div>
-    )
-}
+import { HeatmapFilterControls } from './HeatmapFilterControls'
 
 /**
  * values and actions are passed as props because they are different
@@ -117,24 +27,17 @@ export function FilterPanel({
     lockedWidth?: number
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-    const [isEventFilterOpen, setIsEventFilterOpen] = useState(false)
     const {
         heatmapFilters,
         heatmapColorPalette,
         heatmapFixedPositionMode,
         viewportRange,
-        commonFilters,
         rawHeatmapLoading,
         heatmapEmpty,
     } = useValues(heatmapDataLogic({ context: 'in-app' }))
-
-    const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } = useActions(
+    const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode } = useActions(
         heatmapDataLogic({ context: 'in-app' })
     )
-
-    const cohortFilterEnabled = useFeatureFlag('HEATMAPS_COHORT_FILTER')
-    const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
-    const eventFilterCount = commonFilters?.events?.length ?? 0
 
     const debouncedLoading = useDebouncedValue(rawHeatmapLoading, HEATMAP_LOADING_DEBOUNCE_MS)
 
@@ -149,147 +52,55 @@ export function FilterPanel({
                     className="h-1 rounded-none"
                 />
             )}
-            <div className="flex flex-wrap justify-between items-center gap-2 my-2">
-                <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <DateFilter
-                        dateFrom={commonFilters?.date_from}
-                        dateTo={commonFilters?.date_to}
-                        onChange={(fromDate, toDate) => {
-                            setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
-                        }}
-                        dateOptions={heatmapDateOptions}
-                    />
-                    {cohortFilterEnabled && (
-                        <div className="min-w-0">
-                            <PropertyFilters
-                                pageKey="heatmap-cohorts"
-                                propertyFilters={cohortIdsToPropertyFilters(commonFilters?.cohort_ids ?? [])}
-                                onChange={(filters) =>
-                                    setCommonFilters?.({
-                                        ...commonFilters,
-                                        cohort_ids: propertyFiltersToCohortIds(filters),
-                                    })
-                                }
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts]}
-                                buttonText="Filter by cohort"
-                                addText="Add cohort filter"
-                                buttonSize="small"
-                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
-                            />
-                        </div>
-                    )}
-                    {eventFilterEnabled && (
+            <HeatmapFilterControls
+                lockedWidth={lockedWidth}
+                settings={
+                    <>
                         <div className="min-w-0">
                             <Popover
                                 overlay={
-                                    // The filter bar is a single row of controls, so the event list, which grows a
-                                    // row per event, sits in a popover rather than stretching the row it lives in.
-                                    <div className="p-2 w-96">
-                                        <ActionFilter
-                                            bordered
-                                            filters={{ events: commonFilters?.events ?? [] }}
-                                            setFilters={(filters) => {
-                                                setCommonFilters?.({
-                                                    ...commonFilters,
-                                                    // ActionFilter types events as the loose Record shape; narrow
-                                                    // back to what heatmapDataLogic serializes.
-                                                    events: (filters.events ?? []) as HeatmapEventFilter[],
-                                                })
-                                            }}
-                                            typeKey="heatmap-events"
-                                            buttonCopy="Add event"
-                                            mathAvailability={MathAvailability.None}
-                                            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-                                            // "All events" matches every session, so as a filter it does nothing.
-                                            excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
-                                            propertiesTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                            ]}
-                                            propertyFiltersPopover
-                                            hideRename
-                                            hideDuplicate
-                                            showNestedArrow={false}
+                                    <div className="p-2 w-80 max-h-96 overflow-y-auto">
+                                        <HeatmapsSettings
+                                            heatmapFilters={heatmapFilters}
+                                            patchHeatmapFilters={patchHeatmapFilters}
+                                            viewportRange={viewportRange}
+                                            heatmapColorPalette={heatmapColorPalette}
+                                            setHeatmapColorPalette={setHeatmapColorPalette}
+                                            heatmapFixedPositionMode={heatmapFixedPositionMode}
+                                            setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
                                         />
                                     </div>
                                 }
-                                visible={isEventFilterOpen}
-                                onClickOutside={() => setIsEventFilterOpen(false)}
+                                visible={isSettingsOpen}
+                                onClickOutside={() => {
+                                    setIsSettingsOpen(false)
+                                }}
                                 placement="bottom"
                             >
                                 <LemonButton
                                     type="secondary"
                                     size="small"
-                                    icon={<IconFilter />}
-                                    sideIcon={
-                                        eventFilterCount ? (
-                                            <LemonBadge.Number count={eventFilterCount} size="small" />
-                                        ) : undefined
-                                    }
-                                    onClick={() => setIsEventFilterOpen(!isEventFilterOpen)}
-                                    tooltip="Only show interactions from sessions where these events happened"
-                                    data-attr="heatmap-event-filter"
+                                    onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                                    icon={<IconGear />}
+                                    tooltip="Heatmap settings"
+                                    data-attr="heatmap-settings"
                                 >
-                                    Filter by event
+                                    Heatmap settings
                                 </LemonButton>
                             </Popover>
                         </div>
-                    )}
-                    <div className="min-w-0">
-                        <Popover
-                            overlay={
-                                <div className="p-2 w-80 max-h-96 overflow-y-auto">
-                                    <HeatmapsSettings
-                                        heatmapFilters={heatmapFilters}
-                                        patchHeatmapFilters={patchHeatmapFilters}
-                                        viewportRange={viewportRange}
-                                        heatmapColorPalette={heatmapColorPalette}
-                                        setHeatmapColorPalette={setHeatmapColorPalette}
-                                        heatmapFixedPositionMode={heatmapFixedPositionMode}
-                                        setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
-                                    />
-                                    <div className="min-w-0">
-                                        <TestAccountFilter
-                                            size="small"
-                                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
-                                            onChange={(value) => {
-                                                setCommonFilters?.({
-                                                    ...commonFilters,
-                                                    filter_test_accounts: value.filter_test_accounts,
-                                                })
-                                            }}
-                                        />
-                                    </div>
-                                    <p className="text-xs text-muted mt-3 mb-0">
-                                        Viewing filters and screen width aren't saved with this heatmap.
-                                    </p>
-                                </div>
-                            }
-                            visible={isSettingsOpen}
-                            onClickOutside={() => {
-                                setIsSettingsOpen(false)
-                            }}
-                            placement="bottom"
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                                icon={<IconGear />}
-                                tooltip="Heatmap settings"
-                                data-attr="heatmap-settings"
-                            >
-                                Heatmap settings
-                            </LemonButton>
-                        </Popover>
-                    </div>
-                    {clickmapSettings ? <div className="min-w-0">{clickmapSettings}</div> : null}
-                </div>
-                <ViewportChooser lockedWidth={lockedWidth} />
-            </div>
+                        {clickmapSettings ? <div className="min-w-0">{clickmapSettings}</div> : null}
+                    </>
+                }
+                drawerFooter={
+                    <p className="text-xs text-muted basis-full mb-0">
+                        Viewing filters and screen width aren't saved with this heatmap.
+                    </p>
+                }
+            />
             {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
                 <p className="text-sm text-muted mt-2 mb-0">
-                    No interactions found. Try a different date range or adjust your filters in Heatmap settings.
+                    No interactions found. Try a different date range or adjust your filters.
                 </p>
             ) : null}
         </div>
