@@ -8,6 +8,7 @@ import {
 } from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
+import type { PreferredWorkSectionHeights } from "@posthog/ui/features/canvas/workSectionLayout";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { SIDEBAR_MIN_WIDTH } from "./constants";
@@ -35,6 +36,7 @@ interface SidebarStoreState {
   channelItemFilters: ChannelItemFilters;
   channelItemSort: ChannelItemSort;
   channelItemGrouping: ChannelItemGrouping;
+  workSectionHeights: PreferredWorkSectionHeights;
   // Reveals the Channels feature in the unified sidebar (channel tree replaces
   // the task list, Canvas nav item appears). Off by default — Code merged into
   // the Bluebird chrome ships with channels hidden until the user opts in.
@@ -62,6 +64,7 @@ interface SidebarStoreActions {
   setChannelItemFilters: (filters: ChannelItemFilters) => void;
   setChannelItemSort: (sort: ChannelItemSort) => void;
   setChannelItemGrouping: (grouping: ChannelItemGrouping) => void;
+  setWorkSectionHeights: (heights: PreferredWorkSectionHeights) => void;
   setChannelsEnabled: (channelsEnabled: boolean) => void;
 }
 
@@ -86,6 +89,7 @@ export const useSidebarStore = create<SidebarStore>()(
       channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
       channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
       channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
+      workSectionHeights: {},
       channelsEnabled: false,
       setOpen: (open) => set({ open, hasUserSetOpen: true }),
       setOpenAuto: (open) =>
@@ -151,6 +155,8 @@ export const useSidebarStore = create<SidebarStore>()(
       setChannelItemSort: (channelItemSort) => set({ channelItemSort }),
       setChannelItemGrouping: (channelItemGrouping) =>
         set({ channelItemGrouping }),
+      setWorkSectionHeights: (workSectionHeights) =>
+        set({ workSectionHeights }),
     }),
     {
       name: "sidebar-storage",
@@ -170,6 +176,7 @@ export const useSidebarStore = create<SidebarStore>()(
         channelItemFilters: state.channelItemFilters,
         channelItemSort: state.channelItemSort,
         channelItemGrouping: state.channelItemGrouping,
+        workSectionHeights: state.workSectionHeights,
         channelsEnabled: state.channelsEnabled,
       }),
       merge: (persisted, current) => {
@@ -189,6 +196,7 @@ export const useSidebarStore = create<SidebarStore>()(
           channelItemFilters?: Partial<ChannelItemFilters>;
           channelItemSort?: ChannelItemSort;
           channelItemGrouping?: ChannelItemGrouping;
+          workSectionHeights?: PreferredWorkSectionHeights;
           channelsEnabled?: boolean;
         };
         return {
@@ -223,6 +231,8 @@ export const useSidebarStore = create<SidebarStore>()(
             persistedState.channelItemSort ?? current.channelItemSort,
           channelItemGrouping:
             persistedState.channelItemGrouping ?? current.channelItemGrouping,
+          workSectionHeights:
+            persistedState.workSectionHeights ?? current.workSectionHeights,
           channelsEnabled:
             persistedState.channelsEnabled ?? current.channelsEnabled,
         };

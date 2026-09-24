@@ -117,6 +117,7 @@ __all__ = [
 # weight off the ``django.setup()`` import path — only the namespaced-resource registry loads them.
 _LAZY = {
     "github_repositories_for_job_inputs": "github_warehouse_repos",
+    "github_source_credential": "github_warehouse_repos",
     "reconcile_github_repositories": "github_warehouse_repos",
 }
 

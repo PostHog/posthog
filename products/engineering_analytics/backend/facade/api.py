@@ -18,7 +18,6 @@ then delegates to the read layer: source selection and access control live in th
 not in the query builders below it.
 """
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
@@ -37,9 +36,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     DoraOverview,
     FlakyTestList,
     GitHubSource,
+    GitHubTeamRoster,
     MasterFailureGroup,
     MergedPullRequest,
-    PathOwnership,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -694,7 +693,11 @@ def list_job_aggregates(
     )
 
 
-def resolve_path_owners(repository: str, paths: Sequence[str]) -> PathOwnership:
-    """Name the team that owns each repository path, from the ownership files on the repository's
-    default branch. It takes no team, because nothing PostHog stores feeds the answer."""
-    return logic.resolve_path_owners(repository, paths)
+def get_github_team_roster(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> GitHubTeamRoster:
+    """Who is on which GitHub org team, from the team's synced membership snapshot.
+
+    Narrower than every read above: it resolves the membership table alone, so a caller routing work
+    at a team slug does not need the ``pull_requests`` / ``workflow_runs`` pair the curated handle
+    insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
+    """
+    return logic.build_github_team_roster(team=team, user_access_control=user_access_control)

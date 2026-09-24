@@ -262,19 +262,16 @@ def _agent_run_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
-TASKS_PREWARM_INBOX_DISCUSSION_FLAG = "tasks-prewarm-inbox-discussion"
 
-# One rollout per origin product — the Code app, PostHog AI and the Inbox reach different populations,
-# so a shared flag would drag one to 100% while rolling out another.
 WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
     tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
-    tasks_facade.TaskOriginProduct.SIGNAL_REPORT: TASKS_PREWARM_INBOX_DISCUSSION_FLAG,
 }
 
 # Origins that warm for every user, with no flag left to evaluate.
 WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         tasks_facade.TaskOriginProduct.POSTHOG_AI,
+        tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     }
 )
 
@@ -2837,6 +2834,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         strict_request_validation=True,
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["post"], url_path="analysis-activity", required_scopes=["task:write"])
     def analysis_activity(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -4339,6 +4337,7 @@ class LegacyDesktopAccessViewSet(viewsets.ViewSet):
         summary="Check PostHog Desktop access",
         description="Compatibility endpoint for released PostHog Desktop clients.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
         team = getattr(request.user, "team", None)

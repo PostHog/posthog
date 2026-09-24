@@ -529,6 +529,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["super"], indirect=True)
 @pytest.mark.parametrize("model", [TEST_MODELS[1]])
+@pytest.mark.parametrize("missing_person_id", [False, True])
 async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
     clickhouse_client,
     activity_environment,
@@ -541,6 +542,7 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
     data_interval_end,
     properties_data_type,
     ateam,
+    missing_person_id: bool,
 ):
     """Test data is inserted even in the presence of additional columns.
 
@@ -577,6 +579,12 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
                     sql.Identifier(redshift_config["schema"], table_name)
                 )
             )
+            if missing_person_id:
+                await cursor.execute(
+                    sql.SQL("ALTER TABLE {} DROP COLUMN person_id").format(
+                        sql.Identifier(redshift_config["schema"], table_name)
+                    )
+                )
 
     await _run_activity(
         activity_environment,
@@ -592,4 +600,7 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
         redshift_config=redshift_config,
         sort_key=sort_key,
         extra_fields=["test"],
+        expected_fields=[field["alias"] for field in redshift_default_fields() if field["alias"] != "person_id"]
+        if missing_person_id
+        else None,
     )

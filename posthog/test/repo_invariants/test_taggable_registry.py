@@ -5,7 +5,7 @@ import pytest
 from django.apps import apps
 from django.db import models
 
-from posthog.models.tagged_item import TaggedItem
+from posthog.models.tagged_item import RELATED_OBJECTS, TaggedItem
 from posthog.models.tagged_item_registry import (
     OBJECT_ID,
     OBJECT_UUID,
@@ -21,6 +21,10 @@ INTEGER_FIELDS = (models.AutoField, models.IntegerField, models.BigAutoField, mo
 
 def _model_for(entry: TaggableModel) -> type[models.Model]:
     return apps.get_model(entry.model_label)
+
+
+def test_registry_matches_the_foreign_key_fields() -> None:
+    assert {entry.legacy_field for entry in TAGGABLE_MODELS} == set(RELATED_OBJECTS)
 
 
 def test_registry_entries_are_unique() -> None:
@@ -44,6 +48,11 @@ def test_object_column_matches_the_primary_key_type(entry: TaggableModel) -> Non
         assert isinstance(primary_key, INTEGER_FIELDS), (
             f"{entry.model_label} has a {type(primary_key).__name__} primary key, so it belongs on {OBJECT_UUID}"
         )
+
+
+@pytest.mark.parametrize("entry", TAGGABLE_MODELS, ids=lambda entry: entry.legacy_field)
+def test_registry_points_at_the_same_model_as_the_foreign_key(entry: TaggableModel) -> None:
+    assert TaggedItem._meta.get_field(entry.legacy_field).related_model is _model_for(entry)
 
 
 @pytest.mark.parametrize("entry", TAGGABLE_MODELS, ids=lambda entry: entry.legacy_field)

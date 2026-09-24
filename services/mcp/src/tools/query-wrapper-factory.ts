@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { type TraceDetail, compactTraceResponse } from '@/lib/trace-compaction'
+import { redactTraceResults } from '@/lib/trace-redaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -10,14 +11,16 @@ import {
 } from '@/tools/types'
 
 // LLM trace query kinds return every event with its full properties (entire
-// prompts, completions, tool payloads). Their results are bounded before being
-// returned so a single huge trace can't blow the caller's context window.
+// prompts, completions, tool payloads, and whatever else the calling application
+// attached). Their results are redacted down to the AI payload, then bounded, so
+// a response carries neither a credential nor enough volume to blow the caller's
+// context window.
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
 const TRACE_DETAIL_FIELD = 'detail'
 const DEFAULT_TRACE_DETAIL: TraceDetail = 'full'
 const TRACE_DETAIL_DESCRIPTION =
-    'How much of each event to return. "full" (default) returns complete event properties, subject to response size limits, preserving existing behavior when detail is omitted. Set "summary" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.'
+    'How much of each event to return. "full" (default) returns the retained event properties, subject to response size limits. Set "summary" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors); prompts, outputs, and other content are left out and only their names are listed.'
 
 /**
  * Add the `detail` control to the trace wrappers only. The field is a tool-level
@@ -224,14 +227,17 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             }
 
             const data = await context.api.query({ projectId }).runQuery({ query })
-            const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            // The backend renders `formatted_results` from the unredacted results, and
+            // some clients read that string in preference to the structured payload, so
+            // a trace response never carries it.
+            const shouldSurfaceFormatted = !isTraceQuery && effectiveOutputFormat !== 'json' && data.formatted_results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
             const response = {
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 query,
-                results: data.results,
+                results: isTraceQuery ? redactTraceResults(data.results) : data.results,
                 ...(data.warnings ? { warnings: data.warnings } : {}),
             }
             if (isTraceQuery) {

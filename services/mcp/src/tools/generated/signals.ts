@@ -1181,6 +1181,7 @@ const scoutMembersList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/members/`,
             query: {
                 search: params.search,
+                team: params.team,
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
@@ -2101,6 +2102,7 @@ const signalsScoutMembersList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/members/`,
             query: {
                 search: params.search,
+                team: params.team,
             },
         })
         return await withPostHogUrl(context, result, '/inbox')

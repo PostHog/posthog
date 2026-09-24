@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import requests
 
-from products.managed_warehouse.backend.facade.api import get_duckgres_query_server_config
+from products.managed_warehouse.backend.facade.api import get_managed_warehouse_trino_password
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
     ManagedWarehouseTrinoConnectionUnavailable,
@@ -26,12 +26,12 @@ def resolve_managed_warehouse_trino_connection(organization_id: str) -> ManagedW
         )
 
     try:
-        root_connection = get_duckgres_query_server_config(organization_id)
+        password = get_managed_warehouse_trino_password(organization_id)
     except ValueError as error:
         raise ManagedWarehouseTrinoConnectionUnavailable(
             "The organization does not have a stored managed warehouse credential"
         ) from error
-    if not root_connection.password:
+    if not password:
         raise ManagedWarehouseTrinoConnectionUnavailable(
             "The organization does not have a stored managed warehouse credential"
         )
@@ -41,7 +41,7 @@ def resolve_managed_warehouse_trino_connection(organization_id: str) -> ManagedW
         port=target.port,
         catalog=target.catalog,
         username=target.username,
-        password=root_connection.password,
+        password=password,
     )
 
 

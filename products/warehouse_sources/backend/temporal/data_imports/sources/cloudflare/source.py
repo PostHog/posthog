@@ -115,18 +115,22 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        is_valid, status = validate_cloudflare_credentials(config.api_token)
-        if is_valid:
+        check = validate_cloudflare_credentials(config.api_token)
+        if check.is_valid:
             return True, None
 
-        if status is None or status == 429 or status >= 500:
+        if check.is_transient:
             return (
                 False,
                 "Couldn't reach Cloudflare to verify your API token. Try again in a moment.",
             )
+        # Naming Cloudflare's own reason matters more than naming a remedy: the token is refused
+        # for reasons permissions never explain, so guessing one sends people round in circles.
+        detail = f" Cloudflare said: {check.reason}." if check.reason else ""
         return (
             False,
-            "Your Cloudflare API token was rejected. Create a new token with read permissions in your Cloudflare dashboard, then reconnect.",
+            f"Cloudflare rejected your API token.{detail} Check the token is still active, isn't "
+            "restricted to IP addresses that exclude PostHog, and hasn't expired, then reconnect.",
         )
 
     def source_for_pipeline(self, config: CloudflareSourceConfig, inputs: SourceInputs) -> SourceResponse:
