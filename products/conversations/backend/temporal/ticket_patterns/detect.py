@@ -83,7 +83,7 @@ def _run_key() -> str:
         return "manual"
 
 
-def _requester_key(ticket: Ticket) -> str:
+def _requester_key(ticket: Ticket, *, slack_user_id: object = None, teams_user_id: object = None) -> str:
     """Who filed the ticket, for counting distinct customers.
 
     Five tickets from one company is one customer with a bad day; five companies is an incident.
@@ -95,6 +95,14 @@ def _requester_key(ticket: Ticket) -> str:
         return f"org:{ticket.organization_id}"
     if ticket.distinct_id:
         return f"person:{ticket.distinct_id}"
+    # Past this point a Slack or Teams author is known only by display name. Names are not unique,
+    # and every failed profile lookup stores the same "Unknown", so the platform's own user id on
+    # the opening message counts first.
+    if isinstance(slack_user_id, str) and slack_user_id:
+        # Slack user ids are unique only inside one workspace.
+        return f"slack:{ticket.slack_team_id or ''}:{slack_user_id}"
+    if isinstance(teams_user_id, str) and teams_user_id:
+        return f"teams:{teams_user_id}"
     traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
     for trait in ("email", "name"):
         value = traits.get(trait)
@@ -132,8 +140,8 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     # "AI"), and an unlabelled message is not worth a false alert. Private notes are our own words
     # too, so the shared predicate excludes them. Reuse it rather than write the test here: a
     # comment with no is_private key reads as SQL NULL, which a bare exclude() drops.
-    first_messages: dict[str, str] = {}
-    for item_id, content in (
+    openers: dict[str, tuple[str, Any, Any]] = {}
+    for item_id, content, slack_user_id, teams_user_id in (
         Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
@@ -147,30 +155,32 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
         # which strip() removes before the cut below.
         .annotate(opening_text=Substr("content", 1, MAX_MESSAGE_CHARS * 2))
         .order_by("created_at")
-        .values_list("item_id", "opening_text")
+        .values_list("item_id", "opening_text", "item_context__slack_user_id", "item_context__teams_user_id")
     ):
-        first_messages.setdefault(item_id, content or "")
+        openers.setdefault(item_id, (content or "", slack_user_id, teams_user_id))
 
     candidates = []
     requesters = {}
     for ticket in tickets:
         ticket_id = str(ticket.id)
-        if ticket_id not in first_messages:
+        if ticket_id not in openers:
             continue
+        opening_text, slack_user_id, teams_user_id = openers[ticket_id]
         subject = (ticket.email_subject or "").strip()
         # No fallback to last_message_text: it holds whatever was said last, including our reply.
-        message = first_messages[ticket_id].strip()
+        message = opening_text.strip()
         if not subject and not message:
             continue
+        requester_key = _requester_key(ticket, slack_user_id=slack_user_id, teams_user_id=teams_user_id)
         candidates.append(
             TicketCandidate(
                 ticket_id=ticket_id,
-                requester_key=_requester_key(ticket),
+                requester_key=requester_key,
                 subject=subject[:MAX_MESSAGE_CHARS],
                 message=message[:MAX_MESSAGE_CHARS],
             )
         )
-        requesters[ticket_id] = _requester_key(ticket)
+        requesters[ticket_id] = requester_key
     return candidates, requesters
 
 

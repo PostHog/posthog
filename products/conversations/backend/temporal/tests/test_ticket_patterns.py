@@ -516,3 +516,31 @@ class TestLoadCandidates(BaseTest):
         candidates, _ = _load_candidates(self.team.id, _settings())
 
         assert candidates == []
+
+    @parameterized.expand([("slack", "slack_user_id"), ("teams", "teams_user_id")])
+    def test_chat_customers_with_one_display_name_count_separately(self, channel, user_id_field):
+        # A chat author with no email is stored by display name only, and every failed profile
+        # lookup stores "Unknown". Keyed on that, these customers counted as one and a real spike
+        # never reached the requester threshold.
+        tickets = []
+        for user_id in ("author-1", "author-2"):
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=channel,
+                widget_session_id="",
+                distinct_id="",
+                anonymous_traits={"name": "Unknown"},
+                status=Status.OPEN,
+            )
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content="Replays do not load",
+                item_context={"author_type": "customer", "is_private": False, user_id_field: user_id},
+            )
+            tickets.append(ticket)
+
+        _, requesters = _load_candidates(self.team.id, _settings())
+
+        assert len({requesters[str(ticket.id)] for ticket in tickets}) == 2
