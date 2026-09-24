@@ -5,7 +5,7 @@ The table is only useful for teams whose windows this job keeps warm. Configure
 """
 
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import dagster
 import structlog
@@ -18,7 +18,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
     CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     ensure_marketing_sessions_precomputed,
-    precompute_window_days,
+    precompute_window_start,
 )
 
 logger = structlog.get_logger(__name__)
@@ -95,7 +95,7 @@ def ensure_marketing_sessions_precompute_op(context: dagster.OpExecutionContext)
         if team is None:
             context.log.warning(f"marketing_sessions_precompute_team_missing team_id={team_id}")
             continue
-        start = end - timedelta(days=precompute_window_days(team))
+        start = precompute_window_start(team, end)
         failures += _ensure_for_team(context, team, start, end, CHUNK_DAYS)
         processed += 1
 

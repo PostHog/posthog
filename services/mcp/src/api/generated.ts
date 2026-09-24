@@ -9724,6 +9724,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive
+     */
+    export type ObservationVerdictEnum = typeof ObservationVerdictEnum[keyof typeof ObservationVerdictEnum];
+
+
+    export const ObservationVerdictEnum = {
+      Yes: 'yes',
+      No: 'no',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
      */
     export interface AffectedCohortRequest {
@@ -9733,6 +9747,12 @@ export namespace Schemas {
          * @maximum 90
          */
       window_days?: number;
+      /** Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+       *
+       * * `yes` - Yes
+       * * `no` - No
+       * * `inconclusive` - Inconclusive */
+      verdict?: ObservationVerdictEnum | null;
       /**
          * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
          * @maxLength 100
@@ -18638,6 +18658,23 @@ export namespace Schemas {
     }
 
     /**
+     * The build a publish queued, as it stood when the response was sent.
+     */
+    export interface CanvasPublishedBuild {
+      /** The build's id. */
+      id: string;
+      /** 'ready': the build finished. The canvas is live with this version when canvas.published_build_id equals this id; then you do not need canvas-builds-retrieve. 'failed': fix the error diagnostics and save again. 'queued' or 'building': poll canvas-builds-retrieve until the build is terminal.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum;
+      /** Structured diagnostics recorded by the build (errors explain a failed status). */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
      * Payload for reporting a runtime error observed while rendering a canvas build.
      */
     export interface CanvasReportError {
@@ -18784,24 +18821,57 @@ export namespace Schemas {
     }
 
     /**
-     * One per-file edit: set a file's content, or delete it.
+     * * `write` - Write
+     * * `delete` - Delete
+     * * `rename` - Rename
+     * * `str_replace` - Str Replace
+     */
+    export type CanvasSourceEditOpEnum = typeof CanvasSourceEditOpEnum[keyof typeof CanvasSourceEditOpEnum];
+
+
+    export const CanvasSourceEditOpEnum = {
+      Write: 'write',
+      Delete: 'delete',
+      Rename: 'rename',
+      StrReplace: 'str_replace',
+    } as const;
+
+    /**
+     * One file edit: replace text in a file, write a whole file, delete it, or rename it.
      */
     export interface CanvasSourceEditOperation {
-      /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+      /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and content null means 'delete'. An operation with none of these fields is rejected.
+       *
+       * * `write` - Write
+       * * `delete` - Delete
+       * * `rename` - Rename
+       * * `str_replace` - Str Replace */
+      op?: CanvasSourceEditOpEnum;
+      /** Project-relative path of the file to edit (e.g. "src/canvas.tsx"). */
       path: string;
       /**
-         * The file's complete new content. Null (or omitted) deletes the file.
+         * For 'write': the file's complete new content.
          * @nullable
          */
       content?: string | null;
+      /** For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted. */
+      old_string?: string;
+      /** For 'str_replace': the text that replaces old_string. An empty string deletes old_string. */
+      new_string?: string;
+      /** For 'str_replace': replace every exact match of old_string instead of requiring exactly one. */
+      replace_all?: boolean;
+      /** For 'rename': the file's new project-relative path. */
+      new_path?: string;
     }
 
     /**
      * Payload for publishing per-file edits against the canvas's current source.
      */
     export interface CanvasSourceEdit {
-      /** Edits applied in order to the canvas's current source project. */
-      operations: CanvasSourceEditOperation[];
+      /** Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities. */
+      operations?: CanvasSourceEditOperation[];
+      /** The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities. */
+      capabilities?: CanvasCapabilities;
       /** Short description of the change, stored on the appended version history entry. */
       prompt?: string;
       /**
@@ -18858,6 +18928,8 @@ export namespace Schemas {
       current_version_id: string;
       /** Advisory (warning-severity) diagnostics recorded for the published project. */
       diagnostics: CanvasDiagnostic[];
+      /** The queued build. The server waits a few seconds for it, so it is often already terminal. */
+      build: CanvasPublishedBuild;
     }
 
     /**
@@ -37506,7 +37578,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -37516,13 +37588,46 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type EvaluationOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: EvaluationOutputConfigPassingRule;
     };
 
     /**
@@ -37610,6 +37715,7 @@ export namespace Schemas {
 
     /**
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
      * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
@@ -37617,6 +37723,7 @@ export namespace Schemas {
 
     export const OutputTypeEnum = {
       Boolean: 'boolean',
+      Numeric: 'numeric',
       Sentiment: 'sentiment',
     } as const;
 
@@ -37731,12 +37838,13 @@ export namespace Schemas {
       evaluation_type: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -38043,6 +38151,49 @@ export namespace Schemas {
     }
 
     /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type EvaluationReportMetricsOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Numeric score configuration and passing rule used for both report periods.
+     */
+    export type EvaluationReportMetricsOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: EvaluationReportMetricsOutputConfigPassingRule;
+    };
+
+    /**
      * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
      */
     export type EvaluationReportMetricsResultCounts = {[key: string]: number};
@@ -38065,9 +38216,12 @@ export namespace Schemas {
     export type EvaluationReportMetricsPreviousResultRates = {[key: string]: number} | null;
 
     export interface EvaluationReportMetrics {
+      /** Numeric score configuration and passing rule used for both report periods. */
+      output_config?: EvaluationReportMetricsOutputConfig;
       /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
        *
        * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Number of evaluation results in the report period. */
@@ -38095,10 +38249,13 @@ export namespace Schemas {
          * @nullable
          */
       previous_result_rates?: EvaluationReportMetricsPreviousResultRates;
-      /** Boolean pass percentage, excluding results marked not applicable. */
-      pass_rate?: number;
       /**
-         * Boolean pass percentage for the previous period, or null when unavailable.
+         * Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.
+         * @nullable
+         */
+      pass_rate?: number | null;
+      /**
+         * Boolean or numeric pass percentage for the previous period, or null when unavailable.
          * @nullable
          */
       previous_pass_rate?: number | null;
@@ -47412,9 +47569,43 @@ export namespace Schemas {
          * @nullable
          */
       source_team_id: number | null;
+      /**
+         * Name of the project in source_team_id, so the picker can say where the installation comes from. Null for an installation no project has linked yet.
+         * @nullable
+         */
+      source_team_name: string | null;
     }
 
+    /**
+     * * `ok` - Ok
+     * * `not_connected` - Not Connected
+     * * `unavailable` - Unavailable
+     */
+    export type GitHubPersonalDiscoveryStatusEnum = typeof GitHubPersonalDiscoveryStatusEnum[keyof typeof GitHubPersonalDiscoveryStatusEnum];
+
+
+    export const GitHubPersonalDiscoveryStatusEnum = {
+      Ok: 'ok',
+      NotConnected: 'not_connected',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface GitHubAvailableInstallationsResponse {
+      /** Correlation ID for this discovery response. */
+      discovery_id: string;
+      /** Time this discovery completed. */
+      discovered_at: string;
+      /**
+         * GitHub identity of the credential used for personal discovery.
+         * @nullable
+         */
+      personal_github_login: string | null;
+      /** Whether personal discovery succeeded, has no connection, or is unavailable.
+       *
+       * * `ok` - Ok
+       * * `not_connected` - Not Connected
+       * * `unavailable` - Unavailable */
+      personal_discovery_status: GitHubPersonalDiscoveryStatusEnum;
       /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
       installations: GitHubAvailableInstallation[];
       /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
@@ -47494,12 +47685,20 @@ export namespace Schemas {
 
     export interface GitHubLinkExistingRequest {
       /**
+         * Discovery response ID for diagnostics only; grants no authority.
+         * @nullable
+         */
+      discovery_id?: string | null;
+      /**
          * Sibling team in the same organization whose GitHub installation should be reused.
          * @nullable
          */
       source_team_id?: number | null;
-      /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
-      installation_id?: string;
+      /**
+         * GitHub installation ID to link; resolved within the organization when source_team_id is omitted.
+         * @nullable
+         */
+      installation_id?: string | null;
     }
 
     export interface GitHubOAuthAuthorizeRequest {
@@ -48384,6 +48583,18 @@ export namespace Schemas {
     export const HideViewedRecordings = {
       CurrentUser: 'current-user',
       AnyUser: 'any-user',
+    } as const;
+
+    /**
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     */
+    export type HogEvaluationOutputTypeEnum = typeof HogEvaluationOutputTypeEnum[keyof typeof HogEvaluationOutputTypeEnum];
+
+
+    export const HogEvaluationOutputTypeEnum = {
+      Boolean: 'boolean',
+      Numeric: 'numeric',
     } as const;
 
     /**
@@ -59115,6 +59326,71 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+     */
+    export interface ProjectAccessSource {
+      /** The access level that applies. */
+      access_level: string;
+      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+       *
+       * * `object` - object
+       * * `parent_object` - parent_object
+       * * `resource` - resource
+       * * `parent_resource` - parent_resource
+       * * `system_default` - system_default
+       * * `org_admin` - org_admin
+       * * `creator` - creator
+       * * `org_membership` - org_membership */
+      source: ResolvedAccessSourceEnum;
+      /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+       *
+       * * `member` - member
+       * * `role` - role
+       * * `default` - default */
+      source_subject: ResolvedAccessSourceSubjectEnum | null;
+      /** The resource the deciding rule belongs to. */
+      source_resource: string;
+      /**
+         * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+         * @nullable
+         */
+      source_resource_id: string | null;
+      /**
+         * The name of the role or member whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_name: string | null;
+    }
+
+    export interface MemberProjectAccessEntry {
+      /** The project's id. */
+      team_id: number;
+      /** The project's name. */
+      team_name: string;
+      /** The member's enforced access to the project: none, member or admin. */
+      access_level: string;
+      /** The rule that supplies the level. Read `source` and `source_subject` to tell an organization admin's bypass from a member rule, a role rule or the project default. */
+      resolved: ProjectAccessSource | null;
+      /**
+         * The id of the role or organization membership whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_id: string | null;
+    }
+
+    export interface MemberProjectAccess {
+      /** The organization membership id. */
+      organization_membership_id: string;
+      /** One entry per project the caller can access, including projects the member cannot. */
+      projects: MemberProjectAccessEntry[];
+    }
+
+    export interface MemberProjectAccessResponse {
+      /** One entry per visible organization member. */
+      results: MemberProjectAccess[];
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -63946,6 +64222,8 @@ export namespace Schemas {
       readonly credits_used_against_limit: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached: boolean;
+      /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+      readonly sweep_throttle_factor: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -71123,7 +71401,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -71133,13 +71411,46 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type PatchedEvaluationOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: PatchedEvaluationOutputConfigPassingRule;
     };
 
     /**
@@ -71205,12 +71516,13 @@ export namespace Schemas {
       evaluation_type?: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -75086,6 +75398,8 @@ export namespace Schemas {
       readonly credits_used_against_limit?: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached?: boolean;
+      /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+      readonly sweep_throttle_factor?: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -86627,10 +86941,12 @@ export namespace Schemas {
          */
       widths?: number[];
       /**
-         * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+         * Exact page URL the screenshot was captured on. Wildcards are not allowed.
          * @maxLength 2000
          */
       url: string;
+      /** URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty. */
+      data_url?: string;
       /**
          * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
          * @maxLength 400
@@ -86756,7 +87072,7 @@ export namespace Schemas {
      * Who this scanner's findings affected in the window; counted from observations, not estimated.
      */
     export interface ScannerImpact {
-      /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+      /** Distinct sessions with an affected observation in the window. For monitors only observations with the requested verdict count (yes by default); for other scanner types every succeeded observation counts. */
       readonly affected_sessions: number;
       /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
       readonly affected_users: number;
@@ -87116,6 +87432,25 @@ export namespace Schemas {
       config: SignalScoutConfig;
     }
 
+    export interface SelfDrivingReport {
+      /** Signal report ID, for linking to it in the inbox. */
+      id: string;
+      /**
+         * Report title. Null until the report is summarized.
+         * @nullable
+         */
+      title: string | null;
+      /** The report's inbox status. */
+      status: string;
+    }
+
+    export interface SelfDrivingPullRequest {
+      /** URL of the implementation pull request. */
+      url: string;
+      /** Whether the pull request has merged. */
+      merged: boolean;
+    }
+
     /**
      * Response of GET /vision/scanners/:id/self_driving_stats/.
      */
@@ -87128,6 +87463,10 @@ export namespace Schemas {
       prs_opened: number;
       /** Of the opened PRs, how many have merged. */
       prs_merged: number;
+      /** The newest reports counted in `reports_contributed`, at most 20. */
+      reports: SelfDrivingReport[];
+      /** The newest PRs counted in `prs_opened`, at most 20. */
+      pull_requests: SelfDrivingPullRequest[];
     }
 
     /**
@@ -87296,7 +87635,7 @@ export namespace Schemas {
     }
 
     /**
-     * A team's enforced scout run caps and current usage.
+     * A team's enforced scout caps and current usage.
      *
      * These are the values the coordinator actually applies at dispatch (resolved per-team override →
      * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -87317,6 +87656,8 @@ export namespace Schemas {
          * @nullable
          */
       runs_remaining_today: number | null;
+      /** Most scouts the project can have switched on at once. Enabling another past this is rejected. */
+      max_enabled_scouts: number;
     }
 
     /**
@@ -97629,6 +97970,141 @@ export namespace Schemas {
       PooledSamples: 'pooled_samples',
     } as const;
 
+    /**
+     * Anthropic text, image, or tool content blocks.
+     */
+    export type TerminalAIMessageContent = string | {[key: string]: JsonValue}[];
+
+    export type TerminalAIMessageRoleEnum = typeof TerminalAIMessageRoleEnum[keyof typeof TerminalAIMessageRoleEnum];
+
+
+    export const TerminalAIMessageRoleEnum = {
+      User: 'user',
+      Assistant: 'assistant',
+    } as const;
+
+    export interface TerminalAIMessage {
+      /** Author of this conversation message. */
+      role: TerminalAIMessageRoleEnum;
+      /** Anthropic text, image, or tool content blocks. */
+      content: TerminalAIMessageContent;
+    }
+
+    export type TerminalAIModel = typeof TerminalAIModel[keyof typeof TerminalAIModel];
+
+
+    export const TerminalAIModel = {
+      ClaudeOpus5: 'claude-opus-5',
+      ClaudeSonnet5: 'claude-sonnet-5',
+      ClaudeSonnet46: 'claude-sonnet-4-6',
+      ClaudeHaiku45: 'claude-haiku-4-5',
+    } as const;
+
+    /**
+     * Agent instructions.
+     */
+    export type TerminalAIRequestSystem = string | {[key: string]: JsonValue}[] | null;
+
+    /**
+     * JSON schema for the tool's arguments.
+     */
+    export type TerminalAIToolInputSchema = {[key: string]: JsonValue};
+
+    /**
+     * Provider prompt cache settings.
+     */
+    export type TerminalAIToolCacheControl = {[key: string]: string} | null;
+
+    export interface TerminalAITool {
+      /**
+         * Name of a tool executed inside the terminal.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * What the tool does.
+         * @maxLength 20000
+         */
+      description?: string;
+      /** JSON schema for the tool's arguments. */
+      input_schema: TerminalAIToolInputSchema;
+      /** Provider prompt cache settings. */
+      cache_control?: TerminalAIToolCacheControl;
+      /** Stream tool arguments as they are generated. */
+      eager_input_streaming?: boolean | null;
+    }
+
+    export interface TerminalAIRequest {
+      /** Model served by the PostHog provider. */
+      model: TerminalAIModel;
+      /**
+         * Conversation and tool results.
+         * @minItems 1
+         * @maxItems 1000
+         */
+      messages: TerminalAIMessage[];
+      /**
+         * Maximum output tokens for this generation.
+         * @minimum 1
+         * @maximum 8192
+         */
+      max_tokens: number;
+      /** Always stream the model response. */
+      stream?: true;
+      /** Agent instructions. */
+      system?: TerminalAIRequestSystem;
+      /**
+         * Tools executed by pi.
+         * @maxItems 100
+         */
+      tools?: TerminalAITool[];
+      /** Sampling temperature. */
+      temperature?: number | null;
+    }
+
+    /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type TestHogRequestOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Output settings used to validate the preview, including numeric bounds and allows_na.
+     */
+    export type TestHogRequestOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: TestHogRequestOutputConfigPassingRule;
+    };
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogTargetConfig {
@@ -97647,8 +98123,15 @@ export namespace Schemas {
     }
 
     export interface TestHogRequest {
+      /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
+       *
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric */
+      output_type?: HogEvaluationOutputTypeEnum;
+      /** Output settings used to validate the preview, including numeric bounds and allows_na. */
+      output_config?: TestHogRequestOutputConfig;
       /**
-         * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -97673,6 +98156,11 @@ export namespace Schemas {
     }
 
     export interface TestHogResultItem {
+      /**
+         * Raw numeric score, or null when no numeric score was produced.
+         * @nullable
+         */
+      score?: number | null;
       /** Stable identifier for the sampled generation, trace, or session. */
       sample_id: string;
       /** Type of sampled unit: generation, trace, or session.
@@ -103703,6 +104191,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type MembersProjectAccessRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string;
+    };
+
     export type OauthApplicationsListParams = {
     /**
      * Number of results to return per page.
@@ -104271,6 +104766,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -104373,6 +104869,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -104461,6 +104958,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -104551,6 +105049,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -108887,6 +109386,10 @@ export namespace Schemas {
     };
 
     export type FileSystemListParams = {
+    /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -113518,7 +114021,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run: self_driving, manual, label, or all.
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -114311,6 +114814,18 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type TerminalAiCreateParams = {
+    format?: TerminalAiCreateFormat;
+    };
+
+    export type TerminalAiCreateFormat = typeof TerminalAiCreateFormat[keyof typeof TerminalAiCreateFormat];
+
+
+    export const TerminalAiCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type TracingSpansAttributesRetrieveParams = {
     /**
      * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
@@ -114744,12 +115259,30 @@ export namespace Schemas {
      */
     tag?: string | null;
     /**
+     * Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+     *
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive
+     * @nullable
+     */
+    verdict?: VisionScannersImpactRetrieveVerdict;
+    /**
      * Trailing window of observations to count. Defaults to 30 days.
      * @minimum 1
      * @maximum 90
      */
     window_days?: number;
     };
+
+    export type VisionScannersImpactRetrieveVerdict = typeof VisionScannersImpactRetrieveVerdict[keyof typeof VisionScannersImpactRetrieveVerdict] | null;
+
+
+    export const VisionScannersImpactRetrieveVerdict = {
+      Yes: 'yes',
+      No: 'no',
+      Inconclusive: 'inconclusive',
+    } as const;
 
     export type VisionScannersBackfillsListParams = {
     /**

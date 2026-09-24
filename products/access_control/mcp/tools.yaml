@@ -267,6 +267,9 @@ tools:
                 - project.maximum
                 - resources.*.minimum
                 - resources.*.maximum
+    members-project-access-retrieve:
+        operation: members_project_access_retrieve
+        enabled: false
     property-access-controls-create:
         operation: property_access_controls_create
         enabled: false
