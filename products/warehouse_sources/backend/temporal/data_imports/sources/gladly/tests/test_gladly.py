@@ -1,6 +1,6 @@
 import io
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -721,16 +721,36 @@ class TestGetReportRows:
         manager.save_state.assert_not_called()
 
     @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @pytest.mark.parametrize(
+        "last_synced_at, expected_error",
+        [
+            (None, GladlyReportNotAvailableForAccountError),
+            (datetime(2024, 3, 14, tzinfo=UTC), GladlyReportUnavailableError),
+        ],
+        ids=["never_served", "served_before"],
+    )
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_an_error_body_on_a_stream_that_never_synced_stops_instead_of_retrying(self, mock_session, _sleep):
-        # Gladly serves an error body for a report it cannot build for the account. With no
-        # watermark and no resume state the next run reproduces it, so retrying only fails again.
+    def test_an_error_body_stops_the_sync_only_when_gladly_never_served_the_report(
+        self, mock_session, _sleep, last_synced_at, expected_error
+    ):
+        # Retrying an error body waits out a window Gladly failed to build. A report it has never
+        # served comes back the same on the next run, so the sync stops instead of rescheduling.
         mock_session.return_value.post.side_effect = [_csv_response("Unexpected error occurred") for _ in range(5)]
 
         manager = _make_manager()
-        with pytest.raises(GladlyReportNotAvailableForAccountError, match="unavailable for this account"):
-            list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+        with pytest.raises(expected_error):
+            list(
+                get_rows(
+                    "myorg",
+                    "agent@x.com",
+                    "token",
+                    "contact_timestamps",
+                    mock.MagicMock(),
+                    manager,
+                    last_synced_at=last_synced_at,
+                )
+            )
 
         manager.save_state.assert_not_called()
 
@@ -738,8 +758,8 @@ class TestGetReportRows:
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_an_error_body_after_a_window_landed_stays_retryable(self, mock_session, _sleep):
-        # The stream has never synced, but this run opened a report before the error body, so
-        # Gladly does build the report for the account and the failing window is transient.
+        # The table has never completed a sync, but this run opened a report before the error body,
+        # so Gladly does serve the report and the failing window is transient.
         mock_session.return_value.post.side_effect = [
             _csv_response("Timestamp,Contact ID\n2024-03-14T09:00:00.000Z,ct-1\n"),
             *[_csv_response("Unexpected error occurred") for _ in range(5)],

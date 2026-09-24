@@ -67,18 +67,17 @@ class GladlyReportUnavailableError(Exception):
 
 
 class GladlyReportNotAvailableForAccountError(Exception):
-    """An error body on a stream that has never landed a single window.
+    """An error body for a report Gladly has never served this account.
 
-    Retrying an error body covers a report Gladly fails to build for one window.
-    A stream with no watermark, no resume state, and no window opened in this run
-    has never had a report built at all, so the next run reproduces it exactly.
-    Keep the message matching the entry in the source's non-retryable errors.
+    Retrying an error body covers a window Gladly fails to build. A report it has
+    never built is reproduced exactly on the next run, so retrying it only fails
+    again. Keep the message matching the entry in the source's non-retryable errors.
     """
 
     def __init__(self, metric_set: str, header: list[str]) -> None:
         super().__init__(
             f"Gladly report unavailable for this account: metricSet={metric_set} returned an error body "
-            f"instead of a CSV on every attempt, and this stream has never synced a window. "
+            f"instead of a CSV on every attempt, and this table has never completed a sync. "
             f"First line: {header!r:.300}"
         )
 
@@ -296,6 +295,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     domain: str = DEFAULT_DOMAIN,
+    last_synced_at: datetime | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = GLADLY_ENDPOINTS[endpoint]
     session = _get_session(agent_email, api_token)
@@ -311,6 +311,7 @@ def get_rows(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            last_synced_at=last_synced_at,
         )
         return
 
@@ -404,6 +405,7 @@ def _report_rows(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    last_synced_at: datetime | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     @retry(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -430,10 +432,9 @@ def _report_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     today = datetime.now(UTC).date()
-    incremental_last_value = db_incremental_field_last_value if should_use_incremental_field else None
     window_start = _report_start_date(
         today=today,
-        incremental_last_value=incremental_last_value,
+        incremental_last_value=db_incremental_field_last_value if should_use_incremental_field else None,
         resume_window_end=resume_config.last_report_window_end if resume_config is not None else None,
         window_days=config.report_window_days,
         backfill_days=config.report_backfill_days,
@@ -478,11 +479,10 @@ def _report_rows(
             raise GladlyReportHeaderError(metric_set, missing, present)
         return reader
 
-    # No watermark and no resume state means no window of this stream has ever landed.
-    stream_has_never_synced = incremental_last_value is None and (
+    # No completed run and no resume state means Gladly has never served this report.
+    report_never_served = last_synced_at is None and (
         resume_config is None or resume_config.last_report_window_end is None
     )
-    opened_a_report = False
 
     is_first_request = True
     while window_start <= today:
@@ -505,10 +505,10 @@ def _report_rows(
                 window_end,
             )
         except GladlyReportUnavailableError as e:
-            if stream_has_never_synced and not opened_a_report:
-                raise GladlyReportNotAvailableForAccountError(metric_set, list(e.header)) from e
+            if report_never_served:
+                raise GladlyReportNotAvailableForAccountError(metric_set, e.header) from e
             raise
-        opened_a_report = True
+        report_never_served = False
         columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
 
         row_count = 0
@@ -553,6 +553,7 @@ def gladly_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     domain: str = DEFAULT_DOMAIN,
+    last_synced_at: datetime | None = None,
 ) -> SourceResponse:
     config = GLADLY_ENDPOINTS[endpoint]
 
@@ -568,6 +569,7 @@ def gladly_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             domain=domain,
+            last_synced_at=last_synced_at,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,

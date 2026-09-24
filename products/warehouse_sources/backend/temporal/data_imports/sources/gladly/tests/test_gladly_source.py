@@ -128,8 +128,8 @@ class TestGladlySource:
         # request, so a report Gladly has never built must not fall into it.
         observed_error = (
             "Gladly report unavailable for this account: metricSet=ContactTimestampsReport returned "
-            "an error body instead of a CSV on every attempt, and this stream has never synced a "
-            "window. First line: ['Unexpected error occurred']"
+            "an error body instead of a CSV on every attempt, and this table has never completed a "
+            "sync. First line: ['Unexpected error occurred']"
         )
         message = self.source.get_non_retryable_errors()["Gladly report unavailable for this account"]
 

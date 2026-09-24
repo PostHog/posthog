@@ -75,10 +75,8 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
                 "account. Ask Gladly support to check the report is available for your account. If "
                 "Gladly confirms it is, contact PostHog support."
             ),
-            # Raised by `_report_rows` when Gladly serves an error body for a stream that has never
-            # landed a window. Retrying an error body covers one window Gladly failed to build, but
-            # a report it has never built for this account is reproduced exactly on the next run,
-            # so the sync stops and asks the operator to take it up with Gladly.
+            # Raised by `_report_rows`; see `GladlyReportNotAvailableForAccountError` for why this
+            # one cannot be retried into a success.
             "Gladly report unavailable for this account": (
                 "Gladly returned an error every time PostHog asked for the report this table syncs "
                 "from, and the table has never synced. Ask Gladly support to make the report "
@@ -220,4 +218,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             if inputs.should_use_incremental_field
             else None,
             domain=config.domain,
+            last_synced_at=inputs.last_synced_at,
         )
