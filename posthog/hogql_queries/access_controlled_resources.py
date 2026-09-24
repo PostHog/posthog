@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
@@ -130,7 +130,7 @@ class _WarehouseCatalog:
 
 
 def queried_access_controlled_resources(
-    query: Union[HogQLQuery, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode, RetentionEntity],
+    query: BaseModel,
     team: "Team",
     *,
     bypassed_scopes: frozenset[str] = frozenset(),
