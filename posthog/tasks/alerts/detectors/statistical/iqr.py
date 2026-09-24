@@ -1,37 +1,31 @@
 from typing import Any
 
 import numpy as np
-from scipy.special import erf
 
 from posthog.schema import DetectorType
 
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
+from posthog.tasks.alerts.detectors.statistical.scoring import (
+    NORMAL_IQR_IN_SIGMA,
+    NORMAL_Q3_IN_SIGMA,
+    deviation_to_probability,
+)
 
 
-def _iqr_fence_distances(
-    window_data: np.ndarray, lower_fence: float, upper_fence: float, iqr: float | np.floating
-) -> np.ndarray:
-    """Compute IQR fence distances for all points in a window."""
-    return np.where(
-        window_data < lower_fence,
-        (lower_fence - window_data) / iqr if iqr > 0 else 0.0,
-        np.where(window_data > upper_fence, (window_data - upper_fence) / iqr if iqr > 0 else 0.0, 0.0),
-    )
+def _iqr_distance_to_probability(distance: float, multiplier: float, window_size: int) -> float:
+    """Score a fence distance by how extreme it is, not by how it ranks in the window.
 
-
-def _iqr_distance_to_probability(distance: float, window_distances: np.ndarray) -> float:
-    """Normalize an IQR fence distance to a [0, 1] anomaly probability.
-
-    Uses pyod's 'unify' approach: standardize the distance against the
-    distribution of distances observed in the training window, then apply erf.
+    A point inside the fences is not an outlier at all and scores 0. Beyond a
+    fence, the distance is converted from IQR units into sigma units so the
+    shared extremity scale applies: under a normal baseline the fence itself
+    sits ``NORMAL_Q3_IN_SIGMA + NORMAL_IQR_IN_SIGMA * multiplier`` sigma from
+    the median, and every further IQR adds ``NORMAL_IQR_IN_SIGMA`` more.
     """
-    mean_d = float(window_distances.mean())
-    std_d = float(window_distances.std())
-    if std_d == 0:
-        return 1.0 if distance > mean_d else 0.0
-    standardized = (distance - mean_d) / std_d
-    return float(np.clip(erf(standardized / np.sqrt(2)), 0.0, 1.0))
+    if distance <= 0:
+        return 0.0
+    deviation_in_sigma = NORMAL_Q3_IN_SIGMA + NORMAL_IQR_IN_SIGMA * (multiplier + distance)
+    return deviation_to_probability(deviation_in_sigma, window_size)
 
 
 @register_detector(DetectorType.IQR)
@@ -43,8 +37,9 @@ class IQRDetector(BaseDetector):
     - Values below Q1 - multiplier*IQR are anomalies
     - Values above Q3 + multiplier*IQR are anomalies
 
-    Scores are normalized to [0, 1] probabilities using pyod's 'unify'
-    approach (standardize against training window distances, then erf).
+    Scores are normalized to [0, 1] probabilities by how far beyond the fence
+    a value lies, expressed in sigma units and corrected for the window length.
+    The window's own distances do not set the scale.
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
@@ -95,9 +90,7 @@ class IQRDetector(BaseDetector):
         else:
             raw_distance = 0.0
 
-        window_distances = _iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)
-
-        prob = _iqr_distance_to_probability(raw_distance, window_distances)
+        prob = _iqr_distance_to_probability(raw_distance, multiplier, len(window_data))
         is_anomaly = prob > threshold
 
         return DetectionResult(
@@ -158,13 +151,7 @@ class IQRDetector(BaseDetector):
             else:
                 raw_distance = 0.0
 
-            window_distances = np.where(
-                window_data < lower_fence,
-                (lower_fence - window_data) / iqr if iqr > 0 else 0.0,
-                np.where(window_data > upper_fence, (window_data - upper_fence) / iqr if iqr > 0 else 0.0, 0.0),
-            )
-
-            prob = _iqr_distance_to_probability(raw_distance, window_distances)
+            prob = _iqr_distance_to_probability(raw_distance, multiplier, len(window_data))
             scores.append(prob)
             if prob > threshold:
                 triggered.append(i + diffs_n)

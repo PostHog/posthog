@@ -167,6 +167,31 @@ class TestStatisticalDetectors:
         assert result.is_anomaly
         assert len(result.triggered_indices) >= min_triggered
 
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector, 1400.0),
+            ("mad", MADDetector, 1400.0),
+            ("iqr", IQRDetector, 1450.0),
+        ]
+    )
+    def test_a_new_window_record_fires_only_when_it_is_extreme(
+        self, _name: str, detector_cls: Any, record_value: float
+    ) -> None:
+        # A rolling window drops older peaks, so on a bursty series the next-largest
+        # value keeps becoming the window record. Scoring a point by its rank inside
+        # the window gave every record the top score, so the alert fired on values it
+        # had already ignored while a larger peak was still in the window.
+        baseline = [700.0, 1300.0, 900.0, 1100.0, 1000.0] * 6
+        detector = detector_cls({"threshold": 0.95, "window": 30})
+
+        peak_aged_out = np.array([*baseline, record_value])
+        with_older_peak = np.array([1800.0, *baseline[1:], record_value])
+        step_change = np.array([*baseline, 4000.0])
+
+        assert detector.detect(peak_aged_out).is_anomaly is False
+        assert detector.detect(with_older_peak).is_anomaly is False
+        assert detector.detect(step_change).is_anomaly is True
+
     def test_zscore_metadata(self) -> None:
         result = ZScoreDetector({"threshold": 0.9, "window": 10}).detect(NORMAL_DATA)
         for key in ["mean", "std", "value", "raw_zscore"]:
@@ -235,7 +260,10 @@ class TestStatisticalDetectors:
     @parameterized.expand(
         [
             ("zscore", ZScoreDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 14])),
-            ("iqr", IQRDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 20])),
+            # IQR needs a wide offset=1 window (the trailing value stays inside its
+            # fences) and a tight offset=4 one, because its score grades distance
+            # beyond the fence rather than rank within the window.
+            ("iqr", IQRDetector, np.array([10, 10, 11, 9, 11, 40, 10, 60, 20])),
             ("mad", MADDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 14])),
         ]
     )
