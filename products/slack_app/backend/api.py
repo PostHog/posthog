@@ -3241,6 +3241,10 @@ def _post_untagged_followup_prompt(
                 },
             ],
         },
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "You can change this in the PostHog app Home tab."}],
+        },
     ]
 
     try:
