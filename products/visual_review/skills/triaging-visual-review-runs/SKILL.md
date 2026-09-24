@@ -43,7 +43,7 @@ A fork PR has no Visual Review run, so every VR tool below returns nothing for i
 Read the flag before you query the tools:
 
 ```bash
-gh pr view <n> --json isCrossRepository,headRefName,baseRefName
+gh pr view <n> --json isCrossRepository
 ```
 
 If `isCrossRepository` is `true`, stop here.
@@ -54,8 +54,7 @@ Go to [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 Visual Review needs a secret, and CI does not give a secret to a fork.
 The Visual Review upload is therefore skipped.
 No run, no snapshot row and no `visual-review` check exists for the PR.
-Do not report "no run found" as a missing run or as a CI fault.
-It is the designed behavior.
+That is the designed behavior, not a fault.
 
 Each Storybook shard instead compares its own screenshots with the committed baseline file `frontend/snapshots.yml`, offline, in the `Verify snapshots against the baseline offline` step.
 A mismatch fails the `Visual regression tests pass` check.
