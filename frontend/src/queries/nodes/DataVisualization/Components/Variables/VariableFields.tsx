@@ -69,10 +69,6 @@ export const sanitizeCodeName = (name: string): string => {
         .replace(/\s/g, '_')
 }
 
-export const formatVariableReference = (codeName: string): string => {
-    return `{variables.${codeName}}`
-}
-
 // Field components for direct prop binding (used in modal)
 export interface DirectFieldProps<T extends Variable = Variable> {
     variable: T

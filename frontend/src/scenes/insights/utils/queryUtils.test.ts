@@ -1,3 +1,4 @@
+import { getVariablesFromQuery } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightType } from '~/types'
@@ -30,6 +31,30 @@ describe('filterVariablesReferencedInQuery', () => {
             { id: 'date-id', code_name: 'date' },
             { id: 'product-id', code_name: 'product' },
         ])
+    })
+})
+
+describe('getVariablesFromQuery', () => {
+    // A code name that is not a bare identifier only ever appears quoted in the query.
+    it.each([
+        ['a bare identifier', 'SELECT {variables.product}', ['product']],
+        ['an uppercase identifier', 'SELECT {variables.myVar}', ['myVar']],
+        ['a double-quoted localized identifier', 'SELECT {variables."регион"}', ['регион']],
+        ['a backquoted identifier', 'SELECT {variables.`od``d`}', ['od`d']],
+        ['an escaped backslash', 'SELECT {variables."a\\\\b"}', ['a\\b']],
+        ['repeated references once', 'SELECT {variables.date}, {variables.date}', ['date']],
+        ['whitespace around the chain', 'SELECT { variables . product }', ['product']],
+        ['a filters placeholder', 'SELECT {filters.dateRange}', []],
+        ['nothing inside a string literal', "SELECT '{variables.product}'", []],
+        ['nothing inside a line comment', 'SELECT 1 -- {variables.product}', []],
+        ['nothing inside a block comment', 'SELECT /* {variables.product} */ 1', []],
+        [
+            'a real reference past a comment holding an apostrophe',
+            "SELECT 1 -- don't\n, {variables.product}",
+            ['product'],
+        ],
+    ])('reads %s', (_name, query, expected) => {
+        expect(getVariablesFromQuery(query)).toEqual(expected)
     })
 })
 

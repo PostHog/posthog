@@ -2,6 +2,7 @@ import { ListVariable } from '../../types'
 import { coerceListVariableValue, getListVariableValues } from './VariableFields'
 import {
     formatRelativeDateValue,
+    formatVariableReference,
     getListVariableSelectedValues,
     isRelativeDateValue,
     normalizeRelativeDateAmount,
@@ -68,6 +69,14 @@ describe('VariableFields', () => {
         expect(isRelativeDateValue(value)).toBe(isRelative)
         expect(parseRelativeDateValue(value)).toEqual(parsed)
         expect(formatRelativeDateValue(value)).toBe(formatted)
+    })
+
+    test.each([
+        ['a bare identifier is inserted as-is', 'product', '{variables.product}'],
+        ['a localized code name is quoted', 'регион', '{variables."регион"}'],
+        ['a code name holding a quote falls back to backquotes', 'o"d', '{variables.`o"d`}'],
+    ])('formatVariableReference: %s', (_name, codeName, expected) => {
+        expect(formatVariableReference(codeName)).toBe(expected)
     })
 
     test.each([
