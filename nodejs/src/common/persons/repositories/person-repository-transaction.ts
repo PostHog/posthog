@@ -40,8 +40,8 @@ export interface PersonRepositoryTransaction {
     /** See PersonRepository.isPersonLive; only meaningful while holding the person's mark. */
     isPersonLive(person: InternalPerson): Promise<boolean>
 
-    /** The live rows among these persons, row-locked until the transaction ends. */
-    lockPersons(teamId: number, personIds: string[]): Promise<InternalPerson[]>
+    /** The target's row as it stands and the sources' rows, sources row-locked until the transaction ends. */
+    readMergeRows(teamId: number, targetId: string, sourceIds: string[]): Promise<InternalPerson[]>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 

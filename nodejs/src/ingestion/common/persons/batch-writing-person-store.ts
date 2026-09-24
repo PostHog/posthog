@@ -75,7 +75,7 @@ type MethodName =
     | 'claimLifecycleMarks'
     | 'releaseLifecycleMarks'
     | 'isPersonLive'
-    | 'lockPersons'
+    | 'readMergeRows'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -1535,14 +1535,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await (tx || this.personRepository).isPersonLive(person)
     }
 
-    async lockPersons(
+    async readMergeRows(
         teamId: number,
-        personIds: string[],
+        targetId: string,
+        sourceIds: string[],
         distinctId: string,
         tx: PersonRepositoryTransaction
     ): Promise<InternalPerson[]> {
-        this.incrementDatabaseOperation('lockPersons', distinctId)
-        return await tx.lockPersons(teamId, personIds)
+        this.incrementDatabaseOperation('readMergeRows', distinctId)
+        return await tx.readMergeRows(teamId, targetId, sourceIds)
     }
 
     /** The store's unflushed changes for a person, if any; by person, so a mapping purge cannot hide them. */

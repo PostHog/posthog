@@ -135,7 +135,7 @@ describe('BatchWritingPersonStore', () => {
             claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             isPersonLive: jest.fn().mockResolvedValue(true),
-            lockPersons: jest.fn().mockResolvedValue([]),
+            readMergeRows: jest.fn().mockResolvedValue([]),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
@@ -174,7 +174,7 @@ describe('BatchWritingPersonStore', () => {
             claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             isPersonLive: jest.fn().mockResolvedValue(true),
-            lockPersons: jest.fn().mockResolvedValue([]),
+            readMergeRows: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             moveDistinctIdsFromPersons: jest

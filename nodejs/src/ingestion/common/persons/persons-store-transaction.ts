@@ -101,8 +101,13 @@ export class PersonsStoreTransaction {
         return await this.store.isPersonLive(person, distinctId, this.tx)
     }
 
-    async lockPersons(teamId: number, personIds: string[], distinctId: string): Promise<InternalPerson[]> {
-        return await this.store.lockPersons(teamId, personIds, distinctId, this.tx)
+    async readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        distinctId: string
+    ): Promise<InternalPerson[]> {
+        return await this.store.readMergeRows(teamId, targetId, sourceIds, distinctId, this.tx)
     }
 
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {

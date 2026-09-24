@@ -57,8 +57,8 @@ export interface PersonsStoreTransactionForBatch {
     /** Whether the person is live; only meaningful while holding its lifecycle mark. */
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
 
-    /** The live rows among these persons, row-locked until the transaction ends. */
-    lockPersons(teamId: number, personIds: string[], distinctId: string): Promise<InternalPerson[]>
+    /** The target's row as it stands and the sources' rows, sources row-locked until the transaction ends. */
+    readMergeRows(teamId: number, targetId: string, sourceIds: string[], distinctId: string): Promise<InternalPerson[]>
 
     /** The store's unflushed changes for a person, if any. */
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null
@@ -236,8 +236,13 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         return this.tx.isPersonLive(person, distinctId)
     }
 
-    lockPersons(teamId: number, personIds: string[], distinctId: string): Promise<InternalPerson[]> {
-        return this.tx.lockPersons(teamId, personIds, distinctId)
+    readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        distinctId: string
+    ): Promise<InternalPerson[]> {
+        return this.tx.readMergeRows(teamId, targetId, sourceIds, distinctId)
     }
 
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {

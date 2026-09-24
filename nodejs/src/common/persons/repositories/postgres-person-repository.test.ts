@@ -363,6 +363,25 @@ describe('PostgresPersonRepository', () => {
             expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
         })
 
+        it('readMergeRows locks the sources and reads the target as it stands', async () => {
+            const target = await createTestPerson(team.id, 'merge-rows-target')
+            const source = await createTestPerson(team.id, 'merge-rows-source')
+            const probe = (id: string) =>
+                postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT id FROM posthog_person WHERE id = $1 FOR UPDATE NOWAIT',
+                    [id],
+                    'mergeRowsProbe'
+                )
+
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'mergeRowsHold', async (tx) => {
+                const rows = await repository.readMergeRows(team.id, target.id, [source.id], tx)
+                expect(rows.map((row) => row.id).sort()).toEqual([target.id, source.id].sort())
+                await expect(probe(target.id)).resolves.toBeDefined()
+                await expect(probe(source.id)).rejects.toThrow('could not obtain lock')
+            })
+        })
+
         it('updatePersonsBatch locks its rows in ascending id order before it touches any of them', async () => {
             const first = await createTestPerson(team.id, 'lock-order-first')
             const second = await createTestPerson(team.id, 'lock-order-second')

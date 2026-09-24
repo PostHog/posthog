@@ -1529,16 +1529,27 @@ export class PostgresPersonRepository
         return rows.length > 0
     }
 
-    async lockPersons(teamId: number, personIds: string[], tx?: TransactionClient): Promise<InternalPerson[]> {
-        // Ascending id order, the same as the batch write's, so the two cannot deadlock on each other.
+    async readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        tx?: TransactionClient
+    ): Promise<InternalPerson[]> {
+        // Only the sources lock, in ascending id order like the batch write, so neither a batch
+        // write nor another merge can deadlock on them. The target is read as it stands.
         const { rows } = await this.postgres.query<RawPerson>(
             tx ?? PostgresUse.PERSONS_WRITE,
-            `SELECT ${PERSON_COLUMNS} FROM posthog_person
-             WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
-             ORDER BY id
-             FOR NO KEY UPDATE`,
-            [teamId, personIds],
-            'lockPersons'
+            `WITH sources AS MATERIALIZED (
+                SELECT ${PERSON_COLUMNS} FROM posthog_person
+                 WHERE team_id = $1 AND id = ANY($3::bigint[]) AND is_deleted = false
+                 ORDER BY id
+                 FOR NO KEY UPDATE
+             )
+             SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = $1 AND id = $2 AND is_deleted = false
+             UNION ALL
+             SELECT * FROM sources`,
+            [teamId, targetId, sourceIds],
+            'readMergeRows'
         )
         return rows.map((row) => this.toPerson(row))
     }
