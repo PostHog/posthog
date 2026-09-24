@@ -43,3 +43,8 @@ posthog.1370_backfill_taggeditem_generic_pointer
 # selects reports that still hold no cached judgment, and each value is recomputed from the
 # artefact log.
 signals.0154_backfill_report_actionability
+# Drops thirteen foreign keys in one parent-first lock phase bounded below deadlock_timeout, and
+# lets go of the parents as soon as the drops commit rather than at the end of the migration.
+# Re-running is a no-op: DropForeignKey reads the names out of pg_constraint and returns when none
+# are left, which is also what makes it free after an operator has already dropped them.
+posthog.1380_taggeditem_untrack_legacy_keys
