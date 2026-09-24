@@ -28,6 +28,7 @@ from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
+    FORMAT_CSV,
     MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_key,
@@ -104,6 +105,7 @@ __all__ = [
     # file-upload storage contract
     "FILE_FORMAT_READ_HINTS",
     "FILE_FORMAT_TO_TABLE_FORMAT",
+    "FORMAT_CSV",
     "MAX_FILE_UPLOAD_SIZE_BYTES",
     "SUPPORTED_FILE_FORMATS",
     "build_file_upload_s3_key",
