@@ -1,14 +1,4 @@
-# Toolbar behavior
-
-## Saving heatmaps
-
-The capture progress counter counts attempted screen widths, including widths that fail.
-A save with all requested widths shows a success notification.
-A partial save shows a warning with the number of saved widths.
-If all responsive captures fail but the current-window fallback succeeds, the warning explains that only the current window width was saved.
-Each failed width logs a warning, and the capture reports one exception with the failed widths and captured count.
-
-## Plan entitlements
+# Toolbar plan entitlements
 
 `GET /api/user/toolbar_entitlements/` requires a logged-in session and access to the toolbar for the current project. It returns an `entitlements` map of feature names to booleans, based on the current organization’s available features. `ToolbarEntitlementsSerializer` defines its OpenAPI response schema.
 
@@ -25,6 +15,19 @@ Opening the heatmap menu while access is loading does not enable heatmaps. A con
 This is a toolbar UI gate. The rollout flag does not add entitlement enforcement to the heatmap data endpoints.
 
 The `HeatmapEntitlementsLoading` Storybook story keeps the entitlement request pending to cover the loading state. Its screenshot test waits for “Checking plan access…” to appear and sets `waitForLoadersToDisappear: false` so the visible spinner does not time out the test.
+
+## Saved heatmap data URLs
+
+Capture requests reject malformed data URLs, using the same URL validation as other saved heatmap writes.
+Wildcards in the URL path are supported.
+
+Saving a heatmap from the toolbar keeps the captured page URL separate from the heatmap data URL.
+The saved data URL preserves the toolbar's selected URL pattern, including wildcards, for both responsive captures and the single-width fallback.
+Capture requests without a data URL keep using the exact page URL.
+
+A heatmap editor with resource-level access can change the data URL of a toolbar capture in the page settings without replacing its screenshot.
+Changing the captured page or its rendering settings still requires a new capture from the toolbar.
+Object-level editor access alone does not allow changing either URL.
 
 Saving again retries all configured page widths and creates a new heatmap.
 It does not add missing widths to an existing heatmap.
