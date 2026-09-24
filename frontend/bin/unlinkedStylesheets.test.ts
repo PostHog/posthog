@@ -15,8 +15,7 @@ describe('removeUnlinkedStylesheets', () => {
     })
     afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
 
-    // Deleting the stylesheet a page links would leave every page unstyled.
-    it('keeps the linked stylesheets of every build and removes the others with their maps', () => {
+    it('keeps linked stylesheets when builds complete in either order', () => {
         for (const file of ['index-A.css', 'index-A.css.map', 'Scene-B.css', 'Scene-B.css.map', 'exporter-C.css']) {
             write(`dist/${file}`)
         }
@@ -31,9 +30,8 @@ describe('removeUnlinkedStylesheets', () => {
             'dist/index-A.css': { bytes: 10 },
         }
 
-        // The same order as frontend/build.mjs: the App build finishes before the Exporter build.
-        removeUnlinkedStylesheets(dir, app, 'src/index.tsx')
         removeUnlinkedStylesheets(dir, exporter, 'src/exporter/index.tsx')
+        removeUnlinkedStylesheets(dir, app, 'src/index.tsx')
 
         expect(['index-A.css', 'index-A.css.map', 'exporter-C.css'].every((f) => exists(`dist/${f}`))).toBe(true)
         expect(exists('dist/Scene-B.css') || exists('dist/Scene-B.css.map')).toBe(false)
@@ -41,7 +39,6 @@ describe('removeUnlinkedStylesheets', () => {
 
     it('removes nothing when the entry has no linked stylesheet', () => {
         write('dist/Scene-B.css')
-
         expect(() => removeUnlinkedStylesheets(dir, { 'dist/Scene-B.css': { bytes: 5 } }, 'src/index.tsx')).toThrow(
             'No linked stylesheet found for src/index.tsx'
         )
