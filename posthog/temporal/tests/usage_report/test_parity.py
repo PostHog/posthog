@@ -201,7 +201,6 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     `has_non_zero_usage` gate, so we compare only the orgs Celery actually
     sends.
     """
-    shadow_enabled = mode == "both"
     org_a = Organization.objects.create(name="E2E Parity A")
     org_b = Organization.objects.create(name="E2E Parity B")
     team_a1 = Team.objects.create(organization=org_a, name="A1")
@@ -209,14 +208,16 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     team_b = Team.objects.create(organization=org_b, name="B")
     idle_org = Organization.objects.create(name="Idle")
     idle_team = Team.objects.create(organization=idle_org, name="Idle")
+    legacy_only_org = Organization.objects.create(name="Legacy only")
+    legacy_only_team = Team.objects.create(organization=legacy_only_org, name="Legacy only")
     deleted_org_id = str(uuid4())
     excluded_org_id = str(uuid4())
-    organization_ids = [str(org_a.id), str(org_b.id), str(idle_org.id), deleted_org_id]
+    organization_ids = [str(org_a.id), str(org_b.id), str(idle_org.id), str(legacy_only_org.id), deleted_org_id]
 
     celery_at = datetime(2026, 5, 5, 0, 0, 0, tzinfo=UTC)
     period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
-    seeded["teams_with_cdp_billable_invocations_in_period"] = {team_a1.id: 11, team_a2.id: 13}
+    seeded["teams_with_cdp_billable_invocations_in_period"] = {team_a1.id: 11, team_a2.id: 13, legacy_only_team.id: 5}
 
     s3 = _install_in_memory_object_storage(monkeypatch)
     sqs_messages = _install_fake_sqs_producer(monkeypatch)
@@ -355,6 +356,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
 
     # Both paths skip zero-usage orgs; comparing on the Celery key set
     # keeps the assertion focused on the orgs billing actually receives.
+    assert celery_per_org.keys() == temporal_per_org.keys()
     for org_id, celery_dict in celery_per_org.items():
         assert org_id in temporal_per_org, f"Celery emitted {org_id} but Temporal didn't"
         celery_json = json.dumps(celery_dict, sort_keys=True, default=str)
@@ -387,10 +389,15 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert (str(idle_org.id) in temporal_per_org) == (mode == "realtime")
     assert (str(idle_org.id) in celery_per_org) == (mode == "realtime")
     assert scan.call_count == (0 if mode == "legacy" else 2)
-    if shadow_enabled:
-        assert temporal_per_org[str(org_a.id)]["realtime_counters"] == {"cdp_billable_invocations_in_period": 16}
-        assert temporal_per_org[str(org_b.id)]["realtime_counters"] == {"cdp_billable_invocations_in_period": 0}
-        assert temporal_per_org[str(org_a.id)]["usage_sources"]["cdp_billable_invocations_in_period"] == "both"
+    assert (str(legacy_only_org.id) in temporal_per_org) == (mode != "realtime")
+    if mode != "legacy":
+        assert temporal_per_org[str(org_a.id)]["counter_comparisons"] == {
+            "cdp_billable_invocations_in_period": {"legacy": 24, "realtime": 16}
+        }
+        assert temporal_per_org[str(org_b.id)]["counter_comparisons"] == {
+            "cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}
+        }
+        assert temporal_per_org[str(org_a.id)]["usage_sources"]["cdp_billable_invocations_in_period"] == mode
         missing_events = [
             call.kwargs
             for call in capture.call_args_list
@@ -398,17 +405,18 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         ]
         assert len(missing_events) == 2
         assert {event["properties"]["caller"] for event in missing_events} == {"daily_report", "usage_reports_v2"}
-        for event in missing_events:
-            assert event["properties"]["organizations"] == {
-                str(idle_org.id): {"cdp_billable_invocations_in_period": 4},
-                deleted_org_id: {"cdp_billable_invocations_in_period": 6},
+        expected_missing = {deleted_org_id: {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 6}}}
+        if mode == "both":
+            expected_missing[str(idle_org.id)] = {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 4}}
+        else:
+            expected_missing[str(legacy_only_org.id)] = {
+                "cdp_billable_invocations_in_period": {"legacy": 5, "realtime": 0}
             }
-    elif mode == "realtime":
-        assert temporal_per_org[str(org_a.id)]["usage_sources"]["cdp_billable_invocations_in_period"] == "realtime"
-        assert "realtime_counters" not in temporal_per_org[str(org_a.id)]
+        for event in missing_events:
+            assert event["properties"]["organizations"] == expected_missing
     else:
         assert "usage_sources" not in temporal_per_org[str(org_a.id)]
-        assert "realtime_counters" not in temporal_per_org[str(org_a.id)]
+        assert "counter_comparisons" not in temporal_per_org[str(org_a.id)]
 
 
 @pytest.mark.django_db(transaction=True)

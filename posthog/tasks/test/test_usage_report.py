@@ -3376,7 +3376,10 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
             plan = UsageCounterService().resolve_plan(period, caller="daily_report")
         counter_report = UsageCounterService().fetch_report(period, plan=plan)
-        assert counter_report.realtime_counters == {"cdp_billable_invocations_in_period": {str(self.org_1.id): 10}}
+        assert counter_report.counter_comparisons is not None
+        assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_org == {
+            str(self.org_1.id): 10
+        }
         apply_usage_counter_metadata(
             all_reports, counter_report, caller="daily_report", date=period.start.date().isoformat()
         )
@@ -3384,7 +3387,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
         assert with_shadow["cdp_billable_invocations_in_period"] == 8
-        assert with_shadow["realtime_counters"] == {"cdp_billable_invocations_in_period": 10}
+        assert with_shadow["counter_comparisons"] == {
+            "cdp_billable_invocations_in_period": {"legacy": 8, "realtime": 10}
+        }
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")

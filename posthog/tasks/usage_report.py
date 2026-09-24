@@ -53,6 +53,7 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.usage_counters import (
     SHADOW_MISSING_ORGS,
     UsageCounterCaller,
+    UsageCounterComparison,
     UsageCounterMode,
     UsageCounterReport,
     UsageCounterService,
@@ -434,7 +435,7 @@ class OrgReport(UsageReportCounters):
     team_count: int
     teams: dict[str, UsageReportCounters]
     usage_sources: dict[str, UsageCounterMode] | None = dataclasses.field(default=None, kw_only=True)
-    realtime_counters: dict[str, int] | None = dataclasses.field(default=None, kw_only=True)
+    counter_comparisons: dict[str, UsageCounterComparison] | None = dataclasses.field(default=None, kw_only=True)
 
 
 @dataclasses.dataclass
@@ -3521,7 +3522,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
         **dataclasses.asdict(full_report),
         "has_non_zero_usage": has_non_zero_usage(full_report),
     }
-    for field in ("usage_sources", "realtime_counters"):
+    for field in ("usage_sources", "counter_comparisons"):
         if report[field] is None:
             del report[field]
     return report
@@ -3537,22 +3538,34 @@ def apply_usage_counter_metadata(
 ) -> None:
     if not counter_report.usage_sources:
         return
-    for org_id, report in org_reports.items():
+    for report in org_reports.values():
         report.usage_sources = counter_report.usage_sources
-        report.realtime_counters = (
-            {field: totals.get(org_id, 0) for field, totals in counter_report.realtime_counters.items()}
-            if counter_report.realtime_counters is not None
-            else None
-        )
-    if counter_report.realtime_counters is None:
+        report.counter_comparisons = {} if counter_report.counter_comparisons is not None else None
+    if counter_report.counter_comparisons is None:
         return
 
     reported = {org_id for org_id, report in org_reports.items() if has_non_zero_usage(report)}
-    missing: dict[str, dict[str, int]] = {}
-    for field, totals in counter_report.realtime_counters.items():
-        for org_id, count in totals.items():
-            if count and org_id not in reported and (not organization_ids or org_id in organization_ids):
-                missing.setdefault(org_id, {})[field] = count
+    missing: dict[str, dict[str, UsageCounterComparison]] = {}
+    for field, rows in counter_report.counter_comparisons.items():
+        legacy_by_org = {
+            org_id: sum(rows.legacy_by_team.get(int(team_id), 0) for team_id in report.teams)
+            for org_id, report in org_reports.items()
+        }
+        for org_id in legacy_by_org.keys() | rows.realtime_by_org.keys():
+            comparison: UsageCounterComparison = {
+                "legacy": legacy_by_org.get(org_id, 0),
+                "realtime": rows.realtime_by_org.get(org_id, 0),
+            }
+            if org_id in org_reports:
+                comparisons = org_reports[org_id].counter_comparisons
+                assert comparisons is not None
+                comparisons[field] = comparison
+            if (
+                (comparison["legacy"] or comparison["realtime"])
+                and org_id not in reported
+                and (not organization_ids or org_id in organization_ids)
+            ):
+                missing.setdefault(org_id, {})[field] = comparison
     try:
         SHADOW_MISSING_ORGS.labels(caller=caller).set(len(missing))
         if missing:
