@@ -49,6 +49,9 @@ pub struct KafkaTraceRow {
     pub status_code: i32,
     pub status_message: String,
     pub bytes_uncompressed: Option<i64>,
+    // Per-row retention in days. capture-logs always writes None — the Node consumer stamps
+    // this from team retention rules. Null lets ClickHouse fall back to the batch header.
+    pub retention_days: Option<i32>,
 }
 
 /// Sum byte lengths of the row's string, map, and array content. Fixed-width
@@ -223,6 +226,7 @@ impl KafkaTraceRow {
             status_code,
             status_message,
             bytes_uncompressed: None,
+            retention_days: None,
         }
         .with_computed_bytes();
         debug!("trace span: {:?}", row);
@@ -317,6 +321,7 @@ mod tests {
             status_code: 0,
             status_message: "ok".to_string(),
             bytes_uncompressed: None,
+            retention_days: None,
         };
         // strings: uuid(6) + tid(3) + sid(3) + psid(4) + ts(2) + op(2) + svc(3) + scope(5) + ok(2) = 30
         // resource_attributes: host.name(9)+localhost(9)=18; attributes a(1)+b(1)=2
@@ -356,6 +361,39 @@ mod tests {
             }
         }
         assert_eq!(found_long, Some(expected));
+    }
+
+    #[test]
+    fn test_retention_days_serialises_into_avro_payload() {
+        // The Node consumer stamps this field, so the schema must carry it even though
+        // capture-logs always writes None.
+        use apache_avro::types::Value;
+
+        let (mut row, _) = KafkaTraceRow::new(make_span(), None, None).expect("ok");
+        row.retention_days = Some(30);
+
+        let schema = Schema::parse_str(TRACES_AVRO_SCHEMA).expect("schema parses");
+        let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
+        writer.append_ser(&row).expect("append_ser ok");
+        let payload = writer.into_inner().expect("flush ok");
+
+        let reader = Reader::new(payload.as_slice()).expect("reader ok");
+        let mut found_int: Option<i32> = None;
+        for value in reader {
+            let value = value.expect("decode ok");
+            if let Value::Record(fields) = value {
+                for (name, field_value) in fields {
+                    if name == "retention_days" {
+                        if let Value::Union(_, inner) = field_value {
+                            if let Value::Int(v) = *inner {
+                                found_int = Some(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(found_int, Some(30));
     }
 
     #[test]
