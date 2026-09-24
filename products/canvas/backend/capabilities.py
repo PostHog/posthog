@@ -8,6 +8,7 @@ structured answer rather than a raw manifest diff.
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -107,3 +108,35 @@ def _connectors_added(before: dict[str, set[str]], after: dict[str, set[str]]) -
         if tools:
             added.append(ConnectorGrant(provider=provider, tools=tools))
     return added
+
+
+# What each access grant looks like when it grants nothing. `network.origins` becomes the
+# artifact's CSP, and the rest gate the host bridge. Everything else a manifest carries (notebook
+# frames, for example) describes the canvas rather than what it may reach, so it survives.
+_UNGRANTED_POSTHOG_FIELDS: dict[str, Any] = {
+    "insights": [],
+    "captureEvents": [],
+    "inlineQueries": False,
+    "agentRequests": False,
+    "state": [],
+    "actions": [],
+}
+
+
+def without_granted_capabilities(manifest: dict | None) -> dict:
+    """The manifest with every access grant emptied, keeping its shape and the rest of its fields.
+
+    A copy of someone else's canvas must not inherit their permission boundary: the grants were
+    reviewed against the source's project, not the one the copy lands in. The copy starts with no
+    network egress, no connectors and no PostHog access, and its owner re-declares what it needs
+    through a publish, where `capability_widening` surfaces the grant before it ships.
+    """
+    stripped = dict(manifest or {})
+    posthog = _posthog_section(manifest)
+    if posthog:
+        stripped["posthog"] = {key: _UNGRANTED_POSTHOG_FIELDS.get(key, value) for key, value in posthog.items()}
+    if isinstance(stripped.get("network"), dict):
+        stripped["network"] = {**stripped["network"], "origins": []}
+    if "connectors" in stripped:
+        stripped["connectors"] = []
+    return stripped

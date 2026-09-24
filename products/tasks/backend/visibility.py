@@ -5,7 +5,7 @@ posthog.api.file_system.registrations, which loads at django.setup()) don't pull
 tasks API surface. Its module-scope imports reach jsonschema and the modal SDK.
 """
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 from products.tasks.backend.models import Channel, Task
 
@@ -55,6 +55,39 @@ def task_visibility_q(user_id: int | None) -> Q:
         _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
     )
     return channeled_q | legacy_q
+
+
+def shared_slack_thread_q() -> Q:
+    """Slack tasks whose thread is not a direct message.
+
+    Phrased as "not private" rather than "is a channel" so a mapping we never classified — a
+    row predating the column, or a lookup Slack refused — keeps the team-wide read access it
+    has today instead of silently narrowing to the thread starter.
+
+    The ``origin_product`` test leads so the subquery is only reached for Slack tasks; every
+    other task short-circuits on an indexed column before touching the mapping table.
+    """
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off this module's import path
+        PRIVATE_CONVERSATION_TYPES,
+        SlackThreadTaskMapping,
+    )
+
+    private_thread = SlackThreadTaskMapping.objects.filter(
+        task_id=OuterRef("pk"),
+        conversation_type__in=sorted(PRIVATE_CONVERSATION_TYPES),
+    )
+    return Q(origin_product=Task.OriginProduct.SLACK) & Q(~Exists(private_thread))
+
+
+def task_read_visibility_q(user_id: int | None) -> Q:
+    """The whole rule the Task API reads with: channel visibility, plus a Slack task whose
+    thread is not a direct message, which stays readable team-wide however it is filed.
+
+    Every surface that mirrors Task read access uses this, not ``task_visibility_q`` alone.
+    A Slack task lands in the thread starter's personal channel, so the narrower predicate
+    calls it hidden while the API hands it to any teammate.
+    """
+    return task_visibility_q(user_id) | shared_slack_thread_q()
 
 
 def task_run_visibility_q(user_id: int | None) -> Q:

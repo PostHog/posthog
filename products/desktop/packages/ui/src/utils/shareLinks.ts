@@ -1,7 +1,9 @@
+import { requestCanvasFork } from "@posthog/ui/features/canvas/utils/forkCanvasAndOpen";
 import {
   navigateToChannel,
   navigateToChannelDashboard,
   navigateToChannelTask,
+  openNotificationTarget,
 } from "@posthog/ui/router/navigationBridge";
 import {
   parseShareLink,
@@ -12,6 +14,9 @@ import { getPostHogUrl } from "@posthog/ui/utils/urls";
 export function navigateToShareTarget(target: ShareLinkTarget): void {
   switch (target.kind) {
     case "canvas":
+      // A "link to a copy" forks first; if nothing can fork yet (early boot),
+      // opening the original is the safe fallback.
+      if (target.fork && requestCanvasFork(target.dashboardId)) break;
       navigateToChannelDashboard(target.channelId, target.dashboardId);
       break;
     case "channel":
@@ -21,12 +26,22 @@ export function navigateToShareTarget(target: ShareLinkTarget): void {
         navigateToChannel(target.channelId);
       }
       break;
+    case "artifact":
+      // The link carries no channel, so route through the open-target handler:
+      // it resolves the task (provisioning it if needed) and picks the channel
+      // view or the plain task view, then the task surface opens the artifact.
+      openNotificationTarget({
+        kind: "task",
+        taskId: target.taskId,
+        artifact: { itemId: target.artifactId },
+      });
+      break;
   }
 }
 
 /**
- * The canvas or channel an href points at, but only when the link belongs to the
- * PostHog instance the user is signed in to. Canvas and channel ids are
+ * The canvas, channel, or artifact an href points at, but only when the link
+ * belongs to the PostHog instance the user is signed in to. The ids are
  * per-instance, so a link from another region names rows that don't exist here —
  * opening it in-app would land on an empty canvas. Those stay browser links.
  */
