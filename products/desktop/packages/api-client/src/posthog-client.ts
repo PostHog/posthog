@@ -61,6 +61,8 @@ import type {
   SignalUserAutonomyConfig,
   SlackChannelsQueryParams,
   SlackChannelsResponse,
+  SpaceSetupInput,
+  SpaceSetupStarted,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
   Task,
@@ -77,6 +79,10 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import {
+  spaceSetupInputSchema,
+  spaceSetupStartedSchema,
+} from "@posthog/shared/schemas";
 import {
   activitySection,
   compactCount,
@@ -720,7 +726,6 @@ export interface ScoutEmission {
   finding_id: string;
   description: string;
   weight: number;
-  confidence: number;
   severity: string | null;
   /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
   tags?: string[];
@@ -3216,6 +3221,7 @@ export class PostHogAPIClient {
         channel?: string | null;
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
+        initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
       },
@@ -3234,6 +3240,25 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async createSignalReportTask(options: {
+    reportId: string;
+    relationship: "implementation" | "discussion";
+    description: string;
+    title?: string;
+    question?: string;
+  }): Promise<Task> {
+    return this.createTask({
+      description: options.description,
+      title: options.title,
+      origin_product: "signal_report",
+      signal_report: options.reportId,
+      signal_report_task_relationship: options.relationship,
+      ...(options.relationship === "discussion"
+        ? { signal_report_discussion_question: options.question?.trim() ?? "" }
+        : {}),
+    });
   }
 
   async updateTask(
@@ -3760,7 +3785,7 @@ export class PostHogAPIClient {
   async putContextWikiPage(input: {
     path: string;
     content: string;
-    baseHead: string;
+    baseHead?: string;
   }): Promise<{ head_sha: string }> {
     const urlPath = `/api/organizations/@current/context_layer/pages/`;
     try {
@@ -3772,7 +3797,7 @@ export class PostHogAPIClient {
           body: JSON.stringify({
             path: input.path,
             content: input.content,
-            base_head: input.baseHead,
+            ...(input.baseHead ? { base_head: input.baseHead } : {}),
           }),
         },
       });
@@ -3834,6 +3859,34 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch channel feed: ${response.statusText}`);
     }
     return (await response.json()) as ChannelFeedMessage[];
+  }
+
+  // Start the task that sets a space up for a goal or a feature. The server builds
+  // the prompt and files the task into the channel.
+  async setupTaskChannel(
+    channelId: string,
+    input: SpaceSetupInput,
+  ): Promise<SpaceSetupStarted> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/setup/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(spaceSetupInputSchema.parse(input)),
+        },
+      });
+      return spaceSetupStartedSchema.parse(await response.json());
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(
+          error,
+          "Could not start space setup. Try again.",
+        ),
+      );
+    }
   }
 
   // Post a system announcement into a channel's feed. The row is authored by the
@@ -4191,6 +4244,7 @@ export class PostHogAPIClient {
     runtime_adapter?: string | null;
     model?: string | null;
     reasoning_effort?: string | null;
+    initial_permission_mode?: ExecutionMode | null;
     context_window?: "200k" | "1m" | null;
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
@@ -4213,6 +4267,7 @@ export class PostHogAPIClient {
             runtime_adapter: options.runtime_adapter ?? null,
             model: options.model ?? null,
             reasoning_effort: options.reasoning_effort ?? null,
+            initial_permission_mode: options.initial_permission_mode ?? null,
             ...(options.context_window
               ? { context_window: options.context_window }
               : {}),

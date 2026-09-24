@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-    BUFFERED_LANE_KEY,
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
     CDCLane,
@@ -33,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     served_lanes,
     serves_buffered_lane,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCJobInputsUnreadableError
 
 _TEAM_ID = 7
 _SCHEMA_ID = "3f7c1f4e-0000-0000-0000-000000000001"
@@ -180,9 +180,7 @@ def _schema(**overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
-    # A flipped schema carries the opt-in marker; consolidated is served without it.
-    default_config = {} if schema.cdc_table_mode == "consolidated" else {BUFFERED_LANE_KEY: True}
-    schema.sync_type_config = overrides.get("sync_type_config", default_config)
+    schema.sync_type_config = overrides.get("sync_type_config", {})
     schema.source.job_inputs = overrides.get("job_inputs", {})
     schema.primary_key_columns = overrides.get("primary_key_columns", ["id"])
     schema.name = overrides.get("name", "users")
@@ -291,25 +289,6 @@ class TestServedLanes:
         assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
 
 
-class TestBufferedLaneOptIn:
-    @parameterized.expand(
-        [
-            ("consolidated", False, True),
-            ("cdc_only", False, False),
-            ("both", False, False),
-            ("cdc_only", True, True),
-            ("both", True, True),
-        ]
-    )
-    def test_history_modes_serve_only_once_the_flip_marked_them(self, mode, marked, served):
-        # A source flipped before history modes were served left those schemas on legacy with their
-        # schedules paused. Widening by mode alone would have capture route them into the buffer on
-        # deploy, with nothing scheduled to consume it. Consolidated predates the marker.
-        schema = _schema(cdc_table_mode=mode, sync_type_config={BUFFERED_LANE_KEY: True} if marked else {})
-
-        assert serves_buffered_lane(schema) is served
-
-
 class TestBufferedGating:
     @parameterized.expand(
         [
@@ -347,12 +326,29 @@ class TestBufferedGating:
                 "unrecognized_table_mode",
                 {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "something_new"},
             ),
-            ("job_inputs_not_a_mapping", {"job_inputs": "buffered"}),
             ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
         ]
     )
     def test_the_scheduled_sync_is_not_forced_off_the_flag_for(self, _name, overrides):
         assert scheduled_sync_consumes_buffer(_schema(**overrides)) is False
+
+    @parameterized.expand(
+        [
+            ("mapping", {"cdc_ingest_mode": "buffered"}, True),
+            ("json_string", '{"cdc_ingest_mode": "buffered"}', True),
+            ("json_string_not_flipped", '{"cdc_ingest_mode": "legacy"}', False),
+            ("empty_string", "", False),
+        ]
+    )
+    def test_the_flip_is_read_through_whichever_shape_job_inputs_decrypted_to(self, _name, job_inputs, consumes):
+        # EncryptedJSONField hands back a value that was written as a string as that same string,
+        # so reading only the mapping shape leaves a flipped source's buffer unconsumed.
+        assert scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs)) is consumes
+
+    @parameterized.expand([("not_json", "buffered"), ("json_scalar", "12"), ("not_a_string_either", 7)])
+    def test_job_inputs_that_is_no_mapping_at_all_is_an_error(self, _name, job_inputs):
+        with pytest.raises(CDCJobInputsUnreadableError):
+            scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs))
 
 
 @pytest.mark.asyncio
@@ -492,6 +488,39 @@ class TestReplayFilter:
         differs = _ops([1], [20], ["U"]).append_column("amount", pa.array([[9, 5]], pa.list_(pa.int64())))
 
         assert replay.apply(differs).num_rows == 1
+
+    def test_a_timestamp_the_batch_carries_as_text_is_parsed_the_way_the_loader_stores_it(self):
+        stored = dt.datetime(2026, 9, 18, 18, 4, 16, 103752)
+        held = {(1, "I"): [{"id": 1, "label": "v1", "created_at": stored}]}
+        schema = (
+            _ops([1], [20])
+            .select(["id", "label"])
+            .append_column("created_at", pa.array([stored], pa.timestamp("us")))
+            .schema
+        )
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        as_text = _ops([1], [20], ["I"]).append_column(
+            "created_at", pa.array(["2026-09-18 18:04:16.103752+00"], pa.string())
+        )
+
+        assert replay.apply(as_text).num_rows == 0
+
+    def test_timestamp_text_the_parser_rejects_is_still_compared_as_text(self):
+        held = {(1, "I"): [{"id": 1, "label": "v1", "created_at": None}]}
+        schema = (
+            _ops([1], [20])
+            .select(["id", "label"])
+            .append_column("created_at", pa.array([None], pa.timestamp("us")))
+            .schema
+        )
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        garbage = _ops([1], [20], ["I"]).append_column("created_at", pa.array(["not-a-date"], pa.string()))
+
+        assert replay.apply(garbage).num_rows == 1
 
     def test_above_the_cap_the_batch_content_is_never_materialized(self):
         # The table side carried no content, so reading the batch's would cost what the cap avoids.

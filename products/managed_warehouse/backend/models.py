@@ -37,6 +37,7 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     database = models.CharField(max_length=255, default="ducklake")
     username = models.CharField(max_length=255)
     password = EncryptedTextField(max_length=500)
+    trino_password = EncryptedTextField(max_length=500, null=True, blank=True)
 
     # DuckLake catalog Postgres connection — a separate metadata store from the
     # query server above. Nullable: an org may have a provisioned server before its

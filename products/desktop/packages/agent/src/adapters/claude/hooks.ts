@@ -2,17 +2,17 @@ import type { HookCallback, HookInput } from "@anthropic-ai/claude-agent-sdk";
 import {
   enrichFileForAgent,
   type FileEnrichmentDeps,
-} from "../../enrichment/file-enricher";
+} from "@posthog/harness/extensions/enrichment";
+import { SIGNED_COMMIT_QUALIFIED_TOOL_NAME } from "@posthog/harness/extensions/local-tools";
 import {
   extractPostHogSubTool,
   isPostHogExecTool,
   matchesPostHogExecPermission,
-} from "../../posthog-exec-permission";
+} from "@posthog/harness/extensions/posthog-mcp-policy";
+import { gitSubcommand } from "@posthog/harness/extensions/rtk";
 import type { Logger } from "../../utils/logger";
-import { SIGNED_COMMIT_QUALIFIED_TOOL_NAME } from "../signed-commit-shared";
 import { stripCatLineNumbers } from "./conversion/sdk-to-acp";
 import type { TaskState } from "./conversion/task-state";
-import { gitSubcommand } from "./git-command";
 import { neutralizeUnprocessableImages } from "./image-sanitization";
 import type { SettingsManager } from "./session/settings";
 import type { CodeExecutionMode } from "./tools";
@@ -251,6 +251,9 @@ export const createPostToolUseHook =
     return { continue: true };
   };
 
+// Parents whose exact generation the SDK's `opus` alias can lag behind.
+const OPUS_ALIAS_LAGGING_MODELS = new Set(["claude-opus-5", "claude-opus-5-5"]);
+
 /**
  * Rewrites Agent tool calls targeting built-in subagent types to use our custom
  * definitions instead. This works around a Claude Agent SDK bug where
@@ -308,12 +311,14 @@ export const createSubagentRewriteHook =
     // The SDK's Agent tool exposes family aliases rather than canonical model
     // IDs. Its `opus` alias can lag behind the parent session's selected Opus
     // generation, while `inherit` preserves that exact selection.
+    const parentModelId = getCurrentModelId?.();
     if (
       toolInput.model === "opus" &&
-      getCurrentModelId?.() === "claude-opus-5"
+      parentModelId !== undefined &&
+      OPUS_ALIAS_LAGGING_MODELS.has(parentModelId)
     ) {
       logger.info(
-        "[SubagentRewriteHook] Rewriting model: opus → inherit for Claude Opus 5 parent",
+        `[SubagentRewriteHook] Rewriting model: opus → inherit for ${parentModelId} parent`,
       );
       updatedInput.model = "inherit";
       changed = true;

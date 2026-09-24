@@ -115,6 +115,9 @@ tools:
     file-system-destroy:
         operation: file_system_destroy
         enabled: false
+    file-system-home-folder-create:
+        operation: file_system_home_folder_create
+        enabled: false
     file-system-link-create:
         operation: file_system_link_create
         enabled: false
@@ -346,6 +349,36 @@ tools:
             `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still
             needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and
             spending quota, so always confirm with the user before calling this.
+    project-create:
+        operation: organizations_projects_create
+        enabled: true
+        scopes:
+            - project:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create project
+        description: >
+            Create a project in the caller's active organization. A project is a separate data container with its own
+            API token, so use it to keep unrelated data apart, for example staging and production. Creating a project
+            adds to the organization's plan usage, so always confirm the name with the user before calling this. The new
+            project does not become active: call `switch-project` with the returned ID to work in it. The response
+            carries the project API token, which is safe to put in client-side code.
+        include_params:
+            - name
+        param_overrides:
+            name:
+                description: >
+                    Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog
+                    generates a default name.
+        response:
+            include:
+                - id
+                - name
+                - organization
+                - api_token
+                - created_at
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
@@ -357,7 +390,9 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Omit the ID to get the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool
+            that returns the project API token, which is safe to put in client-side code. Project listing, project
+            updates and the session context leave it out, so ask for a single project when you need the token.
         param_overrides:
             id:
                 description: Project ID. If omitted, returns the caller's active project.
@@ -369,6 +404,7 @@ tools:
                 - secret_api_token
                 - secret_api_token_backup
                 - live_events_token
+                - heatmaps_screenshot_secret
                 - default_modifiers
     project-secret-api-keys-create:
         operation: project_secret_api_keys_create
@@ -426,9 +462,14 @@ tools:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
                 cast: string-int
-    projects-create:
-        operation: organizations_projects_create
-        enabled: false
+        response:
+            exclude:
+                - api_token
+                - secret_api_token
+                - secret_api_token_backup
+                - live_events_token
+                - heatmaps_screenshot_secret
+                - default_modifiers
     projects-destroy:
         operation: organizations_projects_destroy
         enabled: false
@@ -579,6 +620,9 @@ tools:
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
+    user-toolbar-entitlements-retrieve:
+        operation: user_toolbar_entitlements_retrieve
+        enabled: false
     users-cancel-email-change-request-partial-update:
         operation: users_cancel_email_change_request_partial_update
         enabled: false

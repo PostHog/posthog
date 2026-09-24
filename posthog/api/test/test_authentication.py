@@ -56,6 +56,7 @@ from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -2342,6 +2343,77 @@ class TestTimeSensitivePermissions(APIBaseTest):
                 format="json",
             )
             assert res.status_code == 200
+
+    @parameterized.expand(
+        [
+            ("passkey_register_begin", "post", "/api/webauthn/register/begin/"),
+            ("passkey_register_complete", "post", "/api/webauthn/register/complete/"),
+            ("passkey_rename", "patch", "/api/webauthn/credentials/1/"),
+            ("passkey_delete", "delete", "/api/webauthn/credentials/1/"),
+            ("passkey_verify", "post", "/api/webauthn/credentials/1/verify/"),
+            ("connected_app_revoke", "post", "/api/oauth/connected-apps/00000000-0000-0000-0000-000000000001/revoke/"),
+            ("github_start", "post", "/api/users/@me/integrations/github/start/"),
+            ("github_prepare_callback", "post", "/api/users/@me/integrations/github/prepare_callback/"),
+            ("github_disconnect", "delete", "/api/users/@me/integrations/github/123/"),
+            ("slack_start", "post", "/api/users/@me/integrations/slack/start/"),
+            ("slack_disconnect", "delete", "/api/users/@me/integrations/slack/U0123ABC/"),
+        ]
+    )
+    def test_credential_writes_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
+
+    @parameterized.expand(
+        [
+            ("passkey_list", "get", "/api/webauthn/credentials/"),
+            ("connected_app_list", "get", "/api/oauth/connected-apps"),
+            ("personal_integration_list", "get", "/api/users/@me/integrations/"),
+            ("github_repos_refresh", "post", "/api/users/@me/integrations/github/123/repos/refresh/"),
+            (
+                "github_install_request_cancel",
+                "delete",
+                "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
+            ),
+        ]
+    )
+    def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code != 403, res.content
+
+    @parameterized.expand(
+        [
+            ("personal_posthog_connection", "posthog", True),
+            ("team_slack_integration", "slack", False),
+        ]
+    )
+    def test_integration_removal_needs_recent_authentication_only_for_personal_connections(
+        self, _name, kind, needs_reauth
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = Integration.objects.create(team=self.team, kind=kind, config={}, created_by=self.user)
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.pk}/")
+            if needs_reauth:
+                assert res.status_code == 403, res.content
+                assert res.json()["code"] == "sensitive_action_required_reauth"
+            else:
+                assert res.status_code != 403, res.content
+
+    def test_creating_a_personal_posthog_connection_needs_recent_authentication(self):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.post(
+                f"/api/environments/{self.team.pk}/integrations/", {"kind": "posthog", "config": {}}, format="json"
+            )
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
 
 
 class TestTeamSecretTokenAuthentication(APIBaseTest):

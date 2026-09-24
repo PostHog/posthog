@@ -555,5 +555,5 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     def test_truncation_constant_is_a_safe_default(self):
         # Sanity guard — if someone bumps the cap without updating clients, this
-        # test reminds them. ~5000 fits the FE budget (≈600 KB gzipped).
+        # test reminds them. ~7500 fits the FE budget (≈900 KB gzipped).
         assert 1000 <= BASELINE_OVERVIEW_MAX_ENTRIES <= 10000
