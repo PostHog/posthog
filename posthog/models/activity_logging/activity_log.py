@@ -202,23 +202,23 @@ class ActivityLog(UUIDTModel):
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
             ),
+            # The three below are deliberately not partial. No history or list query filters on
+            # `was_impersonated` or `is_system`, so a predicate on them costs full maintenance and
+            # serves no read. Both columns are nullable, so it would also hold no unset row.
             # User-specific filtered queries
             models.Index(
                 fields=["team_id", "activity", "scope", "user"],
-                name="idx_alog_team_act_scope_usr",
-                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+                name="idx_alog_team_act_scp_usr_all",
             ),
             # Advanced activity logs: team-scoped queries with ordering
             models.Index(
                 fields=["team_id", "scope", "-created_at"],
-                name="idx_alog_team_scope_created",
-                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+                name="idx_alog_team_scope_crtd_all",
             ),
             # Advanced activity logs: team queries with activity filter
             models.Index(
                 fields=["team_id", "scope", "activity", "-created_at"],
-                name="idx_alog_team_scp_act_crtd",
-                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+                name="idx_alog_team_scp_act_crtd_all",
             ),
             # Advanced activity logs default list ordering. The org- and team-scoped list
             # endpoints order by -created_at with no scope filter, so the scope-led indexes
