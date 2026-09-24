@@ -1,13 +1,21 @@
 import datetime as dt
 from dataclasses import dataclass, field
 from typing import Optional
+from uuid import UUID
 
 import structlog
 from rest_framework.exceptions import NotFound
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
-from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_by_uuids
+from posthog.models.person.util import (
+    PersonTombstone,
+    PersonTombstonePublication,
+    create_person,
+    create_person_distinct_id,
+    get_person_tombstones,
+    get_persons_by_uuids,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -223,10 +231,12 @@ class _Mapping:
     max_version: int
 
 
-@dataclass
+@dataclass(frozen=False)
 class OrphanRepairResult:
     orphaned_person_uuids: list[str]
     tombstoned_persons: int = 0
+    # Orphans that are tombstoned in the persons DB, republished at the versions it holds.
+    republished_persons: int = 0
     tombstoned_mappings: int = 0
     # distinct_id now won by a different, non-deleted CH mapping — left untouched
     # so the repair never resurrects-then-deletes a mapping that has been reassigned.
@@ -271,6 +281,14 @@ def tombstone_orphaned_ch_persons(
     and is not already deleted. Mappings reassigned to another live person are
     skipped; mappings whose deleted winner is live in the persons DB are reported
     as reverse drift (not touched).
+
+    Persons DB reads skip tombstoned rows, so a person that a deletion tombstoned in the
+    persons DB without publishing to ClickHouse also looks like an orphan. Such a person is
+    republished at the versions the persons DB holds instead of version + 100. A version
+    + 100 tombstone would stay above the version that a later revival writes, so the
+    revived person would stay hidden in ClickHouse. The lookup is read-only because the
+    orphan read is eventually consistent: a live person can be reported as an orphan, and
+    it must not be tombstoned in the persons DB for that.
     """
     result = OrphanRepairResult(orphaned_person_uuids=sorted(o.uuid for o in orphans), dry_run=dry_run)
     if not orphans:
@@ -289,12 +307,24 @@ def tombstone_orphaned_ch_persons(
 
     result.reverse_drift_mappings = _find_reverse_drift(team_id, deleted_winners, orphan_uuids)
 
+    # Raises rather than falling back to version + 100 for every orphan.
+    stored = get_person_tombstones(team_id, [UUID(o.uuid) for o in orphans])
+    stored_by_uuid = {str(t.uuid): t for t in stored}
+
     if dry_run:
-        result.tombstoned_persons = len(orphans)
-        result.tombstoned_mappings = len(to_tombstone)
+        result.republished_persons = sum(1 for o in orphans if o.uuid in stored_by_uuid)
+        result.tombstoned_persons = len(orphans) - result.republished_persons
+        result.tombstoned_mappings = sum(1 for m in to_tombstone if m.winner_person_id not in stored_by_uuid)
         return result
 
+    republished: set[str] = set()
+    to_republish: list[tuple[PersonTombstone, Optional[dt.datetime]]] = []
     for orphan in orphans:
+        tombstone = stored_by_uuid.get(orphan.uuid)
+        if tombstone is not None:
+            to_republish.append((tombstone, orphan.created_at))
+            republished.add(orphan.uuid)
+            continue
         # No persons-DB row exists, so derive the tombstone from ClickHouse. Version
         # + 100 makes the delete win over normal updates; stays below split's + 101.
         create_person(
@@ -306,7 +336,14 @@ def tombstone_orphaned_ch_persons(
         )
         result.tombstoned_persons += 1
 
+    publication = PersonTombstonePublication(team_id=team_id)
+    publication.publish(to_republish)
+    result.republished_persons = len(to_republish)
+
     for mapping in to_tombstone:
+        if mapping.winner_person_id in republished:
+            # The republish already produced this distinct ID at the stored version.
+            continue
         create_person_distinct_id(
             team_id=team_id,
             distinct_id=mapping.distinct_id,
@@ -316,6 +353,11 @@ def tombstone_orphaned_ch_persons(
         )
         result.tombstoned_mappings += 1
 
+    # Wait only after the mapping rows are produced. A rerun skips a person whose version + 100
+    # row already landed, so a raise before this loop would leave its mappings live for good.
+    publication.await_and_ack()
+    if publication.failures:
+        raise publication.failures[0].error
     return result
 
 
