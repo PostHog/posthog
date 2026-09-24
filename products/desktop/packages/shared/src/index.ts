@@ -233,6 +233,7 @@ export {
   formatMention,
   splitMentionSegments,
 } from "./mentions";
+export { supports1MContext, supportsFastMode } from "./model-catalog";
 export {
   customModelMeta,
   DEFAULT_OPTION_META_KEY,
@@ -308,8 +309,6 @@ export {
   getReasoningEffortOptions,
   isSupportedReasoningEffort,
   type SupportedReasoningEffort,
-  supports1MContext,
-  supportsFastMode,
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
