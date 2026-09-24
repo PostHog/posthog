@@ -50,6 +50,7 @@ import {
   type BuildResult,
   type ConversationItem,
   hasSetupProgressForRun,
+  type TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import {
   ChatMarkdown,
@@ -210,10 +211,30 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
+ * The one UI-app call per completed turn that stands alone, keyed by the turn's (stable)
+ * context object. A turn can call several chart-producing tools; only the last one is worth
+ * leaving open, so earlier ones fold back into their run instead of walling the thread with
+ * open charts. A live (incomplete) turn contributes no entry, so nothing stands alone — and
+ * no chart pops in and back out — until the turn's answer finishes and the winner is final.
+ */
+function lastRenderableIdsByTurn(
+  items: ConversationItem[],
+): Map<TurnContext, string> {
+  const out = new Map<TurnContext, string>();
+  for (const item of items) {
+    if (!isToolCallItem(item)) continue;
+    if (!item.turnContext.turnComplete) continue;
+    if (!hasUiAppResult(item)) continue;
+    out.set(item.turnContext, item.id);
+  }
+  return out;
+}
+
+/**
  * An item that must render as its own row, never folded into a `ToolGroupItem`:
- * a plan awaiting approval, a show-actions handoff, or a call whose result
- * carries a UI app. The next standalone item type joins this predicate instead
- * of widening the condition at the call site.
+ * a plan awaiting approval, a show-actions handoff, or the turn's last call whose
+ * result carries a UI app. The next standalone item type joins this predicate
+ * instead of widening the condition at the call site.
  *
  * A UI-app call cannot ride in a group, and `keepMounted` on the group body is
  * not the fix. It would keep every collapsed run's body mounted thread-wide,
@@ -222,8 +243,16 @@ function isThoughtItem(item: ConversationItem): boolean {
  * hide behind a collapsed panel. Keeping the chart outside the group is the
  * rule that fixes both.
  */
-function rendersStandalone(item: ConversationItem): boolean {
-  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
+function rendersStandalone(
+  item: ConversationItem,
+  lastRenderableIds: Map<TurnContext, string>,
+): boolean {
+  return (
+    isPlanItem(item) ||
+    isShowActionsItem(item) ||
+    (isToolCallItem(item) &&
+      lastRenderableIds.get(item.turnContext) === item.id)
+  );
 }
 
 /**
@@ -261,6 +290,7 @@ function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
 }
 
 export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
+  const lastRenderableIds = lastRenderableIdsByTurn(items);
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
   // items interleaved with either.
@@ -284,7 +314,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (rendersStandalone(item)) {
+      if (rendersStandalone(item, lastRenderableIds)) {
         flush();
         out.push(item);
         continue;
