@@ -20,6 +20,7 @@ import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
 import { TerminalRuntime } from './terminalRuntime'
+import { TerminalSession } from './TerminalSession'
 
 const mockFolderFor = jest.fn<Promise<string | null>, []>()
 
@@ -160,13 +161,18 @@ describe('terminal lifecycle', () => {
             expect.any(Function),
             '/posthog/files/Research'
         )
+        const view = jest.mocked(TerminalSession).mock.results[0].value.view
+        view.focus.mockClear()
         terminalDockLogic.actions.openInTerminal('Research/Reports')
         await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Research/Reports'))
+        await waitFor(() => expect(view.focus).toHaveBeenCalled())
         expect(TerminalRuntime).toHaveBeenCalledTimes(1)
         terminalDockLogic.actions.setDockOpen(false)
         router.actions.push(urls.terminal())
+        view.focus.mockClear()
         terminalDockLogic.actions.openInTerminal('Research/Notes')
         await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Research/Notes'))
+        await waitFor(() => expect(view.focus).toHaveBeenCalled())
         expect(terminalDockLogic.values.dockOpen).toBe(false)
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
         terminalDockLogic.actions.openInTerminal('Hidden')
