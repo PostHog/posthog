@@ -1190,9 +1190,7 @@ def property_to_expr(
 
     if property.type == "flag":
         # Flag dependencies are evaluated at flag-matching time and can't be expressed
-        # in HogQL, so return a neutral filter, mirroring the FlagPropertyFilter handling above.
-        # The blast radius estimate sizes them separately in
-        # products/feature_flags/backend/blast_radius_flag_deps.py.
+        # in HogQL — return a neutral filter, mirroring the FlagPropertyFilter handling above.
         return ast.Constant(value=1)
     elif property.type == "hogql":
         tag_contains_user_hogql()
