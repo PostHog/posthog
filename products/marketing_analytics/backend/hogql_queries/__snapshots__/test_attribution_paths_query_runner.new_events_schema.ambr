@@ -128,3 +128,231 @@
   OFFSET 0
   '''
 # ---
+# name: TestMarketingAnalyticsAttributionPathsQueryRunner.test_attribution_paths_sql_3_cached_campaign[new_events_schema]
+  '''
+  WITH resolved_cached_sessions AS MATERIALIZED (WITH dimensions AS (
+      SELECT session_id_v7 AS session_id_v7, latest AS latest, computed_at AS computed_at 
+      FROM (
+        SELECT d.session_id_v7 AS session_id_v7, argMax(d.dimensions, tuple(d.source_priority, d.computed_at)) AS latest, max(d.computed_at) AS computed_at 
+        FROM (
+          SELECT web_sessions_dimensional_preaggregated.session_id_v7 AS session_id_v7, tuple(toTimeZone(web_sessions_dimensional_preaggregated.period_bucket, %(hogql_val_3)s), toTimeZone(web_sessions_dimensional_preaggregated.start_timestamp, %(hogql_val_4)s), %(hogql_val_5)s, web_sessions_dimensional_preaggregated.utm_source, %(hogql_val_6)s, web_sessions_dimensional_preaggregated.utm_campaign, %(hogql_val_7)s, %(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s) AS dimensions, toTimeZone(web_sessions_dimensional_preaggregated.computed_at, %(hogql_val_11)s) AS computed_at, 0 AS source_priority 
+          FROM web_sessions_dimensional_preaggregated 
+          WHERE and(equals(web_sessions_dimensional_preaggregated.team_id, 420), in(web_sessions_dimensional_preaggregated.job_id, tuple(%(hogql_val_12)s))) UNION ALL 
+          SELECT session_id_v7 AS session_id_v7, dimensions AS dimensions, computed_at AS computed_at, source_priority AS source_priority 
+          FROM (
+            SELECT session_id_v7 AS session_id_v7, tuple(toStartOfHour(toTimeZone(`$start_timestamp`, %(hogql_val_19)s)), `$start_timestamp`, %(hogql_val_20)s, toString(ifNull(`$entry_utm_source`, %(hogql_val_21)s)), %(hogql_val_22)s, toString(ifNull(`$entry_utm_campaign`, %(hogql_val_23)s)), %(hogql_val_24)s, %(hogql_val_25)s, %(hogql_val_26)s, %(hogql_val_27)s) AS dimensions, now64(6, %(hogql_val_28)s) AS computed_at, 1 AS source_priority 
+            FROM (
+              SELECT min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_13)s)) AS `$start_timestamp`, max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_14)s)) AS `$end_timestamp`, nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_15)s), %(hogql_val_16)s) AS `$entry_utm_source`, nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_17)s), %(hogql_val_18)s) AS `$entry_utm_campaign`, raw_sessions.session_id_v7 AS session_id_v7 
+              FROM raw_sessions 
+              WHERE and(equals(raw_sessions.team_id, 420), globalIn(raw_sessions.session_id_v7, (
+                    SELECT DISTINCT raw_sessions.session_id_v7 AS session_id_v7 
+                    FROM raw_sessions 
+                    WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2023-02-03 23:59:59.999999', 6, 'UTC')), or(and(greaterOrEquals(raw_sessions.max_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), less(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC'))), less(raw_sessions.min_timestamp, minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(1))), greater(raw_sessions.max_timestamp, plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalSecond(172800))))))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2023-02-03 23:59:59.999999', 6, 'UTC'))) 
+              GROUP BY raw_sessions.session_id_v7 
+              HAVING and(greaterOrEquals(`$end_timestamp`, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(`$start_timestamp`, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC')), or(less(`$start_timestamp`, toDateTime64('2022-12-27 00:00:00.000000', 6, 'UTC')), greater(`$end_timestamp`, plus(`$start_timestamp`, toIntervalSecond(259200)))))))) AS d 
+        GROUP BY d.session_id_v7)), identities AS (
+      SELECT toUInt128(toUUIDOrNull(events.properties.`$session_id`)) AS session_id_v7, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, min(toTimeZone(events.timestamp, %(hogql_val_29)s)) AS min_event_timestamp, max(toTimeZone(events.timestamp, %(hogql_val_30)s)) AS max_event_timestamp, count() AS pageview_count 
+      FROM events_json AS events LEFT OUTER JOIN (
+        SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+        FROM person_distinct_id_overrides 
+        WHERE equals(person_distinct_id_overrides.team_id, 420) 
+        GROUP BY person_distinct_id_overrides.distinct_id 
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+        SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+      WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_31)s), greaterOrEquals(events.timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
+      GROUP BY session_id_v7, person_id) 
+    SELECT i.session_id_v7 AS session_id_v7, i.person_id AS person_id, toTimeZone(i.min_event_timestamp, %(hogql_val_0)s) AS min_event_timestamp, toTimeZone(i.max_event_timestamp, %(hogql_val_1)s) AS max_event_timestamp, i.pageview_count AS pageview_count, (d.latest).1 AS period_bucket, (d.latest).2 AS start_timestamp, (d.latest).3 AS channel_type, (d.latest).4 AS utm_source, (d.latest).5 AS utm_medium, (d.latest).6 AS utm_campaign, (d.latest).7 AS utm_term, (d.latest).8 AS utm_content, (d.latest).9 AS referring_domain, (d.latest).10 AS entry_pathname, toTimeZone(d.computed_at, %(hogql_val_2)s) AS computed_at 
+    FROM identities AS i INNER JOIN dimensions AS d ON equals(i.session_id_v7, d.session_id_v7)), cached_session_conversions AS MATERIALIZED (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS conv_person_id, arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_32)s)), coalesce(accurateCastOrNull(events.properties.revenue, 'Float64'), 0.0)))), -500) AS conversions, count() AS conversion_count, min(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_33)s))) AS first_conversion, max(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_34)s))) AS last_conversion 
+    FROM events_json AS events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_35)s), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_36)s, %(hogql_val_37)s)), lessOrEquals(events.timestamp, toDateTime64(%(hogql_val_38)s, 6, %(hogql_val_39)s))) 
+    GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)), person_arrays AS (
+    SELECT c.conv_person_id AS person_id, c.conversions AS conversions, c.conversion_count AS conversion_count, t.touchpoints AS touchpoints 
+    FROM (
+      SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.conversions AS conversions, cached_session_conversions.conversion_count AS conversion_count, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
+      FROM cached_session_conversions) AS c LEFT JOIN (
+      SELECT d.person_id AS person_id, arraySlice(arraySort(groupUniqArray(tuple(d.session_ts, d.session_dim))), -500) AS touchpoints 
+      FROM (
+        SELECT conv.conv_person_id AS person_id, argMax(toUnixTimestamp(cached_sessions.start_timestamp), toTimeZone(cached_sessions.computed_at, %(hogql_val_40)s)) AS session_ts, argMax(toString(ifNull(cached_sessions.utm_campaign, %(hogql_val_41)s)), toTimeZone(cached_sessions.computed_at, %(hogql_val_42)s)) AS session_dim, any(conv.first_conversion) AS first_conversion, any(conv.last_conversion) AS upper_bound 
+        FROM resolved_cached_sessions AS cached_sessions INNER JOIN (
+          SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
+          FROM cached_session_conversions) AS conv ON equals(cached_sessions.person_id, conv.conv_person_id) 
+        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
+        GROUP BY conv.conv_person_id, cached_sessions.session_id_v7) AS d 
+      WHERE and(ifNull(greaterOrEquals(d.session_ts, minus(d.first_conversion, 345600)), 0), ifNull(lessOrEquals(d.session_ts, d.upper_bound), 0)) 
+      GROUP BY d.person_id) AS t ON equals(c.conv_person_id, t.person_id) 
+    WHERE ifNull(greater(length(c.conversions), 0), 0)), per_conversion_path AS MATERIALIZED (
+    SELECT i, person_arrays.conversion_count AS conversion_count, (person_arrays.conversions[i]).2 AS conv_value, arrayFilter(t -> and(ifNull(lessOrEquals(t.1, (person_arrays.conversions[i]).1), 0), ifNull(greaterOrEquals(t.1, minus((person_arrays.conversions[i]).1, 345600)), 0)), person_arrays.touchpoints) AS tps, arrayMap(t -> t.2, tps) AS path_full, length(path_full) AS orig_len, arraySlice(path_full, -10) AS path, ifNull(greater(orig_len, 10), 0) AS truncated 
+    FROM person_arrays ARRAY JOIN arrayEnumerate(person_arrays.conversions) AS i), path_rows AS (
+    SELECT per_conversion_path.path AS path, count() AS conversions, sum(per_conversion_path.conv_value) AS conversion_value, max(per_conversion_path.truncated) AS path_truncated, 1 AS footer_key 
+    FROM per_conversion_path 
+    WHERE ifNull(greater(per_conversion_path.orig_len, 0), 0) 
+    GROUP BY per_conversion_path.path), paths_footer AS (
+    SELECT sumIf(per_conversion_path.conversion_count, ifNull(equals(per_conversion_path.i, 1), 0)) AS total_conversions, countIf(ifNull(greater(per_conversion_path.orig_len, 0), 0)) AS attributed_conversions, 1 AS footer_key 
+    FROM per_conversion_path) 
+  SELECT path_rows.path AS path, path_rows.conversions AS conversions, path_rows.conversion_value AS conversion_value, path_rows.path_truncated AS path_truncated, paths_footer.total_conversions AS total_conversions, paths_footer.attributed_conversions AS attributed_conversions, path_rows.footer_key AS footer_key 
+  FROM paths_footer LEFT JOIN path_rows ON equals(paths_footer.footer_key, path_rows.footer_key) 
+  ORDER BY conversions DESC, path ASC 
+  LIMIT 51 
+  OFFSET 0 
+  SETTINGS load_balancing='in_order'
+  '''
+# ---
+# name: TestMarketingAnalyticsAttributionPathsQueryRunner.test_attribution_paths_sql_4_cached_source[new_events_schema]
+  '''
+  WITH resolved_cached_sessions AS MATERIALIZED (WITH dimensions AS (
+      SELECT session_id_v7 AS session_id_v7, latest AS latest, computed_at AS computed_at 
+      FROM (
+        SELECT d.session_id_v7 AS session_id_v7, argMax(d.dimensions, tuple(d.source_priority, d.computed_at)) AS latest, max(d.computed_at) AS computed_at 
+        FROM (
+          SELECT web_sessions_dimensional_preaggregated.session_id_v7 AS session_id_v7, tuple(toTimeZone(web_sessions_dimensional_preaggregated.period_bucket, %(hogql_val_3)s), toTimeZone(web_sessions_dimensional_preaggregated.start_timestamp, %(hogql_val_4)s), %(hogql_val_5)s, web_sessions_dimensional_preaggregated.utm_source, %(hogql_val_6)s, %(hogql_val_7)s, %(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s, %(hogql_val_11)s) AS dimensions, toTimeZone(web_sessions_dimensional_preaggregated.computed_at, %(hogql_val_12)s) AS computed_at, 0 AS source_priority 
+          FROM web_sessions_dimensional_preaggregated 
+          WHERE and(equals(web_sessions_dimensional_preaggregated.team_id, 420), in(web_sessions_dimensional_preaggregated.job_id, tuple(%(hogql_val_13)s))) UNION ALL 
+          SELECT session_id_v7 AS session_id_v7, dimensions AS dimensions, computed_at AS computed_at, source_priority AS source_priority 
+          FROM (
+            SELECT session_id_v7 AS session_id_v7, tuple(toStartOfHour(toTimeZone(`$start_timestamp`, %(hogql_val_18)s)), `$start_timestamp`, %(hogql_val_19)s, toString(ifNull(`$entry_utm_source`, %(hogql_val_20)s)), %(hogql_val_21)s, %(hogql_val_22)s, %(hogql_val_23)s, %(hogql_val_24)s, %(hogql_val_25)s, %(hogql_val_26)s) AS dimensions, now64(6, %(hogql_val_27)s) AS computed_at, 1 AS source_priority 
+            FROM (
+              SELECT min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_14)s)) AS `$start_timestamp`, max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_15)s)) AS `$end_timestamp`, nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_16)s), %(hogql_val_17)s) AS `$entry_utm_source`, raw_sessions.session_id_v7 AS session_id_v7 
+              FROM raw_sessions 
+              WHERE and(equals(raw_sessions.team_id, 420), globalIn(raw_sessions.session_id_v7, (
+                    SELECT DISTINCT raw_sessions.session_id_v7 AS session_id_v7 
+                    FROM raw_sessions 
+                    WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2023-02-03 23:59:59.999999', 6, 'UTC')), or(and(greaterOrEquals(raw_sessions.max_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), less(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC'))), less(raw_sessions.min_timestamp, minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(1))), greater(raw_sessions.max_timestamp, plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalSecond(172800))))))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2023-02-03 23:59:59.999999', 6, 'UTC'))) 
+              GROUP BY raw_sessions.session_id_v7 
+              HAVING and(greaterOrEquals(`$end_timestamp`, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(`$start_timestamp`, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC')), or(less(`$start_timestamp`, toDateTime64('2022-12-27 00:00:00.000000', 6, 'UTC')), greater(`$end_timestamp`, plus(`$start_timestamp`, toIntervalSecond(259200)))))))) AS d 
+        GROUP BY d.session_id_v7)), identities AS (
+      SELECT toUInt128(toUUIDOrNull(events.properties.`$session_id`)) AS session_id_v7, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, min(toTimeZone(events.timestamp, %(hogql_val_28)s)) AS min_event_timestamp, max(toTimeZone(events.timestamp, %(hogql_val_29)s)) AS max_event_timestamp, count() AS pageview_count 
+      FROM events_json AS events LEFT OUTER JOIN (
+        SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+        FROM person_distinct_id_overrides 
+        WHERE equals(person_distinct_id_overrides.team_id, 420) 
+        GROUP BY person_distinct_id_overrides.distinct_id 
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+        SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+      WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_30)s), greaterOrEquals(events.timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
+      GROUP BY session_id_v7, person_id) 
+    SELECT i.session_id_v7 AS session_id_v7, i.person_id AS person_id, toTimeZone(i.min_event_timestamp, %(hogql_val_0)s) AS min_event_timestamp, toTimeZone(i.max_event_timestamp, %(hogql_val_1)s) AS max_event_timestamp, i.pageview_count AS pageview_count, (d.latest).1 AS period_bucket, (d.latest).2 AS start_timestamp, (d.latest).3 AS channel_type, (d.latest).4 AS utm_source, (d.latest).5 AS utm_medium, (d.latest).6 AS utm_campaign, (d.latest).7 AS utm_term, (d.latest).8 AS utm_content, (d.latest).9 AS referring_domain, (d.latest).10 AS entry_pathname, toTimeZone(d.computed_at, %(hogql_val_2)s) AS computed_at 
+    FROM identities AS i INNER JOIN dimensions AS d ON equals(i.session_id_v7, d.session_id_v7)), cached_session_conversions AS MATERIALIZED (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS conv_person_id, arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_31)s)), coalesce(accurateCastOrNull(events.properties.revenue, 'Float64'), 0.0)))), -500) AS conversions, count() AS conversion_count, min(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_32)s))) AS first_conversion, max(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_33)s))) AS last_conversion 
+    FROM events_json AS events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_34)s), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_35)s, %(hogql_val_36)s)), lessOrEquals(events.timestamp, toDateTime64(%(hogql_val_37)s, 6, %(hogql_val_38)s))) 
+    GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)), person_arrays AS (
+    SELECT c.conv_person_id AS person_id, c.conversions AS conversions, c.conversion_count AS conversion_count, t.touchpoints AS touchpoints 
+    FROM (
+      SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.conversions AS conversions, cached_session_conversions.conversion_count AS conversion_count, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
+      FROM cached_session_conversions) AS c LEFT JOIN (
+      SELECT d.person_id AS person_id, arraySlice(arraySort(groupUniqArray(tuple(d.session_ts, d.session_dim))), -500) AS touchpoints 
+      FROM (
+        SELECT conv.conv_person_id AS person_id, argMax(toUnixTimestamp(cached_sessions.start_timestamp), toTimeZone(cached_sessions.computed_at, %(hogql_val_39)s)) AS session_ts, argMax(if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_40)s)), cached_sessions.utm_source, %(hogql_val_41)s)), [%(hogql_val_42)s, %(hogql_val_43)s, %(hogql_val_44)s]), %(hogql_val_45)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_46)s)), cached_sessions.utm_source, %(hogql_val_47)s)), [%(hogql_val_48)s, %(hogql_val_49)s, %(hogql_val_50)s, %(hogql_val_51)s, %(hogql_val_52)s, %(hogql_val_53)s, %(hogql_val_54)s, %(hogql_val_55)s]), %(hogql_val_56)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_57)s)), cached_sessions.utm_source, %(hogql_val_58)s)), [%(hogql_val_59)s]), %(hogql_val_60)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_61)s)), cached_sessions.utm_source, %(hogql_val_62)s)), [%(hogql_val_63)s, %(hogql_val_64)s, %(hogql_val_65)s, %(hogql_val_66)s, %(hogql_val_67)s, %(hogql_val_68)s, %(hogql_val_69)s, %(hogql_val_70)s, %(hogql_val_71)s]), %(hogql_val_72)s, if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_73)s)), cached_sessions.utm_source, %(hogql_val_74)s))))), toTimeZone(cached_sessions.computed_at, %(hogql_val_75)s)) AS session_dim, any(conv.first_conversion) AS first_conversion, any(conv.last_conversion) AS upper_bound 
+        FROM resolved_cached_sessions AS cached_sessions INNER JOIN (
+          SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
+          FROM cached_session_conversions) AS conv ON equals(cached_sessions.person_id, conv.conv_person_id) 
+        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
+        GROUP BY conv.conv_person_id, cached_sessions.session_id_v7) AS d 
+      WHERE and(ifNull(greaterOrEquals(d.session_ts, minus(d.first_conversion, 345600)), 0), ifNull(lessOrEquals(d.session_ts, d.upper_bound), 0)) 
+      GROUP BY d.person_id) AS t ON equals(c.conv_person_id, t.person_id) 
+    WHERE ifNull(greater(length(c.conversions), 0), 0)), per_conversion_path AS MATERIALIZED (
+    SELECT i, person_arrays.conversion_count AS conversion_count, (person_arrays.conversions[i]).2 AS conv_value, arrayFilter(t -> and(ifNull(lessOrEquals(t.1, (person_arrays.conversions[i]).1), 0), ifNull(greaterOrEquals(t.1, minus((person_arrays.conversions[i]).1, 345600)), 0)), person_arrays.touchpoints) AS tps, arrayMap(t -> t.2, tps) AS path_full, length(path_full) AS orig_len, arraySlice(path_full, -10) AS path, ifNull(greater(orig_len, 10), 0) AS truncated 
+    FROM person_arrays ARRAY JOIN arrayEnumerate(person_arrays.conversions) AS i), path_rows AS (
+    SELECT per_conversion_path.path AS path, count() AS conversions, sum(per_conversion_path.conv_value) AS conversion_value, max(per_conversion_path.truncated) AS path_truncated, 1 AS footer_key 
+    FROM per_conversion_path 
+    WHERE ifNull(greater(per_conversion_path.orig_len, 0), 0) 
+    GROUP BY per_conversion_path.path), paths_footer AS (
+    SELECT sumIf(per_conversion_path.conversion_count, ifNull(equals(per_conversion_path.i, 1), 0)) AS total_conversions, countIf(ifNull(greater(per_conversion_path.orig_len, 0), 0)) AS attributed_conversions, 1 AS footer_key 
+    FROM per_conversion_path) 
+  SELECT path_rows.path AS path, path_rows.conversions AS conversions, path_rows.conversion_value AS conversion_value, path_rows.path_truncated AS path_truncated, paths_footer.total_conversions AS total_conversions, paths_footer.attributed_conversions AS attributed_conversions, path_rows.footer_key AS footer_key 
+  FROM paths_footer LEFT JOIN path_rows ON equals(paths_footer.footer_key, path_rows.footer_key) 
+  ORDER BY conversions DESC, path ASC 
+  LIMIT 51 
+  OFFSET 0 
+  SETTINGS load_balancing='in_order'
+  '''
+# ---
+# name: TestMarketingAnalyticsAttributionPathsQueryRunner.test_attribution_paths_sql_5_cached_channel[new_events_schema]
+  '''
+  WITH resolved_cached_sessions AS MATERIALIZED (WITH dimensions AS (
+      SELECT session_id_v7 AS session_id_v7, latest AS latest, computed_at AS computed_at 
+      FROM (
+        SELECT d.session_id_v7 AS session_id_v7, argMax(d.dimensions, tuple(d.source_priority, d.computed_at)) AS latest, max(d.computed_at) AS computed_at 
+        FROM (
+          SELECT web_sessions_dimensional_preaggregated.session_id_v7 AS session_id_v7, tuple(toTimeZone(web_sessions_dimensional_preaggregated.period_bucket, %(hogql_val_3)s), toTimeZone(web_sessions_dimensional_preaggregated.start_timestamp, %(hogql_val_4)s), web_sessions_dimensional_preaggregated.channel_type, %(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s, %(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s, %(hogql_val_11)s) AS dimensions, toTimeZone(web_sessions_dimensional_preaggregated.computed_at, %(hogql_val_12)s) AS computed_at, 0 AS source_priority 
+          FROM web_sessions_dimensional_preaggregated 
+          WHERE and(equals(web_sessions_dimensional_preaggregated.team_id, 420), in(web_sessions_dimensional_preaggregated.job_id, tuple(%(hogql_val_13)s))) UNION ALL 
+          SELECT session_id_v7 AS session_id_v7, dimensions AS dimensions, computed_at AS computed_at, source_priority AS source_priority 
+          FROM (
+            SELECT session_id_v7 AS session_id_v7, tuple(toStartOfHour(toTimeZone(`$start_timestamp`, %(hogql_val_135)s)), `$start_timestamp`, if(notEmpty(ifNull(`$channel_type`, %(hogql_val_136)s)), `$channel_type`, %(hogql_val_137)s), %(hogql_val_138)s, %(hogql_val_139)s, %(hogql_val_140)s, %(hogql_val_141)s, %(hogql_val_142)s, %(hogql_val_143)s, %(hogql_val_144)s) AS dimensions, now64(6, %(hogql_val_145)s) AS computed_at, 1 AS source_priority 
+            FROM (
+              SELECT min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_14)s)) AS `$start_timestamp`, max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_15)s)) AS `$end_timestamp`, multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_16)s), %(hogql_val_17)s), %(hogql_val_18)s), %(hogql_val_19)s)), %(hogql_val_20)s), %(hogql_val_21)s, or(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_22)s), %(hogql_val_23)s), %(hogql_val_24)s), %(hogql_val_25)s)), tuple(%(hogql_val_26)s, %(hogql_val_27)s, %(hogql_val_28)s, %(hogql_val_29)s, %(hogql_val_30)s, %(hogql_val_31)s)), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_32)s), %(hogql_val_33)s), %(hogql_val_34)s), %(hogql_val_35)s)), %(hogql_val_36)s), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), %(hogql_val_37)s), %(hogql_val_38)s)), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), %(hogql_val_39)s), %(hogql_val_40)s), %(hogql_val_41)s), %(hogql_val_42)s))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_43)s), %(hogql_val_44)s), %(hogql_val_45)s), %(hogql_val_46)s)), ''), 'source')) , dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_43)s), %(hogql_val_44)s), %(hogql_val_45)s), %(hogql_val_46)s)), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_47)s), %(hogql_val_48)s), %(hogql_val_49)s), %(hogql_val_50)s)), %(hogql_val_51)s), %(hogql_val_52)s, NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_53)s), %(hogql_val_54)s), %(hogql_val_55)s), %(hogql_val_56)s)), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_57)s), %(hogql_val_58)s), ''), 'source')) , dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_57)s), %(hogql_val_58)s), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), %(hogql_val_59)s), %(hogql_val_60)s), %(hogql_val_61)s), %(hogql_val_62)s), %(hogql_val_63)s), 0), %(hogql_val_64)s, match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_65)s), %(hogql_val_66)s), %(hogql_val_67)s), %(hogql_val_68)s)), %(hogql_val_69)s), %(hogql_val_70)s, isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), %(hogql_val_71)s), %(hogql_val_72)s)), %(hogql_val_73)s, %(hogql_val_74)s)), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_75)s), %(hogql_val_76)s), %(hogql_val_77)s), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_78)s), %(hogql_val_79)s), %(hogql_val_80)s), %(hogql_val_81)s))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_82)s), %(hogql_val_83)s), %(hogql_val_84)s), %(hogql_val_85)s))), in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_86)s), %(hogql_val_87)s), %(hogql_val_88)s), %(hogql_val_89)s)), tuple(%(hogql_val_90)s, %(hogql_val_91)s, %(hogql_val_92)s))), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), %(hogql_val_93)s), %(hogql_val_94)s)))), %(hogql_val_95)s, coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_96)s), %(hogql_val_97)s), %(hogql_val_98)s), %(hogql_val_99)s)), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_96)s), %(hogql_val_97)s), %(hogql_val_98)s), %(hogql_val_99)s)), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_100)s), %(hogql_val_101)s), %(hogql_val_102)s), %(hogql_val_103)s)), %(hogql_val_104)s), %(hogql_val_105)s, NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_106)s), %(hogql_val_107)s), %(hogql_val_108)s), %(hogql_val_109)s)), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_110)s), %(hogql_val_111)s), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_110)s), %(hogql_val_111)s), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_112)s), %(hogql_val_113)s), %(hogql_val_114)s), %(hogql_val_115)s)), %(hogql_val_116)s), %(hogql_val_117)s, match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_118)s), %(hogql_val_119)s), %(hogql_val_120)s), %(hogql_val_121)s)), %(hogql_val_122)s), %(hogql_val_123)s, isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), %(hogql_val_124)s), %(hogql_val_125)s)), %(hogql_val_126)s, ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_127)s), %(hogql_val_128)s), %(hogql_val_129)s), 0), %(hogql_val_130)s, isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_131)s), %(hogql_val_132)s)), %(hogql_val_133)s, %(hogql_val_134)s))) AS `$channel_type`, raw_sessions.session_id_v7 AS session_id_v7 
+              FROM raw_sessions 
+              WHERE and(equals(raw_sessions.team_id, 420), globalIn(raw_sessions.session_id_v7, (
+                    SELECT DISTINCT raw_sessions.session_id_v7 AS session_id_v7 
+                    FROM raw_sessions 
+                    WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2023-02-03 23:59:59.999999', 6, 'UTC')), or(and(greaterOrEquals(raw_sessions.max_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), less(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC'))), less(raw_sessions.min_timestamp, minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(1))), greater(raw_sessions.max_timestamp, plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalSecond(172800))))))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2022-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime64('2023-02-03 23:59:59.999999', 6, 'UTC'))) 
+              GROUP BY raw_sessions.session_id_v7 
+              HAVING and(greaterOrEquals(`$end_timestamp`, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(`$start_timestamp`, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC')), or(less(`$start_timestamp`, toDateTime64('2022-12-27 00:00:00.000000', 6, 'UTC')), greater(`$end_timestamp`, plus(`$start_timestamp`, toIntervalSecond(259200)))))))) AS d 
+        GROUP BY d.session_id_v7)), identities AS (
+      SELECT toUInt128(toUUIDOrNull(events.properties.`$session_id`)) AS session_id_v7, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, min(toTimeZone(events.timestamp, %(hogql_val_146)s)) AS min_event_timestamp, max(toTimeZone(events.timestamp, %(hogql_val_147)s)) AS max_event_timestamp, count() AS pageview_count 
+      FROM events_json AS events LEFT OUTER JOIN (
+        SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+        FROM person_distinct_id_overrides 
+        WHERE equals(person_distinct_id_overrides.team_id, 420) 
+        GROUP BY person_distinct_id_overrides.distinct_id 
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+        SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+      WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_148)s), greaterOrEquals(events.timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
+      GROUP BY session_id_v7, person_id) 
+    SELECT i.session_id_v7 AS session_id_v7, i.person_id AS person_id, toTimeZone(i.min_event_timestamp, %(hogql_val_0)s) AS min_event_timestamp, toTimeZone(i.max_event_timestamp, %(hogql_val_1)s) AS max_event_timestamp, i.pageview_count AS pageview_count, (d.latest).1 AS period_bucket, (d.latest).2 AS start_timestamp, (d.latest).3 AS channel_type, (d.latest).4 AS utm_source, (d.latest).5 AS utm_medium, (d.latest).6 AS utm_campaign, (d.latest).7 AS utm_term, (d.latest).8 AS utm_content, (d.latest).9 AS referring_domain, (d.latest).10 AS entry_pathname, toTimeZone(d.computed_at, %(hogql_val_2)s) AS computed_at 
+    FROM identities AS i INNER JOIN dimensions AS d ON equals(i.session_id_v7, d.session_id_v7)), cached_session_conversions AS MATERIALIZED (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS conv_person_id, arraySlice(arraySort(groupArray(tuple(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_149)s)), coalesce(accurateCastOrNull(events.properties.revenue, 'Float64'), 0.0)))), -500) AS conversions, count() AS conversion_count, min(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_150)s))) AS first_conversion, max(toUnixTimestamp(toTimeZone(events.timestamp, %(hogql_val_151)s))) AS last_conversion 
+    FROM events_json AS events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_152)s), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_153)s, %(hogql_val_154)s)), lessOrEquals(events.timestamp, toDateTime64(%(hogql_val_155)s, 6, %(hogql_val_156)s))) 
+    GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)), person_arrays AS (
+    SELECT c.conv_person_id AS person_id, c.conversions AS conversions, c.conversion_count AS conversion_count, t.touchpoints AS touchpoints 
+    FROM (
+      SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.conversions AS conversions, cached_session_conversions.conversion_count AS conversion_count, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
+      FROM cached_session_conversions) AS c LEFT JOIN (
+      SELECT d.person_id AS person_id, arraySlice(arraySort(groupUniqArray(tuple(d.session_ts, d.session_dim))), -500) AS touchpoints 
+      FROM (
+        SELECT conv.conv_person_id AS person_id, argMax(toUnixTimestamp(cached_sessions.start_timestamp), toTimeZone(cached_sessions.computed_at, %(hogql_val_157)s)) AS session_ts, argMax(if(notEmpty(ifNull(cached_sessions.channel_type, %(hogql_val_158)s)), cached_sessions.channel_type, %(hogql_val_159)s), toTimeZone(cached_sessions.computed_at, %(hogql_val_160)s)) AS session_dim, any(conv.first_conversion) AS first_conversion, any(conv.last_conversion) AS upper_bound 
+        FROM resolved_cached_sessions AS cached_sessions INNER JOIN (
+          SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
+          FROM cached_session_conversions) AS conv ON equals(cached_sessions.person_id, conv.conv_person_id) 
+        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
+        GROUP BY conv.conv_person_id, cached_sessions.session_id_v7) AS d 
+      WHERE and(ifNull(greaterOrEquals(d.session_ts, minus(d.first_conversion, 345600)), 0), ifNull(lessOrEquals(d.session_ts, d.upper_bound), 0)) 
+      GROUP BY d.person_id) AS t ON equals(c.conv_person_id, t.person_id) 
+    WHERE ifNull(greater(length(c.conversions), 0), 0)), per_conversion_path AS MATERIALIZED (
+    SELECT i, person_arrays.conversion_count AS conversion_count, (person_arrays.conversions[i]).2 AS conv_value, arrayFilter(t -> and(ifNull(lessOrEquals(t.1, (person_arrays.conversions[i]).1), 0), ifNull(greaterOrEquals(t.1, minus((person_arrays.conversions[i]).1, 345600)), 0)), person_arrays.touchpoints) AS tps, arrayMap(t -> t.2, tps) AS path_full, length(path_full) AS orig_len, arraySlice(path_full, -10) AS path, ifNull(greater(orig_len, 10), 0) AS truncated 
+    FROM person_arrays ARRAY JOIN arrayEnumerate(person_arrays.conversions) AS i), path_rows AS (
+    SELECT per_conversion_path.path AS path, count() AS conversions, sum(per_conversion_path.conv_value) AS conversion_value, max(per_conversion_path.truncated) AS path_truncated, 1 AS footer_key 
+    FROM per_conversion_path 
+    WHERE ifNull(greater(per_conversion_path.orig_len, 0), 0) 
+    GROUP BY per_conversion_path.path), paths_footer AS (
+    SELECT sumIf(per_conversion_path.conversion_count, ifNull(equals(per_conversion_path.i, 1), 0)) AS total_conversions, countIf(ifNull(greater(per_conversion_path.orig_len, 0), 0)) AS attributed_conversions, 1 AS footer_key 
+    FROM per_conversion_path) 
+  SELECT path_rows.path AS path, path_rows.conversions AS conversions, path_rows.conversion_value AS conversion_value, path_rows.path_truncated AS path_truncated, paths_footer.total_conversions AS total_conversions, paths_footer.attributed_conversions AS attributed_conversions, path_rows.footer_key AS footer_key 
+  FROM paths_footer LEFT JOIN path_rows ON equals(paths_footer.footer_key, path_rows.footer_key) 
+  ORDER BY conversions DESC, path ASC 
+  LIMIT 51 
+  OFFSET 0 
+  SETTINGS load_balancing='in_order'
+  '''
+# ---
