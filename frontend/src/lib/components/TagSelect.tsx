@@ -162,7 +162,7 @@ export function TagSelect({
                                         fullWidth
                                         role="checkbox"
                                         aria-checked={value.includes(tag)}
-                                        aria-label={tag}
+                                        aria-label={count === undefined ? tag : `${tag} (${count})`}
                                         tooltip={tag}
                                         size="small"
                                         onClick={() => handleToggle(tag)}
