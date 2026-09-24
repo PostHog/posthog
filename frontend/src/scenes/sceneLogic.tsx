@@ -986,6 +986,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                         return
                     }
+                    // A slow import can reject after the person has already navigated somewhere
+                    // else, so break first: the error scene must not replace a newer one.
+                    breakpoint()
                     // Rethrowing here escapes the listener unhandled: the address bar sits on the
                     // scene that failed while the previous one stays rendered, and nothing reaches
                     // error tracking. Report it, then render an error where the URL points.
