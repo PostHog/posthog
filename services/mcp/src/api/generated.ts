@@ -7294,6 +7294,7 @@ export namespace Schemas {
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      Clickhouse: 'clickhouse',
       YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
