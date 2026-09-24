@@ -594,8 +594,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
         body = response.json()
-        # The refused caller reads this, so it must say what the state is and how to leave it,
-        # never the name of an internal flag.
+        # The refused caller reads this, so it must not be the name of an internal flag.
         assert body["detail"] == BACKFILL_LIMITED_RELEASE_MESSAGE
         assert body["code"] == "feature_flag_required"
         refusals = [

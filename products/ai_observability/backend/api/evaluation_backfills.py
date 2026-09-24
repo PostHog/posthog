@@ -84,9 +84,8 @@ BACKFILL_START_GRACE = timedelta(minutes=2)
 # no timeout, and the list still answers 200, so nothing upstream slows the polling down.
 BACKFILL_ALIVE_CACHE_SECONDS = 60
 
-# The routes are registered and documented, but the flag is closed to every customer organization,
-# so the default flag-gate message names an internal flag key and leaves the caller with no route
-# to access.
+# The default flag-gate message names the flag key, which tells a refused caller nothing about
+# how to reach the feature.
 BACKFILL_LIMITED_RELEASE_MESSAGE = (
     "Evaluation backfills are in limited release, so this project cannot start one yet. "
     "Contact PostHog support to ask for access."
@@ -286,8 +285,7 @@ class EvaluationBackfillViewSet(
                 team = self.team
             except (ValueError, KeyError, AttributeError):
                 team = None
-            # The routes are documented, so a caller finds them and is refused. Nothing else
-            # reports that refusal, so the reach for backfills is invisible until this event.
+            # Nothing else reports a refusal, so the reach for backfills has no other measure.
             report_user_action(
                 cast(User, request.user),
                 "evaluation backfill refused",
