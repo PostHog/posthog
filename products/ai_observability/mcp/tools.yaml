@@ -917,6 +917,10 @@ tools:
             or `content=preview` for a short `prompt_preview` snippet instead of the full prompt.
             With full content the response also includes `config`, the JSON object of model parameters or agent
             configuration stored with the version (null when the version has none).
+            Prompt content can contain `@@@prompt:...@@@` references to other prompts. By default the response is
+            the assembled content with each reference replaced by the referenced prompt's content, and
+            `resolved_references` lists the exact versions spliced in. Pass `resolve=false` to get the raw text
+            with the tags intact — always do this before editing the prompt (see llma-prompt-update).
         param_overrides:
             prompt_name:
                 aliases:
@@ -975,6 +979,9 @@ tools:
             are omitted. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full
             prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the
             prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.
+            With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references
+            resolved and `resolved_references` listing the spliced versions; unlabeled listings return raw
+            content with any reference tags intact.
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
@@ -1000,6 +1007,10 @@ tools:
             Pass 'config' (a JSON object) to set model parameters or agent configuration on the new version.
             If 'config' is omitted the current version's config is carried forward; pass null to clear it.
             A config-only publish (no 'prompt' or 'edits') keeps the prompt content unchanged.
+            If the prompt contains `@@@prompt:...@@@` references, fetch it with `resolve=false` first and edit
+            that raw text: the default llma-prompt-get response inlines the referenced prompts, so republishing
+            it replaces the references with flattened copies that stop following label moves. 'edits' written
+            against resolved content also fail to match, because the stored content keeps the tags.
         include_params:
             - prompt
             - edits
