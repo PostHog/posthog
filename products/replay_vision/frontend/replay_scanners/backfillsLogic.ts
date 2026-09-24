@@ -281,6 +281,10 @@ export const backfillsLogic = kea<backfillsLogicType>([
                     actions.loadBackfills()
                 } catch (error: any) {
                     lemonToast.error(apiErrorMessage(error))
+                    // The window now costs more than the quote the person agreed to, so show them the new one.
+                    if (error instanceof ApiError && error.attr === 'max_total_credits') {
+                        actions.requestEstimate(windowStart, windowEnd)
+                    }
                 } finally {
                     actions.createBackfillDone()
                 }

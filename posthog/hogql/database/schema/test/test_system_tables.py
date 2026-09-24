@@ -91,7 +91,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration, VisionAlertKind
 from products.surveys.backend.models import Survey, SurveyResponseArchive
@@ -1223,6 +1223,28 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
 
         assert str(live_canvas.pk) in ids
         assert str(deleted_canvas.pk) not in ids
+
+
+class TestSystemTablesReplayScannersInlineExclusion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_inline_scanners_excluded(self):
+        configured = _create_replay_scanner(self.team, "configured")
+        inline = ReplayScanner.objects.create(
+            team=self.team,
+            name="inline",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            origin=ScannerOrigin.INLINE,
+            inline_key="inline-key",
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.replay_scanners", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(configured.pk) in ids
+        assert str(inline.pk) not in ids
 
 
 class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):

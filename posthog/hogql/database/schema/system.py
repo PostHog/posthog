@@ -1362,8 +1362,8 @@ replay_scanner_backfills: PostgresTable = PostgresTable(
 vision_alerts: PostgresTable = PostgresTable(
     name="vision_alerts",
     postgres_table_name="replay_vision_visionalertconfiguration",
+    # Scoped to the scanner, not `vision_alert`, so per-scanner grants also gate alert rows.
     access_scope="replay_scanner",
-    # Alerts inherit access from their scanner, as the REST endpoint does.
     access_control_id_field="scanner_id",
     description="Replay Vision alerts on a scanner's observations; one row per alert.",
     fields={
@@ -1385,8 +1385,12 @@ vision_alerts: PostgresTable = PostgresTable(
         "selection": StringJSONDatabaseField(
             name="selection", description="JSON filter picking which observations count (verdict, tags, score)."
         ),
-        "metric": StringDatabaseField(name="metric", description="Metric alerts: count or avg_score."),
-        "direction": StringDatabaseField(name="direction", description="Metric alerts: above or below."),
+        "metric": StringDatabaseField(
+            name="metric", description="Metric alerts: count or avg_score; ignored for match alerts."
+        ),
+        "direction": StringDatabaseField(
+            name="direction", description="Metric alerts: above or below; ignored for match alerts."
+        ),
         "threshold": FloatDatabaseField(
             name="threshold", nullable=True, description="Metric alerts: threshold value (NULL for match alerts)."
         ),

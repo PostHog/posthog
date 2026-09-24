@@ -36,6 +36,6 @@ One row per run of a scanner over a past window of recordings.
 
 ### Important Notes
 
-- Access follows the scanner: a scanner you cannot read also hides its alerts and backfills.
+- Access follows the scanner: a scanner you are denied also hides its alerts and backfills, even ones you created.
 - A backfill's progress is `dispatched_count + skipped_count` out of `total_count`. Per-outcome counts come from `vision-scanners-backfills-get`.
 - Alert notification destinations are not a system table. Read them with `vision-alerts-get`.

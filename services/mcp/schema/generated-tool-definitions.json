@@ -12546,7 +12546,7 @@
         "required_scopes": ["vision_alert:write"],
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -12771,7 +12771,7 @@
         "title": "Cancel scanner backfill",
         "required_scopes": ["replay_scanner:write", "session_recording:read"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

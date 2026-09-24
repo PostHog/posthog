@@ -148,7 +148,7 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: false
+            idempotent: true
         title: Reset broken replay vision alert
         description: >
             Reset a replay vision alert in the `broken` state: clears its consecutive-failure count and schedules an
@@ -449,7 +449,7 @@ tools:
             - session_recording:read
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Cancel scanner backfill
         description: >
