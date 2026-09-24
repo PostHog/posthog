@@ -538,9 +538,9 @@ def _pinned_selection(pinned_repository: str, candidate_repos: list[str]) -> Rep
     return RepoSelectionResult(
         repository=None,
         reason=(
-            f"The request comes from `{pinned}`, which is not among the repositories this project's "
-            "GitHub installation can reach. Connect it, or pick a repository by hand — another "
-            "repository is not a substitute for the one the request names."
+            f"This report comes from `{pinned}`, which this project's GitHub installation cannot "
+            "reach. Connect that repository, or pick one yourself. No other repository is a "
+            "substitute for the one the report names."
         ),
     )
 
