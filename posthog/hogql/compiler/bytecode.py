@@ -1043,7 +1043,14 @@ class BytecodeCompiler(Visitor):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
         self._declare_local(node.name)
-        compiler = BytecodeCompiler(self.supported_functions, node.params, self.context, self)
+        compiler = BytecodeCompiler(
+            self.supported_functions,
+            node.params,
+            self.context,
+            self,
+            cohort_membership_supported=self.cohort_membership_supported,
+            allowed_cohort_ids=self.allowed_cohort_ids,
+        )
         bytecode = compiler.visit(body)
 
         ops = [
@@ -1076,7 +1083,14 @@ class BytecodeCompiler(Visitor):
             else:
                 expr = ast.ReturnStatement(expr=expr)
 
-        compiler = BytecodeCompiler(self.supported_functions, node.args, self.context, self)
+        compiler = BytecodeCompiler(
+            self.supported_functions,
+            node.args,
+            self.context,
+            self,
+            cohort_membership_supported=self.cohort_membership_supported,
+            allowed_cohort_ids=self.allowed_cohort_ids,
+        )
         bytecode = compiler.visit(expr)
         ops = [
             Operation.CALLABLE,

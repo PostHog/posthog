@@ -1807,16 +1807,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Can't call inCohort() directly" in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("top_level", "999999 in cohort_ids"),
+            ("inside_a_lambda", "arrayExists(x -> 999999 in cohort_ids, [1])"),
+        ]
+    )
     @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_rejects_authored_reads_of_the_cohort_ids_global(self, _mock_flag):
+    def test_hog_flow_rejects_authored_reads_of_the_cohort_ids_global(self, _name, expression, _mock_flag):
         # An eligible cohort leaf turns cohort support on and makes the runtime inject the
         # person's real memberships as the `cohort_ids` global. An authored read of that global
         # (`999999 in cohort_ids`) would then test membership of a cohort the eligibility
-        # validation never cleared, so the compiler must reject it.
+        # validation never cleared, so the compiler must reject it. A lambda body compiles in a
+        # nested compiler, which has to carry the same restriction.
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         properties: list[dict[str, Any]] = [
             {"key": "id", "type": "cohort", "value": cohort.id},
-            {"key": "999999 in cohort_ids", "type": "hogql"},
+            {"key": expression, "type": "hogql"},
         ]
         hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": properties})
 
