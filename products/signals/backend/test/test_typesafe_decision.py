@@ -32,11 +32,11 @@ def _actionability_result(probability: float = 0.98) -> DecisionResult:
     )
 
 
-def _safety_result() -> DecisionResult:
+def _safety_result(probability: float = 0.2) -> DecisionResult:
     return DecisionResult(
         model="jevk5-fp8-0.2",
         answers={
-            "safe": NoulAnswer(probability=0.2),
+            "safe": NoulAnswer(probability=probability),
             "category": ChoiceAnswer(
                 choice="secret_exfiltration",
                 confidence=0.88,
@@ -91,7 +91,7 @@ async def test_safety_requests_category_through_the_shared_gateway_client() -> N
 
 
 @pytest.mark.asyncio
-async def test_typesafe_primary_safety_preserves_category() -> None:
+async def test_typesafe_primary_safety_rejects_a_blocked_category_even_with_a_safe_probability() -> None:
     with (
         patch(
             "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
@@ -100,7 +100,7 @@ async def test_typesafe_primary_safety_preserves_category() -> None:
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
             "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
-            return_value=_safety_result(),
+            return_value=_safety_result(probability=0.99),
         ),
         patch(
             "products.signals.backend.temporal.safety_filter.call_llm",

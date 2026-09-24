@@ -209,7 +209,11 @@ async def run_model_decision(
         typesafe_call = await typesafe_task
 
     typesafe = typesafe_call.value
-    typesafe_verdict = typesafe["probability"] >= threshold if typesafe is not None else None
+    typesafe_verdict = (
+        typesafe["probability"] >= threshold and typesafe["category"] in (None, "none")
+        if typesafe is not None
+        else None
+    )
     typesafe_decision = None
     conversion_error = None
     if typesafe_verdict is not None and typesafe is not None:
