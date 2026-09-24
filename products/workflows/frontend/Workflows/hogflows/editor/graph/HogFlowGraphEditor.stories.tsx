@@ -56,6 +56,8 @@ export const RenewalWindowAlerts: StoryFn = () => <WorkflowStory id="example-ren
 export const PendingTicketCleanup: StoryFn = () => <WorkflowStory id="example-pending-ticket-cleanup" />
 export const AddOnPromotionEmails: StoryFn = () => <WorkflowStory id="example-add-on-promotion-emails" />
 
+// 32rem sits below the 48rem container-query breakpoint the editor uses to stack the settings
+// panel under the graph, so this story exercises the narrow layout.
 export const NarrowWorkflow: StoryFn = () => (
     <WorkflowStory id={CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID} className="w-[32rem] max-w-full" />
 )
