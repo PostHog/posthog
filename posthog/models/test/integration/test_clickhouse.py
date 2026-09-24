@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from posthog.test.base import BaseTest
 
@@ -5,7 +7,8 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.models.integration import ClickHouseIntegration, IntegrationError
+from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.integration import ClickHouseIntegration, Integration, IntegrationError
 
 
 class TestClickHouseIntegrationFromConfig(BaseTest):
@@ -17,6 +20,17 @@ class TestClickHouseIntegrationFromConfig(BaseTest):
         assert "password" not in integration.config
         assert ClickHouseIntegration(integration).password == "hunter2"
         assert integration.display_name == "Analytics"
+
+    def test_reads_a_password_that_was_encrypted_twice(self) -> None:
+        integration = ClickHouseIntegration.integration_from_config(
+            team_id=self.team.pk, host="ch.example.com", user="exporter", password="hunter2"
+        )
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        integration.sensitive_config = {"password": field.encrypt("hunter2")}
+        integration.save(update_fields=["sensitive_config"])
+        integration.refresh_from_db()
+
+        assert ClickHouseIntegration(integration).password == "hunter2"
 
 
 class TestClickHouseIntegrationValidation(SimpleTestCase):

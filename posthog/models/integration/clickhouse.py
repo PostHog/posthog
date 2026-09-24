@@ -131,7 +131,10 @@ class ClickHouseIntegration:
 
     @property
     def password(self) -> str:
-        return self.integration.sensitive_config["password"]
+        password = model._decrypted_sensitive_value(self.integration, "password")
+        if password is None:
+            raise common.IntegrationError("The ClickHouse connection has no password. Reconnect it with one.")
+        return password
 
     @property
     def verify(self) -> bool:
