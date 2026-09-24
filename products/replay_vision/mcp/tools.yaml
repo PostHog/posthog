@@ -17,21 +17,6 @@ ui_apps:
         item_name_field: id
         entity_label: observation
 tools:
-    vision-quota-spend-series-get:
-        operation: environment_vision_quota_spend_series_retrieve
-        enabled: true
-        scopes:
-            - replay_scanner:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get replay vision daily spend
-        description: >
-            Get the organization's Replay vision credit spend per UTC day for the current quota period (1 credit = $0.01).
-            Returns `period_start`, `period_end` and `days`, one entry per day from `period_start` through today, zero-filled
-            on days without spend. Spend covers every project in the organization. Use it to see when spend picked up or
-            to project where the period will end; `vision-quota-get` gives the running total and the limit.
     vision-alerts-create:
         operation: vision_alerts_create
         enabled: true
@@ -44,41 +29,12 @@ tools:
             idempotent: false
         title: Create replay vision alert
         description: >
-            Create an alert on one scanner's observations. `kind` is fixed after creation. A `match` alert fires on every
-            observation that matches `selection`. A `metric` alert fires when `metric` over a rolling `window_days` window
-            is `above` or `below` `threshold`. `selection` must fit the scanner's type: `verdict` for a monitor, `tags` for
-            a classifier, `min_score`/`max_score` for a scorer; leave it empty to count every observation. An alert notifies
-            nobody until it has a destination, so follow up with `vision-alerts-destinations-create`.
-    vision-alerts-destinations-create:
-        operation: vision_alerts_destinations_create
-        enabled: true
-        scopes:
-            - vision_alert:write
-            - session_recording:read
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Add replay vision alert destination
-        description: >
-            Attach a Slack or webhook notification destination to a replay vision alert. For Slack, get the workspace
-            integration id from `integrations-list` and the channel id from `integrations-channels-retrieve`. One
-            HogFunction is created per alert event kind, atomically. Keep the returned `hog_function_ids`: they identify the
-            destination and are what `vision-alerts-destinations-delete` takes.
-    vision-alerts-destinations-delete:
-        operation: vision_alerts_destinations_delete_create
-        enabled: true
-        scopes:
-            - vision_alert:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Remove replay vision alert destination
-        description: >
-            Remove a notification destination from a replay vision alert. Pass every id in the destination's
-            `hog_function_ids` group, as listed under `destinations` by `vision-alerts-get`; the group is deleted atomically
-            and a partial group fails the call.
+            Create an alert on one scanner's observations. `kind` is fixed after creation. A `match` alert fires on
+            every observation that matches `selection`. A `metric` alert fires when `metric` over a rolling
+            `window_days` window is `above` or `below` `threshold`. `selection` must fit the scanner's type: `verdict`
+            for a monitor, `tags` for a classifier, `min_score`/`max_score` for a scorer; leave it empty to count every
+            observation. An alert notifies nobody until it has a destination, so follow up with
+            `vision-alerts-destinations-create`.
     vision-alerts-delete:
         operation: vision_alerts_destroy
         enabled: true
@@ -93,6 +49,36 @@ tools:
             Delete a replay vision alert and all of its notification destinations. The scanner and its observations are
             not affected. To stop notifications for a while instead, set `enabled: false` or `snooze_until` with
             `vision-alerts-update`.
+    vision-alerts-destinations-create:
+        operation: vision_alerts_destinations_create
+        enabled: true
+        scopes:
+            - vision_alert:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add replay vision alert destination
+        description: >
+            Attach a Slack or webhook notification destination to a replay vision alert. For Slack, get the workspace
+            integration id from `integrations-list` and the channel id from `integrations-channels-retrieve`. One
+            HogFunction is created per alert event kind, atomically. Keep the returned `hog_function_ids`: they identify
+            the destination and are what `vision-alerts-destinations-delete` takes.
+    vision-alerts-destinations-delete:
+        operation: vision_alerts_destinations_delete_create
+        enabled: true
+        scopes:
+            - vision_alert:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove replay vision alert destination
+        description: >
+            Remove a notification destination from a replay vision alert. Pass every id in the destination's
+            `hog_function_ids` group, as listed under `destinations` by `vision-alerts-get`; the group is deleted
+            atomically and a partial group fails the call.
     vision-alerts-events-list:
         operation: vision_alerts_events_list
         enabled: true
@@ -109,6 +95,20 @@ tools:
             `metric_value` and `threshold_breached` at each check, and `error_message` on failed checks. Checks that
             changed nothing are left out. Pass `kind` to narrow to one event kind. Use it to explain why an alert fired,
             resolved, or broke.
+    vision-alerts-get:
+        operation: vision_alerts_retrieve
+        enabled: true
+        scopes:
+            - vision_alert:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get replay vision alert
+        description: >
+            Get one replay vision alert by id: its configuration, current `state`, `consecutive_failures`, when it was
+            last checked and last notified, and its `destinations` (type, target with secrets removed, and the
+            `hog_function_ids` that `vision-alerts-destinations-delete` takes).
     vision-alerts-list:
         operation: vision_alerts_list
         enabled: true
@@ -124,6 +124,23 @@ tools:
             List replay vision alerts in the project, newest first. Pass `scanner_id` to list one scanner's alerts. Each
             alert returns its configuration plus its current `state` (`not_firing`, `firing`, `pending_resolve`,
             `errored`, `snoozed` or `broken`), `last_checked_at`, `next_check_at` and `last_notified_at`.
+    vision-alerts-replace:
+        operation: vision_alerts_update
+        enabled: false
+    vision-alerts-reset:
+        operation: vision_alerts_reset_create
+        enabled: true
+        scopes:
+            - vision_alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Reset broken replay vision alert
+        description: >
+            Reset a replay vision alert in the `broken` state: clears its consecutive-failure count and schedules an
+            immediate recheck. Only broken alerts can be reset. Read `vision-alerts-events-list` first to see which
+            error broke it, since a reset alert with the same cause breaks again.
     vision-alerts-update:
         operation: vision_alerts_partial_update
         enabled: true
@@ -140,37 +157,6 @@ tools:
             after creation. Set `enabled: false` to pause it (a metric alert resets to `not_firing`), or set
             `snooze_until` to an ISO 8601 timestamp to silence it until then and to null to unsnooze. To manage where it
             notifies, use `vision-alerts-destinations-create` and `vision-alerts-destinations-delete`.
-    vision-alerts-reset:
-        operation: vision_alerts_reset_create
-        enabled: true
-        scopes:
-            - vision_alert:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Reset broken replay vision alert
-        description: >
-            Reset a replay vision alert in the `broken` state: clears its consecutive-failure count and schedules an
-            immediate recheck. Only broken alerts can be reset. Read `vision-alerts-events-list` first to see which
-            error broke it, since a reset alert with the same cause breaks again.
-    vision-alerts-get:
-        operation: vision_alerts_retrieve
-        enabled: true
-        scopes:
-            - vision_alert:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get replay vision alert
-        description: >
-            Get one replay vision alert by id: its configuration, current `state`, `consecutive_failures`, when it was last
-            checked and last notified, and its `destinations` (type, target with secrets removed, and the `hog_function_ids`
-            that `vision-alerts-destinations-delete` takes).
-    vision-alerts-replace:
-        operation: vision_alerts_update
-        enabled: false
     vision-observations-create-task:
         operation: vision_observations_create_task_create
         enabled: true
@@ -185,8 +171,34 @@ tools:
         title: Create task from observation
         description: >
             Create a PostHog Task from a replay vision observation's finding, so it can be triaged and fixed. The title
-            and description come from the scanner and its result. This records the task only and does not start a
-            coding agent. Idempotent per observation: once a task exists, later calls return the same `task_id`.
+            and description come from the scanner and its result. This records the task only and does not start a coding
+            agent. Idempotent per observation: once a task exists, later calls return the same `task_id`.
+    vision-observations-get:
+        operation: vision_observations_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{session_id}'
+        title: Get a replay vision observation
+        description: >
+            Get a single replay vision observation, scoped to the scanners the caller can read. `id` is the
+            *observation* id, not a session id and not a scanner id. Returns the full `scanner_snapshot` (the scanner's
+            configuration at run time) and `scanner_result` (the LLM output, with any event citations). A
+            `$recording_observed` event row's `uuid` is the observation id, so pass `toString(uuid)` as `id`. If you
+            only have a session id, call `vision-observations-list` with that `session_id` first and take `id` off the
+            row you want.
+        agent_note: >
+            `_posthogUrl` opens the recording this observation analysed.
+            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
+            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
+            someone, deep-link the one or two moments it turns on rather than only describing them.
+        url_prefix: /replay
     vision-observations-label-create:
         operation: vision_observations_label_create
         enabled: true
@@ -235,8 +247,8 @@ tools:
             idempotent: true
         title: Remove a scanner observation rating (deprecated)
         description: >
-            DEPRECATED: renamed to vision-observations-label-delete. This alias calls the same endpoint and will be removed. Call vision-observations-label-delete
-            with the same arguments.
+            DEPRECATED: renamed to vision-observations-label-delete. This alias calls the same endpoint and will be
+            removed. Call vision-observations-label-delete with the same arguments.
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
@@ -257,9 +269,9 @@ tools:
             parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced
             it, the observation `status` (pending/running/succeeded/failed/ineligible), and `summary_line` — one line
             saying what the scanner found, or why it found nothing on a terminal non-success status. The rows come back
-            narrowed to the id, session, status and that line; read a row in full with `vision-observations-get`,
-            which carries the whole `scanner_result` and `error_reason`. To list observations for one specific scanner
-            over time instead, use `vision-scanners-observations-list`.
+            narrowed to the id, session, status and that line; read a row in full with `vision-observations-get`, which
+            carries the whole `scanner_result` and `error_reason`. To list observations for one specific scanner over
+            time instead, use `vision-scanners-observations-list`.
         agent_note: >
             Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns
             on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments`
@@ -278,32 +290,6 @@ tools:
                 - created_at
                 - scanner_id
                 - _posthogUrl
-    vision-observations-get:
-        operation: vision_observations_retrieve
-        enabled: true
-        scopes:
-            - replay_scanner:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{session_id}'
-        title: Get a replay vision observation
-        description: >
-            Get a single replay vision observation, scoped to the scanners the caller can read. `id` is the
-            *observation* id, not a session id and not a scanner id. Returns the full `scanner_snapshot` (the scanner's
-            configuration at run time) and `scanner_result` (the LLM output, with any event citations). A
-            `$recording_observed` event row's `uuid` is the observation id, so pass `toString(uuid)` as `id`. If you
-            only have a session id, call `vision-observations-list` with that `session_id` first and take `id` off the
-            row you want.
-        agent_note: >
-            `_posthogUrl` opens the recording this observation analysed.
-            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
-            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
-            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
-            someone, deep-link the one or two moments it turns on rather than only describing them.
-        url_prefix: /replay
     vision-observations-retrieve:
         operation: vision_observations_retrieve
         enabled: true
@@ -315,11 +301,11 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{session_id}'
-        url_prefix: /replay
         title: Get a replay vision observation (deprecated)
         description: >
-            DEPRECATED: renamed to vision-observations-get. This alias calls the same endpoint and will be removed. Call vision-observations-get
-            with the same arguments.
+            DEPRECATED: renamed to vision-observations-get. This alias calls the same endpoint and will be removed. Call
+            vision-observations-get with the same arguments.
+        url_prefix: /replay
     vision-observations-retry:
         operation: vision_observations_retry_create
         enabled: true
@@ -333,8 +319,8 @@ tools:
         title: Retry failed observation
         description: >
             Re-run a `failed` or `ineligible` replay vision observation. The observation row is deleted and the scanner
-            scans the same recording again, costing credits like any scan. Returns a `workflow_id`. The replacement has a
-            new id, so find it with `vision-observations-list` for the same `session_id`. Check `error_reason` first:
+            scans the same recording again, costing credits like any scan. Returns a `workflow_id`. The replacement has
+            a new id, so find it with `vision-observations-list` for the same `session_id`. Check `error_reason` first:
             `too_short` or `no_recording` usually comes back ineligible again. A 409 means the previous run is still
             finishing; retry in a moment.
         requires_ai_consent: true
@@ -409,8 +395,8 @@ tools:
             the current budget window (the org's billing period, or the calendar month when billing hasn't synced).
             Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session`: over
             budget, a scanner's scheduled sweeps silently skip their observations until the next period, while
-            `vision-scanners-scan-session` is rejected outright with a 402. Pair with `vision-scanners-estimate`
-            to size a new scanner against the remaining budget.
+            `vision-scanners-scan-session` is rejected outright with a 402. Pair with `vision-scanners-estimate` to size
+            a new scanner against the remaining budget.
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -422,8 +408,24 @@ tools:
             idempotent: true
         title: Get replay vision quota (deprecated)
         description: >
-            DEPRECATED: renamed to vision-quota-get. This alias calls the same endpoint and will be removed. Call vision-quota-get
-            with the same arguments.
+            DEPRECATED: renamed to vision-quota-get. This alias calls the same endpoint and will be removed. Call
+            vision-quota-get with the same arguments.
+    vision-quota-spend-series-get:
+        operation: environment_vision_quota_spend_series_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get replay vision daily spend
+        description: >
+            Get the organization's Replay vision credit spend per UTC day for the current quota period (1 credit =
+            $0.01). Returns `period_start`, `period_end` and `days`, one entry per day from `period_start` through
+            today, zero-filled on days without spend. Spend covers every project in the organization. Use it to see when
+            spend picked up or to project where the period will end; `vision-quota-get` gives the running total and the
+            limit.
     vision-scanners-affected-cohort-create:
         operation: vision_scanners_affected_cohort_create
         enabled: true
@@ -467,13 +469,13 @@ tools:
             idempotent: false
         title: Backfill scanner over past recordings
         description: >
-            Run a scanner over recordings from a past window (`window_start` to `window_end`, at most 365 days), using the
-            scanner's current config, sampling and model. Sessions it already observed are skipped. A scanner can have one
-            active backfill at a time. First call `vision-scanners-backfills-estimate` for the same window, show the person
-            `total_sessions` and `total_credits`, and create only after they agree, passing the estimate's `window_start`,
-            `window_end` and `total_credits` as `max_total_credits`. The create is rejected if the window now costs more.
-            Progress is readable with `vision-scanners-backfills-get`; a backfill pauses with status `paused_quota` when the
-            monthly quota runs out.
+            Run a scanner over recordings from a past window (`window_start` to `window_end`, at most 365 days), using
+            the scanner's current config, sampling and model. Sessions it already observed are skipped. A scanner can
+            have one active backfill at a time. First call `vision-scanners-backfills-estimate` for the same window,
+            show the person `total_sessions` and `total_credits`, and create only after they agree, passing the
+            estimate's `window_start`, `window_end` and `total_credits` as `max_total_credits`. The create is rejected
+            if the window now costs more. Progress is readable with `vision-scanners-backfills-get`; a backfill pauses
+            with status `paused_quota` when the monthly quota runs out.
         requires_ai_consent: true
     vision-scanners-backfills-estimate:
         operation: vision_scanners_backfills_estimate_create
@@ -488,10 +490,24 @@ tools:
         title: Estimate scanner backfill
         description: >
             Count what a backfill over `window_start` to `window_end` would scan and cost, without starting it. Returns
-            `total_sessions` (an upper bound, excluding sessions the scanner already observed), `total_credits` (the cost
-            ceiling, 1 credit = $0.01), `credits_per_observation`, `credits_remaining` in the org's quota (null when
-            uncapped) and the clamped window. A 400 says why nothing would run (no matching recordings, or all already
-            scanned).
+            `total_sessions` (an upper bound, excluding sessions the scanner already observed), `total_credits` (the
+            cost ceiling, 1 credit = $0.01), `credits_per_observation`, `credits_remaining` in the org's quota (null
+            when uncapped) and the clamped window. A 400 says why nothing would run (no matching recordings, or all
+            already scanned).
+    vision-scanners-backfills-get:
+        operation: vision_scanners_backfills_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get scanner backfill
+        description: >
+            Get one scanner backfill's status, window, and progress and outcome counts. Read the observations it
+            produced with `vision-scanners-observations-list`.
     vision-scanners-backfills-list:
         operation: vision_scanners_backfills_list
         enabled: true
@@ -504,7 +520,7 @@ tools:
             idempotent: true
         list: true
         title: List scanner backfills
-        description: >
+        description: |
             List a scanner's backfills, newest first, with their status, window, and progress and outcome counts.
     vision-scanners-backfills-resume:
         operation: vision_scanners_backfills_resume_create
@@ -521,39 +537,19 @@ tools:
             Resume a backfill paused with status `paused_quota` after the monthly quota ran out. Check `remaining` with
             `vision-quota-get` first; with no credits left it pauses again straight away.
         requires_ai_consent: true
-    vision-scanners-backfills-get:
-        operation: vision_scanners_backfills_retrieve
+    vision-scanners-counts:
+        operation: vision_scanners_stats_retrieve
         enabled: true
         scopes:
             - replay_scanner:read
-            - session_recording:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get scanner backfill
+        title: Count replay vision scanners
         description: >
-            Get one scanner backfill's status, window, and progress and outcome counts. Read the observations it produced
-            with `vision-scanners-observations-list`.
-    vision-scanners-scan-sessions:
-        operation: vision_scanners_bulk_observe_create
-        enabled: true
-        scopes:
-            - replay_scanner:write
-            - session_recording:read
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Scan many sessions with scanner
-        description: >
-            Run an existing scanner on up to 200 named sessions now, outside its schedule. Scans start until the in-flight
-            limit or the monthly credit quota is reached; the rest come back as skipped instead of failing the batch.
-            Returns `started` and a per-session `results` list with each `scan_outcome`. Sessions the scanner already
-            observed are no-ops. Results are not inline: read them with `vision-scanners-observations-list`, polling
-            until each leaves `pending`/`running`. For one session use `vision-scanners-scan-session`; for a one-off
-            question without a scanner use `vision-scanners-inline-scan`.
-        requires_ai_consent: true
+            Count the project's replay vision scanners you can read: `total`, `enabled`, and the same two counts per
+            scanner type in `by_type`. For a scanner's observation statistics use `vision-scanners-observations-stats`.
     vision-scanners-create:
         operation: vision_scanners_create
         enabled: true
@@ -578,20 +574,20 @@ tools:
             and `sampling_rate` is a 0..1 random downsample applied after it (default 1.0). `model` chooses the LLM and
             sets the credit price of every observation. Names must be unique within the team. Before creating a broad
             scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call
-            `vision-scanners-estimate` to project its monthly credit spend and `vision-quota-get` to check
-            the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation
-            itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set
-            `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's
-            other scanners. The scanner stops scanning once the credits left cannot cover another observation, and
-            resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert
-            from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, set
+            `vision-scanners-estimate` to project its monthly credit spend and `vision-quota-get` to check the org's
+            remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does
+            not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set `credit_limit` to
+            cap what this one scanner can spend per billing period, so it cannot starve the org's other scanners. The
+            scanner stops scanning once the credits left cannot cover another observation, and resumes when the period
+            resets. To get notified about what the scanner finds, add a scout digest or an alert from the scanner's
+            Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, set
             `experiment_targeting` to `{"experiment_id": <id>, "variant": null}` (or one variant key) and leave exposure
             out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an
             `experiment_exposure` filter set directly in `query`. Pass the same `experiment_targeting` to
-            `vision-scanners-estimate`, so the estimate counts only exposed sessions. Create with `enabled:
-            false`, so you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision`
-            skill carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a
-            team skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn
+            `vision-scanners-estimate`, so the estimate counts only exposed sessions. Create with `enabled: false`, so
+            you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision` skill
+            carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a team
+            skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn
             posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your
             installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to
             continue.
@@ -639,8 +635,8 @@ tools:
         title: Draft scanner from goal
         description: >
             Draft a full scanner configuration from a natural-language `goal` (e.g. "find where users get stuck during
-            onboarding"). Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query` and a
-            `rationale` addressed to the person. When `monthly_credit_budget` is honored the draft also picks
+            onboarding"). Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query` and
+            a `rationale` addressed to the person. When `monthly_credit_budget` is honored the draft also picks
             `sampling_mode`, `sampling_rate`, `model` and `credit_limit` to fit the budget; otherwise those come back
             null. Review the draft with the person, then pass it to `vision-scanners-create`. The call is an inline LLM
             request and can take a while.
@@ -683,8 +679,8 @@ tools:
             `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the
             org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can
             exhaust the budget quickly — run this before `vision-scanners-create` and compare the *credit* figures
-            (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per
-            month while `remaining` covers only the rest of the current period, so prorate them by the days left between
+            (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month
+            while `remaining` covers only the rest of the current period, so prorate them by the days left between
             `period_start` and `period_end` before comparing.
     vision-scanners-estimate-create:
         operation: vision_scanners_estimate_create
@@ -698,8 +694,8 @@ tools:
             idempotent: true
         title: Estimate replay vision scanner volume (deprecated)
         description: >
-            DEPRECATED: renamed to vision-scanners-estimate. This alias calls the same endpoint and will be removed. Call vision-scanners-estimate
-            with the same arguments.
+            DEPRECATED: renamed to vision-scanners-estimate. This alias calls the same endpoint and will be removed.
+            Call vision-scanners-estimate with the same arguments.
     vision-scanners-get:
         operation: vision_scanners_retrieve
         enabled: true
@@ -742,8 +738,8 @@ tools:
             idempotent: true
         title: Get a scanner's impact counts (deprecated)
         description: >
-            DEPRECATED: renamed to vision-scanners-impact-get. This alias calls the same endpoint and will be removed. Call vision-scanners-impact-get
-            with the same arguments.
+            DEPRECATED: renamed to vision-scanners-impact-get. This alias calls the same endpoint and will be removed.
+            Call vision-scanners-impact-get with the same arguments.
     vision-scanners-inline-scan:
         operation: vision_scanners_inline_scan_create
         enabled: true
@@ -786,12 +782,12 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        ui_app: inline-scan
-        requires_ai_consent: true
         title: Scan sessions against a prompt (deprecated)
         description: >
-            DEPRECATED: renamed to vision-scanners-inline-scan. This alias calls the same endpoint and will be removed. Call vision-scanners-inline-scan
-            with the same arguments.
+            DEPRECATED: renamed to vision-scanners-inline-scan. This alias calls the same endpoint and will be removed.
+            Call vision-scanners-inline-scan with the same arguments.
+        ui_app: inline-scan
+        requires_ai_consent: true
     vision-scanners-list:
         operation: vision_scanners_list
         enabled: true
@@ -870,8 +866,8 @@ tools:
             failed), the `session_id` of the recording it analysed, and `summary_line` — one line saying what the
             scanner found, or why it found nothing, which is where the reason for a non-success status arrives. The rows
             come back narrowed to the id, session, status and that line; read a row in full with
-            `vision-observations-get`, which carries the whole `scanner_result` and `error_reason`. Use this to
-            inspect what a scanner has found over time; to see every scanner's observations for one session, use
+            `vision-observations-get`, which carries the whole `scanner_result` and `error_reason`. Use this to inspect
+            what a scanner has found over time; to see every scanner's observations for one session, use
             `vision-observations-list`.
         agent_note: >
             Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns
@@ -1030,26 +1026,25 @@ tools:
             you're examining. A scanner can observe a given session only once — re-triggering it on a session that
             already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.
         requires_ai_consent: true
-    vision-scanners-scout-reports-list:
-        operation: vision_scanners_scout_reports_list
+    vision-scanners-scan-sessions:
+        operation: vision_scanners_bulk_observe_create
         enabled: true
         scopes:
-            - replay_scanner:read
+            - replay_scanner:write
             - session_recording:read
-            - task:read
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
-        response:
-            exclude:
-                - '*.summary'
-                - '*.charts'
-        title: List scanner scout reports
+        title: Scan many sessions with scanner
         description: >
-            List the reports filed by a scanner's scouts, newest first (at most 50): `report_id`, the `skill_name` of the
-            scout that filed it, `filed_at` and `title`. Read a report's summary and charts with `vision-scanners-scout-
-            reports-get`.
+            Run an existing scanner on up to 200 named sessions now, outside its schedule. Scans start until the
+            in-flight limit or the monthly credit quota is reached; the rest come back as skipped instead of failing the
+            batch. Returns `started` and a per-session `results` list with each `scan_outcome`. Sessions the scanner
+            already observed are no-ops. Results are not inline: read them with `vision-scanners-observations-list`,
+            polling until each leaves `pending`/`running`. For one session use `vision-scanners-scan-session`; for a
+            one-off question without a scanner use `vision-scanners-inline-scan`.
+        requires_ai_consent: true
     vision-scanners-scout-reports-get:
         operation: vision_scanners_scout_reports_retrieve
         enabled: true
@@ -1065,6 +1060,26 @@ tools:
         description: >
             Get one report filed by a scanner's scouts by its `report_id`. Returns not found for a report that belongs
             to a different scanner.
+    vision-scanners-scout-reports-list:
+        operation: vision_scanners_scout_reports_list
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List scanner scout reports
+        description: >
+            List the reports filed by a scanner's scouts, newest first (at most 50): `report_id`, the `skill_name` of
+            the scout that filed it, `filed_at` and `title`. Read a report's summary and charts with
+            `vision-scanners-scout- reports-get`.
+        response:
+            exclude:
+                - '*.summary'
+                - '*.charts'
     vision-scanners-scouts-create:
         operation: vision_scanners_scouts_create
         enabled: true
@@ -1080,14 +1095,14 @@ tools:
         title: Create scout for scanner
         description: >
             Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily
-            digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner, so
-            its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `display_name` people
-            will read; the server derives its permanent `name` from it. Put the full markdown prompt in `body`. The body
-            should start by reading the scanner with `vision-scanners-get` by its id and read observations with `vision-
-            scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never need a scout
-            edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or `run_interval_minutes`), `enabled`,
-            `emit` (false for a dry run) and `output_destinations`. Each run is a full agent run, so agree the schedule with
-            the person.
+            digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner,
+            so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `display_name`
+            people will read; the server derives its permanent `name` from it. Put the full markdown prompt in `body`.
+            The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with
+            `vision- scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never
+            need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or
+            `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run is a
+            full agent run, so agree the schedule with the person.
         requires_ai_consent: true
     vision-scanners-self-driving-stats:
         operation: vision_scanners_self_driving_stats_retrieve
@@ -1102,21 +1117,8 @@ tools:
         title: Get scanner's self-driving outcomes
         description: >
             What a signal-emitting scanner led to, all time: `signals_emitted` into the Signals inbox,
-            `reports_contributed` (reports that include at least one of its signals), and implementation `prs_opened` and
-            `prs_merged` by self-driving on those reports. All zero for a scanner that does not emit signals.
-    vision-scanners-counts:
-        operation: vision_scanners_stats_retrieve
-        enabled: true
-        scopes:
-            - replay_scanner:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Count replay vision scanners
-        description: >
-            Count the project's replay vision scanners you can read: `total`, `enabled`, and the same two counts per
-            scanner type in `by_type`. For a scanner's observation statistics use `vision-scanners-observations-stats`.
+            `reports_contributed` (reports that include at least one of its signals), and implementation `prs_opened`
+            and `prs_merged` by self-driving on those reports. All zero for a scanner that does not emit signals.
     vision-scanners-suggest-tags:
         operation: vision_scanners_suggest_tags_create
         enabled: true
@@ -1131,9 +1133,9 @@ tools:
         description: >
             Suggest tags for a classifier scanner, grounded in the org's product data and, when `scanner_id` is given,
             in that scanner's own observations (its freeform tags and reasoning). Pass the classifier `prompt` and the
-            `tags` already configured so suggestions never repeat one. Returns `suggestions`, most relevant first; may be
-            empty when evidence is thin. Nothing is saved: add chosen tags with `vision-scanners-update`. A 503 means the
-            suggestions could not be generated; try again later.
+            `tags` already configured so suggestions never repeat one. Returns `suggestions`, most relevant first; may
+            be empty when evidence is thin. Nothing is saved: add chosen tags with `vision-scanners-update`. A 503 means
+            the suggestions could not be generated; try again later.
         requires_ai_consent: true
     vision-scanners-update:
         operation: vision_scanners_partial_update
@@ -1153,8 +1155,8 @@ tools:
             `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps
             `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you
             widen the `query`, raise `sampling_rate`, loosen `sampling_mode`, or move to a pricier `model`, re-check
-            projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get`
-            first — the scanner resumes sweeping every 5 minutes at the new, broader scope.
+            projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get` first — the
+            scanner resumes sweeping every 5 minutes at the new, broader scope.
         exclude_params:
             - id
             - scanner_version
@@ -1173,18 +1175,18 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        title: Get ranked recordings to watch
+        description: >
+            Rank succeeded replay vision observations in a window by how worth watching their recordings are, across
+            every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it
+            made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days.
+            Narrow with `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit`
+            is at most 50. Use it to answer "which recordings should I watch this week?".
+        agent_note: |
+            Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.
         response:
             exclude:
                 - results.*.observation.scanner_snapshot
                 - results.*.observation.workflow_id
                 - results.*.observation.triggered_by_user
             strip_nulls: true
-        title: Get ranked recordings to watch
-        description: >
-            Rank succeeded replay vision observations in a window by how worth watching their recordings are, across
-            every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made
-            the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with
-            `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit` is at most 50.
-            Use it to answer "which recordings should I watch this week?".
-        agent_note: >
-            Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.
