@@ -311,6 +311,25 @@ class OrganizationMemberViewSet(
         removed_user = cast(User, instance.user)
 
         is_self_removal = requesting_user.id == removed_user.id
+        removal_type = "self_removal" if is_self_removal else "removed_by_other"
+
+        try:
+            removed_user.leave(organization=instance.organization)
+        except exceptions.ValidationError:
+            # The only refusal left is the organization's last owner. Capture it so the rate is measurable.
+            posthoganalytics.capture(
+                distinct_id=str(requesting_user.distinct_id),
+                event="organization member removal blocked",
+                properties={
+                    "removed_by_id": requesting_user.distinct_id,
+                    "organization_id": instance.organization_id,
+                    "organization_name": instance.organization.name,
+                    "removal_type": removal_type,
+                    "reason": "only_owner",
+                },
+                groups=groups(instance.organization),
+            )
+            raise
 
         posthoganalytics.capture(
             distinct_id=str(requesting_user.distinct_id),
@@ -320,14 +339,12 @@ class OrganizationMemberViewSet(
                 "removed_by_id": requesting_user.distinct_id,
                 "organization_id": instance.organization_id,
                 "organization_name": instance.organization.name,
-                "removal_type": "self_removal" if is_self_removal else "removed_by_other",
+                "removal_type": removal_type,
                 "removed_email": removed_user.email,
                 "removed_user_id": removed_user.id,
             },
             groups=groups(instance.organization),
         )
-
-        instance.user.leave(organization=instance.organization)
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])

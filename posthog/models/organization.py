@@ -761,6 +761,16 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def __str__(self):
         return str(self.Level(self.level))
 
+    def has_other_owner(self) -> bool:
+        """Whether the organization has an owner other than this membership."""
+        return (
+            OrganizationMembership.objects.filter(
+                organization_id=self.organization_id, level=OrganizationMembership.Level.OWNER
+            )
+            .exclude(pk=self.pk)
+            .exists()
+        )
+
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
@@ -768,7 +778,15 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:
-                raise exceptions.PermissionDenied("You can't change your own access level.")
+                # An owner can step down while another owner remains. Every other self change stays blocked.
+                if self.level != OrganizationMembership.Level.OWNER or new_level >= self.level:
+                    raise exceptions.PermissionDenied("You can't change your own access level.")
+                if not self.has_other_owner():
+                    raise exceptions.PermissionDenied(
+                        "You can't lower your own access level as the organization's only owner. "
+                        "Make someone else an owner first."
+                    )
+                return
             if new_level == OrganizationMembership.Level.OWNER:
                 if self.level != OrganizationMembership.Level.OWNER:
                     raise exceptions.PermissionDenied(

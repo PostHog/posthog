@@ -539,6 +539,81 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
 
+    @patch("posthoganalytics.capture")
+    def test_owner_can_leave_when_another_owner_remains(self, mock_capture):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        User.objects.create_and_join(
+            self.organization, "co-owner@posthog.com", None, level=OrganizationMembership.Level.OWNER
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists())
+        self.assertEqual(mock_capture.call_args.kwargs["event"], "organization member removed")
+
+    @patch("posthoganalytics.capture")
+    def test_only_owner_cannot_leave(self, mock_capture):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Cannot leave the organization as its only owner!")
+        self.assertTrue(OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists())
+        self.assertEqual(mock_capture.call_args.kwargs["event"], "organization member removal blocked")
+
+    def test_owner_can_lower_own_level_when_another_owner_remains(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        User.objects.create_and_join(
+            self.organization, "co-owner@posthog.com", None, level=OrganizationMembership.Level.OWNER
+        )
+
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{self.user.uuid}",
+            {"level": OrganizationMembership.Level.ADMIN},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.organization_membership.refresh_from_db()
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
+
+    def test_only_owner_cannot_lower_own_level(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{self.user.uuid}",
+            {"level": OrganizationMembership.Level.ADMIN},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["detail"],
+            "You can't lower your own access level as the organization's only owner. Make someone else an owner first.",
+        )
+        self.organization_membership.refresh_from_db()
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.OWNER)
+
+    def test_owner_cannot_raise_own_level(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        User.objects.create_and_join(
+            self.organization, "co-owner@posthog.com", None, level=OrganizationMembership.Level.OWNER
+        )
+
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{self.user.uuid}",
+            {"level": OrganizationMembership.Level.OWNER},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "You can't change your own access level.")
+
     def test_list_organization_members_filter_by_email(self):
         # Create additional users
         user1 = User.objects.create_and_join(self.organization, "specific@posthog.com", None)

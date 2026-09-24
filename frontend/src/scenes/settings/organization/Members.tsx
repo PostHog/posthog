@@ -90,19 +90,34 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
     const currentMembershipLevel = currentOrganization?.membership_level ?? -1
 
+    const organizationHasOtherOwner = currentOrganization?.has_other_owner ?? false
+
     const allowDeletion =
         // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
         ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
             member.user.uuid === user.uuid) &&
-        // unless that user is the organization's owner, in which case they can't leave
-        member.level !== OrganizationMembershipLevel.Owner
+        // an owner can only go while the organization keeps another owner
+        (member.level !== OrganizationMembershipLevel.Owner || organizationHasOtherOwner)
 
     const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
 
     const allowedLevels = organizationMembershipLevelIntegers.filter(
-        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
+        (listLevel) =>
+            !getReasonForAccessLevelChangeProhibition(
+                myMembershipLevel,
+                user,
+                member,
+                listLevel,
+                organizationHasOtherOwner
+            )
     )
-    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
+    const disallowedReason = getReasonForAccessLevelChangeProhibition(
+        myMembershipLevel,
+        user,
+        member,
+        allowedLevels,
+        organizationHasOtherOwner
+    )
 
     return (
         <More
