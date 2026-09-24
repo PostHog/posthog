@@ -403,8 +403,7 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         let id = case["id"].as_str().unwrap();
         let properties = corpus::properties(&case);
         let context = corpus::context(&case, &properties);
-        // White-box cases need the hash seam, eligibility cases the request boundary, and
-        // the matcher always knows the distinct ID, so unavailable context has no request shape.
+        // White-box needs the hash seam, eligibility the request boundary, null context no request.
         if matches!(
             case["family"].as_str().unwrap(),
             "white_box" | "eligibility"

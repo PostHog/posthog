@@ -698,7 +698,6 @@ class TestOmitUnsupportedFlags(BaseTest):
         assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
 
     def test_supported_v2_row_is_dropped_over_the_deployed_limit(self):
-        # The fixture test covers verbatim publication; this pins the size bound the Rust reader shares.
         flag = FeatureFlag.objects.create(team=self.team, key="v2-flag", created_by=self.user, filters={})
         FeatureFlag.objects.filter(id=flag.id).update(
             filters={"version": 2, "return_type": "boolean", "default_value": None, "rules": []}

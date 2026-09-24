@@ -327,10 +327,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
 enum Shape {
     Detailed,
     EnabledKeys,
-    /// `enabled_only` is the `/decide?v=2` map; the others carry every flag.
-    Map {
-        enabled_only: bool,
-    },
+    Map { enabled_only: bool },
 }
 
 const FORMATS: [(&str, &str, bool, Shape); 6] = [
