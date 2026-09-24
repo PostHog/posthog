@@ -122,6 +122,7 @@ export type HogFunctionInvocationGlobals = {
 
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
+    workflow?: { id: string; name: string } // For HogFlows, the identity of the sending workflow
 }
 
 /**

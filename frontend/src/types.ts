@@ -7638,6 +7638,8 @@ export type CyclotronJobInvocationGlobals = {
     }
     // For HogFlows, workflow-level variables
     variables?: Record<string, any>
+    // For HogFlows, the identity of the sending workflow
+    workflow?: { id: string; name: string }
 }
 
 export type CyclotronJobInvocationGlobalsWithInputs = Partial<CyclotronJobInvocationGlobals> & {
