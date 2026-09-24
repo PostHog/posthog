@@ -14,8 +14,8 @@ from vllm.plugins.io_processors.interface import IOProcessor
 from vllm.renderers import BaseRenderer
 
 from kev_vllm import jevk5
-from kev_vllm.io_processor import PendingRequests
 from kev_vllm.kev_compat import Question, SystemOneRequest, output_tokens, to_answers, to_record
+from kev_vllm.pending import PendingRequests
 
 
 class JevK5IOProcessor(IOProcessor[SystemOneRequest, dict]):
