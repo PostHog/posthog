@@ -248,8 +248,17 @@ def test_publishes_the_gauges_the_alert_reads(
         yield registry
 
     with patch("posthog.dags.person_tombstone_queue.pushed_metrics_registry", capture):
-        publish_queue_gauges(QueueResolution(remaining=remaining, failed_teams=failed_teams), completed_at=1_000.0)
+        publish_queue_gauges(
+            QueueResolution(
+                listed=7, dropped=1, confirmed=4, republished=2, remaining=remaining, failed_teams=failed_teams
+            ),
+            completed_at=1_000.0,
+        )
 
+    assert registry.get_sample_value("posthog_person_tombstone_queue_listed_rows") == 7
+    assert registry.get_sample_value("posthog_person_tombstone_queue_dropped_rows") == 1
+    assert registry.get_sample_value("posthog_person_tombstone_queue_confirmed_rows") == 4
+    assert registry.get_sample_value("posthog_person_tombstone_queue_republished_rows") == 2
     assert registry.get_sample_value("posthog_person_tombstone_queue_unresolved_rows") == expected_unresolved
     assert registry.get_sample_value("posthog_person_tombstone_queue_failed_teams") == failed_teams
     assert registry.get_sample_value("posthog_person_tombstone_queue_oldest_unresolved_seconds") == expected_oldest_age
