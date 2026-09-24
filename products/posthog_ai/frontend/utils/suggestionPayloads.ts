@@ -6,10 +6,10 @@ import {
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
-import type { HogFunctionType } from '~/types'
 
 import type { alertsCreate } from 'products/alerts/frontend/generated/api'
 import type { AlertCreateDestinationApi } from 'products/alerts/frontend/generated/api.schemas'
+import type { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
 import type { SignalScoutCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     DEFAULT_SCOUT_DAILY_TIME,
@@ -154,6 +154,9 @@ export function buildSubscriptionCreatePayload({
     }
 }
 
+/** The create body's type, which the generated client doesn't export by name. */
+type HogFunctionWriteBody = NonNullable<Parameters<typeof hogFunctionsCreate>[1]>
+
 const ERROR_ALERT_SUB_TEMPLATE = 'error-tracking-issue-reopened'
 const SLACK_TEMPLATE_ID = 'template-slack'
 
@@ -169,14 +172,17 @@ export function buildErrorAlertHogFunctionPayload({
     suggestion,
     slackIntegrationId,
     slackChannel,
-}: ErrorAlertCreateInput): Partial<HogFunctionType> {
+}: ErrorAlertCreateInput): HogFunctionWriteBody {
     const common = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[ERROR_ALERT_SUB_TEMPLATE]
     const slackTemplate = HOG_FUNCTION_SUB_TEMPLATES[ERROR_ALERT_SUB_TEMPLATE].find(
         (template) => template.template_id === SLACK_TEMPLATE_ID
     )
     const channelName = slackChannelName(slackChannel)
+    // The sub-templates are typed with the handwritten hog function types, and the generated write
+    // body carries server-set input fields (bytecode, order, transpiled) as required, so the template
+    // parts can only reach it through `unknown`.
     return {
-        type: common.type,
+        type: common.type as HogFunctionWriteBody['type'],
         template_id: SLACK_TEMPLATE_ID,
         name: `${slackTemplate?.name ?? 'Post to Slack on issue reopened'}${channelName ? `: #${channelName}` : ''}`,
         description: `Posts to Slack when "${suggestion.errorAlert.issueName}" reopens.`,
@@ -192,11 +198,11 @@ export function buildErrorAlertHogFunctionPayload({
                     type: PropertyFilterType.Event,
                 },
             ],
-        },
+        } as unknown as HogFunctionWriteBody['filters'],
         inputs: {
             ...slackTemplate?.inputs,
             slack_workspace: { value: slackIntegrationId },
             channel: { value: slackChannelId(slackChannel) },
-        },
+        } as unknown as HogFunctionWriteBody['inputs'],
     }
 }

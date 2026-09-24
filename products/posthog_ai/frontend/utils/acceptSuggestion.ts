@@ -1,22 +1,16 @@
-import api from 'lib/api'
 import { getInsightId } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import type { InsightShortId } from '~/types'
 
 import { alertsCreate, alertsDestinationsCreate } from 'products/alerts/frontend/generated/api'
+import { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
 import { notebooksCreate } from 'products/notebooks/frontend/generated/api'
 import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import { subscriptionsCreate } from 'products/subscriptions/frontend/generated/api'
 
-import type {
-    AlertSuggestionDirection,
-    ScoutSuggestionCadence,
-    ThreadItem,
-    ToolInvocation,
-    TurnSuggestion,
-} from '../types/streamTypes'
-import { buildConversationNotebook, collectConversationBlocks } from './conversationNotebook'
+import type { AlertSuggestionDirection, ScoutSuggestionCadence, TurnSuggestion } from '../types/streamTypes'
+import { ConversationBlocks, buildConversationNotebook } from './conversationNotebook'
 import {
     SlackDestinationInput,
     buildAlertCreatePayload,
@@ -27,7 +21,7 @@ import {
 } from './suggestionPayloads'
 
 export interface AcceptedSuggestion {
-    url: string | null
+    url: string
     /** False when the created thing exists but its Slack destination request failed after it. */
     slackConnected: boolean
 }
@@ -49,8 +43,7 @@ export interface AcceptInput {
     direction: AlertSuggestionDirection
     changePercent: number
     notebookTitle: string
-    threadItems: ThreadItem[]
-    toolInvocations: Map<string, ToolInvocation>
+    conversationBlocks: ConversationBlocks
 }
 
 function slackDestination(input: AcceptInput): SlackDestinationInput {
@@ -84,7 +77,7 @@ export async function acceptSuggestion(input: AcceptInput): Promise<AcceptOutcom
             }
         }
         case 'notebook': {
-            const blocks = collectConversationBlocks(input.threadItems, input.toolInvocations)
+            const blocks = input.conversationBlocks
             const notebook = buildConversationNotebook({
                 title: input.notebookTitle,
                 summary: suggestion.notebook.summary,
@@ -160,7 +153,8 @@ export async function acceptSuggestion(input: AcceptInput): Promise<AcceptOutcom
             }
         }
         case 'error_alert': {
-            const created = await api.hogFunctions.create(
+            const created = await hogFunctionsCreate(
+                projectId,
                 buildErrorAlertHogFunctionPayload({ suggestion, ...slackDestination(input) })
             )
             return {

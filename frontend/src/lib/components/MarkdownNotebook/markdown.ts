@@ -2017,13 +2017,39 @@ export function escapeMarkdownLineStart(line: string): string {
 
 const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
 
-// For markdown the author meant to render: only a line that would parse as a component tag or a
-// comment is neutralized, so headings and lists stay live. The parser lifts a quoted tag out of
-// its blockquote, so the check runs after any `>` markers too.
-export function escapeComponentTagLineStart(line: string): string {
+// The parser lifts a quoted tag out of its blockquote, so the check runs after any `>` markers too.
+function escapeComponentTagLineStart(line: string): string {
     const prefix = line.match(/^[\s>]*/)?.[0] ?? ''
     const content = line.slice(prefix.length)
     return COMPONENT_TAG_LINE_START.test(content) ? `${prefix}\\${content}` : line
+}
+
+// For markdown the author meant to render: only a line that would parse as a component tag or a
+// comment is neutralized, so headings and lists stay live. Fenced code stays literal in the parser,
+// so a tag sample inside a fence keeps its text unchanged.
+export function escapeComponentTagLines(markdown: string): string {
+    const lines: string[] = []
+    let openFence: string | null = null
+    for (const line of markdown.split('\n')) {
+        const trimmed = line.trim()
+        if (openFence) {
+            if (/^`+$/.test(trimmed) && trimmed.length >= openFence.length) {
+                openFence = null
+            }
+            lines.push(line)
+        } else if (trimmed.startsWith('```')) {
+            openFence = trimmed.match(/^`+/)?.[0] ?? '```'
+            lines.push(line)
+        } else {
+            lines.push(escapeComponentTagLineStart(line))
+        }
+    }
+    // A fence left open would otherwise close on a fence in the next joined block, and the lines
+    // after it, which were skipped here, would parse as live markdown.
+    if (openFence) {
+        lines.push(openFence)
+    }
+    return lines.join('\n')
 }
 
 function getCodeBlockFence(text: string): string {

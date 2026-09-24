@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
-
 import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
 import { SlackDestinationSection } from './SlackDestinationSection'
+import { SuggestionAcceptedBanner } from './SuggestionAcceptedBanner'
 import { SuggestionActionRow } from './SuggestionActionRow'
 import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
@@ -16,12 +15,9 @@ export function ErrorAlertSuggestionCard(props: TurnSuggestionLogicProps): JSX.E
     }
     if (accepted) {
         return (
-            <LemonBanner
-                type="success"
-                action={accepted.url ? { to: accepted.url, children: 'View alert' } : undefined}
-            >
+            <SuggestionAcceptedBanner accepted={accepted} linkLabel="View alert">
                 Alert created. {slackChannelLabel} gets a message if this issue reopens.
-            </LemonBanner>
+            </SuggestionAcceptedBanner>
         )
     }
 

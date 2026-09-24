@@ -28,7 +28,7 @@ import type {
 import { AcceptedSuggestion, acceptSuggestion } from '../utils/acceptSuggestion'
 import { ConversationBlocks, collectConversationBlocks } from '../utils/conversationNotebook'
 import { recordTurnSuggestionResolution } from '../utils/recordTurnSuggestionResolution'
-import { captureTurnSuggestionAcceptFailed, captureTurnSuggestionAccepted } from '../utils/turnSuggestionEvents'
+import { captureTurnSuggestionEvent } from '../utils/turnSuggestionEvents'
 import { runStreamLogic } from './runStreamLogic'
 import { slackDestinationLogic } from './slackDestinationLogic'
 import { TurnSuggestionLogicProps, turnSuggestionLogic } from './turnSuggestionLogic'
@@ -66,9 +66,6 @@ export interface suggestionActionLogicActions {
     markTurnSuggestionAccepted: (turnIndex: number) => {
         turnIndex: number
     } // runStreamLogic
-    markCompleted: () => {
-        value: true
-    } // turnSuggestionLogic
     accept: () => any
     acceptFailure: (
         error: string,
@@ -157,12 +154,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
             userLogic,
             ['user'],
         ],
-        actions: [
-            turnSuggestionLogic(props),
-            ['markCompleted'],
-            runStreamLogic({ streamKey: props.streamKey }),
-            ['markTurnSuggestionAccepted'],
-        ],
+        actions: [runStreamLogic({ streamKey: props.streamKey }), ['markTurnSuggestionAccepted']],
     })),
     actions({
         setCadence: (cadence: ScoutSuggestionCadence) => ({ cadence }),
@@ -191,10 +183,9 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                         direction: values.direction,
                         changePercent: values.changePercent,
                         notebookTitle: values.notebookTitle,
-                        threadItems: values.threadItems,
-                        toolInvocations: values.toolInvocations,
+                        conversationBlocks: values.conversationBlocks,
                     })
-                    captureTurnSuggestionAccepted(props, suggestion, outcome.eventProperties)
+                    captureTurnSuggestionEvent('accepted', props, suggestion, outcome.eventProperties)
                     return outcome.accepted
                 },
             },
@@ -295,12 +286,11 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                 return
             }
             actions.markTurnSuggestionAccepted(suggestion.turnIndex)
-            actions.markCompleted()
             recordTurnSuggestionResolution(values.currentProjectId, props.sessionId, suggestion, 'accepted')
         },
         acceptFailure: ({ error }) => {
             if (values.suggestion) {
-                captureTurnSuggestionAcceptFailed(props, values.suggestion, error)
+                captureTurnSuggestionEvent('accept failed', props, values.suggestion, { error })
             }
         },
     })),

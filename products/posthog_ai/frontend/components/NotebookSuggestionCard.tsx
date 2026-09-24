@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
 import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
+import { SuggestionAcceptedBanner } from './SuggestionAcceptedBanner'
 import { SuggestionActionRow } from './SuggestionActionRow'
 
 export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Element | null {
@@ -18,12 +19,9 @@ export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
     }
     if (accepted) {
         return (
-            <LemonBanner
-                type="success"
-                action={accepted.url ? { to: accepted.url, children: 'Open notebook' } : undefined}
-            >
+            <SuggestionAcceptedBanner accepted={accepted} linkLabel="Open notebook">
                 Saved to a notebook.
-            </LemonBanner>
+            </SuggestionAcceptedBanner>
         )
     }
 

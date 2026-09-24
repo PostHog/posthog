@@ -18,11 +18,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import type { TurnSuggestion } from '../types/streamTypes'
 import { recordTurnSuggestionResolution } from '../utils/recordTurnSuggestionResolution'
-import {
-    captureTurnSuggestionDismissed,
-    captureTurnSuggestionShown,
-    captureTurnSuggestionSuperseded,
-} from '../utils/turnSuggestionEvents'
+import { captureTurnSuggestionEvent } from '../utils/turnSuggestionEvents'
 import { runStreamLogic } from './runStreamLogic'
 
 /** Time between the turn's end and the card appearing, so the answer lands before the offer does. */
@@ -39,6 +35,7 @@ export interface TurnSuggestionLogicProps {
 export interface turnSuggestionLogicValues {
     currentProjectId: number | null // projectLogic
     suggestion: TurnSuggestion | null // runStreamLogic
+    turnSuggestionAcceptedHere: number | null // runStreamLogic
     completed: boolean
     dismissed: boolean
     revealReady: boolean
@@ -54,9 +51,6 @@ export interface turnSuggestionLogicActions {
     dismiss: () => {
         value: true
     }
-    markCompleted: () => {
-        value: true
-    }
     reportShown: (suggestion: TurnSuggestion) => {
         suggestion: TurnSuggestion
     }
@@ -69,6 +63,7 @@ export interface turnSuggestionLogicActions {
 export interface turnSuggestionLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        completed: (turnSuggestionAcceptedHere: any, shownSuggestion: TurnSuggestion | null) => boolean
         visible: (suggestion: TurnSuggestion | null, revealReady: boolean, dismissed: boolean) => boolean
     }
 }
@@ -87,7 +82,7 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     connect((props: TurnSuggestionLogicProps) => ({
         values: [
             runStreamLogic({ streamKey: props.streamKey }),
-            ['turnSuggestion as suggestion'],
+            ['turnSuggestion as suggestion', 'turnSuggestionAcceptedHere'],
             projectLogic,
             ['currentProjectId'],
         ],
@@ -95,13 +90,11 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     })),
     actions({
         dismiss: true,
-        markCompleted: true,
         reveal: true,
         reportShown: (suggestion: TurnSuggestion) => ({ suggestion }),
     }),
     reducers({
         dismissed: [false, { dismiss: () => true }],
-        completed: [false, { markCompleted: () => true }],
         revealReady: [false, { reveal: () => true }],
         shownSuggestion: [
             null as TurnSuggestion | null,
@@ -111,6 +104,11 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
         ],
     }),
     selectors({
+        completed: [
+            (s) => [s.turnSuggestionAcceptedHere, s.shownSuggestion],
+            (turnSuggestionAcceptedHere: number | null, shownSuggestion: TurnSuggestion | null): boolean =>
+                shownSuggestion !== null && turnSuggestionAcceptedHere === shownSuggestion.turnIndex,
+        ],
         visible: [
             (s) => [s.suggestion, s.revealReady, s.dismissed],
             (suggestion: TurnSuggestion | null, revealReady: boolean, dismissed: boolean): boolean =>
@@ -119,12 +117,12 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     }),
     listeners(({ actions, values, props }) => ({
         reportShown: ({ suggestion }) => {
-            captureTurnSuggestionShown(props, suggestion)
+            captureTurnSuggestionEvent('shown', props, suggestion)
         },
         dismiss: () => {
             actions.muteTurnSuggestions()
             if (values.suggestion) {
-                captureTurnSuggestionDismissed(props, values.suggestion)
+                captureTurnSuggestionEvent('dismissed', props, values.suggestion)
                 recordTurnSuggestionResolution(values.currentProjectId, props.sessionId, values.suggestion, 'dismissed')
             }
         },
@@ -143,7 +141,7 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     beforeUnmount(({ values, props }) => {
         // The card unmounts with its suggestion gone when a new message closed it.
         if (values.shownSuggestion && !values.suggestion && !values.dismissed && !values.completed) {
-            captureTurnSuggestionSuperseded(props, values.shownSuggestion)
+            captureTurnSuggestionEvent('superseded', props, values.shownSuggestion)
         }
     }),
 ])

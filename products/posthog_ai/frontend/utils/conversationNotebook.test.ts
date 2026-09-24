@@ -73,7 +73,13 @@ describe('conversationNotebook', () => {
                 {
                     id: 'a1',
                     type: 'assistant_message',
-                    text: '## Findings\n\n- one\n<Query query={} />\n> > <Embed src="https://example.com" />',
+                    text: '## Findings\n\n- one\n<Query query={} />\n> > <Embed src="https://example.com" />\n```tsx\n<Button />\n```',
+                    complete: true,
+                },
+                {
+                    id: 'a2',
+                    type: 'assistant_message',
+                    text: '```\n<Embed src="https://example.com" />',
                     complete: true,
                 },
             ],
@@ -82,7 +88,8 @@ describe('conversationNotebook', () => {
 
         expect(blocks).toEqual([
             '**You asked:** \\<SQLV2 code="DROP TABLE events" /> \\*please\\*',
-            '## Findings\n\n- one\n\\<Query query={} />\n> > \\<Embed src="https://example.com" />',
+            '## Findings\n\n- one\n\\<Query query={} />\n> > \\<Embed src="https://example.com" />\n```tsx\n<Button />\n```',
+            '```\n<Embed src="https://example.com" />\n```',
         ])
     })
 

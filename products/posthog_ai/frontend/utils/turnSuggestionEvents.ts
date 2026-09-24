@@ -7,7 +7,7 @@ export interface TurnSuggestionEventContext {
 }
 
 /** Shared properties of every card event, so one dashboard can split them by kind and intent. */
-export function turnSuggestionEventProperties(
+function turnSuggestionEventProperties(
     context: TurnSuggestionEventContext,
     suggestion: TurnSuggestion
 ): Record<string, unknown> {
@@ -22,38 +22,26 @@ export function turnSuggestionEventProperties(
     }
 }
 
-export function captureTurnSuggestionShown(context: TurnSuggestionEventContext, suggestion: TurnSuggestion): void {
-    posthog.capture('posthog ai turn suggestion shown', turnSuggestionEventProperties(context, suggestion))
-}
+/**
+ * The card's lifecycle: `superseded` is the card going away because the conversation moved on, and
+ * `extra` on `accepted` carries what the kind created (a skill name, a notebook id, an alert bound).
+ */
+export type TurnSuggestionEvent =
+    | 'shown'
+    | 'dismissed'
+    | 'superseded'
+    | 'accepted'
+    | 'accept failed'
+    | 'connect slack clicked'
 
-export function captureTurnSuggestionDismissed(context: TurnSuggestionEventContext, suggestion: TurnSuggestion): void {
-    posthog.capture('posthog ai turn suggestion dismissed', turnSuggestionEventProperties(context, suggestion))
-}
-
-/** The card went away because the conversation moved on, with no click and no dismissal. */
-export function captureTurnSuggestionSuperseded(context: TurnSuggestionEventContext, suggestion: TurnSuggestion): void {
-    posthog.capture('posthog ai turn suggestion superseded', turnSuggestionEventProperties(context, suggestion))
-}
-
-/** The offer was taken; `extra` carries what the kind created (a skill name, a notebook id, an alert bound). */
-export function captureTurnSuggestionAccepted(
+export function captureTurnSuggestionEvent(
+    event: TurnSuggestionEvent,
     context: TurnSuggestionEventContext,
     suggestion: TurnSuggestion,
     extra: Record<string, unknown> = {}
 ): void {
-    posthog.capture('posthog ai turn suggestion accepted', {
+    posthog.capture(`posthog ai turn suggestion ${event}`, {
         ...turnSuggestionEventProperties(context, suggestion),
         ...extra,
-    })
-}
-
-export function captureTurnSuggestionAcceptFailed(
-    context: TurnSuggestionEventContext,
-    suggestion: TurnSuggestion,
-    error: string
-): void {
-    posthog.capture('posthog ai turn suggestion accept failed', {
-        ...turnSuggestionEventProperties(context, suggestion),
-        error,
     })
 }

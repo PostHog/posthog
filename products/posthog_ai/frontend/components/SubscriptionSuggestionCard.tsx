@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
 import { CADENCE_OPTIONS } from '../utils/turnSuggestions'
 import { SlackDestinationSection } from './SlackDestinationSection'
+import { SuggestionAcceptedBanner } from './SuggestionAcceptedBanner'
 import { SuggestionActionRow } from './SuggestionActionRow'
 import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
@@ -19,13 +20,10 @@ export function SubscriptionSuggestionCard(props: TurnSuggestionLogicProps): JSX
     }
     if (accepted) {
         return (
-            <LemonBanner
-                type="success"
-                action={accepted.url ? { to: accepted.url, children: 'View subscription' } : undefined}
-            >
+            <SuggestionAcceptedBanner accepted={accepted} linkLabel="View subscription">
                 Subscribed. {slackChannelLabel} gets {suggestion.subscription.insightName}{' '}
                 {cadence === 'weekly' ? 'every Monday' : 'every day'} at 9:00.
-            </LemonBanner>
+            </SuggestionAcceptedBanner>
         )
     }
 

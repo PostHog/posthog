@@ -1,5 +1,5 @@
 import {
-    escapeComponentTagLineStart,
+    escapeComponentTagLines,
     escapeInlineMarkdownText,
     escapeMarkdownBlockLines,
 } from 'lib/components/MarkdownNotebook/markdown'
@@ -67,10 +67,6 @@ function toolCallToNotebookBlock(invocation: ToolInvocation): ConversationCompon
     }
     const renderable = visualizationTypeToQuery(result.content)
     return renderable ? { component: 'Query', props: { query: renderable as unknown as NotebookPropValue } } : null
-}
-
-function escapeComponentTagLines(markdown: string): string {
-    return markdown.split('\n').map(escapeComponentTagLineStart).join('\n')
 }
 
 /** Recomputed on every stream frame while the card is shown, so nothing here serializes or mints ids. */

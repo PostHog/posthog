@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
 import { ALERT_DIRECTION_OPTIONS } from '../utils/turnSuggestions'
 import { SlackDestinationSection } from './SlackDestinationSection'
+import { SuggestionAcceptedBanner } from './SuggestionAcceptedBanner'
 import { SuggestionActionRow } from './SuggestionActionRow'
 import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
@@ -19,14 +20,11 @@ export function AlertSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
     }
     if (accepted) {
         return (
-            <LemonBanner
-                type={accepted.slackConnected ? 'success' : 'warning'}
-                action={accepted.url ? { to: accepted.url, children: 'View alert' } : undefined}
-            >
+            <SuggestionAcceptedBanner accepted={accepted} linkLabel="View alert">
                 {accepted.slackConnected
                     ? `Alert created. It checks ${suggestion.alert.insightName} once a day and posts to ${slackChannelLabel}.`
                     : `Alert created, but it can't post to ${slackChannelLabel} yet. Open the alert to add Slack.`}
-            </LemonBanner>
+            </SuggestionAcceptedBanner>
         )
     }
 

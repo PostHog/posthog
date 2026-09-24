@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -8,6 +8,7 @@ import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
 import { CADENCE_OPTIONS, SCOUT_MODE_HINTS, cadenceLabel } from '../utils/turnSuggestions'
 import { SlackDestinationSection } from './SlackDestinationSection'
+import { SuggestionAcceptedBanner } from './SuggestionAcceptedBanner'
 import { SuggestionActionRow } from './SuggestionActionRow'
 import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
@@ -21,12 +22,9 @@ export function ScoutSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
     }
     if (accepted) {
         return (
-            <LemonBanner
-                type="success"
-                action={accepted.url ? { to: accepted.url, children: 'View scout' } : undefined}
-            >
+            <SuggestionAcceptedBanner accepted={accepted} linkLabel="View scout">
                 Scout created. It runs {cadenceLabel(cadence)} and posts to {slackChannelLabel}.
-            </LemonBanner>
+            </SuggestionAcceptedBanner>
         )
     }
     const modeHint = SCOUT_MODE_HINTS[suggestion.scout.mode]
