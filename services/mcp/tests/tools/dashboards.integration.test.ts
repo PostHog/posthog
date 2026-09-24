@@ -501,6 +501,13 @@ describe('Dashboards', { concurrent: false }, () => {
             expect(reorderResponse.id).toBe(dashboard.id)
             expect(reorderResponse._posthogUrl).toContain('/dashboard/')
 
+            const omittedTile = reorderResponse.tiles.find((tile: { id: number }) => tile.id === tileIds[0])
+            await reorderTiles.handler(context, { id: dashboard.id, tile_order: [tileIds[1]] })
+            const afterPartialReorder = parseToolResponse(await getOneDashboard.handler(context, { id: dashboard.id }))
+            expect(afterPartialReorder.tiles.find((tile: { id: number }) => tile.id === tileIds[0])?.layouts).toEqual(
+                omittedTile?.layouts
+            )
+
             // Verify insight2 is still on dashboard2 after reordering dashboard1
             const dashboard2WithTiles = parseToolResponse(await getOneDashboard.handler(context, { id: dashboard2.id }))
             const dashboard2InsightIds = dashboard2WithTiles.tiles

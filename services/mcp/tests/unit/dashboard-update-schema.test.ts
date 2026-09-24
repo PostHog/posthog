@@ -63,7 +63,7 @@ describe('dashboard-update schema', () => {
 describe('dashboard layout tool descriptions', () => {
     it.each([
         ['dashboard-update', /Resize, reposition, or update dashboard tiles/],
-        ['dashboard-reorder-tiles', /repacks the whole dashboard/],
+        ['dashboard-reorder-tiles', /To repack the whole dashboard, include every tile ID/],
         ['dashboard-transfer-tile', /source dashboard to another dashboard/],
     ])('distinguishes %s from other layout tools', (name, expectedDescription) => {
         expect(getToolDefinitions()[name]?.description).toMatch(expectedDescription)
