@@ -215,9 +215,13 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
 {arrays},
+    `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
+    `timestamp_max` DateTime64(6) ALIAS arrayMax(timestamp_arr),
     INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-    INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
+    INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
+    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date

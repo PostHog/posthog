@@ -1,7 +1,7 @@
 import os
 
 from posthog.settings.access import SECRET_KEY
-from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
@@ -88,7 +88,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
     "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
-    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75"}',
+    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75", "posthog_ai": "75"}',
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
@@ -270,9 +270,9 @@ BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
-ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-product-shared-orchestration-task-queue"
-ALERTS_PRODUCT_EVALUATION_TASK_QUEUE = "alerts-product-evaluation-task-queue"
-ALERTS_PRODUCT_DELIVERY_TASK_QUEUE = "alerts-product-delivery-task-queue"
+ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
+ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
+ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # The XGBoost-based session surfacing scoring sweep runs on the session-replay
@@ -304,12 +304,6 @@ LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
     os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
 )
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
-# Replay Vision observation media (thumbnails, clips). Kept off the shared rasterization
-# queue so media never competes with customer exports and session video summaries.
-# Collapsed in dev, where a single rasterizer serves every queue: nothing polls the media
-# queue locally, so the render would strand and the poster would never appear. Tests keep the
-# split, because what they assert about routing is the production behaviour.
-RASTERIZATION_MEDIA_TASK_QUEUE = RASTERIZATION_TASK_QUEUE if DEBUG and not TEST else "rasterization-media-task-queue"
 
 # Error tracking
 # Global on/off switch for auto-merging close fingerprints into their nearest issue.
