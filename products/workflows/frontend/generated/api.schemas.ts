@@ -653,7 +653,7 @@ export interface HogFlowApi {
      * * `gui` - GUI
      * * `code` - Code */
     managed_by?: HogFlowManagedByEnumApi | null
-    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
      *
      * * `web` - Web
      * * `api` - API
@@ -788,7 +788,7 @@ export interface HogFlowUpdateApi {
      * * `gui` - GUI
      * * `code` - Code */
     managed_by?: HogFlowManagedByEnumApi | null
-    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
      *
      * * `web` - Web
      * * `api` - API
@@ -923,7 +923,7 @@ export interface PatchedHogFlowUpdateApi {
      * * `gui` - GUI
      * * `code` - Code */
     managed_by?: HogFlowManagedByEnumApi | null
-    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
+    /** How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.
      *
      * * `web` - Web
      * * `api` - API
@@ -1527,7 +1527,7 @@ export interface HogFlowRevisionApi {
     readonly version: number
     readonly created_at: string
     readonly created_by: UserBasicApi | null
-    /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+    /** Snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. A version that a push produced also records `source_repository`, `source_path` and `source_ref`, the file and commit it came from. Restoring a version copies only the content fields. */
     readonly content: unknown
 }
 

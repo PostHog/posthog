@@ -1994,7 +1994,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     zod.null(),
                 ])
                 .describe(
-                    "How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.\n\n\* `web` - Web\n\* `api` - API\n\* `mcp` - MCP\n\* `wizard` - Wizard\n\* `self_driving` - Self-driving"
+                    "How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved from the request on create, never from the payload, and never changed afterwards. Null on workflows created before this field existed.\n\n\* `web` - Web\n\* `api` - API\n\* `mcp` - MCP\n\* `wizard` - Wizard\n\* `self_driving` - Self-driving"
                 ),
             source_repository: zod
                 .string()
