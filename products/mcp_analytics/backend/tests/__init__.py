@@ -3,8 +3,13 @@ from contextlib import AbstractContextManager
 from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
+from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    UserAccessControlError,
+)
 from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 
 
@@ -14,12 +19,13 @@ def _only_mcp_analytics_flag(flag_key: str, *args: object, **kwargs: object) -> 
     return flag_key == MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 
 
+def _deny_mcp_analytics_viewer(resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
+    assert (resource, required_level) == ("mcp_analytics", "viewer")
+    raise UserAccessControlError(resource, required_level)
+
+
 def deny_mcp_analytics_access() -> AbstractContextManager[object]:
-    return patch.object(
-        UserAccessControl,
-        "assert_access_level_for_resource",
-        side_effect=UserAccessControlError("mcp_analytics", "viewer"),
-    )
+    return patch.object(UserAccessControl, "assert_access_level_for_resource", side_effect=_deny_mcp_analytics_viewer)
 
 
 class _MCPAnalyticsTeamScopedTestMixin:
