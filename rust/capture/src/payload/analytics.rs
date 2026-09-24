@@ -115,6 +115,7 @@ pub async fn handle_event_payload(
     counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
+    crate::prometheus::report_edge_to_now(headers, now);
 
     // Snapshot SDK identity while the events are still typed — later stages only
     // see serialized payloads.
@@ -133,6 +134,7 @@ pub async fn handle_event_payload(
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
         ai_max_event_bytes: state.ai_max_event_bytes,
+        ai_lane_predicate: state.ai_lane_predicate,
         sdk_attribution,
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");

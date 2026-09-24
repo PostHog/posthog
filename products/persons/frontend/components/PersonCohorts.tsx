@@ -5,8 +5,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { CohortType } from '~/types'
-
+import type { CohortMinimalApi } from '../generated/api.schemas'
 import { personsLogic } from '../logics/personsLogic'
 
 export function PersonCohorts(): JSX.Element {
@@ -17,7 +16,7 @@ export function PersonCohorts(): JSX.Element {
         loadCohorts()
     }, [person, loadCohorts])
 
-    const columns: LemonTableColumns<CohortType> = [
+    const columns: LemonTableColumns<CohortMinimalApi> = [
         {
             title: 'Name',
             dataIndex: 'name',

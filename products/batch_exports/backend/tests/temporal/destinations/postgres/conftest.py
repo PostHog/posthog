@@ -1,9 +1,13 @@
+import uuid
+from collections.abc import AsyncIterator
+
 import pytest
 
 from django.conf import settings
 
 import psycopg
 import pytest_asyncio
+from psycopg import sql
 
 from posthog.models import Integration
 
@@ -36,6 +40,31 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     yield connection
 
     await connection.close()
+
+
+@pytest_asyncio.fixture
+async def insert_only_postgres_config(
+    request: pytest.FixtureRequest, postgres_connection: psycopg.AsyncConnection, postgres_config: dict[str, str | int]
+) -> AsyncIterator[dict[str, str | int]]:
+    if not request.param:
+        yield postgres_config
+        return
+
+    role_name = f"batch_export_insert_only_{uuid.uuid4().hex}"
+    role = sql.Identifier(role_name)
+    password = uuid.uuid4().hex
+    async with postgres_connection.cursor() as cursor:
+        await cursor.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(role, sql.Literal(password)))
+        try:
+            await cursor.execute(
+                sql.SQL("GRANT USAGE, CREATE ON SCHEMA {} TO {}").format(
+                    sql.Identifier(str(postgres_config["schema"])), role
+                )
+            )
+            yield {**postgres_config, "user": role_name, "password": password}
+        finally:
+            await cursor.execute(sql.SQL("DROP OWNED BY {}").format(role))
+            await cursor.execute(sql.SQL("DROP ROLE {}").format(role))
 
 
 @pytest.fixture

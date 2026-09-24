@@ -7,10 +7,12 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    DeliveryComparisonApi,
     DeliverySummaryApi,
     DurationDistributionApi,
     PRTimelineApi,
     PullRequestTimelinesApi,
+    ReadyToMergeMediansApi,
     WorkflowCostApi,
 } from '../generated/api.schemas'
 
@@ -92,7 +94,9 @@ function timeline(
         created_at: startedAt,
         started_at: startedAt,
         merged_at: options.merged ? end : null,
-        pushes: steps.filter(([kind]) => kind === 'ci_running').length,
+        pushes: segments
+            .filter((segment) => segment.kind === 'ci_running')
+            .map((segment, index) => ({ head_sha: `sha${number}${index}`, pushed_at: segment.started_at })),
         estimated_cost_usd: 4.2 * number,
         billable_minutes: 40 * number,
         segments,
@@ -108,6 +112,13 @@ const TIMELINES: PullRequestTimelinesApi = {
     jobs_available: true,
     merge_queue_state_available: true,
     generated_at: NOW,
+    merged_pr_count: 3,
+    red_seconds_per_merged_pr: [
+        { kind: 'red_fixed_by_push', seconds_per_merged_pr: 1440 },
+        { kind: 'red_passed_on_rerun', seconds_per_merged_pr: 2520 },
+        { kind: 'red_master_broken', seconds_per_merged_pr: 600 },
+        { kind: 'red_not_provable', seconds_per_merged_pr: 900 },
+    ],
     truncated: false,
     limit: 200,
     items: [
@@ -203,6 +214,39 @@ const WORKFLOW_COSTS: WorkflowCostApi[] = [
     },
 ]
 
+function medians(
+    count: number,
+    hours: { ready: number; p90: number; beforeApproval: number; afterApproval: number },
+    beforeShare: number
+): ReadyToMergeMediansApi {
+    return {
+        merged_pr_count: count,
+        ready_to_merge_seconds: hours.ready * HOUR,
+        p90_ready_to_merge_seconds: hours.p90 * HOUR,
+        ready_to_first_approval_seconds: hours.beforeApproval * HOUR,
+        first_approval_to_merge_seconds: hours.afterApproval * HOUR,
+        before_first_approval_share: beforeShare,
+    }
+}
+
+// The author page reads only the team rows; the author and repo rows come from the summary.
+const COMPARISON: DeliveryComparisonApi = {
+    author: 'jane-dev',
+    has_membership_data: true,
+    review_data_available: true,
+    ready_data_available: true,
+    team_basis: 'review_requests',
+    author_medians: medians(23, { ready: 18, p90: 98, beforeApproval: 2.1, afterApproval: 11 }, 0.38),
+    teams: [
+        {
+            github_team: 'team-replay',
+            medians: medians(84, { ready: 13, p90: 82, beforeApproval: 3.2, afterApproval: 5.5 }, 0.46),
+        },
+    ],
+    repo_medians: medians(1380, { ready: 9, p90: 77, beforeApproval: 2.6, afterApproval: 3.4 }, 0.52),
+    pull_request: null,
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Author',
@@ -220,6 +264,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/engineering_analytics/delivery_summary/': SUMMARY,
+                'api/projects/:team_id/engineering_analytics/delivery_comparison/': COMPARISON,
                 'api/projects/:team_id/engineering_analytics/pull_request_timelines/': TIMELINES,
                 'api/projects/:team_id/engineering_analytics/author_workflow_costs/': WORKFLOW_COSTS,
             },
@@ -241,6 +286,7 @@ export const AuthorNarrow: Story = {
     parameters: { testOptions: { viewport: { width: 900, height: 1800 } } },
 }
 
+// Without the members table the ready card has no team row and says how to get one.
 export const AuthorWithoutReviewsOrDeploys: Story = {
     render: () => <App />,
     decorators: [
@@ -250,6 +296,13 @@ export const AuthorWithoutReviewsOrDeploys: Story = {
                     ...SUMMARY,
                     review_data_available: false,
                     lead_time: { ...SUMMARY.lead_time, deploy_data_available: false, environment_scope: '' },
+                },
+                'api/projects/:team_id/engineering_analytics/delivery_comparison/': {
+                    ...COMPARISON,
+                    has_membership_data: false,
+                    review_data_available: false,
+                    team_basis: 'no_team',
+                    teams: [],
                 },
                 'api/projects/:team_id/engineering_analytics/pull_request_timelines/': {
                     ...TIMELINES,

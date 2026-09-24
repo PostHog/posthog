@@ -2,15 +2,24 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Required, TypedDict
 
+from django.db import transaction
+
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.constants import (
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+    effective_priority,
+    message_prefix_for_mode,
+    published_priorities_for,
+)
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
+from products.review_hog.backend.reviewer.review_state import published_heads_by_mode, review_already_published
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
@@ -67,6 +76,7 @@ def publish_persisted_review(
     token: str,
     urgency_threshold: IssuePriority,
     installation_id: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -82,7 +92,7 @@ def publish_persisted_review(
     event loop.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    if report.published_head_sha == head_sha:
+    if review_already_published(report, head_sha, review_mode):
         logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
         _mark_report_idle(team_id, report_id)
         return PublishOutcome(posted=False)
@@ -102,6 +112,7 @@ def publish_persisted_review(
         post_promo=report.published_head_sha is None,
         published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
+        review_mode=review_mode,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -116,40 +127,50 @@ def publish_persisted_review(
                 report_id,
                 head_sha,
             )
-        report.published_head_sha = head_sha
-        # Recorded per turn, never overwritten: this turn posted only its own findings, so an
-        # earlier turn's threshold stays the truth about what that turn put on the PR.
-        report.published_urgency_thresholds = {
-            **(report.published_urgency_thresholds or {}),
-            str(run_index): urgency_threshold.value,
-        }
-        # The base a later sweep compares this turn's findings against. Without it every finding is
-        # compared from the newest publish, so a fix landing between two turns falls outside the diff.
-        report.published_head_shas = {**(report.published_head_shas or {}), str(run_index): head_sha}
-        # Idle lands in the same save as the watermark, so no reader can see the published head
-        # with the report still counting as in-progress.
-        report.status = ReviewReport.Status.IDLE
-        report.save(
-            update_fields=[
-                "published_head_sha",
-                "published_urgency_thresholds",
-                "published_head_shas",
-                "status",
-                "updated_at",
-            ]
-        )
+        # Every map below merges into the row's CURRENT value, so it has to be re-read under a row
+        # lock: the snapshot above predates the GitHub post, and a publish that finished during it
+        # would be overwritten. The standalone publish command runs outside the per-PR queue, so a
+        # Flash and a Full publication really can land in this block at once, each dropping the
+        # other's mode watermark. Nothing slow runs inside the lock — the posting is already done.
+        with transaction.atomic():
+            locked = ReviewReport.objects.for_team(team_id).select_for_update().get(id=report_id)
+            locked.published_heads_by_mode = {**published_heads_by_mode(locked), review_mode: head_sha}
+            locked.published_head_sha = head_sha
+            # Recorded per turn, never overwritten: this turn posted only its own findings, so an
+            # earlier turn's threshold stays the truth about what that turn put on the PR.
+            locked.published_urgency_thresholds = {
+                **(locked.published_urgency_thresholds or {}),
+                str(run_index): urgency_threshold.value,
+            }
+            # The base a later sweep compares this turn's findings against. Without it every finding is
+            # compared from the newest publish, so a fix landing between two turns falls outside the diff.
+            locked.published_head_shas = {**(locked.published_head_shas or {}), str(run_index): head_sha}
+            # Idle lands in the same save as the watermark, so no reader can see the published head
+            # with the report still counting as in-progress.
+            locked.status = ReviewReport.Status.IDLE
+            locked.save(
+                update_fields=[
+                    "published_head_sha",
+                    "published_heads_by_mode",
+                    "published_urgency_thresholds",
+                    "published_head_shas",
+                    "status",
+                    "updated_at",
+                ]
+            )
     else:
         _mark_report_idle(team_id, report_id)
     return outcome
 
 
-def _review_marker(report_id: str, head_sha: str) -> str:
+def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None) -> str:
     """A hidden marker (HTML comment) embedded in the review body for publish idempotency.
 
     Posting isn't atomic with saving the `published_head_sha` watermark; if we crash between them, the
     marker lets the retry spot its own already-posted review and skip.
     """
-    return f"<!-- reviewhog:published:{report_id}:{head_sha} -->"
+    suffix = f":{review_mode}" if review_mode is not None else ""
+    return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
 def _promo_marker(report_id: str) -> str:
@@ -171,6 +192,7 @@ def publish_review(
     post_promo: bool,
     published_priorities: set[IssuePriority],
     installation_id: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -189,7 +211,7 @@ def publish_review(
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    marker = _review_marker(report_id, head_sha)
+    marker = _review_marker(report_id, head_sha, review_mode)
     body = f"{report.report_markdown}\n\n{marker}"
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
@@ -222,6 +244,9 @@ def publish_review(
         marker=marker,
         promo_marker=_promo_marker(report_id),
         installation_id=installation_id,
+        message_prefix=message_prefix_for_mode(review_mode),
+        legacy_marker=_review_marker(report_id, head_sha),
+        review_mode=review_mode,
     )
     return PublishOutcome(posted=True, review_url=review_url)
 
@@ -376,7 +401,15 @@ def _build_inline_comments(
 
 
 def _review_already_posted(
-    owner: str, repo: str, pr_number: int, marker: str, *, token: str, installation_id: str | None
+    owner: str,
+    repo: str,
+    pr_number: int,
+    marker: str,
+    *,
+    token: str,
+    installation_id: str | None,
+    legacy_marker: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> bool:
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
@@ -388,7 +421,18 @@ def _review_already_posted(
     """
     try:
         return any(
-            is_app_bot_author(review.get("user")) and marker in (review.get("body") or "")
+            is_app_bot_author(review.get("user"))
+            and (
+                marker in (review.get("body") or "")
+                or (
+                    legacy_marker is not None
+                    and legacy_marker in (review.get("body") or "")
+                    and (review.get("body") or "").startswith(
+                        ("FLASH MODE\n", message_prefix_for_mode(REVIEW_MODE_FLASH))
+                    )
+                    == (review_mode == REVIEW_MODE_FLASH)
+                )
+            )
             for review in github_api_get_paginated(
                 f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
                 token=token,
@@ -439,14 +483,28 @@ def _post_github_review(
     marker: str,
     promo_marker: str,
     installation_id: str | None = None,
+    message_prefix: str = "",
+    legacy_marker: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> str | None:
     """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`.
 
+    `message_prefix` opens every message this post writes (the promo comment, the review body, each
+    inline comment), so a flash review is labeled as one wherever it shows up on the PR.
     Returns the posted review's permalink, or None on the marker-found idempotency skip.
     """
     # Idempotency: if our own review for this (report, head) is already on the PR — we posted it but
     # crashed before saving the watermark — don't double-post (the body carries the same marker).
-    if _review_already_posted(owner, repo, pr_number, marker, token=token, installation_id=installation_id):
+    if _review_already_posted(
+        owner,
+        repo,
+        pr_number,
+        marker,
+        token=token,
+        installation_id=installation_id,
+        legacy_marker=legacy_marker,
+        review_mode=review_mode,
+    ):
         logger.info(f"Review for {owner}/{repo}#{pr_number} at {head_sha[:12]} already on PR (marker found); skipping")
         return None
 
@@ -460,7 +518,7 @@ def _post_github_review(
             installation_id=installation_id,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
             json={
-                "body": "PostHog Review alpha \U0001f994 "
+                "body": f"{message_prefix}PostHog Review alpha \U0001f994 "
                 "If you find any issues helpful - "
                 'please reply "valid", "invalid", etc., '
                 f"for evaluation purposes \U0001f64f\n\n{promo_marker}"
@@ -472,10 +530,10 @@ def _post_github_review(
     # the probe isolates an unresolvable commit (stale/unreachable head) from a comment-positioning
     # failure, so we post unpinned rather than failing (or dropping the inline comments).
     # The review and validation sandboxes hold live tokens, and the model text arrives here unfiltered.
-    body, redacted = redact_secrets(body)
+    body, redacted = redact_secrets(f"{message_prefix}{body}")
     scrubbed: list[ReviewComment] = []
     for comment in comments:
-        comment_body, count = redact_secrets(comment["body"])
+        comment_body, count = redact_secrets(f"{message_prefix}{comment['body']}")
         redacted += count
         scrubbed.append({**comment, "body": comment_body})
     comments = scrubbed

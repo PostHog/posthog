@@ -1,0 +1,125 @@
+{
+    "cluster": 10,
+    "issue": "Carve-out path resolves the same StamphogRepoConfig twice (or thrice) per delivery",
+    "files": ["tasks.py:179", "tasks.py:289", "tasks.py:876", "tasks.py:891"],
+    "august_registry_tally": "2 real of 2 verified",
+    "earlier_members": [
+        {
+            "id": "Y14",
+            "verdicts": [
+                {
+                    "source": "July judge-round1.json",
+                    "is_real": false,
+                    "severity": "not_an_issue",
+                    "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:179 (_resolve_repo_config inside _inbox_rereview_carve_out), :876-880 (carve-out call, provenance kept), :918 (unconditional re-resolve on main path \u2014 duplication confirmed), :298-304 (single indexed filter/first query), :858 and :891 (module already re-resolves per retry-guarded block by design)",
+                    "notes": "Premise is factually accurate: a carved-out delivery resolves StamphogRepoConfig twice (line 179 in the carve-out, line 918 on the main path). But it is one extra single-row indexed query in a Celery task on a rare path (bot-authored self-driving inbox re-reviews), with no correctness/security/contract dimension. The module intentionally re-resolves the config in each independently retry-guarded block (lines 858, 891, 918), so the \"duplication\" matches the file's deliberate freshness+retry pattern; threading the config through the frozen _InboxCarveOut would add coupling for negligible gain. Micro-optimization, not a real issue."
+                }
+            ]
+        },
+        {
+            "id": "P7",
+            "verdicts": [
+                {
+                    "source": "July judge-setP.json",
+                    "is_real": true,
+                    "severity": "consider",
+                    "evidence": "products/stamphog/backend/tasks/tasks.py:179 (`repo_config = _resolve_repo_config(installation_id, repo)` inside `_inbox_rereview_carve_out`) and tasks.py:918 (identical call in `process_pull_request_event` main path). For a qualifying inbox re-review, `skip_reason` is always set (self-driving PRs are bot-authored drafts, per comment at ~line 869), so the carve-out runs and resolves the config; when it returns a non-None provenance the function proceeds to line 918 and re-runs the exact same writer-pinned query. A base retarget adds a third call at line 858. `_resolve_repo_config` (def at ~line 289 region) is a single `.filter(provider, installation_id, repository).order_by(\"created_at\",\"id\").first()` point lookup on the small StamphogRepoConfig table.",
+                    "notes": "The redundant read exists exactly as described, so it is not speculative. But impact is negligible: one extra indexed point-lookup on a tiny table, on a cold path (only bot-authored self-driving inbox PRs receiving synchronize/reopen/retarget webhooks), not N+1 or hot-loop. The handler deliberately re-resolves config in each branch inside its own retry-wrapped try/except (lines 858, 891, 918), so threading the carve-out's config through would couple the helper's return to the main path for a sub-millisecond saving. Valid low-stakes observation; the original should_fix severity overstates it \u2014 consider is right."
+                }
+            ]
+        },
+        {
+            "id": "Q11",
+            "verdicts": [
+                {
+                    "source": "July judge-final.json",
+                    "is_real": false,
+                    "severity": "not_an_issue",
+                    "evidence": "products/stamphog/backend/tasks/tasks.py: `_inbox_rereview_carve_out` resolves the config at line 179 (`repo_config = _resolve_repo_config(installation_id, repo)`); when the carve-out succeeds the main path re-resolves at line 918, and the opted-out skip branch re-resolves at line 891. So the duplicate-lookup premise is factually accurate. But `_resolve_repo_config` is a single-row lookup on the uniquely-constrained (provider, installation_id, repository) key, executed at most one extra time per webhook delivery, and only on the rare branch that survives lines 167-178 (bot-authored, repo-native, head-changing/base-retarget self-driving PR \u2014 every human/fork/non-inbox delivery returns before the DB touch). The finding itself concedes it is \"purely a wasted query, not a correctness hazard.\"",
+                    "notes": "Not user-affecting: no N+1, no loop, no hot path \u2014 one duplicate cheap indexed query per rare delivery. The separate call sites are also not accidental: each sits in its own try/except with distinct retry logging (lines 875-879 carve-out, 890-903 skip-dismiss, 917-921 main path), and re-resolving keeps each branch's freshness and failure semantics independent. Threading the resolved config through `_InboxCarveOut` would add DTO coupling to save a negligible query. Micro-optimization noise, correctly self-described as such in the finding text; drop it."
+                }
+            ]
+        },
+        {
+            "id": "U13",
+            "verdicts": [
+                {
+                    "source": "July judge-fourway.json",
+                    "is_real": true,
+                    "severity": "consider",
+                    "evidence": "products/stamphog/backend/tasks/tasks.py: _inbox_rereview_carve_out resolves repo config at ~line 179 (`repo_config = _resolve_repo_config(installation_id, repo)`); on a carved-out re-review (provenance set) the skip block is bypassed and the main body resolves again at ~line 918 (`repo_config = _resolve_repo_config(installation_id, repo)` in the \"first DB touch on the main path\" try block); base-retarget deliveries add a third call at ~line 855 (`retarget_config = _resolve_repo_config(...)`). All are writer-pinned via `.using(router.db_for_write(...))` in _resolve_repo_config (~line 186), which filters on the model's (provider, installation_id, repository) unique index.",
+                    "notes": "The duplicate-query claim is factually accurate, so the finding is not wrong \u2014 but the impact is negligible: 1-2 extra sub-millisecond unique-index point lookups per event on a cold, opt-in, low-frequency path (bot-authored self-driving PR synchronize/reopen/base-retarget) that subsequently runs a full sandbox review with many GitHub calls. Not a hot path, not N+1, not unbounded. The suggested fix also couples _InboxCarveOut to main-body branches that use the config differently (disabled-repo and non-carve-out paths). Valid but low-stakes cleanup only; no user-affecting damage."
+                }
+            ]
+        },
+        {
+            "id": "V13",
+            "verdicts": [
+                {
+                    "source": "July judge-fourway.json",
+                    "is_real": true,
+                    "severity": "not_an_issue",
+                    "evidence": "products/stamphog/backend/tasks/tasks.py: line 876 calls _inbox_rereview_carve_out, which for a bot-authored (L169), repo-native (L177), head-changing skipped PR resolves the config at L179; when the carve-out resolves empty (genuine dependabot/renovate), the retraction branch at L891 calls _resolve_repo_config(installation_id, repo) again. _resolve_repo_config (L298-304) is a writer-pinned primary-DB read. So the double lookup exists exactly as described.",
+                    "notes": "Factually correct but negligible: the duplicate is one constant, equality-filtered lookup on a small config table, on an async already-ACKed webhook task \u2014 sub-millisecond, not N+1/unbounded, zero correctness or user-visible impact. The find_task_run cost the finding cites is the carve-out's inherent identification cost, untouched by the proposed fix. The fix is also not behavior-identical as claimed: the carve-out short-circuits before resolving config for human PRs (L169) and hides the config when disabled (L180-186), while the retraction branch deliberately ignores .enabled (L892 comment), so reuse needs semantic care. Per-branch re-resolution is the file's deliberate existing pattern (L858, L891, L918). Micro-optimization below the actionable bar."
+                }
+            ]
+        },
+        {
+            "id": "N18",
+            "verdicts": [
+                {
+                    "source": "July judge-round5.json",
+                    "is_real": true,
+                    "severity": "consider",
+                    "evidence": "tasks.py:179 \u2014 _inbox_rereview_carve_out calls _resolve_repo_config after bot-author (line 169) and same-repo (line 177) guards; tasks.py:891 \u2014 on the same skipped delivery (skip_reason set, no carve-out provenance, head-changing action) process_pull_request_event calls _resolve_repo_config again for approval retraction; tasks.py:289-305 \u2014 _resolve_repo_config is a single indexed .filter(provider, installation_id, repository).first() on the writer DB with no .enabled filter, so both calls return the identical row. The double query is real but costs one extra cheap indexed SELECT on an async Celery webhook path, only for bot-authored head-changing PRs on configured repos.",
+                    "notes": "Factually accurate redundancy; reusing the config via _InboxCarveOut would be a behavior-preserving DRY cleanup. No correctness, N+1, or scale impact, so it is an improvement suggestion rather than a defect \u2014 should_fix is overstated."
+                }
+            ]
+        },
+        {
+            "id": "O21",
+            "verdicts": [
+                {
+                    "source": "July judge-round5.json",
+                    "is_real": true,
+                    "severity": "consider",
+                    "evidence": "tasks.py:179 \u2014 _inbox_rereview_carve_out calls _resolve_repo_config for bot-authored fork-safe PRs on head-changing deliveries. tasks.py:876-881 \u2014 when the carve-out sets provenance, the skip return is bypassed and tasks.py:918 calls _resolve_repo_config again on the main path; when opted_out, tasks.py:891 re-calls it as skip_repo_config. tasks.py:289-305 \u2014 _resolve_repo_config is a single writer-pinned point lookup (.filter(...).order_by(...).first()) on StamphogRepoConfig, which is unique per (team, repository), so the duplicate query is a constant sub-ms read on a low-frequency async webhook path.",
+                    "notes": "The redundant re-query genuinely exists as described, but it is a tiny constant-cost point read on a rare path \u2014 a DRY micro-optimization, not a defect. Threading the config out of _InboxCarveOut is a valid minor cleanup; nothing breaks or degrades measurably without it."
+                }
+            ]
+        }
+    ],
+    "this_experiment_findings": [
+        {
+            "id": "GB8",
+            "run": "glm-high-2",
+            "title": "Carve-out path resolves the repo config twice on the writer database",
+            "file": "products/stamphog/backend/tasks/tasks.py",
+            "lines": "176-186",
+            "priority": "consider",
+            "problem": "When the carve-out positively identifies a self-driving PR, _inbox_rereview_carve_out resolves the repo config at line 179 (writer-pinned, unscoped). Control then flows past the skip block, and process_pull_request_event resolves the same config again at line 918 before creating the run. Every inbox re-review pays two writer-database round trips for one row. The two reads can also disagree in a race (a config disabled between them), which the later enabled check happens to absorb, but the duplicate work is pure overhead on the webhook hot path.",
+            "suggestion": "Return the resolved config inside _InboxCarveOut and reuse it at line 918 when inbox_review is not None, falling back to a fresh _resolve_repo_config only for the normal path. Keep the enabled re-check on the reused row.",
+            "match_reason": "Same claim and anchor (tasks.py:179 and ~918): the carve-out resolves StamphogRepoConfig and process_pull_request_event resolves it again per delivery.",
+            "fresh_votes": [
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "Premise traced and confirmed: `_inbox_rereview_carve_out` calls `_resolve_repo_config` at products/stamphog/backend/tasks/tasks.py:179, and when it returns provenance (line 208-215) the caller `process_pull_request_event` (tasks.py:876 -> inbox_review set at 879) falls through the skip block and calls `_resolve_repo_config` again at tasks.py:918. `_resolve_repo_config` (tasks.py:289-304) is one `.filter(provider, installation_id, repository).order_by().first()` single-row query pinned to the writer. So two reads do happen on that branch.\n\nRefutation facts: (1) The path is not the webhook HTTP hot path. `process_pull_request_event` is a `@shared_task` Celery task (tasks.py:809-810); the comments at 871-872 and 913-915 state the webhook was already ACKed before this code runs. (2) The branch is reachable only for bot-authored (tasks.py:168), repo-native-branch (174-177), synchronize/reopen/retarget (166) deliveries that also match a signal-implementation task run via the tasks facade (189-196) and a resolver callback (201-205) \u2014 a rare branch whose cost is dominated by those calls and the run creation that follows. (3) Independent re-resolution is the established pattern in this module, not an accident of this change: line 858 (`retarget_config`) and line 891 (`skip_repo_config`) each resolve the config separately from line 918 as well. (4) The second read is load-bearing: tasks.py:925-939 re-checks `enabled` on a fresh snapshot and retracts standing approvals on a head-changing action if the repo was disabled; the suggestion to reuse the carve-out's row \"with the enabled re-check\" cannot re-check without another read, so the refactor either keeps the query or widens the disable window.",
+                    "refutation": "The duplicate query is factually present but is one index-backed single-row read on a rare, already-async Celery branch (not the webhook request path), sits next to two other independent config resolutions the module already does by design (tasks.py:858, 891), and the second read gives the `enabled` gate at tasks.py:925 a fresh snapshot that the proposed reuse would discard. No user-visible consequence, no N+1, no unbounded growth: this is a micro-optimization preference, not a defect."
+                },
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "Worktree: /Users/woutut/.worktrees/posthog/frozen-75215, file products/stamphog/backend/tasks/tasks.py.\n\nThe factual premise holds: `_inbox_rereview_carve_out` calls `_resolve_repo_config` at tasks.py:179, and when it returns provenance, `process_pull_request_event` calls `_resolve_repo_config` again at tasks.py:918. `_resolve_repo_config` (tasks.py:289-304) is a single-row `.filter(provider, installation_id, repository).order_by(...).first()` pinned to the writer via `router.db_for_write`.\n\nBut the duplicate is neither new nor accidental. The same function already re-resolves the config per delivery on two other legs of this exact code path, each inside its own retry envelope: the base-retarget block at tasks.py:858 resolves, then tasks.py:918 resolves again on the same delivery; the untrusted-skip block at tasks.py:891 resolves independently too. Per-delivery re-resolution is the established design of this function, with the docstring at tasks.py:294-296 explaining the writer pin is there so a config \"synced or toggled moments before the webhook\" is not missed, i.e. freshness is the point.\n\nThe second read at tasks.py:918 feeds the `enabled` check at tasks.py:925, and when disabled and `action in _HEAD_CHANGING_ACTIONS` it calls `_retract_stale_approvals_on_skip` (tasks.py:929). The finding admits the race is \"absorbed\" by this check; the suggested fix (reuse the row from line 179) would make line 925 test a snapshot taken before `find_signal_implementation_run` (tasks.py:189-196) and the resolver callback (tasks.py:201-205), so a repo disabled in that window would be re-reviewed with no approval retraction. \"Keep the enabled re-check on the reused row\" cannot re-check without the very query it removes.\n\nReachability: `_is_bot_authored` at tasks.py:171 returns early for every human PR before any DB read; only bot-authored, repo-native (tasks.py:176-178), head-changing deliveries that also match a task-facade signal run AND whose acting reviewer opted in reach both reads. Non-inbox bots (dependabot/renovate) pay the line-179 read but return at tasks.py:198 and never reach line 918. On the deliveries that do reach both, the extra indexed single-row query sits beside a facade run lookup, a resolver callback, a full `ReviewRun` creation transaction and the GitHub API traffic downstream.\n\nTests: products/stamphog/backend/tests/test_tasks.py has no `assertNumQueries`/`CaptureQueriesContext` anywhere; the carve-out tests (test_tasks.py:762, 796, 850, 875) assert behavior only (queued run, provenance dict, single facade call). No test guards the query count, and no test would change under either shape.",
+                    "refutation": "The claim is a true statement about two indexed single-row reads, not a defect. The code already resolves the repo config more than once per delivery by design (tasks.py:858 then 918; tasks.py:891 on the skip leg), each read bounded by its own retry, because the writer-pinned resolver exists to see a config toggled moments earlier. Removing the second read would trade that freshness away: the `enabled` check at tasks.py:925 and its approval retraction at 929 would run on a snapshot taken before the facade lookup and resolver callback, widening the window in which a just-disabled repo still gets a re-review. The path is reachable only for opted-in, task-linked, bot-authored PR pushes, where one extra `.first()` query is negligible next to the run-creation transaction. No user-visible consequence, no N+1, no unbounded growth, no test exposure: this is a micro-optimization preference with a real downside, so is_real=false."
+                },
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "Premise is factually true and the trigger is reachable in production: `_inbox_rereview_carve_out` calls `_resolve_repo_config` at products/stamphog/backend/tasks/tasks.py:179, and when it returns a provenance the caller falls through the skip block (tasks.py:884-914) and calls `_resolve_repo_config` again at tasks.py:918. `_resolve_repo_config` (tasks.py:289-304) is one single-row `.filter(provider, installation_id, repository).order_by(...).first()` pinned to `router.db_for_write`. The path is live in prod config: review_hog registers the resolver at import (products/review_hog/backend/receivers.py:69 `register_inbox_acting_reviewer_resolver(resolve_stamphog_acting_reviewer)`), the `stamphog_review_inbox_prs` toggle exists (receivers.py:154, migration 0019), and the carve-out is only entered for bot-authored, repo-native, head-changing deliveries (tasks.py:167-176). On a base retarget the same delivery already does a third read at tasks.py:858 by design. No query-count test exists in products/stamphog/backend/tasks/ (grep for assertNumQueries/CaptureQueriesContext returned nothing), so nothing pins the count either way.",
+                    "refutation": "The extra query is not a defect. (1) Cost: one indexed single-row read on a branch that only fires for opted-in self-driving PR pushes, and that same delivery already performs the tasks-facade run lookup (tasks.py:189-196), a review_hog resolver callback (tasks.py:201-205), and a run creation, so the second read is noise; \"webhook hot path\" is not accurate for this branch since every human PR exits at tasks.py:168-171 before any DB touch. (2) The second read is load-bearing, not redundant: tasks.py:918-934 takes a fresh snapshot and, if `enabled` flipped between the two reads, retracts standing approvals on head-changing actions (tasks.py:925-932). The suggestion \"reuse the row and keep the enabled re-check\" is self-contradicting: a re-check on a cached row cannot observe a change without another read, so the refactor either re-introduces the query or widens the window in which a just-disabled repo still re-reviews. The finding itself concedes the race \"the later enabled check happens to absorb\". A duplicated read that serves as a freshness safeguard, with no user-visible consequence, is a style/micro-optimization preference, not a real finding."
+                }
+            ]
+        }
+    ]
+}

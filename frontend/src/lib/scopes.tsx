@@ -86,6 +86,7 @@ export const API_SCOPES: APIScope[] = [
         info: 'Grants the ability to promote catalog entries (approve a metric, certify a table, accept a relationship). This is the human-in-the-loop trust boundary: agents that can write to the catalog still cannot self-approve without this scope.',
         disabledActions: ['read'],
     },
+    { key: 'data_deletion', objectName: 'Data deletion', objectPlural: 'data deletion requests' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },

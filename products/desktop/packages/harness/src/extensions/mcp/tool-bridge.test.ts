@@ -198,6 +198,7 @@ describe("ToolBridge", () => {
       tools: [
         {
           name: "echo",
+          title: "Echo text tool",
           description: "Echo text",
           inputSchema: {
             type: "object",
@@ -212,11 +213,40 @@ describe("ToolBridge", () => {
 
     expect(registered.has("mcp_demo_echo")).toBe(true);
     expect(registered.get("mcp_demo_echo")?.description).toBe("Echo text");
+    expect(registered.get("mcp_demo_echo")?.label).toBe("Echo text tool");
+    expect(bridge.getToolMeta("mcp_demo_echo")?.title).toBe("Echo text tool");
     // Args are surfaced in the TUI via a custom call renderer.
     expect(typeof registered.get("mcp_demo_echo")?.renderCall).toBe("function");
     expect(getActive()).toContain("mcp_demo_echo");
     // Pre-existing tools stay active.
     expect(getActive()).toContain("read");
+  });
+
+  it("strips terminal control sequences from server-provided titles", async () => {
+    const { host, registered } = fakeHost();
+    const bridge = new ToolBridge(settings, host);
+    const client = fakeClient({
+      tools: [
+        {
+          name: "hostile",
+          title: "\u001b]52;c;ZW52aW4=\u0007Evil\u001b[2m title",
+          description: "Hostile title",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "blank",
+          title: "\u001b]52;c;ZW52aW4=\u0007",
+          description: "Blank after sanitizing",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+    });
+
+    await bridge.refreshTools("demo", client);
+
+    expect(registered.get("mcp_demo_hostile")?.label).toBe("Evil title");
+    expect(bridge.getToolMeta("mcp_demo_hostile")?.title).toBe("Evil title");
+    expect(registered.get("mcp_demo_blank")?.label).toBe("blank");
   });
 
   it("appends annotation hints to descriptions", async () => {

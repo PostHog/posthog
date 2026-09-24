@@ -1070,6 +1070,96 @@ export const TaskChannelsMembersUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Starts one unattended task in the channel that resolves the metric, writes the context page and, for a goal, creates the tracking canvas and the loops. The task becomes the channel's context generation task.
+ * @summary Set a space up for a goal or a feature
+ */
+export const taskChannelsSetupCreateBodyGoalOneStatementMax = 2000
+
+export const taskChannelsSetupCreateBodyGoalOnePeriodDefault = `week`
+export const taskChannelsSetupCreateBodyGoalOneDirectionDefault = `at_least`
+export const taskChannelsSetupCreateBodyGoalOneTargetMax = 64
+
+export const taskChannelsSetupCreateBodyGoalOneInsightShortIdMax = 64
+
+export const taskChannelsSetupCreateBodyFeatureOneNameMax = 200
+
+export const taskChannelsSetupCreateBodyFeatureOneDescriptionDefault = ``
+export const taskChannelsSetupCreateBodyFeatureOneDescriptionMax = 2000
+
+export const taskChannelsSetupCreateBodyFeatureOneFlagKeyMax = 400
+
+export const taskChannelsSetupCreateBodyRepositoryMax = 255
+
+export const TaskChannelsSetupCreateBody = /* @__PURE__ */ zod
+    .object({
+        kind: zod
+            .enum(['goal', 'feature'])
+            .describe('\* `goal` - Goal\n\* `feature` - Feature')
+            .describe('What the space is set up for.\n\n\* `goal` - Goal\n\* `feature` - Feature'),
+        goal: zod
+            .object({
+                statement: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyGoalOneStatementMax)
+                    .describe("The goal in one or two sentences, e.g. 'Increase the weekly activation rate'."),
+                period: zod
+                    .enum(['day', 'week', 'month'])
+                    .describe('\* `day` - Day\n\* `week` - Week\n\* `month` - Month')
+                    .default(taskChannelsSetupCreateBodyGoalOnePeriodDefault)
+                    .describe(
+                        'How often the metric is measured.\n\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+                    ),
+                direction: zod
+                    .enum(['at_least', 'at_most'])
+                    .describe('\* `at_least` - At least\n\* `at_most` - At most')
+                    .default(taskChannelsSetupCreateBodyGoalOneDirectionDefault)
+                    .describe(
+                        "Whether the target is a floor ('at_least') or a ceiling ('at_most').\n\n\* `at_least` - At least\n\* `at_most` - At most"
+                    ),
+                target: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyGoalOneTargetMax)
+                    .nullish()
+                    .describe("Target value as typed, e.g. '20%' or '1500'."),
+                deadline: zod.iso.date().nullish().describe('Date the target should be reached.'),
+                insight_short_id: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyGoalOneInsightShortIdMax)
+                    .nullish()
+                    .describe('Short id of an existing insight that measures the goal, when there is one.'),
+            })
+            .describe('The metric a goal space should move.')
+            .optional()
+            .describe("Required when kind is 'goal'."),
+        feature: zod
+            .object({
+                name: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyFeatureOneNameMax)
+                    .describe('Feature name as people call it.'),
+                description: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyFeatureOneDescriptionMax)
+                    .default(taskChannelsSetupCreateBodyFeatureOneDescriptionDefault)
+                    .describe('What the feature does, in a sentence.'),
+                flag_key: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyFeatureOneFlagKeyMax)
+                    .nullish()
+                    .describe('Key of the feature flag that gates it, if any.'),
+            })
+            .describe('The feature a feature space is set up around.')
+            .optional()
+            .describe("Required when kind is 'feature'."),
+        repository: zod
+            .string()
+            .max(taskChannelsSetupCreateBodyRepositoryMax)
+            .nullish()
+            .describe("Repository the loops work in, as 'owner\/name'. Defaults to the channel's first repository."),
+    })
+    .describe('Request body for starting the task that sets a space up for a goal or a feature.')
+
+/**
  * @summary Star or unstar a channel for the requesting user
  */
 export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
@@ -1199,6 +1289,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'posthog_ai',
             'experiments',
             'signal_report',
+            'autoresearch',
             'signals_scout',
             'scout_suggestions',
             'support_reply',
@@ -1210,13 +1301,14 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         ),
     repository: zod
         .string()
@@ -1306,10 +1398,16 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.'
         ),
     channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+    scheduled_at: zod
+        .string()
+        .nullish()
+        .describe(
+            'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+        ),
     start_run: zod
         .boolean()
         .default(tasksCreateBodyStartRunDefault)
-        .describe("Start the task's first cloud run immediately after creation."),
+        .describe('Create the first cloud run. It starts immediately unless scheduled_at is set.'),
     signal_report_discussion_question: zod
         .string()
         .max(tasksCreateBodySignalReportDiscussionQuestionMax)
@@ -1387,6 +1485,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'posthog_ai',
             'experiments',
             'signal_report',
+            'autoresearch',
             'signals_scout',
             'scout_suggestions',
             'support_reply',
@@ -1398,13 +1497,14 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         ),
     repository: zod
         .string()
@@ -1539,6 +1639,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'posthog_ai',
             'experiments',
             'signal_report',
+            'autoresearch',
             'signals_scout',
             'scout_suggestions',
             'support_reply',
@@ -1550,13 +1651,14 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         ),
     repository: zod
         .string()
@@ -1788,7 +1890,24 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ])
                 .optional()
                 .describe(
-                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            scheduled_at: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -1952,7 +2071,24 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ])
                 .optional()
                 .describe(
-                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            scheduled_at: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -2054,6 +2190,19 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
         })
         .describe('Request body for creating a new task run'),
     zod.object({
+        scheduled_at: zod
+            .string()
+            .nullish()
+            .describe(
+                'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+            ),
+        model: zod.string().optional(),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .optional()
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
         mode: zod
             .enum(['interactive', 'background'])
             .describe('\* `interactive` - interactive\n\* `background` - background')
@@ -2416,7 +2565,18 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+            ),
+        codex_model_access: zod
+            .union([
+                zod
+                    .enum(['posthog-gateway', 'own-subscription'])
+                    .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
             ),
         environment: zod
             .enum(['local', 'cloud'])
@@ -3054,6 +3214,7 @@ export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object
                         'experiment',
                         'survey',
                         'ticket',
+                        'report',
                         'trace',
                         'eval',
                         'event',
@@ -3062,10 +3223,10 @@ export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object
                         'person',
                     ])
                     .describe(
-                        '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                        '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `report` - report\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
                     )
                     .describe(
-                        'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                        'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `report` - report\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
                     ),
                 object_id: zod
                     .string()
@@ -3206,6 +3367,20 @@ export const TasksRunsSetOutputPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Replace the running summary for a task run.
+ * @summary Set task run summary
+ */
+export const tasksRunsSetSummaryPartialUpdateBodySummaryMax = 1500
+
+export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({
+    summary: zod
+        .string()
+        .max(tasksRunsSetSummaryPartialUpdateBodySummaryMax)
+        .optional()
+        .describe('Complete running summary that replaces the prior summary.'),
+})
+
+/**
  * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
  * @summary Start task run
  */
@@ -3221,6 +3396,22 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
+        ),
+})
+
+/**
+ * Give the run's agent-server a short-lived ChatGPT access token from the run owner's connected account. Only the run's sandbox may call this, and it must present the run token it received at launch. Send the digest of a token Codex rejected so the server refreshes it early, once.
+ * @summary Issue a ChatGPT access token for a Codex run
+ */
+export const tasksRunsSubscriptionTokenCreateBodyRejectedAccessTokenSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
+export const TasksRunsSubscriptionTokenCreateBody = /* @__PURE__ */ zod.object({
+    rejected_access_token_sha256: zod
+        .string()
+        .regex(tasksRunsSubscriptionTokenCreateBodyRejectedAccessTokenSha256RegExp)
+        .nullish()
+        .describe(
+            'SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this names its current token; otherwise it returns the newer token it already holds.'
         ),
 })
 
@@ -3434,32 +3625,40 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
  */
 export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
     .object({
+        runtime: zod
+            .union([zod.enum(['acp', 'pi']).describe('\* `acp` - ACP\n\* `pi` - Pi'), zod.null()])
+            .optional()
+            .describe(
+                "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+            ),
         runtime_adapter: zod
             .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
             .nullish()
-            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+            .describe(
+                'Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.'
+            ),
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                        '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                "Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
             ),
     })
     .describe(
-        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+        'The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.'
     )
 
 /**
@@ -3467,38 +3666,46 @@ export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
  */
 export const TasksConfigCreateBody = /* @__PURE__ */ zod
     .object({
+        runtime: zod
+            .union([zod.enum(['acp', 'pi']).describe('\* `acp` - ACP\n\* `pi` - Pi'), zod.null()])
+            .optional()
+            .describe(
+                "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+            ),
         runtime_adapter: zod
             .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
             .nullish()
-            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+            .describe(
+                'Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.'
+            ),
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                        '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                "Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
             ),
     })
     .describe(
-        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+        'The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.'
     )
 
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3524,7 +3731,7 @@ export const TasksRepoRoutingRulesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3550,7 +3757,7 @@ export const TasksRepoRoutingRulesUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3665,11 +3872,13 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
                 "Optional custom base image to provision before the task is submitted; takes precedence over the environment's image."
             ),
         origin_product: zod
-            .enum(['user_created', 'posthog_ai'])
-            .describe('\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai')
+            .enum(['user_created', 'posthog_ai', 'signal_report'])
+            .describe(
+                '\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai\n\* `signal_report` - signal_report'
+            )
             .default(tasksWarmCreateBodyOriginProductDefault)
             .describe(
-                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai'
+                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai\n\* `signal_report` - signal_report'
             ),
         initial_permission_mode: zod
             .union([
@@ -3683,6 +3892,12 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        signal_report: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the warm Run boots repo-less and the submit that creates the report's discussion task activates it."
             ),
     })
     .describe(

@@ -3,23 +3,24 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 
+const mocks = vi.hoisted(() => ({
+  task: undefined as { id: string; title: string } | undefined,
+}));
+
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
-  useQuery: () => ({ data: { id: "task-1", title: "Build canvas" } }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
-  useThreadConversation: () => ({ timeline: [{ kind: "message" }] }),
+  useQuery: () => ({ data: mocks.task }),
 }));
 vi.mock("@posthog/ui/features/canvas/components/TaskCommentsList", () => ({
   TaskCommentsList: ({
-    task,
+    taskId,
     onlySource,
   }: {
-    task: { id: string };
+    taskId: string;
     onlySource: { target: { itemId: string } };
   }) => (
     <div data-testid="task-comments">
-      {task.id}:{onlySource.target.itemId}
+      {taskId}:{onlySource.target.itemId}
     </div>
   ),
 }));
@@ -32,6 +33,7 @@ vi.mock("@posthog/ui/features/canvas/freeform/FreeformGenerateBar", () => ({
 
 describe("CanvasSidePanel", () => {
   beforeEach(() => {
+    mocks.task = { id: "task-1", title: "Build canvas" };
     useCanvasChatPanelStore.setState({ tab: "chat", collapsed: false });
   });
 
@@ -86,5 +88,29 @@ describe("CanvasSidePanel", () => {
     } else {
       expect(screen.getByText("No run yet")).toBeInTheDocument();
     }
+  });
+
+  it("opens comments when the generating run is not readable", () => {
+    mocks.task = undefined;
+    useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
+
+    render(
+      <CanvasSidePanel
+        chatTaskId={null}
+        commentTaskId="task-1"
+        onMinimize={vi.fn()}
+        dashboardId="canvas-1"
+        channelId="channel-1"
+        channelName="General"
+        name="Launch canvas"
+        displayedVersionId="version-2"
+        commentVersionLabel={(versionId) => versionId}
+        onCommentOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-comments")).toHaveTextContent(
+      "task-1:canvas-1",
+    );
   });
 });

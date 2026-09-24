@@ -21,12 +21,17 @@ from hogli_commands.doctor import (
     GitHealth,
     _binary_arches,
     _check_git_health,
+    _cleanup_docker,
     _cleanup_git,
     _collect_import_targets,
+    _collect_rust_target_dirs,
     _config_procs,
     _confirm_stack_teardown,
     _container_mounts,
     _copy_volume,
+    _docker_reclaimable,
+    _estimate_nix_store,
+    _estimate_sccache,
     _find_service_container,
     _find_volume_mount,
     _format_kv_block,
@@ -38,7 +43,9 @@ from hogli_commands.doctor import (
     _git_main_worktree,
     _git_maintenance_registered,
     _is_excluded,
+    _nix_chunk_size,
     _normalize_arch,
+    _parse_docker_size,
     _phrocs_info,
     _phrocs_runtime_pairs,
     _phrocs_socket_path,
@@ -1838,3 +1845,185 @@ def test_housekeeping_scan_claims_git_dir_given_as_an_option_value(
     monkeypatch.setattr("hogli_commands.doctor._common_dir_of", lambda cwd: Path("/somewhere/else/.git"))
 
     assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is True
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("0B", 0.0),
+        ("512B", 512.0),
+        ("26.5GB (78%)", 26.5 * 10**9),
+        ("1.05TB", 1.05 * 10**12),
+        ("9.7kB", 9700.0),
+        ("N/A", 0.0),
+        ("", 0.0),
+    ],
+)
+def test_parse_docker_size(value: str, expected: float) -> None:
+    assert _parse_docker_size(value) == pytest.approx(expected)
+
+
+def test_docker_reclaimable_counts_only_the_requested_types() -> None:
+    rows = [
+        {"Type": "Images", "Size": "33.9GB", "Reclaimable": "26.5GB (78%)"},
+        {"Type": "Containers", "Size": "1.2GB", "Reclaimable": "1.2GB (100%)"},
+        {"Type": "Local Volumes", "Size": "40GB", "Reclaimable": "40GB (100%)"},
+        {"Type": "Build Cache", "Size": "3GB", "Reclaimable": "3GB"},
+    ]
+
+    assert _docker_reclaimable(rows, ("Images", "Containers", "Build Cache")) == pytest.approx(30.7 * 10**9)
+    assert _docker_reclaimable(rows, ("Local Volumes",)) == pytest.approx(40 * 10**9)
+
+
+def test_cleanup_docker_leaves_volumes_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        commands.append(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    _cleanup_docker(CleanupEstimate(total_size=0.0), Path("/repo"))
+
+    prunes = [cmd for cmd in commands if "prune" in cmd]
+    assert prunes == [["docker", "system", "prune", "-a", "-f"]]
+
+
+def test_nix_chunk_size_resumes_past_an_invalid_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # nix-store answers in argument order, then aborts on the first path that went
+    # invalid, so a batch holding one stale entry must not lose the sizes around it.
+    sizes = {"/nix/store/a": 100, "/nix/store/b": 200, "/nix/store/d": 400}
+
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        answered = []
+        for path in cmd[3:]:
+            if path not in sizes:
+                return SimpleNamespace(
+                    returncode=1,
+                    stdout="".join(f"{size}\n" for size in answered),
+                    stderr=f"error: path '{path}' is not valid",
+                )
+            answered.append(sizes[path])
+        return SimpleNamespace(returncode=0, stdout="".join(f"{size}\n" for size in answered), stderr="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    paths = ["/nix/store/a", "/nix/store/b", "/nix/store/c", "/nix/store/d"]
+    size = _nix_chunk_size(paths)
+    assert size.total == pytest.approx(700.0)
+    assert size.complete is True
+
+
+def test_nix_chunk_size_gives_up_on_a_failure_that_is_not_an_invalid_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Retrying a locked database once per path would spawn thousands of doomed
+    # processes and still answer nothing, so the batch has to end at the first one.
+    calls = 0
+
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        nonlocal calls
+        calls += 1
+        return SimpleNamespace(returncode=1, stdout="", stderr="error: unable to lock the database")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    size = _nix_chunk_size([f"/nix/store/{index}" for index in range(50)])
+    assert size.total == 0.0
+    assert size.complete is False
+    assert calls == 1
+
+
+@pytest.mark.parametrize("failure", ["timeout", "returncode"])
+def test_estimate_nix_store_reports_a_failed_scan_rather_than_an_empty_store(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    # A probe that times out behind the store lock used to answer like a clean store,
+    # so the command told people there was nothing to reclaim.
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(list(cmd), 1)
+        return SimpleNamespace(returncode=1, stdout="", stderr="error: unable to lock the database")
+
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/nix-store")
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    estimate = _estimate_nix_store(Path("/repo"))
+
+    assert estimate.available is False
+    assert any("Could not read the Nix store" in detail for detail in estimate.details)
+
+
+def test_estimate_nix_store_says_when_it_could_not_size_every_dead_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Listing the dead paths can succeed while sizing them times out, and the partial
+    # total must not read as the whole of what the collection frees.
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        if "--print-dead" in cmd:
+            return SimpleNamespace(returncode=0, stdout="/nix/store/a\n/nix/store/b\n", stderr="")
+        raise subprocess.TimeoutExpired(list(cmd), 1)
+
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/nix-store")
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    estimate = _estimate_nix_store(Path("/repo"))
+
+    assert estimate.available is True
+    assert any("2 unreachable store path(s), at least" in detail for detail in estimate.details)
+    assert any("could not be measured" in detail for detail in estimate.details)
+
+
+@pytest.mark.parametrize("target", ["home", "home_parent", "root", "repo_root"])
+def test_estimate_sccache_refuses_a_cache_dir_that_holds_more_than_a_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str
+) -> None:
+    # SCCACHE_DIR is the only directory this command rmtree's that an environment
+    # variable names outright, so a value one level too high would erase real work.
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    (home / "documents").mkdir(parents=True)
+    (repo / "posthog").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
+
+    paths = {"home": home, "home_parent": tmp_path, "root": Path(tmp_path.anchor), "repo_root": repo}
+    monkeypatch.setenv("SCCACHE_DIR", str(paths[target]))
+
+    estimate = _estimate_sccache(repo)
+
+    assert estimate.items == []
+    assert estimate.available is False
+
+
+def test_estimate_sccache_accepts_a_directory_of_its_own(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cache = home / ".cache" / "sccache"
+    cache.mkdir(parents=True)
+    (cache / "entry").write_bytes(b"x" * 2048)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", tmp_path / "repo")
+    monkeypatch.setenv("SCCACHE_DIR", str(cache))
+
+    estimate = _estimate_sccache(tmp_path / "repo")
+
+    assert [item.path for item in estimate.items] == [cache]
+    assert estimate.total_size == 2048
+
+
+def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The Flox env points CARGO_TARGET_DIR outside the checkout, so a repo-only
+    # scan reports the Rust artifacts as empty while they hold tens of GB.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared_target = tmp_path / "cargo-target"
+    (shared_target / "debug").mkdir(parents=True)
+    (shared_target / "debug" / "artifact.rlib").write_bytes(b"x" * 4096)
+
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(shared_target))
+
+    items = _collect_rust_target_dirs(repo)
+
+    assert [item.path for item in items] == [shared_target]
+    assert items[0].size == 4096

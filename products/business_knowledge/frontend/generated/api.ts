@@ -13,6 +13,7 @@ import type {
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeGapSuggestionsListParams,
     BusinessKnowledgeSettingsApi,
+    BusinessKnowledgeSourcesDocumentsListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
     CreateTextSourceApi,
@@ -24,6 +25,7 @@ import type {
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     PaginatedKnowledgeGapSuggestionListApi,
+    PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
     PatchedBusinessKnowledgeSettingsUpdateApi,
     PatchedUpdateTextSourceApi,
@@ -377,6 +379,41 @@ export const businessKnowledgeSourcesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getBusinessKnowledgeSourcesDocumentsListUrl = (
+    projectId: string,
+    id: string,
+    params?: BusinessKnowledgeSourcesDocumentsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/sources/${id}/documents/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/sources/${id}/documents/`
+}
+
+export const businessKnowledgeSourcesDocumentsList = async (
+    projectId: string,
+    id: string,
+    params?: BusinessKnowledgeSourcesDocumentsListParams,
+    options?: RequestInit
+): Promise<PaginatedKnowledgeSourceDocumentListApi> => {
+    return apiMutator<PaginatedKnowledgeSourceDocumentListApi>(
+        getBusinessKnowledgeSourcesDocumentsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBusinessKnowledgeSourcesRefreshCreateUrl = (projectId: string, id: string) => {

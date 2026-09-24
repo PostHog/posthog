@@ -109,7 +109,8 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context_key = self.request.GET.get("context_key")
         if context_key:
             queryset = queryset.filter(context_key=context_key)
-        return queryset.order_by("visibility", "-created_at")
+        # created_at is not unique, so it cannot page reliably on its own
+        return queryset.order_by("visibility", "-created_at", "-id")
 
     def handle_exception(self, exc: Exception) -> Response:
         # DRF renders known API errors (NotFound, PermissionDenied, Conflict, …) as clean

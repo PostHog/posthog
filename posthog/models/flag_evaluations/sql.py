@@ -255,7 +255,18 @@ ENGINE = {
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         )
     }
-SETTINGS kafka_skip_broken_messages = 100
+-- The block and batch sizes are an order of magnitude below the precalculated
+-- Kafka tables on this role: each row carries the full event-properties JSON, so
+-- large blocks cost far more memory. The 10s poll timeout is deliberate: it is
+-- in the range the other WarpStream consumers use, not the 1s the precalculated
+-- tables set.
+SETTINGS
+    kafka_max_block_size = 10000,
+    kafka_poll_max_batch_size = 10000,
+    kafka_poll_timeout_ms = 10000,
+    kafka_flush_interval_ms = 7500,
+    kafka_num_consumers = 1,
+    kafka_skip_broken_messages = 100
 """
 )
 

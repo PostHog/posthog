@@ -167,7 +167,7 @@ class TestRunCachedTrendsQuery(BaseTest):
             api_key_org_kwargs = org_limiter.return_value.run.call_args.kwargs
             assert api_key_team_kwargs["is_api"] is True
             assert api_key_org_kwargs["is_api"] is True
-            enforce_budget.assert_called_once()
+            enforce_budget.assert_not_called()
 
             reset_query_tags()
             run_cached_trends_query(

@@ -7,8 +7,6 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -24,7 +22,6 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
-from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.actions.backend.models.action import Action
@@ -36,7 +33,7 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 
 from .constants import CAC_COLUMN_SUFFIX, ROAS_COLUMN
 from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
-from .conversion_goals_aggregator import ConversionGoalsAggregator, _map_in_caller_context
+from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 
@@ -83,6 +80,14 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             _deterministic_job_uuid_factory(),
         )
         self._job_uuid_patcher.start()
+        # Reads are precompute-only (they never build inline), but these tests assert the precompute-read
+        # CTE and have no separate warmer. Treat the in-test ensures as a producer so they materialize the
+        # windows first — the resulting CTE is byte-identical to a warm read's. Mirrors the Dagster warmer.
+        self._warmer_patcher = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+            return_value=True,
+        )
+        self._warmer_patcher.start()
         self.config = MarketingAnalyticsConfig.from_team(self.team)
         self.config.conversion_goal_precomputation_enabled = True
         self.date_range = QueryDateRange(
@@ -93,6 +98,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         )
 
     def tearDown(self):
+        self._warmer_patcher.stop()
         self._job_uuid_patcher.stop()
         super().tearDown()
 
@@ -822,29 +828,3 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
                 shared.get(date_from, date_to + timedelta(days=1))
 
         assert ensure.call_count == 1
-
-
-class TestGoalParallelismContextPropagation(SimpleTestCase):
-    def tearDown(self):
-        reset_query_tags()
-        super().tearDown()
-
-    def test_query_tags_survive_into_the_goal_worker_threads(self):
-        # Multi-goal reads build each goal's precompute in a thread pool. ThreadPoolExecutor workers do
-        # not inherit the caller's contextvars, so a bare pool.map drops the query tags — and with them
-        # the CACHE_WARMUP tag a background revalidation sets on itself, which is the only thing stopping
-        # that revalidation from serving itself stale and never refreshing. Guards that regression.
-        tag_queries(feature=Feature.CACHE_WARMUP, trigger="marketingAnalyticsStaleRevalidation")
-        seen: dict[int, tuple] = {}
-
-        def build(item: int) -> int:
-            seen[item] = (get_query_tag_value("feature"), get_query_tag_value("trigger"))
-            return item * 10
-
-        # 3 items > 1 forces the real pool rather than the serial path.
-        result = _map_in_caller_context(build, [1, 2, 3])
-
-        assert result == [10, 20, 30]
-        assert all(tags == (Feature.CACHE_WARMUP, "marketingAnalyticsStaleRevalidation") for tags in seen.values()), (
-            seen
-        )

@@ -14,12 +14,15 @@ The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
+- At or after **Monday, 2026-09-21 at 17:00 UTC** (18:00 in Europe/London): v3 keeps the v2 identifiers and keys, and stores its objects in the v3 buckets under `rrweb_3/` and the `/v3/` dataset paths. Its metadata catalog and evaluation index are plain Parquet.
 - The ML mirror drops a session if its ID is not UUIDv7 or its start year is beyond 9999.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
 Their replay blocks, images, and metadata use separate storage paths.
 The version applies to the whole session, including a session that crosses the cutoff.
+An image reference carries the dataset version of the session that collected it, so a v3 session's images are v3 whatever their month, and the image lanes never read a session ID.
+The three lanes require `AI_RESEARCH_REPLAY_S3_BUCKET` at startup, because a v3 session or image has no other place to go.
 
 ## Consent
 
@@ -34,33 +37,77 @@ There is no separate consent model, DynamoDB consent entry, consent timestamp, o
 ## Keys and batch processing
 
 The independent DynamoDB table stores session keys, team image keys, deletion markers, and monthly key indexes.
+A team image key is wrapped by KMS.
+A session key is sealed under the team image key of its month, so KMS holds one key per team per month, not one key per session.
+A session key stored before this change carries its own KMS blob, and every reader opens both shapes.
+HKDF-SHA256 makes the key that seals session keys from the stored team image key, which still seals image data itself.
+The `recording_blob_ingestion_v2_ml_key_scheme_total` metric counts session keys by scheme and leaves team image keys out, so v2 reaches zero when no session key predates v3.
 ML outputs omit distinct IDs, including their hashes and pseudonyms.
 The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.
 A team has one image key per session start month.
-KMS wraps each data key with an encryption context that binds the team, the session or month, and the purpose.
+KMS wraps each key it holds with an encryption context that binds the team, the session or month, and the purpose.
+A sealed session key authenticates the same context.
 A team can change organization while a session is open, so the organization is not part of that context; keys wrapped before this change carry the organization they were wrapped under on their row, and the mirror unwraps them under it.
-Payload encryption uses XSalsa20-Poly1305.
+The replay lane that serves playback encrypts a block with XSalsa20-Poly1305, which is a different format: nothing this lane writes uses it.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
 The envelope seals the raw payload with AES-256-GCM.
-Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
-The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64).
+Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace.
+An envelope takes one of two shapes, and where it is stored decides which.
+An object body is a binary frame: the ASCII magic `AISR03`, the length of the additional authenticated data as a 16-bit big-endian integer, those bytes themselves, the 12-byte nonce, then the sealed bytes followed by the 16-byte tag.
+The frame carries those bytes verbatim, so a reader passes them to AES-GCM as they are rather than rebuilding the canonical JSON and risking a re-serialization mismatch.
+A reader must still decode that context and check it equals the object it asked for, because one team month key seals every image object in a flush and the context is the only thing that tells them apart: a reader that skips the check authenticates a shard where it expected an index, or one image's location where it expected another's.
+A reader must also bound the frame before it slices, because the magic and the length sit outside the authenticated data.
+In the v2 dataset, a parquet column holds a value and not an object body, so `metadata` and `replay-index` stay JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64). A reader there knows the shape from the column and inspects no magic bytes.
+The v3 dataset does not seal its metadata or its replay index. Both are plain Parquet columns, described in [Data layout and readers](#data-layout-and-readers).
+The `frame` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one frame with a brotli body, so a reader in another language can check its own bytes. It carries the whole frame and also each part on its own: the additional authenticated data as text, the nonce, the sealed bytes, the tag, the brotli body, and the decompressed data.
+The framed context names a `codec`, which tells a reader how to expand the plaintext.
+An `rrweb` block uses `brotli` at quality 9. Each lane declares its own codec, so this lane never produces snappy. It reads a block rarely and keeps it for months, so it stores fewer bytes instead.
+An image object uses `none`, because an image already arrives compressed.
+A sealed session key row carries `sealed_key` and `key_nonce`, and carries no `wrapped_key`.
+HKDF-SHA256 makes its 32-byte wrapping key from the stored team image key, with an empty salt and the info string `ml-session-key-wrap`.
+AES-256-GCM then seals the session key under that wrapping key.
+`key_nonce` holds the 12-byte nonce, and `sealed_key` holds the sealed bytes followed by the 16-byte tag.
+Its additional authenticated data is the JSON of `{"purpose": "ai-research-session", "team_id": ..., "session_id": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
+The `seal` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one seal, so a reader in another language can check its own bytes.
 
 Ingestion processes key state in batches:
 
-1. Bulk-read session keys, team blocks, and image keys.
+1. Bulk-read session keys and image keys in one pass. A session's start month names its image key, so the batch knows every row before it reads.
 2. Resolve keys in memory while processing the batch.
 3. Write each new key's month index entry, then the key with a conditional put.
-4. Re-read the batch, adopt a competing writer's keys, drop sessions or teams blocked during the batch, then publish replay blocks or image messages.
+4. Adopt the key a competing writer stored, which the refused put returns, then publish replay blocks or image messages.
 
 A conditional put refuses to recreate a shredded session key.
-A team blocked during a batch is dropped by the batch re-read and refused by every reader, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
+A shredded team image key stops its team month for good, and this is the reason the table holds no team block row.
+The shred sets the tombstone and removes the key material in one update.
+A batch that meets a tombstoned image row does not add that month key to its keys, so it never writes the row again, and a conditional put would refuse it in any case because the row exists.
+A session in that month then finds no month key, so the batch mints no session key and stores none, and it counts the session as `month_key_unavailable`.
+Every reader drops the same sessions, because the seal only opens under a month key that no longer exists.
+The deletion worker sweeps the team once, and that sweep removes rows to save cost. A key stored after the sweep passes a shard is sealed under a month key the deletion already tombstoned, so a second sweep finds nothing that is readable.
+A team deletion also closes the previous month, the current one and the next one, because a sweep reaches only an image key that already exists. Ingestion admits a session up to `ML_SESSION_MAX_AGE_DAYS` old, so those three are every month a later session can still open.
+Consent stops collection after that, not deletion: a team that keeps its opt-in and keeps sending opens a later month again.
 Kafka offsets advance only after the required writes and publication succeed.
-Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
-Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
+Bulk reads use batches of at most 100 keys. Each new key is one conditional put, so no commit in the fleet waits on another, and the month index entries it needs go in together, at most 25 to a request.
+Batches overlap, so a session first seen in one batch and also present in the next costs a second conditional put, which loses and settles on the stored key.
+Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys and for a throttled request.
+A retry stops when the caller's deadline expires.
 
-KMS plaintext caches reduce repeated decrypt calls.
-A cache hit does not bypass live key and deletion checks.
+The mirror runs each Kafka batch through three stages that each hold one batch at a time, in batch order: prepare (steps 1 and 2, with session tracking), anonymize (the scrub), and commit (steps 3 and 4, then offset tracking and any flush).
+Neighboring batches overlap across stages, so one batch waits on DynamoDB, KMS, Kafka or S3 while another scrubs.
+The anonymize stage does not admit a batch while an earlier batch is in it.
+The record step writes to the recorder that is current at commit time, not the one that was current when the batch was read from Kafka, so a flush between those two moments does not lose the batch.
+
+Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
+A row with no wrapped key is never held, so a repaired row is seen at once.
+A tombstone is held, because a shred only ever sets one and a conditional put cannot overwrite a row that exists, so a deleted session stops costing a read and a refused write on every batch.
+A session key deleted out of band stays usable in a process that already read it, until that entry expires.
+`ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
+A sealed session key keeps that same bound, because its seal lives on the session row and nothing else holds it.
+The team image key stays cached far longer, but it opens no session on its own.
+A team image key is held for an hour, because it is one row per team per month and a longer lifetime costs far fewer reads. A shred removes the durable key, so a process that runs on a held row of either kind writes data that no reader can open.
+Data written under such a key stays unreadable, because the envelope stores no key, and the stored row is a tombstone with no wrapped key, no seal, and no nonce.
+Training readers do not use this cache.
 Each process limits KMS concurrency and request rate; deployment capacity must account for the sum across replicas.
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
 An expired read must obtain permission again.
@@ -68,7 +115,7 @@ An expired read must obtain permission again.
 The key table has no TTL or point-in-time recovery.
 Its resource policy denies backups, exports, and enabling continuous backups or Kinesis copies.
 Do not copy wrapped keys into object storage, logs, workflow payloads, or another persistent cache.
-Restoring a deleted wrapped key would defeat deletion.
+A restored key defeats deletion, whether KMS wrapped it or a team image key sealed it.
 
 ## Deletion
 
@@ -83,11 +130,11 @@ Consent changes do not enqueue deletion requests.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
 
-| Scope   | Effect                                                                              |
-| ------- | ----------------------------------------------------------------------------------- |
-| Session | Remove its wrapped key and permanently block that session ID.                       |
-| Person  | Resolve its session IDs through replay, then apply session deletion to each result. |
-| Team    | Permanently block the team and remove its session and image keys.                   |
+| Scope   | Effect                                                                                    |
+| ------- | ----------------------------------------------------------------------------------------- |
+| Session | Remove its wrapped key, its seal, and its nonce, then permanently block that session ID.  |
+| Person  | Resolve its session IDs through replay, then apply session deletion to each result.       |
+| Team    | Remove its session keys and its image keys, and close the current month and the next one. |
 
 The person lookup matches any available replay row for the requested IDs, then deduplicates and paginates sessions.
 It does not filter out recordings marked deleted or past their replay retention date while their index rows remain.
@@ -101,8 +148,8 @@ A failed request backs off without blocking unrelated requests.
 Completion follows key removal and the five-minute reader lifetime.
 Scrubbed images remain available after session or person deletion, but become unreadable after team or month deletion.
 
-This mechanism covers encrypted v2 objects.
-It does not erase legacy plaintext objects, previously downloaded data, derived training artifacts, or a trained model.
+This mechanism covers encrypted v2 and v3 objects.
+It does not erase legacy plaintext objects, plain v3 metadata and index rows, previously downloaded data, derived training artifacts, or a trained model.
 Legacy dataset retirement needs a separate storage operation before claiming deletion across the entire bucket.
 
 ## Monthly key deletion
@@ -119,7 +166,7 @@ Neither side reads a shared block item for the month, because every commit in th
 The command uses strongly consistent queries and bounded writes.
 Rerun the command after an interrupted run; it safely repeats completed pages.
 Rerun it once for any month that an earlier version of the command deleted, because readers no longer honor the month block that version wrote.
-Existing read leases expire within five minutes.
+A reader that already cached a key can still use it.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.
 
@@ -138,12 +185,25 @@ A session that crosses a month boundary stays in its start month, including late
 | Inline image indexes | `scrubbed-images/v2/<month>/<team>/index/`                  | Team and session month                   |
 | URL images           | `scrubbed-images/v2/<month>/<team>/url/<hash>`              | Team and session month                   |
 
-Metadata catalogs expose raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
+A v3 session uses the same layout in the v3 buckets: blocks under `rrweb_3/<month>/`, and the metadata catalog, the evaluation index and every image path with `/v3/` in place of `/v2/`.
+The v3 metadata catalog and the v3 evaluation index use no key.
+Some v3 objects under those two paths are sealed, mostly under 2026-09. A sealed object has a `payload` column that holds an encrypted JSON envelope, as in v2.
+A reader checks each object for a `payload` column in every month. See [the structured data index](../../../docs/internal/session-replay-structured-data-index.md#plain-v3-index-and-metadata).
+A reader finds the bucket of a block in its `block_url`, and resolves an `image:v3:` or `imageurl:v3:` reference in the v3 images bucket under the `/v3/` paths.
+
+A v2 metadata catalog exposes raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
 URLs, block locations, and replay indexes are inside that payload.
 Neither the catalog nor its encrypted payload includes a distinct-ID field.
 V2 does not write a separate plaintext replay index.
 
-Athena can select catalog rows but cannot decrypt replay fields.
+A v3 metadata catalog stores each block as plain Parquet columns: raw `team_id` and `session_id`, the block location, timestamps, counts, and the scrubbed `first_url` and `urls`.
+It has no distinct-ID field and no replay index entries.
+The v3 evaluation index stores its entries as plain Parquet columns with raw team and session IDs and the scrubbed URL.
+Deletion does not remove v3 metadata or index rows. The sink reads no session key for a v3 row, so it also writes rows for a session that was deleted after the mirror produced them.
+Those rows hold no personal data, and the recording blocks they point to become unreadable when the session key is shredded and the cached copies of that key expire.
+
+Athena can select v2 catalog rows but cannot decrypt replay fields. It can query every column of a plain v3 object.
+To leave out sealed v3 objects, include a `payload` column in the table and filter on `payload IS NULL`.
 Training readers must bulk-read live keys and deletion markers before decrypting.
 If a download exceeds the key read lifetime, readers must check live eligibility again before decryption.
 Cross-account readers use the full DynamoDB table ARN and the prod-us KMS key ARN.
@@ -159,13 +219,17 @@ Resolve image references before training because they contain team IDs.
 
 ## Images and Kafka
 
-V2 references are `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>`.
+A reference names its dataset version: `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>` for a v2 session, `image:v3:...` and `imageurl:v3:...` for a v3 session. The version is part of the reference, so the fetch frontier and every dedup cache treat a v3 reference as new even when a v2 session already stored the same image, and the v3 dataset gets its own copy.
 Images do not deduplicate across teams or session months.
-Kafka records between the ML lanes travel in cleartext; only objects in S3 are sealed, and stored scrubbed images use team image keys.
+Kafka records between the ML lanes travel in cleartext.
+In S3, recording blocks and images are sealed, and stored scrubbed images use team image keys.
+V2 metadata and the v2 evaluation index are sealed. V3 metadata and the v3 evaluation index are plain Parquet, apart from the sealed v3 objects that [Data layout and readers](#data-layout-and-readers) describes.
 Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
 Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
+The image scrubber hands the images it scrubbed to a write lane every 30 seconds or when its buffer is full, writes them while it scrubs the next batches, and writes the shard groups of one hand-off concurrently.
+The offsets of a hand-off are stored after its writes complete, in hand-off order, so a failed write stops every later store and the pod replays from the last stored offset.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
 Its URL history expires eight days after the end of the session's UTC month.
@@ -178,7 +242,8 @@ Retries and dead-letter replay preserve this header and the record bytes.
 Consumers drop records that still use the sealed envelope shape from before cleartext records, and count them in `recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total`.
 Headerless queued messages mean v1.
 Unknown versions are rejected, and so is an image reference whose version does not match the header.
-The metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted or blocked is dropped.
+For a v2 session, the metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted is dropped.
+A v3 row needs no key, because the sink writes it as plain Parquet.
 
 Legacy image references and paths remain available for v1 sessions.
 Their HMAC key must remain stable while that data is in use.
@@ -188,9 +253,12 @@ Their HMAC key must remain stable while that data is in use.
 New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
 - `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
-- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
+- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound the KMS plaintext cache and KMS traffic.
+- `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours. A value that is not a positive integer stops the consumer at startup and names the setting.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
+- `S3_BUCKET` names the v3 bucket of a lane. A session that started at or after the v3 cutoff writes there, and v2 keeps its own bucket. The mirror and the metadata sink use the recording bucket, which holds AISR03 frames for recording blocks and Parquet for the v3 metadata catalog and evaluation index. The image scrubber uses the images bucket, which holds AISR03 frames. The mirror, the sink and the image scrubber stop at startup when it is empty.
+- `S3_V3_PREFIX` selects the block prefix inside the v3 bucket and defaults to `rrweb_3`. Each dataset version has its own prefix, so a bucket policy grants only the versions it holds.
 
 The v2 producer requires `AI_RESEARCH_REPLAY_KEY_TABLE` and `AI_RESEARCH_REPLAY_KMS_KEY_ARN` at startup.
 Missing values stop startup before it consumes Kafka messages.
@@ -221,9 +289,14 @@ Each Parquet row exposes real `team_id` and `session_id` values and encrypts the
 Session, person, team, and month deletion therefore remove access to the index along with its recording.
 The JSON-LD payload remains in the referenced recording block.
 
+The v3 metadata consumer writes the same three kinds as plain Parquet columns with real team and session IDs.
+Athena can pair v3 labels with snapshots by URL and time. See [the pairing query](../../../docs/internal/session-replay-structured-data-index.md#pairing-labels-with-snapshots).
+Deletion does not remove v3 index rows. It makes the recording blocks that they point to unreadable, as [Data layout and readers](#data-layout-and-readers) describes.
+
 Use the real team ID to exclude all teams present in the model's training data before selecting eval examples.
 The exclusion must cover every training month, not only the eval partition's month.
-Use the encrypted reader for index entries, then fetch selected recording blocks to inspect their JSON-LD payloads.
+For v2, use the encrypted reader for index entries. For v3, read the Parquet columns directly.
+Then fetch selected recording blocks to inspect their JSON-LD payloads.
 Legacy v1 indexes retain their pseudonymized identifiers and daily partitions.
 
 ### Deletion worker isolation

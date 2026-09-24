@@ -258,7 +258,7 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
                         date_from: '-30d',
                     }
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/marketing_analytics/utm_audit`,
+                        `api/projects/${values.currentTeamId}/marketing_analytics/utm_audit`,
                         params
                     )
                     return response as UtmAuditResponse

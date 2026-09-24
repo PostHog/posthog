@@ -4,6 +4,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { lazyLoaders, loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toParams } from 'lib/utils/url'
 import {
     SessionRecordingPlayerLogicProps,
@@ -344,6 +345,12 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        addToPlaylistFailure: ({ error }) => {
+            lemonToast.error(`Failed to add to collection: ${error}`)
+        },
+        removeFromPlaylistFailure: ({ error }) => {
+            lemonToast.error(`Failed to remove from collection: ${error}`)
+        },
         setSearchQuery: () => {
             actions.loadPlaylists()
         },

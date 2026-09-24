@@ -38,13 +38,7 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AvailableFeature,
-    InsightShortId,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, InsightShortId, InsightModel } from '~/types'
 import { InsightType } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
@@ -77,7 +71,7 @@ export const SHARING_MODAL_WIDTH = 640
 export interface SharingModalBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
-    insight?: Partial<QueryBasedInsightModel>
+    insight?: Partial<InsightModel>
     cachedResults?: AnyResponseType
     recordingId?: string
     notebookShortId?: string
@@ -548,7 +542,7 @@ function createRenderQuerySnippet({
 }: {
     renderQueryUrl: string
     iframeId: string
-    cachedResults: AnyResponseType | Partial<QueryBasedInsightModel> | null | undefined
+    cachedResults: AnyResponseType | Partial<InsightModel> | null | undefined
     query: Node | null | undefined
 }): string {
     const preparedResults = prepareCachedResultsForSnippet(cachedResults)
@@ -620,8 +614,8 @@ function indentMultiline(value: string, indent: number): string {
 }
 
 function prepareCachedResultsForSnippet(
-    cachedResults: AnyResponseType | Partial<QueryBasedInsightModel> | null | undefined
-): AnyResponseType | Partial<QueryBasedInsightModel> | null {
+    cachedResults: AnyResponseType | Partial<InsightModel> | null | undefined
+): AnyResponseType | Partial<InsightModel> | null {
     if (!cachedResults) {
         return null
     }
@@ -755,7 +749,7 @@ SharingModal.open = (props: SharingModalBaseProps) => {
  * and unsaved/draft insights (pass the raw query object).
  */
 export function getInsightDefinitionUrl(
-    insight: Pick<QueryBasedInsightModel, 'query'> | { query: Node<Record<string, any>> },
+    insight: Pick<InsightModel, 'query'> | { query: Node<Record<string, any>> },
     baseUrl: string
 ): string {
     if (!insight?.query) {

@@ -35,8 +35,9 @@ from django.apps import apps
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
-from posthog.models.event.sql import INSERT_EVENT_SQL
-from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, INSERT_EVENT_SQL
+from posthog.models.event.util import _json_dumps_for_clickhouse, format_clickhouse_timestamp
 from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_SQL
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
@@ -223,12 +224,13 @@ def _insert_exception_event(
     properties: dict[str, Any],
 ) -> None:
     timestamp_utc = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+    native_schema = use_new_events_schema(team.pk)
     sync_execute(
-        INSERT_EVENT_SQL(),
+        INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE if native_schema else None),
         {
             "uuid": str(uuid.uuid4()),
             "event": "$exception",
-            "properties": json.dumps(properties),
+            "properties": _json_dumps_for_clickhouse(properties) if native_schema else json.dumps(properties),
             "timestamp": timestamp_utc,
             "team_id": team.id,
             "distinct_id": distinct_id,

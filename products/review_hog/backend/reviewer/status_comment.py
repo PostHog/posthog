@@ -31,10 +31,13 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
+    REVIEW_MODE_FULL,
     effective_priority,
+    message_prefix_for_mode,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
 from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
@@ -88,9 +91,7 @@ _THRESHOLD_ATTRIBUTIONS = {
 # Only personal thresholds live in someone's PostHog Review settings; the default variant has no page to point at.
 _PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
 
-# A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
-# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for calming media.
-# Assets are optimized and self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked.
+# A clean review still posts a comment so silence never looks like a failed run.
 _NO_ISSUES_MEDIA = (
     (
         "https://raw.githubusercontent.com/PostHog/pr-assets/"
@@ -106,6 +107,18 @@ _NO_ISSUES_MEDIA = (
         "https://raw.githubusercontent.com/PostHog/pr-assets/"
         "3cf9366a6d40bc591284b00304cb6ecd84164343/2026/07/c755cc49-ef33-4435-87e0-51074f110b19.gif",
         "A panda relaxing and waving",
+    ),
+    (
+        "https://media.tenor.com/v-9wvFB5nBEAAAAC/twin-peaks-dance.gif",
+        "The dancing man in the red room from Twin Peaks",
+    ),
+    (
+        "https://media.tenor.com/6QRLKh0iM1wAAAAC/spoons-salad-fingers.gif",
+        "Salad Fingers holds a rusty spoon",
+    ),
+    (
+        "https://media.tenor.com/C4ta65SucIkAAAAC/dvd.gif",
+        "The DVD logo bounces into a corner of an empty screen",
     ),
 )
 
@@ -147,13 +160,15 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-def render_in_progress_body(report_id: str, progress: dict[str, Any] | None) -> str:
+def render_in_progress_body(
+    report_id: str, progress: dict[str, Any] | None, *, review_mode: str = REVIEW_MODE_FULL
+) -> str:
     """The running-state body: the current step (mirroring the UI), plus a one-line explainer."""
     label = _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS["fetching"]
     done = progress.get("done") if progress else None
     total = progress.get("total") if progress else None
     counter = f" · {done}/{total}" if done is not None and total else ""
-    return "\n".join(
+    return message_prefix_for_mode(review_mode) + "\n".join(
         [
             "### \U0001f994 PostHog Review is reviewing this pull request",
             "",
@@ -179,6 +194,7 @@ def render_final_body(
     review_url: str | None,
     resolved_from: str = "author",
     report_url: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -197,7 +213,7 @@ def render_final_body(
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
         lines.extend(
             [
-                "Nothing worth raising this time, so here's a calming picture instead:",
+                "Nothing worth raising this time. Enjoy the moment:",
                 "",
                 f"![{media_alt}]({media_url})",
             ]
@@ -224,7 +240,7 @@ def render_final_body(
                 sentence += f" [View them in PostHog]({report_url})."
             lines.append(sentence)
     lines.extend(["", status_marker(report_id)])
-    return "\n".join(lines)
+    return message_prefix_for_mode(review_mode) + "\n".join(lines)
 
 
 def render_resolution_progress_section(*, done: int, total: int, fixed: int, left_for_you: int) -> str:
@@ -269,6 +285,28 @@ def render_resolution_failed_section(*, done: int, total: int) -> str:
     )
 
 
+def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: int = 0) -> str:
+    """Why the stage did not commit fixes, so the author knows the open threads are theirs.
+
+    `total` is set only when the run stopped part way.
+    """
+    if hold == CommitHold.STACKED:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: another pull request is now stacked on this branch"
+            if total
+            else "Not resolving comments: other pull requests are stacked on this branch"
+        )
+        why = "A fix commit here would leave the stacked pull requests out of date"
+    else:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"
+            if total
+            else "Not resolving comments: this pull request is submitted to the merge queue"
+        )
+        why = "A fix commit would change what was submitted, or remove it from the queue"
+    return "\n".join([f"**{line}**", "", f"<sub>{why}, so the open threads stay with you.</sub>"])
+
+
 def _splice_resolution_section(body: str, section: str) -> str:
     """Replace (or append) the marker-delimited resolution section within a comment body."""
     block = f"{RESOLUTION_SECTION_START}\n{section}\n{RESOLUTION_SECTION_END}"
@@ -279,8 +317,8 @@ def _splice_resolution_section(body: str, section: str) -> str:
     return f"{body.rstrip()}\n\n{block}" if body.strip() else block
 
 
-def render_failed_body(report_id: str) -> str:
-    return "\n".join(
+def render_failed_body(report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> str:
+    return message_prefix_for_mode(review_mode) + "\n".join(
         [
             "### \U0001f994 PostHog Review couldn't finish this review",
             "",
@@ -380,7 +418,7 @@ def _split_repository(repository: str) -> tuple[str, str]:
     return owner, repo
 
 
-def ensure_status_comment(team_id: int, report_id: str) -> None:
+def ensure_status_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> None:
     """Post (or reset) the report's status comment at run kickoff and remember its id.
 
     Reuses the previous turn's comment when one exists — by the stored id, falling back to a marker
@@ -397,7 +435,7 @@ def ensure_status_comment(team_id: int, report_id: str) -> None:
         token, installation_id = auth
         owner, repo = _split_repository(report.repository)
         marker = status_marker(report_id)
-        body = render_in_progress_body(report_id, None)
+        body = render_in_progress_body(report_id, None, review_mode=review_mode)
 
         comment_id = report.status_comment_id
         if comment_id is None:
@@ -422,7 +460,7 @@ def ensure_status_comment(team_id: int, report_id: str) -> None:
         logger.exception("Could not post the ReviewHog status comment; the review continues without it")
 
 
-def maybe_refresh_status_comment(team_id: int, report_id: str) -> None:
+def maybe_refresh_status_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> None:
     """Refresh the status comment with the turn's current stage, at most once per interval.
 
     Called after pipeline activities persist progress artefacts. The debounce is an atomic claim on
@@ -462,7 +500,7 @@ def maybe_refresh_status_comment(team_id: int, report_id: str) -> None:
             owner,
             repo,
             report.status_comment_id,
-            render_in_progress_body(report_id, progress),
+            render_in_progress_body(report_id, progress, review_mode=review_mode),
             token=token,
             installation_id=installation_id,
         )
@@ -481,6 +519,7 @@ class FinalizeStatusCommentInput:
     # Whose threshold gated the run ("author" / "override" / "default", from the resolve snapshot) —
     # the held-back sentence must blame the right settings. Defaulted so pre-field payloads deserialize.
     resolved_from: str = "author"
+    review_mode: str = REVIEW_MODE_FULL
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -507,19 +546,20 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             review_url=input.review_url,
             resolved_from=input.resolved_from,
             report_url=report_deep_link(input.team_id, input.report_id),
+            review_mode=input.review_mode,
         )
         _edit_and_stamp(input.team_id, report, body)
     except Exception:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 
 
-def fail_status_comment(team_id: int, report_id: str) -> None:
+def fail_status_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> None:
     """Rewrite the status comment as failed, so a dead run never reads as forever in progress."""
     try:
         report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
-        _edit_and_stamp(team_id, report, render_failed_body(report_id))
+        _edit_and_stamp(team_id, report, render_failed_body(report_id, review_mode=review_mode))
     except Exception:
         logger.exception("Could not mark the ReviewHog status comment as failed")
 

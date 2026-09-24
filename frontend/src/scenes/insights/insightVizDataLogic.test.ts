@@ -24,7 +24,6 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
-    InsightType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -913,9 +912,6 @@ describe('insightVizDataLogic', () => {
     describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.FUNNELS,
-                },
                 result: funnelResult.result,
             }
 
@@ -949,6 +945,27 @@ describe('insightVizDataLogic', () => {
                     query_status: { id: 'cache_1_abc', complete: false },
                 } as Record<string, any>)
             }).toMatchValues({ hasRenderableResults: false })
+        })
+
+        it.each([
+            ['blocks time series rows under a donut chart', ChartDisplayType.ActionsDonut, { data: [1, 2, 3] }, false],
+            [
+                'renders total value rows under a donut chart',
+                ChartDisplayType.ActionsDonut,
+                { aggregated_value: 6 },
+                true,
+            ],
+            ['renders time series rows under a scatter plot', ChartDisplayType.ScatterPlot, { data: [1, 2, 3] }, true],
+            [
+                'renders time series rows under a two dimensional heatmap',
+                ChartDisplayType.TwoDimensionalHeatmap,
+                { data: [1, 2, 3] },
+                true,
+            ],
+        ])('%s', (_, display, row, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ ...trendsQueryDefault, trendsFilter: { display } })
+            builtInsightDataLogic.actions.loadDataSuccess({ results: [row] })
+            expect(builtInsightVizDataLogic.values.hasRenderableResults).toBe(expected)
         })
     })
 

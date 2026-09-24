@@ -52,6 +52,7 @@ import {
     type TracingFilters,
     type TracingOrderBy,
     TRACING_SCENE_VIEWER_ID,
+    dataScopeKey,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { OverlayWindow, TimeComparison, TracingOrderDirection, TracingViewMode } from './tracingFiltersLogic'
@@ -131,7 +132,7 @@ export interface tracingDataLogicValues {
     timeComparison: TimeComparison | null // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     aggregation: {
         current: AggregatedSpanRow[]
@@ -219,8 +220,12 @@ export interface tracingDataLogicActions {
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
+    ) => {
         dateRange: DateRange
+        source: import('./sparklineSelection').TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -1082,6 +1087,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // The Operations table sorts/filters the full result set client-side, so
                             // request the endpoint's hard cap rather than its small default page.
                             limit: OPERATIONS_AGGREGATION_LIMIT,
+                            // Only the Operations table renders the Sessions and Users columns, and
+                            // the aggregates read attribute maps the rest of the query never touches.
+                            includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
                         },
                         controller.signal
                     )
@@ -1103,12 +1111,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // filters) AND the view mode — but not on sort or compare. Skip the re-fetch (and
                     // its spinner overlay) only when a sort/compare toggle re-runs the query without
                     // changing scope or view mode.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                        values.filters.viewMode,
-                    ])
+                    const scopeKey = JSON.stringify([dataScopeKey(values), values.filters.viewMode])
                     if (scopeKey === cache.sparklineScope) {
                         return values.rawSparklineData
                     }
@@ -1142,11 +1145,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // response, and the label selects which to show. So a Traces/Spans (or sort/compare)
                     // toggle that re-runs the query must not re-hit the endpoint; only the data scope
                     // (date range, services, filters) changes the result. Skip the fetch when unchanged.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                    ])
+                    const scopeKey = dataScopeKey(values)
                     if (scopeKey === cache.matchingCountsScope) {
                         return values.matchingCounts
                     }
@@ -1178,12 +1177,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // Same scope semantics as the sparkline: the heatmap depends on the data scope
                     // and the view mode (root spans vs every span), but not on sort or compare.
                     // Skip the re-fetch when a sort toggle re-runs the query without changing scope.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                        values.filters.viewMode,
-                    ])
+                    const scopeKey = JSON.stringify([dataScopeKey(values), values.filters.viewMode])
                     if (scopeKey === cache.latencyHeatmapScope) {
                         return values.rawLatencyHeatmap
                     }
@@ -1398,7 +1392,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.runQuery()
         },
-        setDateRange: () => actions.handleFilterChange('date_range'),
+        setDateRange: ({ source }) => actions.handleFilterChange('date_range', source ? { source } : undefined),
         setServiceNames: () => actions.handleFilterChange('service_names'),
         // skipQuery: the trace drawer's attribute buttons update the filter chips immediately but
         // queue the actual re-query for when the drawer closes — see refreshDeferredFilters.

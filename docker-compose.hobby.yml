@@ -109,6 +109,7 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED: ${HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:-false}
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -432,6 +433,8 @@ services:
         logging: *default-logging
         environment:
             TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            LOG_LEVEL: warn
+            DEBUG: '-*'
 
     asyncmigrationscheck:
         extends:
@@ -496,6 +499,7 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED: ${HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:-false}
             # This worker runs the recording deletion Temporal activities, which call
             # recording-api. Without these two the calls go out unauthenticated and
             # recording-api rejects them with a 401.
@@ -557,6 +561,22 @@ services:
             file: docker-compose.base.yml
             service: property-defs-rs
         logging: *default-logging
+        depends_on:
+            kafka-init:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
+
+    property-defs-ai:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        logging: *default-logging
+        environment:
+            KAFKA_CONSUMER_TOPIC: clickhouse_ai_events_json
+            KAFKA_CONSUMER_GROUP: property-defs-ai
         depends_on:
             kafka-init:
                 condition: service_completed_successfully

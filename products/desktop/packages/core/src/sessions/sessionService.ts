@@ -32,13 +32,13 @@ import {
   getCloudUrlFromRegion,
   getConfigOptionByCategory,
   getReasoningEffortOptions,
+  isAnthropicModelId,
   isFatalSessionError,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
   isPersistedOptionSupported,
   isRateLimitError,
-  isTranscriptNeutralNotificationMethod,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
   leadingSlashCommand,
@@ -55,6 +55,7 @@ import {
   type TaskRunArtifact,
   type TaskRunStatus,
   TRANSCRIPT_TAIL_WINDOW,
+  TranscriptBoundaries,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
@@ -69,12 +70,17 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
+import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import type {
   AgentSessionNotification,
   AgentSessionNotificationTrigger,
 } from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
+import {
+  harnessForModelValue,
+  isValidConfigValue,
+} from "../task-detail/configOptions";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   FAST_MODE_OPTION_CATEGORY,
@@ -91,6 +97,11 @@ import type {
 } from "./cloudArtifactIdentifiers";
 import { classifyCloudLogAppend } from "./cloudLogGap";
 import { CloudLogGapReconciler } from "./cloudLogGapReconciler";
+import {
+  type CloudModelAccess,
+  cloudAccessFor,
+  cloudModelAccessFromState,
+} from "./cloudModelAccess";
 import { CloudRunIdleTracker } from "./cloudRunIdleTracker";
 import {
   type CloudRuntimeOptions,
@@ -101,6 +112,7 @@ import {
 import {
   addMissingCloudRuntimeConfigOptions,
   buildCloudDefaultConfigOptions,
+  buildCloudResumeConfigOptions,
   extractLatestConfigOptionsFromEntries,
 } from "./cloudSessionConfig";
 import {
@@ -130,6 +142,7 @@ import {
   normalizePromptToBlocks,
   promptReferencesAbsoluteFolder,
   selectEchoedOptimisticItemIds,
+  selectEchoedOptimisticItemIdsAfterRebuild,
   selectUnseededPendingFollowups,
   shellExecutesToContextBlocks,
 } from "./sessionEvents";
@@ -520,6 +533,8 @@ export interface SessionServiceDeps {
     claudeModelAccess?: ModelAccess;
     claudeCloudSubscriptionOn?: boolean;
     claudeCloudSubscriptionEnabled?: boolean;
+    codexCloudSubscriptionOn?: boolean;
+    codexCloudSubscriptionEnabled?: boolean;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -1498,14 +1513,6 @@ function isSessionPromptEvent(event: AcpMessage): boolean {
   );
 }
 
-/** Matches SessionLogWriter, which keeps one chunk buffer across these. */
-function isTranscriptNeutralEvent(event: AcpMessage): boolean {
-  return (
-    isJsonRpcNotification(event.message) &&
-    isTranscriptNeutralNotificationMethod(event.message.method)
-  );
-}
-
 function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
@@ -1522,9 +1529,13 @@ function discardChunksSupersededByHydratedMessages(
     messageIndex: 0,
     chunkRunActive: false,
   };
+  // Every line goes through the tracker in arrival order, the way the writer
+  // feeds it, so the two agree on which responses answer a control call.
+  const hydratedBoundaries = new TranscriptBoundaries();
   for (const event of hydratedTurn.events) {
+    const neutral = hydratedBoundaries.isNeutral(event.message);
     if (isSessionPromptEvent(event)) continue;
-    if (isTranscriptNeutralEvent(event)) continue;
+    if (neutral) continue;
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
@@ -1550,6 +1561,7 @@ function discardChunksSupersededByHydratedMessages(
     chunkRunActive: false,
   };
   let discardChunkRun = false;
+  const liveBoundaries = new TranscriptBoundaries();
   const events: AcpMessage[] = [];
   const eventHashes: number[] = [];
   for (
@@ -1558,10 +1570,11 @@ function discardChunksSupersededByHydratedMessages(
     eventIndex += 1
   ) {
     const event = liveTurn.events[eventIndex];
+    const neutral = liveBoundaries.isNeutral(event.message);
     let keep = true;
     if (isSessionPromptEvent(event)) {
       discardChunkRun = false;
-    } else if (isTranscriptNeutralEvent(event)) {
+    } else if (neutral) {
       // The writer's chunk buffer stays open across these, so the live
       // position must not advance either.
     } else {
@@ -1763,6 +1776,11 @@ export function classifyTurnEventKind(
 
 export class SessionService {
   private connectingTasks = new Map<string, Promise<void>>();
+  private connectingToastTimers = new Map<
+    string,
+    { startedAt: number; timer: ReturnType<typeof setTimeout> }
+  >();
+  private shownConnectingToastSessions = new Map<string, number>();
   private reconcilingTasks = new Set<string>();
   private reconcileSkipLogged = new Set<string>();
   private taskCreationMarks = new Map<string, number>();
@@ -2249,6 +2267,11 @@ export class SessionService {
     }
 
     if (previous) {
+      // A fast-painted connecting session can be replaced before reconnect finishes.
+      // Keep its timestamp so the delayed notice stays attached to this attempt.
+      if (previous.status === "connecting") {
+        session.startedAt = previous.startedAt;
+      }
       session.optimisticItems = previous.optimisticItems;
       session.messageQueue = previous.messageQueue;
       // Keep the in-place edit hold with the queue it guards: dropping it here
@@ -2420,6 +2443,7 @@ export class SessionService {
             ),
           );
         }
+        this.flushQueuedMessagesIfIdle(taskId);
         return true;
       } else {
         this.d.log.warn("Reconnect returned null", { taskId, taskRunId });
@@ -3311,6 +3335,11 @@ export class SessionService {
     }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
+    for (const { timer } of this.connectingToastTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.connectingToastTimers.clear();
+    this.shownConnectingToastSessions.clear();
     this.evictedRunIds.clear();
     this.residentBackgroundRunIds.clear();
     this.connectingTasks.clear();
@@ -4030,6 +4059,7 @@ export class SessionService {
   private handleCloudPermissionRequest(
     taskRunId: string,
     update: DerivedPermissionRequest,
+    { isLive = false }: { isLive?: boolean } = {},
   ): void {
     this.d.log.info("Cloud permission request received", {
       taskRunId,
@@ -4080,7 +4110,10 @@ export class SessionService {
     });
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
-    this.d.taskViewedApi.markActivity(session.taskId);
+    // A replayed request is history the reader just opened, not new activity.
+    if (isLive) {
+      this.d.taskViewedApi.markActivity(session.taskId);
+    }
     this.notifyNeedsInput(taskRunId, session, "cloud_permission_request");
   }
 
@@ -4228,9 +4261,15 @@ export class SessionService {
         );
       }
       if (session.status === "connecting") {
-        throw new Error(
-          "Session is still connecting. Please wait and try again.",
-        );
+        const promptText = extractPromptText(prompt);
+        this.d.store.enqueueMessage(taskId, promptText, prompt);
+        this.scheduleConnectingToast(session.taskId, session.startedAt);
+        this.d.log.info("Message queued", {
+          taskId,
+          queueLength: session.messageQueue.length + 1,
+          reason: "connecting",
+        });
+        return { stopReason: "queued" };
       }
       throw new Error(`Session is not ready (status: ${session.status})`);
     }
@@ -4297,6 +4336,40 @@ export class SessionService {
 
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
+    });
+  }
+
+  private scheduleConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+
+    const existing = this.connectingToastTimers.get(taskId);
+    if (existing?.startedAt === startedAt) return;
+    if (existing) clearTimeout(existing.timer);
+
+    const delay = Math.max(0, startedAt + 20_000 - Date.now());
+    if (delay === 0) {
+      this.showConnectingToast(taskId, startedAt);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.connectingToastTimers.delete(taskId);
+      const session = this.d.store.getSessionByTaskId(taskId);
+      if (session?.status !== "connecting") return;
+      // A resume repaints the session and gives the replacement a fresh
+      // `startedAt`, so the session connecting now is rarely the one this timer
+      // was armed against. Follow that session and wait out the rest of its own
+      // delay, rather than dropping the notice the wait was measured for.
+      this.scheduleConnectingToast(taskId, session.startedAt);
+    }, delay);
+    this.connectingToastTimers.set(taskId, { startedAt, timer });
+  }
+
+  private showConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+    this.shownConnectingToastSessions.set(taskId, startedAt);
+    this.d.toast.error("Session is still connecting.", {
+      id: `session-connecting-${taskId}-${startedAt}`,
     });
   }
 
@@ -5158,6 +5231,32 @@ export class SessionService {
     }
   }
 
+  async retryGithubRequiredCloudRun(
+    taskId: string,
+    prompt: string,
+  ): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud || session.cloudStatus !== "failed") {
+      throw new Error("This task is not waiting for a GitHub connection");
+    }
+    // Reopening a failed task settles its status but not its reason, so the
+    // cached message is empty on the journey this recovery exists for: the
+    // user leaves while an owner approves access, then comes back.
+    let errorMessage = session.cloudErrorMessage;
+    if (!errorMessage) {
+      await this.refreshCloudRunStatus(session);
+      errorMessage =
+        this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
+    }
+    if (!isGithubConnectionRequiredError(errorMessage)) {
+      throw new Error("This task is not waiting for a GitHub connection");
+    }
+    await this.resumeCloudRun(
+      this.d.store.getSessionByTaskId(taskId) ?? session,
+      prompt,
+    );
+  }
+
   /**
    * Dispatches all currently queued cloud messages as a single combined
    * prompt. Drains the queue up-front and rolls it back on failure so the
@@ -5369,7 +5468,8 @@ export class SessionService {
       });
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
-      if (previousState.claude_model_access === "own-subscription") {
+      const previousAccess = cloudModelAccessFromState(previousState);
+      if (previousAccess.kind === "own-subscription") {
         if (session.isTaskAuthor === false) {
           const task = await authCredentials.client.getTask(session.taskId);
           if (task.channel) {
@@ -5378,7 +5478,10 @@ export class SessionService {
             );
           }
         }
-        await this.resolveClaudeCloudModelAccess("own-subscription");
+        await this.resolveCloudModelAccess(
+          previousAccess.adapter,
+          "own-subscription",
+        );
       }
       const artifactIds = await this.d.h.uploadTaskStagedAttachments(
         authCredentials.client,
@@ -5399,10 +5502,8 @@ export class SessionService {
             reasoningLevel: runtimeOptions.reasoningLevel,
             initialPermissionMode: runtimeOptions.initialPermissionMode,
             resumeFromRunId: session.taskRunId,
-            claudeModelAccess:
-              previousState.claude_model_access === "own-subscription"
-                ? "own-subscription"
-                : undefined,
+            claudeModelAccess: cloudAccessFor(previousAccess, "claude"),
+            codexModelAccess: cloudAccessFor(previousAccess, "codex"),
             pendingUserMessage: transport.messageText,
             pendingUserArtifactIds:
               artifactIds.length > 0 ? artifactIds : undefined,
@@ -5417,7 +5518,8 @@ export class SessionService {
           },
         );
         if (
-          previousState.claude_model_access === "own-subscription" &&
+          previousAccess.kind === "own-subscription" &&
+          previousAccess.adapter === "claude" &&
           updatedTask.latest_run?.id
         ) {
           try {
@@ -6075,6 +6177,37 @@ export class SessionService {
       return true;
     }
 
+    if (session.isCloud && isTerminalStatus(session.cloudStatus)) {
+      if (session.isPromptPending) return false;
+      const option = configOptions[optionIndex];
+      if (!isValidConfigValue(option, value)) return false;
+      if (
+        option.category === "model" &&
+        session.claudeModelAccess === "own-subscription" &&
+        !isAnthropicModelId(value)
+      )
+        return false;
+
+      let nextOptions = configOptions.map((opt) =>
+        opt.id === configId && opt.type === "select"
+          ? { ...opt, currentValue: value }
+          : opt,
+      );
+      if (option.category === "model") {
+        nextOptions = buildCloudResumeConfigOptions(
+          nextOptions,
+          harnessForModelValue(option, value) ?? session.adapter ?? "claude",
+          value,
+        );
+      }
+      // The next prompt starts a new run. The old sandbox can no longer accept settings.
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: nextOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, nextOptions);
+      return true;
+    }
+
     // Optimistic update
     const updatedOptions = configOptions.map((opt) =>
       opt.id === configId
@@ -6410,13 +6543,18 @@ export class SessionService {
     adapter: Adapter,
     initialModel?: string,
     initialReasoningEffort?: string,
+    allHarnessModels = false,
   ): Promise<void> {
-    const cacheKey = `${apiHost}::${adapter}`;
+    const cacheKey = `${apiHost}::${adapter}::${allHarnessModels}`;
     let entry = this.previewConfigOptionsCache.get(cacheKey);
     if (!entry || Date.now() - entry.fetchedAt > 300_000) {
       if (entry) this.previewConfigOptionsCache.delete(cacheKey);
       const promise = this.d.trpc.agent.getPreviewConfigOptions
-        .query({ apiHost, adapter })
+        .query({
+          apiHost,
+          adapter,
+          ...(allHarnessModels ? { allHarnessModels: true } : {}),
+        })
         .catch((err: unknown) => {
           this.d.log.warn(
             "Failed to fetch preview config options for cloud session",
@@ -6440,6 +6578,21 @@ export class SessionService {
     const previewOptions = await entry.promise;
     const session = this.d.store.getSessions()[taskRunId];
     if (!session || session.adapter !== adapter) return;
+    if (!allHarnessModels && isTerminalStatus(session.cloudStatus)) {
+      return this.fetchAndApplyCloudPreviewOptions(
+        taskRunId,
+        apiHost,
+        adapter,
+        initialModel,
+        initialReasoningEffort,
+        true,
+      );
+    }
+    if (
+      allHarnessModels &&
+      (!isTerminalStatus(session.cloudStatus) || session.isPromptPending)
+    )
+      return;
 
     const existingOptions = session.configOptions ?? [];
     const existingModelOption = getConfigOptionByCategory(
@@ -6542,16 +6695,48 @@ export class SessionService {
     if (preferredModel && modelEffortOptions === null) {
       previewCategories.add("thought_level");
     }
-    const merged = [
+    let merged = [
       ...existingOptions.filter(
         (option) => !previewCategories.has(option.category),
       ),
       ...extras,
     ];
+    if (allHarnessModels && preferredModel) {
+      merged = buildCloudResumeConfigOptions(
+        merged,
+        harnessForModelValue(
+          getConfigOptionByCategory(merged, "model"),
+          preferredModel,
+        ) ?? adapter,
+        preferredModel,
+      );
+    }
 
     if (JSON.stringify(existingOptions) === JSON.stringify(merged)) return;
 
     this.d.store.updateSession(taskRunId, { configOptions: merged });
+  }
+
+  async prepareCloudResume(taskId: string): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud || !isTerminalStatus(session.cloudStatus)) return;
+    try {
+      const auth = await this.getCloudCommandAuth();
+      if (!auth) return;
+      await this.fetchAndApplyCloudPreviewOptions(
+        session.taskRunId,
+        auth.apiHost,
+        session.adapter ?? "claude",
+        undefined,
+        undefined,
+        true,
+      );
+    } catch (error) {
+      this.d.log.warn("Failed to load models for cloud continuation", {
+        taskId,
+        error,
+      });
+    }
   }
 
   /**
@@ -6578,27 +6763,46 @@ export class SessionService {
     });
   }
 
-  async resolveClaudeCloudModelAccess(
+  async resolveCloudModelAccess(
+    adapter: Adapter,
     requested?: ModelAccess,
-  ): Promise<ModelAccess> {
+  ): Promise<CloudModelAccess> {
     const access =
       requested ??
-      (this.d.settings.claudeCloudSubscriptionOn
+      (this.d.settings[`${adapter}CloudSubscriptionOn`]
         ? "own-subscription"
         : "posthog-gateway");
-    if (access === "own-subscription") {
-      if (!this.d.settings.claudeCloudSubscriptionEnabled) {
-        throw new Error(
-          "Claude plan billing is unavailable for cloud tasks. Try again later.",
-        );
-      }
+    if (access === "posthog-gateway") return { kind: access };
+    if (!this.d.settings[`${adapter}CloudSubscriptionEnabled`]) {
+      const plan = adapter === "claude" ? "Claude" : "ChatGPT";
+      throw new Error(
+        `${plan} plan billing is unavailable for cloud tasks. Try again later.`,
+      );
+    }
+    if (adapter === "claude") {
       if (!(await this.d.trpc.claudeSubscriptionToken.has.query())) {
         throw new Error(
           "Save a Claude token in Settings > Harness before you start or resume this task.",
         );
       }
+    } else {
+      const authStatus = await this.getAuthCredentialsStatus();
+      if (authStatus.kind !== "ready")
+        throw new Error("Authentication required for cloud commands");
+      const integration =
+        await authStatus.auth.client.getCodexUserIntegration();
+      if (integration.status === "reauth_required") {
+        throw new Error(
+          "Your ChatGPT account needs a new login. Connect it again in Settings > Harness before you start or resume this task.",
+        );
+      }
+      if (integration.status !== "connected") {
+        throw new Error(
+          "Connect your ChatGPT account in Settings > Harness before you start or resume this task.",
+        );
+      }
     }
-    return access;
+    return { kind: access, adapter };
   }
 
   async designateClaudeSubscription(
@@ -6636,13 +6840,19 @@ export class SessionService {
     ) {
       this.d.store.setTaskStarting?.(taskId, taskRunId);
     }
-    const claudeModelAccess =
-      runState?.claude_model_access === "own-subscription" ||
-      runState?.claude_model_access === "posthog-gateway"
-        ? runState.claude_model_access
+    const modelAccessOf = (value: unknown): ModelAccess | undefined =>
+      value === "own-subscription" || value === "posthog-gateway"
+        ? value
         : undefined;
-    if (claudeModelAccess && watchedSession?.taskRunId === taskRunId) {
-      this.d.store.updateSession(taskRunId, { claudeModelAccess });
+    const claudeModelAccess = modelAccessOf(runState?.claude_model_access);
+    const codexModelAccess = modelAccessOf(runState?.codex_model_access);
+    if (watchedSession?.taskRunId === taskRunId) {
+      if (claudeModelAccess) {
+        this.d.store.updateSession(taskRunId, { claudeModelAccess });
+      }
+      if (codexModelAccess) {
+        this.d.store.updateSession(taskRunId, { codexModelAccess });
+      }
     }
     const persistedConfigOptions = this.d.getPersistedConfigOptions(taskRunId);
     const persistedAdapter = this.d.adapterStore.getAdapter(taskRunId);
@@ -6929,9 +7139,10 @@ export class SessionService {
           cloudTranscriptEntryCount: update.totalEntryCount,
         });
       }
-      const watcher = this.cloudTaskWatchers.get(taskId);
-      const resumeHistoryCountOffset =
-        watcher?.runId === runId ? (watcher.resumeHistoryCountOffset ?? 0) : 0;
+      const resumeHistoryCountOffset = this.resumeHistoryCountOffsetFor(
+        taskId,
+        runId,
+      );
       let normalizedUpdate: CloudTaskUpdatePayload = update;
       if (
         resumeHistoryCountOffset > 0 &&
@@ -6946,8 +7157,9 @@ export class SessionService {
         };
         // The offset makes the count leaf-relative while windowStart stays
         // chain-relative; a windowed commit would mix the two units, so gaps
-        // on resume watchers keep falling back to the reconciler.
-        if (normalizedUpdate.kind === "snapshot") {
+        // on resume watchers keep falling back to the reconciler. A rebuilt
+        // snapshot commits each unit separately, so it keeps its window.
+        if (normalizedUpdate.kind === "snapshot" && !normalizedUpdate.rebuilt) {
           normalizedUpdate.windowStart = undefined;
         }
       }
@@ -8652,7 +8864,7 @@ export class SessionService {
     }
 
     if (update.kind === "permission_request") {
-      this.handleCloudPermissionRequest(taskRunId, update);
+      this.handleCloudPermissionRequest(taskRunId, update, { isLive: true });
       return;
     }
 
@@ -8678,13 +8890,24 @@ export class SessionService {
       const session = this.d.store.getSessions()[taskRunId];
       const currentCount = session?.processedLineCount ?? 0;
       const expectedCount = update.totalEntryCount;
-      const plan = classifyCloudLogAppend(
-        currentCount,
-        expectedCount,
-        update.newEntries.length,
-      );
+      const plan =
+        update.kind === "snapshot" && update.rebuilt
+          ? ({ kind: "rebuild" } as const)
+          : classifyCloudLogAppend(
+              currentCount,
+              expectedCount,
+              update.newEntries.length,
+            );
 
-      if (plan.kind === "caught-up") {
+      if (plan.kind === "rebuild" && update.kind === "snapshot") {
+        this.commitWindowedCloudSnapshot(
+          taskRunId,
+          update.newEntries,
+          update.windowStart ?? 0,
+          expectedCount,
+          this.resumeHistoryCountOffsetFor(update.taskId, update.runId),
+        );
+      } else if (plan.kind === "caught-up") {
         // Already caught up — skip duplicate entries
       } else if (plan.kind === "append-tail") {
         this.appendCloudTailEvents(
@@ -8709,6 +8932,8 @@ export class SessionService {
           taskRunId,
           update.newEntries,
           update.windowStart,
+          undefined,
+          this.resumeHistoryCountOffsetFor(update.taskId, update.runId),
         );
       } else {
         if (update.kind === "logs" && session) {
@@ -8785,18 +9010,43 @@ export class SessionService {
         if (entry.type !== "notification") continue;
         const notification = entry.notification as {
           method?: string;
-          params?: { initializationPhase?: string; message?: string };
+          params?: {
+            initializationPhase?: string;
+            message?: string;
+            reason?: string;
+          };
         };
         if (
-          notification.method === POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED &&
-          notification.params?.initializationPhase === "credential_relay"
+          notification.method !== POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED
         ) {
+          continue;
+        }
+        if (notification.params?.initializationPhase === "credential_relay") {
           this.d.store.updateSession(taskRunId, {
             status: "error",
             errorTitle: "Claude token unavailable",
             errorMessage:
               "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
             errorRetryable: false,
+            isPromptPending: false,
+          });
+        } else if (
+          notification.params?.initializationPhase === "subscription_token"
+        ) {
+          // OpenAI outages and network failures pass; only a dead login or a run that lost its
+          // grant needs the user to reconnect.
+          const transient =
+            notification.params?.reason === "openai_unavailable" ||
+            notification.params?.reason === "request_failed";
+          this.d.store.updateSession(taskRunId, {
+            status: "error",
+            errorTitle: transient
+              ? "ChatGPT token request failed"
+              : "ChatGPT account unavailable",
+            errorMessage: transient
+              ? "PostHog could not get a ChatGPT token for this run. Start the task again in a few minutes."
+              : "Connect your ChatGPT account again in Settings > Harness. Then start the task again.",
+            errorRetryable: transient,
             isPromptPending: false,
           });
         }
@@ -9222,6 +9472,24 @@ export class SessionService {
     }
   }
 
+  private clearEchoedOptimisticItemsAfterRebuild(
+    taskRunId: string,
+    events: AcpMessage[],
+    firstEntryIndex: number,
+  ): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session?.optimisticItems.length) return;
+    const echoed = selectEchoedOptimisticItemIdsAfterRebuild(
+      session.optimisticItems,
+      events,
+      session.events,
+      { taskRunId, firstEntryIndex },
+    );
+    if (echoed.length > 0) {
+      this.d.store.removeOptimisticItems(taskRunId, echoed);
+    }
+  }
+
   private appendCloudTailEvents(
     taskRunId: string,
     entries: StoredLogEntry[],
@@ -9296,16 +9564,31 @@ export class SessionService {
     this.updatePromptStateFromEvents(taskRunId, events);
   }
 
+  private resumeHistoryCountOffsetFor(taskId: string, runId: string): number {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    return watcher?.runId === runId
+      ? (watcher.resumeHistoryCountOffset ?? 0)
+      : 0;
+  }
+
   private commitWindowedCloudSnapshot(
     taskRunId: string,
     entries: StoredLogEntry[],
     windowStart: number,
+    processedLineCount?: number,
+    ancestorEntryCount = 0,
   ): void {
+    const startEntryIndex = Math.max(0, windowStart - ancestorEntryCount);
     const events = convertStoredEntriesToEvents(entries, undefined, {
       taskRunId,
-      startEntryIndex: windowStart,
+      startEntryIndex,
+      firstPositionedEntryIndex: Math.max(0, ancestorEntryCount - windowStart),
     });
-    this.clearEchoedTailOptimisticItems(taskRunId, events);
+    this.clearEchoedOptimisticItemsAfterRebuild(
+      taskRunId,
+      events,
+      startEntryIndex,
+    );
     this.cloudRunIdleTracker.delete(taskRunId);
     // Moving the window start also trips loadOlderCloudTranscript's
     // stale-window guard if a prepend was in flight, instead of duplicating
@@ -9313,7 +9596,7 @@ export class SessionService {
     this.d.store.updateSession(taskRunId, {
       events,
       isCloud: true,
-      processedLineCount: windowStart + entries.length,
+      processedLineCount: processedLineCount ?? windowStart + entries.length,
       transcriptWindowStart: windowStart,
     });
     this.updatePromptStateFromEvents(taskRunId, events);

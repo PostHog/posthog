@@ -12,7 +12,7 @@ from parameterized import parameterized
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.facade.models import Insight
@@ -406,6 +406,158 @@ class TestUpsertAlertTool(BaseTest):
         assert "limit of 1 real-time alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
 
+    @parameterized.expand([("disabled", False), ("concurrently_disabled", True)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    async def test_update_rejects_enabling_an_ai_alert_over_the_team_cap(self, _name, stale_enabled, _flag):
+        # Max is a second writer of alerts, so it must apply the same AI-alert cap as the API.
+        insight = await self._create_insight()
+        llm_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        active = await self._create_alert(insight, name="Active")
+        disabled = await self._create_alert(insight, name="Disabled", enabled=stale_enabled, lower_threshold=100.0)
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id__in=[active.id, disabled.id]).update)(
+            detector_config=llm_config
+        )
+        tool = self._setup_tool()
+        check_access = tool.check_object_access
+
+        async def disable_after_read(_tool, *args, **kwargs):
+            await check_access(*args, **kwargs)
+            await AlertConfiguration.objects.filter(team=self.team, id=disabled.id).aupdate(enabled=False)
+
+        with (
+            mock.patch.object(UpsertAlertTool, "check_object_access", new=disable_after_read),
+            mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1),
+        ):
+            content, artifact = await tool._arun_impl(
+                action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True, lower_threshold=5.0)
+            )
+
+        assert "alerts using the AI detector" in content
+        assert artifact["error"] == "plan_limit_reached"
+        await disabled.arefresh_from_db()
+        assert disabled.enabled is False
+        # The refused save must not leave the threshold change behind.
+        threshold = await sync_to_async(lambda: disabled.threshold)()
+        assert threshold is not None
+        assert threshold.configuration["bounds"]["lower"] == 100.0
+
+    @parameterized.expand([("reenable", False), ("enabled_edit", True)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    async def test_update_rejects_invalid_ai_configuration(self, _name, already_enabled, _flag):
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, enabled=already_enabled)
+        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+        check_access = tool.check_object_access
+
+        async def edit_after_read(_tool, *args, **kwargs):
+            await check_access(*args, **kwargs)
+            if not already_enabled:
+                assert insight.query is not None
+                insight.query["source"]["breakdownFilter"] = {"breakdown": "$browser", "breakdown_type": "event"}
+                await insight.asave(update_fields=["query"])
+
+        with mock.patch.object(UpsertAlertTool, "check_object_access", new=edit_after_read):
+            content, artifact = await tool._arun_impl(
+                action=UpdateAlertAction(
+                    alert_id=str(alert.id), enabled=True, series_index=99 if already_enabled else None
+                )
+            )
+        assert artifact["error"] == "validation_failed"
+        assert ("series" if already_enabled else "breakdown") in content
+        await alert.arefresh_from_db()
+        assert alert.enabled is already_enabled
+        assert (alert.config or {}).get("series_index", 0) == 0
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    async def test_update_validates_the_threshold_the_edit_would_leave_behind(self, _flag):
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, enabled=True)
+        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), threshold_type=InsightThresholdType.PERCENTAGE)
+        )
+
+        assert artifact["error"] == "validation_failed"
+        assert "percentage threshold" in content
+        threshold = await sync_to_async(lambda: AlertConfiguration.objects.get(id=alert.id).threshold)()
+        assert threshold is not None
+        assert threshold.configuration["type"] == InsightThresholdType.ABSOLUTE
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    async def test_update_rejects_enabling_an_ai_alert_outside_the_rollout(self, _flag):
+        insight = await self._create_insight()
+        disabled = await self._create_alert(insight, name="Disabled", enabled=False)
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=disabled.id).update)(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+
+        assert "not enabled for your account" in content
+        assert artifact["error"] == "validation_failed"
+        await disabled.arefresh_from_db()
+        assert disabled.enabled is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_rejects_re_enabling_an_ai_alert_its_creator_cannot_use(self):
+        # Scheduled checks attribute their model calls to the creator, so an editor inside the
+        # rollout must not re-enable a teammate's alert into checks that can only error.
+        self.organization.is_ai_data_processing_approved = True
+        await sync_to_async(self.organization.save)()
+        insight = await self._create_insight()
+        disabled = await self._create_alert(insight, name="Disabled", enabled=False)
+        creator = await sync_to_async(User.objects.create_and_join)(self.organization, "creator@posthog.com", None)
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=disabled.id).update)(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}, created_by=creator
+        )
+        tool = self._setup_tool()
+
+        def _rolled_out_for_the_editor_only(_key, distinct_id, **kwargs):
+            return distinct_id == str(self.user.distinct_id)
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_rolled_out_for_the_editor_only):
+            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+
+        assert "not enabled for your account" in content
+        assert artifact["error"] == "validation_failed"
+        await disabled.arefresh_from_db()
+        assert disabled.enabled is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_rejects_moving_an_ai_alert_to_real_time(self):
+        await self._enable_real_time_alerts(limit=5)
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, name="AI")
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=alert.id).update)(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), calculation_interval=AlertCalculationInterval.REAL_TIME)
+        )
+
+        assert "cannot run on the real-time cadence" in content
+        assert artifact["error"] == "validation_failed"
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_rejects_insight_from_other_team(self):
@@ -436,30 +588,35 @@ class TestUpsertAlertTool(BaseTest):
                 {"name": "Old Name"},
                 {"name": "New Name"},
                 lambda a, t: a.name == "New Name",
+                False,
             ),
             (
                 "enabled",
                 {"enabled": True},
                 {"enabled": False},
                 lambda a, t: a.enabled is False,
+                False,
             ),
             (
                 "unchanged_enabled_preserves_firing_state",
                 {"enabled": True},
                 {"enabled": True},
                 lambda a, t: a.enabled is True and a.state == AlertState.FIRING,
+                False,
             ),
             (
                 "condition_type",
                 {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
                 {"condition_type": AlertConditionType.RELATIVE_INCREASE},
                 lambda a, t: a.condition == {"type": AlertConditionType.RELATIVE_INCREASE},
+                True,
             ),
             (
                 "calculation_interval",
                 {"calculation_interval": AlertCalculationInterval.DAILY},
                 {"calculation_interval": AlertCalculationInterval.WEEKLY},
                 lambda a, t: a.calculation_interval == AlertCalculationInterval.WEEKLY,
+                True,
             ),
             # Threshold updates
             (
@@ -469,6 +626,7 @@ class TestUpsertAlertTool(BaseTest):
                 lambda a, t: (
                     t.configuration["bounds"]["lower"] == 100.0 and t.configuration["bounds"]["upper"] == 200.0
                 ),
+                True,
             ),
             (
                 "change_threshold_type",
@@ -478,6 +636,7 @@ class TestUpsertAlertTool(BaseTest):
                     t.configuration["type"] == InsightThresholdType.PERCENTAGE
                     and t.configuration["bounds"]["lower"] == 0.5
                 ),
+                True,
             ),
             # Recheck side effects
             (
@@ -485,27 +644,30 @@ class TestUpsertAlertTool(BaseTest):
                 {"lower_threshold": 100.0},
                 {"upper_threshold": 200.0},
                 lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is not None,
+                True,
             ),
             (
                 "condition_change_resets_state",
                 {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
                 {"condition_type": AlertConditionType.RELATIVE_INCREASE},
                 lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is not None,
+                True,
             ),
             (
                 "interval_change_marks_alert_due_now",
                 {"calculation_interval": AlertCalculationInterval.DAILY},
                 {"calculation_interval": AlertCalculationInterval.WEEKLY},
                 lambda a, t: a.state == AlertState.FIRING and a.next_check_at is not None,
+                True,
             ),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_alert(self, _name, create_kwargs, update_kwargs, check):
+    async def test_update_alert(self, _name, create_kwargs, update_kwargs, check, reschedules):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, **create_kwargs)
-        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=alert.id).update)(
             state=AlertState.FIRING,
             next_check_at=datetime(2027, 1, 1, tzinfo=UTC),
         )
@@ -518,6 +680,7 @@ class TestUpsertAlertTool(BaseTest):
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert check(alert, threshold), f"Check failed for {_name}"
         assert alert.next_check_at is not None
+        assert (alert.next_check_at != datetime(2027, 1, 1, tzinfo=UTC)) is reschedules
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

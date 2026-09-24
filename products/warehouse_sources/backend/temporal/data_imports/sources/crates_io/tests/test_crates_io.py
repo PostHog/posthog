@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     CRATES_IO_BASE_URL,
     EXTRA_DOWNLOADS_VERSION_ID,
     MAX_CRATES,
+    MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES,
     USER_AGENT,
     CratesIORetryableError,
     _canonical_name,
@@ -67,6 +68,15 @@ def _versions_page(nums: list[str], next_page: str | None) -> dict[str, Any]:
             for index, num in enumerate(nums)
         ],
         "meta": {"total": len(nums), "next_page": next_page},
+    }
+
+
+def _dependencies_document(version_id: int, crate_ids: list[str]) -> dict[str, Any]:
+    return {
+        "dependencies": [
+            {"id": 100 + index, "version_id": version_id, "crate_id": crate_id, "kind": "normal"}
+            for index, crate_id in enumerate(crate_ids)
+        ]
     }
 
 
@@ -284,6 +294,114 @@ class TestGetRows:
             batches = list(get_rows("owners", ["serde"], structlog.get_logger()))
 
         assert batches == [[{"id": 3618, "login": "dtolnay", "kind": "user", "crate": "serde"}]]
+
+    def test_dependencies_stamps_parent_crate_and_version(self):
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = [
+                _response(200, _versions_page(["1.0.1", "1.0.0"], next_page=None)),
+                _response(200, _dependencies_document(1, ["serde_derive"])),
+                _response(404),
+            ]
+
+            batches = list(get_rows("dependencies", ["serde"], structlog.get_logger()))
+
+            urls = [call[0][0] for call in mock_session.return_value.get.call_args_list]
+
+        # The endpoint's own `crate_id` names the crate being depended on, so the declaring crate
+        # and version only exist on the row because the connector stamps them.
+        assert [row for batch in batches for row in batch] == [
+            {
+                "id": 100,
+                "version_id": 1,
+                "crate_id": "serde_derive",
+                "kind": "normal",
+                "crate": "serde",
+                "version_num": "1.0.1",
+            }
+        ]
+        # Only the most recently published versions are walked, so the version list must be capped
+        # and date-sorted. Sorting by semver would drop a backport released onto an older line.
+        assert urls[0] == (
+            f"{CRATES_IO_BASE_URL}/crates/serde/versions?per_page={MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES}&sort=date"
+        )
+        # A version whose dependencies 404 is skipped rather than failing the crate.
+        assert urls[1:] == [
+            f"{CRATES_IO_BASE_URL}/crates/serde/1.0.1/dependencies",
+            f"{CRATES_IO_BASE_URL}/crates/serde/1.0.0/dependencies",
+        ]
+
+    def test_reverse_dependencies_joins_the_dependent_version(self):
+        document = {
+            "dependencies": [
+                {"id": 1, "version_id": 900, "crate_id": "posthog-rs"},
+                {"id": 2, "version_id": 999, "crate_id": "posthog-rs"},
+            ],
+            "versions": [{"id": 900, "crate": "tauri-plugin-posthog", "num": "0.2.4"}],
+            "meta": {"total": 2},
+        }
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = [_response(200, document)]
+
+            batches = list(get_rows("reverse_dependencies", ["posthog-rs"], structlog.get_logger()))
+
+        rows = [row for batch in batches for row in batch]
+        # Without the join a row identifies its dependent only by a numeric version id.
+        assert (rows[0]["crate"], rows[0]["dependent_crate"], rows[0]["dependent_version_num"]) == (
+            "posthog-rs",
+            "tauri-plugin-posthog",
+            "0.2.4",
+        )
+        # An edge whose version is missing from the page still yields, with no dependent stamped.
+        assert (rows[1]["dependent_crate"], rows[1]["dependent_version_num"]) == (None, None)
+
+    def test_reverse_dependencies_walks_pages_until_a_short_one(self, monkeypatch):
+        monkeypatch.setattr(f"{MODULE}.LIST_PER_PAGE", 2)
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = [
+                _response(200, {"dependencies": [{"id": 1}, {"id": 2}], "versions": []}),
+                _response(200, {"dependencies": [{"id": 3}], "versions": []}),
+            ]
+
+            batches = list(get_rows("reverse_dependencies", ["posthog-rs"], structlog.get_logger()))
+
+            urls = [call[0][0] for call in mock_session.return_value.get.call_args_list]
+
+        assert [row["id"] for batch in batches for row in batch] == [1, 2, 3]
+        base = f"{CRATES_IO_BASE_URL}/crates/posthog-rs/reverse_dependencies"
+        assert urls == [f"{base}?per_page=2&page=1", f"{base}?per_page=2&page=2"]
+
+    def test_reverse_dependencies_stops_at_the_page_cap(self, monkeypatch):
+        # crates.io serves empty pages past the end of the list instead of erroring, so a crate
+        # with tens of thousands of reverse dependencies must not walk the list unbounded.
+        monkeypatch.setattr(f"{MODULE}.LIST_PER_PAGE", 1)
+        monkeypatch.setattr(f"{MODULE}.MAX_REVERSE_DEPENDENCY_PAGES", 3)
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200, {"dependencies": [{"id": 1}], "versions": []})
+
+            batches = list(get_rows("reverse_dependencies", ["serde"], structlog.get_logger()))
+
+            request_count = mock_session.return_value.get.call_count
+
+        assert request_count == 3
+        assert len([row for batch in batches for row in batch]) == 3
+
+    @pytest.mark.parametrize("endpoint", ["categories", "keywords"])
+    def test_registry_wide_lookups_are_walked_once(self, endpoint, monkeypatch):
+        monkeypatch.setattr(f"{MODULE}.LIST_PER_PAGE", 2)
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = [
+                _response(200, {endpoint: [{"id": "a"}, {"id": "b"}]}),
+                _response(200, {endpoint: [{"id": "c"}]}),
+            ]
+
+            batches = list(get_rows(endpoint, ["serde", "tokio"], structlog.get_logger()))
+
+            urls = [call[0][0] for call in mock_session.return_value.get.call_args_list]
+
+        assert [row["id"] for batch in batches for row in batch] == ["a", "b", "c"]
+        # These tables cover the whole registry, so two configured crates must not walk them twice.
+        base = f"{CRATES_IO_BASE_URL}/{endpoint}"
+        assert urls == [f"{base}?sort=alpha&per_page=2&page=1", f"{base}?sort=alpha&per_page=2&page=2"]
 
     def test_chunks_large_version_history(self, monkeypatch):
         # A crate with a large version history must not be yielded as one oversized list; it's

@@ -20,6 +20,10 @@
       "types": "./dist/hoggies.d.ts",
       "import": "./dist/hoggies.js"
     },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "import": "./dist/schemas.js"
+    },
     "./domain-types": {
       "types": "./dist/domain-types.d.ts",
       "import": "./dist/domain-types.js"
@@ -31,6 +35,10 @@
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
+    },
+    "./task-context": {
+      "types": "./dist/task-context.d.ts",
+      "import": "./dist/task-context.js"
     },
     "./deeplink": {
       "types": "./dist/deeplink.d.ts",

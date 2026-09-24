@@ -238,6 +238,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         source,
         sourceConnectionDetails,
         isWebhookFieldInputsSubmitting,
+        connectError,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, onClear, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
@@ -374,6 +375,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
                 {selectedConnector && selectedAccessMethod !== 'direct' && (
                     <FreeHistoricalSyncsBanner hideGetStarted={true} />
+                )}
+
+                {connectError && currentStep !== 1 && (
+                    <LemonBanner type="error" className="mb-4">
+                        {connectError}
+                    </LemonBanner>
                 )}
 
                 {currentStep === 1 ? (

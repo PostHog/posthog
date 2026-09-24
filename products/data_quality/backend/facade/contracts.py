@@ -56,6 +56,7 @@ class RunCheckSuiteInputs:
     saved_query_ids: list[str] = field(default_factory=list)
     table_ids: list[str] = field(default_factory=list)
     metric_ids: list[str] = field(default_factory=list)
+    posthog_table_ids: list[str] = field(default_factory=list)
     check_ids: list[str] = field(default_factory=list)
     node_ids: list[str] = field(default_factory=list)
     suite_run_id: str | None = None
@@ -71,6 +72,22 @@ class MetricSubject:
     id: UUID
     name: str
     display_name: str
+
+
+@dataclass(frozen=True)
+class SelectableSubject:
+    """One thing a caller may author a check on, with enough to fill a picker.
+
+    ``columns`` is empty for a metric, whose output columns come from running its query.
+    """
+
+    subject_type: str
+    id: str
+    name: str
+    display_name: str = ""
+    time_column: str = ""
+    columns: dict[str, str] = field(default_factory=dict)
+    editable: bool = True
 
 
 @dataclass(frozen=True)

@@ -159,6 +159,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'live_debugger',
             'ingestion_warning',
             'health_issue',
+            'data_deletion',
             'product_enablement',
             'integration',
             'organization_integration',

@@ -48,7 +48,6 @@ describe('dashboardWidgetMenusLogic', () => {
             dashboard_tiles: [{ id: 10, dashboard_id: 1 }],
         })
         logic.mount()
-
         await expectLogic(logic).toMatchValues({
             copyToDestinations: [
                 {
@@ -78,7 +77,6 @@ describe('dashboardWidgetMenusLogic', () => {
             dashboard_tiles: [],
         })
         logic.mount()
-
         await expectLogic(logic).toMatchValues({
             copyToDestinations: [
                 {

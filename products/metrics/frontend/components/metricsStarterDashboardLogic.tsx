@@ -15,7 +15,6 @@ import type { DashboardType } from '~/types'
 import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricPickerNameApi } from 'products/metrics/frontend/generated/api.schemas'
 
-import type { InsightModel } from '../../../../frontend/src/types'
 import { RECOMMENDED_AGGREGATION_BY_TYPE, nodeAggregationFields, toKnownMetricType } from './metricsViewerLogic'
 
 // A metric name can appear under more than one OTel type, so option identity
@@ -51,7 +50,7 @@ export interface metricsStarterDashboardLogicActions {
         createdDashboard: DashboardType,
         warning?: string
     ) => {
-        createdDashboard: DashboardType<InsightModel>
+        createdDashboard: DashboardType
         warning: string | undefined
     }
     loadMetricOptions: (_: any) => any

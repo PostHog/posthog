@@ -125,6 +125,13 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                 "turn off syncing for this table, then re-enable the sync."
             ),
             "StreamingExportNotEnabled": "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
+            # A deploy key that cannot be encoded into an Authorization header is rejected before
+            # any request leaves PostHog, so every retry rebuilds the same unsendable request. The
+            # user has to re-enter the key, which makes this a credential error rather than a blip.
+            "contains characters PostHog can't send to Convex": (
+                "PostHog can't send your Convex deploy key. Copy the key again from your Convex "
+                "dashboard, then update this source's credentials."
+            ),
             # Convex treats a document_deltas/list_snapshot cursor conflict as deterministic, not
             # transient (it's one of the few codes their own backend classifies as a user error
             # rather than retryable). It surfaces when a data import or backup restore on the

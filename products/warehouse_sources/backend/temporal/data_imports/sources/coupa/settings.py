@@ -40,6 +40,11 @@ COUPA_ENDPOINTS: dict[str, CoupaEndpointConfig] = {
         path="/purchase_orders",
         scope="core.purchase_order.read",
     ),
+    "purchase_order_lines": CoupaEndpointConfig(
+        name="purchase_order_lines",
+        path="/purchase_order_lines",
+        scope="core.purchase_order.read",
+    ),
     "requisitions": CoupaEndpointConfig(
         name="requisitions",
         path="/requisitions",
@@ -58,6 +63,11 @@ COUPA_ENDPOINTS: dict[str, CoupaEndpointConfig] = {
     "expense_reports": CoupaEndpointConfig(
         name="expense_reports",
         path="/expense_reports",
+        scope="core.expense.read",
+    ),
+    "expense_lines": CoupaEndpointConfig(
+        name="expense_lines",
+        path="/expense_lines",
         scope="core.expense.read",
     ),
     "users": CoupaEndpointConfig(
