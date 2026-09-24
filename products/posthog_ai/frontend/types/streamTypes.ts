@@ -147,6 +147,8 @@ export interface ThreadItem {
     endedAt?: number
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
+    /** For `human_message` items — names of the files the send carried; the bytes live in the run's artifacts. */
+    attachments?: string[]
     /** Whether the assistant message buffer is finalized. */
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */

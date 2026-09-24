@@ -30,6 +30,7 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import type { ComposerOverride } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
@@ -48,6 +49,7 @@ import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -166,6 +168,7 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    attachedFiles: File[] // composerAttachmentsLogic
     composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
@@ -208,6 +211,12 @@ export interface taskTrackerSceneLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    clearAttachments: () => {
+        value: true
+    } // composerAttachmentsLogic
+    setUploading: (uploading: boolean) => {
+        uploading: boolean
+    } // composerAttachmentsLogic
     consumeSeed: () => {
         value: true
     } // composerSeedLogic
@@ -406,6 +415,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // the resume endpoint for a task that doesn't exist yet.
             taskWarmLogic({ panelId: props.panelId }),
             ['warmLease'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['attachedFiles'],
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
         ],
@@ -424,6 +435,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['consumeSeed', 'setSeed'],
             taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['clearAttachments', 'setUploading'],
         ],
     })),
 
@@ -722,6 +735,25 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             stream.actions.startOptimisticRun(description)
 
             try {
+                // Files can only be uploaded against something that already exists. A warm lease names a task
+                // and a run, so they go onto that run and ride its activation. Without one there is nothing
+                // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
+                const attachedFiles = values.attachedFiles
+                const warmLease = warmSubmission.lease
+                const suppressWarmReuse = attachedFiles.length > 0 && !warmLease
+                let pendingUserArtifactIds: string[] = []
+                if (attachedFiles.length > 0) {
+                    actions.setUploading(true)
+                    if (warmLease) {
+                        pendingUserArtifactIds = await uploadRunAttachments(
+                            projectId,
+                            warmLease.taskId,
+                            warmLease.runId,
+                            attachedFiles
+                        )
+                    }
+                }
+
                 const pendingUserMessage = wrapWithPosthogContext(description, seededContext)
                 const runPayload = {
                     branch: repositoryConfig.branch ?? null,
@@ -758,9 +790,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // Warm-reuse hints. The backend matches these against an idling warm Run and, on a hit,
                     // activates it in place and returns it as `latest_run` — no second Run is created. All of
                     // them are write-only and ignored on a cold create. `branch` must be present as a key
-                    // (even `null`) or reuse is never attempted at all. The model triple is left off when
-                    // the selection is untouched, so the backend resolves it for warm matching too.
-                    branch: runPayload.branch,
+                    // (even `null`) or reuse is never attempted at all — which is how lease-less attachments
+                    // opt out. The model triple is left off when the selection is untouched, so the backend
+                    // resolves it for warm matching too.
+                    ...(suppressWarmReuse ? {} : { branch: runPayload.branch }),
+                    ...(pendingUserArtifactIds.length > 0 ? { pending_user_artifact_ids: pendingUserArtifactIds } : {}),
                     ...(pinnedRequest
                         ? {
                               runtime_adapter: pinnedRequest.runtime_adapter,
@@ -795,8 +829,23 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 let createdRun = newTask.latest_run
                 let runId = createdRun?.id
                 if (!runId) {
+                    // Also covers a warm miss: reaching here after a lease upload means the create did not
+                    // activate that warm run, and a cold create drops its warm hints — including the artifact
+                    // ids — so the files are staged again rather than left on a run nothing will read.
+                    const stagedArtifactIds =
+                        attachedFiles.length > 0
+                            ? await uploadStagedTaskAttachments(projectId, newTask.id, attachedFiles)
+                            : []
                     const runResponse = await submitWithWarmRunRetry(
-                        (options) => tasksRunCreate(projectId, newTask.id, runRequest, options),
+                        (options) =>
+                            tasksRunCreate(
+                                projectId,
+                                newTask.id,
+                                stagedArtifactIds.length > 0
+                                    ? { ...runRequest, pending_user_artifact_ids: stagedArtifactIds }
+                                    : runRequest,
+                                options
+                            ),
                         disposables
                     )
                     createdRun = runResponse.latest_run
@@ -860,6 +909,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (creationIsActive || values.newTaskData.description.trim() === description) {
                     actions.resetNewTaskData()
                 }
+                // A failure leaves them staged instead, since the restored draft is going to be sent again.
+                actions.clearAttachments()
                 cache.submittingTask = null
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
@@ -892,6 +943,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (cache.submittingTask === disposables) {
                     cache.submittingTask = null
                 }
+                // Drops the spinners off chips that outlived a failed send.
+                actions.setUploading(false)
             }
         },
         openExistingTask: ({ task }) => {

@@ -26,6 +26,7 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
+import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
@@ -59,6 +60,10 @@ export function TaskComposer(): JSX.Element {
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
     const panelId = useMountedLogic(taskTrackerSceneLogic).props.panelId
+    // Matches the key `taskTrackerSceneLogic` connects the attachments logic under, so the files this
+    // composer stages are the ones its submit uploads.
+    const attachmentsKey = panelId ?? 'scene'
+    const onPaste = useComposerAttachmentPaste(attachmentsKey)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -66,6 +71,8 @@ export function TaskComposer(): JSX.Element {
     const draft = useDebouncedDraft(newTaskData.description, (value) => setNewTaskData({ description: value }))
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
+    const frameRef = useRef<HTMLLabelElement>(null)
 
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
@@ -111,15 +118,16 @@ export function TaskComposer(): JSX.Element {
                             loading={isSubmittingTask}
                             textAreaRef={textAreaRef}
                         >
-                            <Composer.Frame>
-                                <Composer.Header>
+                            <Composer.Frame ref={frameRef}>
+                                <Composer.Header className="flex flex-col gap-1">
                                     <AttachedContextBar />
+                                    <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
                                 </Composer.Header>
                                 <Composer.Field>
                                     <Composer.Placeholder>
                                         {composerOverride?.placeholder ?? 'Describe the task in detail…'}
                                     </Composer.Placeholder>
-                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
+                                    <Composer.Textarea autoFocus onPaste={onPaste} data-attr="task-composer-input" />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker

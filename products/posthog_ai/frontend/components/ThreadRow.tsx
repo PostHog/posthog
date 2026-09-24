@@ -1,6 +1,7 @@
 import { memo } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconDocument, IconWrench } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
@@ -122,6 +123,15 @@ export const ThreadRow = memo(function ThreadRow({
         return (
             <MessageTemplate type="human">
                 <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+                {item.attachments && item.attachments.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                        {item.attachments.map((name) => (
+                            <LemonTag key={name} icon={<IconDocument />} className="max-w-48">
+                                <span className="truncate min-w-0">{name}</span>
+                            </LemonTag>
+                        ))}
+                    </div>
+                )}
             </MessageTemplate>
         )
     }

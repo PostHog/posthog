@@ -380,6 +380,31 @@ function isHiddenUserContent(content: unknown): boolean {
     return content._meta.ui.hidden === true
 }
 
+/**
+ * The display name of a file the send carried, or null for any other content block. An attachment reaches
+ * the agent as a `resource_link` to the copy the sandbox wrote to disk; an inline image arrives as an
+ * `image` block, which names the file only through that same `uri`.
+ */
+export function userAttachmentName(content: unknown): string | null {
+    if (!isRecord(content) || (content.type !== 'resource_link' && content.type !== 'image')) {
+        return null
+    }
+    if (typeof content.name === 'string' && content.name.trim()) {
+        return content.name.trim()
+    }
+    if (typeof content.uri !== 'string' || !content.uri) {
+        return null
+    }
+    let path = content.uri
+    try {
+        path = new URL(content.uri).pathname
+    } catch {
+        // A uri the parser rejects still yields its last path segment below.
+    }
+    const name = path.split('/').filter(Boolean).at(-1)
+    return name ? decodeURIComponent(name) : null
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -1412,6 +1437,7 @@ export function foldLogToThread(
     let entryRunId: string | undefined
     let pendingMessageSeen = false
     let pendingInsertionIndex: number | undefined
+    let bufferedAttachments: string[] = []
 
     const pushHuman = (text: string): void => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
@@ -1422,8 +1448,29 @@ export function foldLogToThread(
             type: 'human_message',
             text,
             complete: true,
+            ...(bufferedAttachments.length > 0 && { attachments: bufferedAttachments }),
             ...(timestamp !== undefined && { startedAt: timestamp }),
         })
+        bufferedAttachments = []
+    }
+
+    /**
+     * A prompt's blocks arrive as consecutive frames with the text first, so the name lands on the message
+     * already rendered — including one an optimistic send drew, which the echo's text dedupe drops.
+     */
+    const noteAttachment = (name: string): void => {
+        for (let index = items.length - 1; index >= 0; index--) {
+            if (items[index].type === 'human_message') {
+                const existing = items[index].attachments ?? []
+                if (!existing.includes(name)) {
+                    items[index] = { ...items[index], attachments: [...existing, name] }
+                }
+                return
+            }
+        }
+        if (!bufferedAttachments.includes(name)) {
+            bufferedAttachments.push(name)
+        }
     }
 
     // Surface the context blocks a send was wrapped with as copyable debug rows (gated downstream by
@@ -1759,6 +1806,14 @@ export function foldLogToThread(
             } else {
                 renderLiveHuman(userText)
             }
+            if (Array.isArray(params.content)) {
+                for (const block of params.content) {
+                    const name = userAttachmentName(block)
+                    if (name) {
+                        noteAttachment(name)
+                    }
+                }
+            }
             continue
         }
         if (method === '_posthog/console') {
@@ -1789,6 +1844,12 @@ export function foldLogToThread(
         const sessionUpdate = update.sessionUpdate
         if (sessionUpdate === 'user_message_chunk' || sessionUpdate === 'user_message') {
             if (isHiddenUserContent(update.content)) {
+                continue
+            }
+            // An attached file is its own frame, carrying a resource link instead of text.
+            const attachmentName = userAttachmentName(update.content)
+            if (attachmentName) {
+                noteAttachment(attachmentName)
                 continue
             }
             const content = update.content as { text?: string } | undefined

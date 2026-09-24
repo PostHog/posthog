@@ -47,9 +47,11 @@ import {
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
+import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
@@ -133,6 +135,7 @@ export interface runInteractionLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
+    attachedFiles: File[] // composerAttachmentsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     cancellationState: CancellationState // runCancellationLogic
@@ -214,6 +217,12 @@ export interface runInteractionLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    clearAttachments: () => {
+        value: true
+    } // composerAttachmentsLogic
+    setUploading: (uploading: boolean) => {
+        uploading: boolean
+    } // composerAttachmentsLogic
     requestCancellation: () => {
         value: true
     } // runCancellationLogic
@@ -599,6 +608,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['defaultModel', 'defaultEffort'],
             runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
             ['cancellationState'],
+            composerAttachmentsLogic({ attachmentsKey: props.interactionKey ?? props.runId }),
+            ['attachedFiles'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -627,6 +638,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['claimApplyBackTargets', 'releaseApplyBackTargets'],
             runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
             ['requestCancellation'],
+            composerAttachmentsLogic({ attachmentsKey: props.interactionKey ?? props.runId }),
+            ['clearAttachments', 'setUploading'],
         ],
     })),
 
@@ -1322,6 +1335,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         }
                     }
                     actions.setSentMode(values.selectedMode)
+                    const attachedFiles = values.attachedFiles
+                    let artifactIds: string[] = []
+                    if (attachedFiles.length > 0) {
+                        actions.setUploading(true)
+                        artifactIds = await uploadRunAttachments(String(projectId), taskId, runId, attachedFiles)
+                        if (!isCurrent()) {
+                            return
+                        }
+                    }
                     // Wrap the outgoing content with the on-screen context block (invisible to the user —
                     // `runStreamLogic.unwrapUserMessageContent` strips it on replay, and the echo below is raw).
                     if (!isCurrent() || values.hasUnresolvedApproval) {
@@ -1333,6 +1355,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         params: {
                             content: wrapWithPosthogContext(content, pendingContext),
                             ...(steer ? { steer: true } : {}),
+                            ...(artifactIds.length > 0 ? { artifact_ids: artifactIds } : {}),
                         },
                     })
                     if (!isCurrent()) {
@@ -1352,6 +1375,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
                     actions.pushHumanMessage(content)
                     markPendingContextSent(pendingContext)
+                    // A failed send leaves them staged, since the content it restored is going to be resent.
+                    actions.clearAttachments()
                     actions.finishTaskDraftDelivery()
                 } catch {
                     if (!isCurrent()) {
@@ -1377,6 +1402,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (isCurrent()) {
                         actions.setSending(false)
                     }
+                    // Drops the spinners off chips that outlived a failed send.
+                    actions.setUploading(false)
                 }
             },
 
@@ -1462,6 +1489,17 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }
                     )
+                    // The task already exists here, so staged artifacts hold the files whether this request
+                    // activates a warm run or cold-boots one.
+                    const attachedFiles = values.attachedFiles
+                    let stagedArtifactIds: string[] = []
+                    if (attachedFiles.length > 0) {
+                        actions.setUploading(true)
+                        stagedArtifactIds = await uploadStagedTaskAttachments(projectId, taskId, attachedFiles)
+                        if (!isCurrent()) {
+                            return
+                        }
+                    }
                     const warmSubmission: WarmSubmission = { projectId, lease: null }
                     getWarmLogic()?.actions.prepareSubmit(warmSubmission)
                     actions.beginTaskDraftDelivery(content)
@@ -1469,7 +1507,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     actions.startOptimisticResume(content)
                     optimisticStarted = true
                     const result = await submitWithWarmRunRetry(
-                        (options) => tasksRunCreate(projectId, taskId, createRequest, options),
+                        (options) =>
+                            tasksRunCreate(
+                                projectId,
+                                taskId,
+                                stagedArtifactIds.length > 0
+                                    ? { ...createRequest, pending_user_artifact_ids: stagedArtifactIds }
+                                    : createRequest,
+                                options
+                            ),
                         disposables
                     )
                     if (!isCurrent()) {
@@ -1483,6 +1529,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     accepted = true
                     actions.finishTaskDraftDelivery()
                     markPendingContextSent(pendingContext)
+                    // A failure leaves them staged for the retry.
+                    actions.clearAttachments()
                     props.flushDraft?.()
                     const handoff = { run, streamKey, draft: values.composerForm.draft }
                     actions.attachOptimisticResume(taskId, run)
@@ -1516,6 +1564,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (isCurrent()) {
                         actions.setStartingRun(false)
                     }
+                    // Drops the spinners off chips that outlived a failed start.
+                    actions.setUploading(false)
                 }
             },
 

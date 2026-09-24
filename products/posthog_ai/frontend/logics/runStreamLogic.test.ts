@@ -20,6 +20,7 @@ import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistr
 import { extractQueryResult } from '../components/tool/widgets/extractors'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
+import type { ThreadItem } from '../types/streamTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
@@ -1264,6 +1265,92 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
                 expect.objectContaining({ text: visible.text }),
             ])
+        })
+
+        describe('attachments the send carried', () => {
+            const foldReplay = (frames: StoredLogEntry[]): ThreadItem[] =>
+                foldLogToThread(
+                    frames.map((entry) => ({ source: 'replay' as const, entry })),
+                    { isResumeRun: false }
+                ).threadItems
+
+            it('names a resource link on the message it arrived with', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/x/report.csv', name: 'report.csv' },
+                    }),
+                ])
+
+                expect(items.filter((item) => item.type === 'human_message')).toEqual([
+                    expect.objectContaining({ text: 'Look here', attachments: ['report.csv'] }),
+                ])
+            })
+
+            it('falls back to the file name in the uri when the block is unnamed', () => {
+                const items = foldReplay([
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Look' } }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'image', uri: 'file:///tmp/x/.posthog/attachments/run/art/my%20shot.png' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual(['my shot.png'])
+            })
+
+            it('keeps two files on one message and does not repeat a name', () => {
+                const items = foldReplay([
+                    notification('_posthog/user_message', {
+                        content: [
+                            { type: 'text', text: 'Compare these' },
+                            { type: 'resource_link', uri: 'file:///a.csv', name: 'a.csv' },
+                            { type: 'resource_link', uri: 'file:///b.csv', name: 'b.csv' },
+                            { type: 'resource_link', uri: 'file:///b.csv', name: 'b.csv' },
+                        ],
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual(['a.csv', 'b.csv'])
+            })
+
+            // The echo carrying the names is the one the text dedupe drops, so the names must survive it.
+            it('lands on a message the optimistic send already rendered', () => {
+                const frames: StoredLogEntry[] = [
+                    notification('_client/human_message', { content: 'Look here' }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///a.csv', name: 'a.csv' },
+                    }),
+                ]
+                const items = foldLogToThread(
+                    frames.map((entry) => ({ source: 'live' as const, entry })),
+                    { isResumeRun: false }
+                ).threadItems
+
+                const humanMessages = items.filter((item) => item.type === 'human_message')
+                expect(humanMessages).toHaveLength(1)
+                expect(humanMessages[0].attachments).toEqual(['a.csv'])
+            })
+
+            it('leaves a message with no files without an attachments field', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Just text' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toBeUndefined()
+            })
         })
 
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {

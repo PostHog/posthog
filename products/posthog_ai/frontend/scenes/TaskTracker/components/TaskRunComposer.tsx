@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type MutableRefObject, type RefObject, useEffect, useMemo } from 'react'
+import { type MutableRefObject, type RefObject, useEffect, useMemo, useRef } from 'react'
 
 import { projectLogic } from 'scenes/projectLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -17,6 +17,7 @@ import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/fronte
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { CommandResultCard } from '../../../components/composer/CommandResultCard'
+import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
 import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
@@ -91,6 +92,13 @@ export function TaskRunComposer({
         flushDraftRef.current = draft.flush
     }, [flushDraftRef, draft.flush])
 
+    // Matches the key `runInteractionLogic` connects the attachments logic under, so the files this
+    // composer stages are the ones its send uploads.
+    const attachmentsKey = logicProps.interactionKey ?? logicProps.runId
+    const onPaste = useComposerAttachmentPaste(attachmentsKey)
+    // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
+    const frameRef = useRef<HTMLLabelElement>(null)
+
     return (
         <div onFocusCapture={() => setComposerFocused(true)} onBlurCapture={() => setComposerFocused(false)}>
             <ComposerModeShortcut
@@ -150,9 +158,10 @@ export function TaskRunComposer({
                         />
                     </Composer.Banner>
                 )}
-                <Composer.Frame>
-                    <Composer.Header>
+                <Composer.Frame ref={frameRef}>
+                    <Composer.Header className="flex flex-col gap-1">
                         <AttachedContextBar />
+                        <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
                     </Composer.Header>
                     <ComposerCommandMenu commands={slashCommands}>
                         <Composer.Field>
@@ -161,7 +170,11 @@ export function TaskRunComposer({
                                     ? 'Send a message to start a new run, or type / for commands…'
                                     : 'Send a follow-up message, or type / for commands…'}
                             </Composer.Placeholder>
-                            <Composer.Textarea data-attr="sandbox-composer-input" autoFocus={autoFocus} />
+                            <Composer.Textarea
+                                data-attr="sandbox-composer-input"
+                                autoFocus={autoFocus}
+                                onPaste={onPaste}
+                            />
                         </Composer.Field>
                     </ComposerCommandMenu>
                     <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
