@@ -75,10 +75,16 @@ describe('client IP signatures', () => {
                 { ip: CLIENT_IP, source: 'edge', edgeOutcome: 'valid' },
             ],
             [
-                'no IP, not the Cloudflare forwarded-for, when the edge signature fails',
-                async () => ({ ...(await edgeHeaders(CLIENT_IP, OLD_KEY)), 'x-forwarded-for': '198.51.100.10' }),
+                'no IP, not the Cloudflare forwarded-for, when the Worker signature fails',
+                async () => ({ ...(await edgeHeaders(CLIENT_IP, OLD_KEY)), 'x-forwarded-for': '162.158.10.20' }),
                 [KEY],
-                { ip: undefined, source: 'none', edgeOutcome: 'bad_signature' },
+                { ip: undefined, source: 'cloudflare', edgeOutcome: 'bad_signature' },
+            ],
+            [
+                'the forwarded-for entry when a direct caller forges an edge header',
+                async () => ({ [EDGE_CLIENT_IP_HEADERS.ip]: '192.0.2.1', 'x-forwarded-for': '198.51.100.10' }),
+                [KEY],
+                { ip: '198.51.100.10', source: 'forwarded', edgeOutcome: 'invalid_input' },
             ],
             [
                 'no IP when the runtime holds no edge key',
