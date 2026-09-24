@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.team_notifications.slack import SlackChannel, clip_text, find_channel
+from posthog.slack.channels import SlackChannel, clip_text, find_channel
 
 _TEAM_CHANNEL = SlackChannel(channel_id="C1", shared=False)
 _SHARED_CHANNEL = SlackChannel(channel_id="C2", shared=True)

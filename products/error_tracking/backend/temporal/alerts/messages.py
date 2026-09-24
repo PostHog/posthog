@@ -7,6 +7,8 @@ interpolated into mrkdwn text.
 
 from django.conf import settings
 
+from posthog.slack.formatting import escape_slack_mrkdwn
+
 from products.error_tracking.backend.logic import build_issue_permalink_path
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
@@ -22,10 +24,6 @@ DEFAULT_HEADLINE = "🔴 Issue alert"
 # headline and title are truncated as one composed string.
 MAX_HEADER_LENGTH = 150
 MAX_DESCRIPTION_LENGTH = 500
-
-
-def escape_slack_text(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -105,7 +103,7 @@ def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list
         blocks.append(
             {
                 "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"Status: {escape_slack_text(inputs.status)}"}],
+                "elements": [{"type": "mrkdwn", "text": f"Status: {escape_slack_mrkdwn(inputs.status)}"}],
             }
         )
     if inputs.event == "$error_tracking_issue_spiking":
@@ -120,7 +118,7 @@ def build_root_message(inputs: AlertDeliveryWorkflowInputs) -> dict:
     headline = root_headline(inputs.event)
     return {
         "blocks": _build_blocks(inputs, headline=headline),
-        "text": escape_slack_text(_header_text(inputs, headline)),
+        "text": escape_slack_mrkdwn(_header_text(inputs, headline)),
         "headline": headline,
     }
 
@@ -129,12 +127,12 @@ def build_root_edit(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> di
     # The headline never changes on edit: it is the thread's identity.
     return {
         "blocks": _build_blocks(inputs, headline=headline),
-        "text": escape_slack_text(_header_text(inputs, headline)),
+        "text": escape_slack_mrkdwn(_header_text(inputs, headline)),
     }
 
 
 def build_reply_text(inputs: AlertDeliveryWorkflowInputs) -> str | None:
-    by = f" by {escape_slack_text(inputs.actor_email)}" if inputs.actor_email else ""
+    by = f" by {escape_slack_mrkdwn(inputs.actor_email)}" if inputs.actor_email else ""
     extra = inputs.extra or {}
     match inputs.event:
         case "$error_tracking_issue_resolved":
