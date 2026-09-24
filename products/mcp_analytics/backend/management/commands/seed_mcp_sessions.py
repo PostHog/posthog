@@ -72,8 +72,19 @@ TOOL_DESCRIPTIONS = {
 # Raw $mcp_client_name values that categorizeHarness() folds into the popular, logo-backed
 # harness buckets (Claude Code, OpenAI Codex, Cursor, Claude.ai, VS Code). Weighted toward the
 # most common agents so the breakdown looks realistic.
-CLIENT_NAMES = ["claude-code", "codex", "cursor", "claude-ai", "visual studio code"]
-CLIENT_WEIGHTS = [38, 26, 22, 9, 5]
+# Each client also lists the models it plausibly runs, so the model breakdown and the
+# tool-call feed pair Claude clients with Claude models rather than showing noise.
+CLIENTS: dict[str, tuple[int, list[str]]] = {
+    "claude-code": (38, ["claude-opus-5-5", "claude-sonnet-5"]),
+    "codex": (26, ["gpt-5.6-sol", "gpt-5.5"]),
+    "cursor": (22, ["claude-sonnet-5", "gpt-5.6-sol", "composer-2"]),
+    "claude-ai": (9, ["claude-opus-5-5", "claude-sonnet-5"]),
+    "visual studio code": (5, ["gpt-5.5", "claude-sonnet-5"]),
+}
+
+# Real agents often report no model, so some sessions go without one and land in the
+# model breakdown's "Unknown" bucket.
+MODEL_REPORTED_PROBABILITY = 0.85
 
 # Identified personas. About 70% of sessions are attached to one of these;
 # the rest stay anonymous with throwaway distinct_ids.
@@ -343,7 +354,8 @@ class Command(BaseCommand):
             else:
                 distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
             person_uuid, person_props = ensure_person(distinct_id, {}, is_identified=False)
-            client_name = rng.choices(CLIENT_NAMES, weights=CLIENT_WEIGHTS, k=1)[0]
+            client_name = rng.choices(list(CLIENTS), weights=[weight for weight, _ in CLIENTS.values()], k=1)[0]
+            model = rng.choice(CLIENTS[client_name][1]) if rng.random() < MODEL_REPORTED_PROBABILITY else None
             calls = rng.randint(min_calls, max_calls)
             # Anchor each session within the listing's default 24h window so it shows
             # up on the next request. The listing aggregates recent events on the fly,
@@ -396,6 +408,7 @@ class Command(BaseCommand):
                         "$mcp_error_message": "Upstream returned 500" if is_error else "",
                         "$mcp_client_name": client_name,
                         "$mcp_client_version": "1.0.0",
+                        **({"$mcp_llm_model": model} if model else {}),
                         "$mcp_protocol_version": "2025-03-26",
                         "$mcp_transport": "streamable_http",
                         "$mcp_duration_ms": duration_ms,
