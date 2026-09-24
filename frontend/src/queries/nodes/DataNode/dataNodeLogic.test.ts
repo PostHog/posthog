@@ -144,7 +144,11 @@ describe('dataNodeLogic', () => {
 
         mockedQuery.mockResolvedValueOnce({ results: [] })
         await expectLogic(collection, () => {
-            logic.actions.loadData(undefined, undefined, { kind: NodeKind.HogQLQuery, query: 'select 1' })
+            logic.actions.loadData(
+                undefined,
+                undefined,
+                setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'select 1' })
+            )
         }).toDispatchActions([collection.actionCreators.collectionNodeLoadData(testUniqueKey, NodeKind.HogQLQuery)])
         collection.unmount()
     })
