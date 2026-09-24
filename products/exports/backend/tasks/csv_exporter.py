@@ -749,6 +749,7 @@ def make_api_call(
         json=body,
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=60,
+        allow_redirects=False,
     )
     response.raise_for_status()
     return response

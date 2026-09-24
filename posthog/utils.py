@@ -123,13 +123,14 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if not url:
         return settings.SITE_URL
 
-    if has_ambiguous_authority(url):
+    if has_ambiguous_authority(url) or any(
+        character.isspace() or ord(character) < 32 or ord(character) == 127 for character in url
+    ):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
-    if provided_url.hostname and provided_url.scheme:
+    if provided_url.netloc or provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
-        provided_url = provided_url
         if (
             site_url.hostname != provided_url.hostname
             or site_url.port != provided_url.port
@@ -137,7 +138,16 @@ def absolute_uri(url: Optional[str] = None) -> str:
         ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
-    return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+    resolved_url = urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+    resolved = urlparse(resolved_url)
+    site = urlparse(settings.SITE_URL)
+    if resolved.netloc and (resolved.hostname, resolved.port, resolved.scheme) != (
+        site.hostname,
+        site.port,
+        site.scheme,
+    ):
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+    return resolved_url
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
