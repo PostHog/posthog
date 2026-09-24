@@ -36,9 +36,10 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
         fields.pop("display_name", None)
         fields["name"].required = True
         fields["name"].help_text = (
-            "Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens, "
-            "at most 64 characters. Creating again with a name that already exists applies the supplied "
-            "config to that scout instead of creating a second one."
+            "Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens. The "
+            "`signals-scout-` prefix is optional. Repeating a create with this scanner's scout name and the same "
+            "description and body returns that scout with the new config; any other reuse of a taken name "
+            "is a conflict."
         )
         return fields
 

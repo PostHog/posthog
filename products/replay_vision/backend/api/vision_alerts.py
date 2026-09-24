@@ -140,12 +140,12 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
     )
     metric = serializers.ChoiceField(
         choices=VisionAlertMetric.choices,
-        default=VisionAlertMetric.COUNT,
+        required=False,
         help_text="Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.",
     )
     direction = serializers.ChoiceField(
         choices=VisionAlertDirection.choices,
-        default=VisionAlertDirection.ABOVE,
+        required=False,
         help_text="Metric alerts only: whether the alert fires at or above, or at or below, the threshold.",
     )
     threshold = serializers.FloatField(
@@ -154,11 +154,11 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text="Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.",
     )
     window_days = serializers.IntegerField(
-        default=1,
+        required=False,
         help_text=f"Metric alerts only: rolling window in days. Allowed values: {list(ALERT_WINDOW_DAYS)}.",
     )
     check_interval_minutes = serializers.IntegerField(
-        default=60,
+        required=False,
         min_value=MIN_CHECK_INTERVAL_MINUTES,
         help_text=f"Metric alerts only: evaluation cadence in minutes, at least {MIN_CHECK_INTERVAL_MINUTES}.",
     )
@@ -168,19 +168,19 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text="Current lifecycle state. Always not_firing for match alerts. Server-managed.",
     )
     evaluation_periods = serializers.IntegerField(
-        default=1,
+        required=False,
         min_value=1,
         max_value=10,
         help_text="Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).",
     )
     datapoints_to_alarm = serializers.IntegerField(
-        default=1,
+        required=False,
         min_value=1,
         max_value=10,
         help_text="Metric alerts only: how many periods must breach to fire (N in N-of-M).",
     )
     cooldown_minutes = serializers.IntegerField(
-        default=0,
+        required=False,
         min_value=0,
         help_text="Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.",
     )

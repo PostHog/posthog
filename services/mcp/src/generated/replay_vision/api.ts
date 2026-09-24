@@ -42,19 +42,12 @@ export const visionAlertsCreateBodySelectionOneTagsItemMax = 200
 
 export const visionAlertsCreateBodySelectionOneTagsMax = 20
 
-export const visionAlertsCreateBodyMetricDefault = `count`
-export const visionAlertsCreateBodyDirectionDefault = `above`
-export const visionAlertsCreateBodyWindowDaysDefault = 1
-export const visionAlertsCreateBodyCheckIntervalMinutesDefault = 60
 export const visionAlertsCreateBodyCheckIntervalMinutesMin = 15
 
-export const visionAlertsCreateBodyEvaluationPeriodsDefault = 1
 export const visionAlertsCreateBodyEvaluationPeriodsMax = 10
 
-export const visionAlertsCreateBodyDatapointsToAlarmDefault = 1
 export const visionAlertsCreateBodyDatapointsToAlarmMax = 10
 
-export const visionAlertsCreateBodyCooldownMinutesDefault = 0
 export const visionAlertsCreateBodyCooldownMinutesMin = 0
 
 export const VisionAlertsCreateBody = () => zod.object({
@@ -94,14 +87,14 @@ export const VisionAlertsCreateBody = () => zod.object({
     metric: zod
         .enum(['count', 'avg_score'])
         .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
-        .default(visionAlertsCreateBodyMetricDefault)
+        .optional()
         .describe(
             "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
         ),
     direction: zod
         .enum(['above', 'below'])
         .describe('\* `above` - At or above\n\* `below` - At or below')
-        .default(visionAlertsCreateBodyDirectionDefault)
+        .optional()
         .describe(
             'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
         ),
@@ -113,29 +106,29 @@ export const VisionAlertsCreateBody = () => zod.object({
         ),
     window_days: zod
         .number()
-        .default(visionAlertsCreateBodyWindowDaysDefault)
+        .optional()
         .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
     check_interval_minutes: zod
         .number()
         .min(visionAlertsCreateBodyCheckIntervalMinutesMin)
-        .default(visionAlertsCreateBodyCheckIntervalMinutesDefault)
+        .optional()
         .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
     evaluation_periods: zod
         .number()
         .min(1)
         .max(visionAlertsCreateBodyEvaluationPeriodsMax)
-        .default(visionAlertsCreateBodyEvaluationPeriodsDefault)
+        .optional()
         .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
     datapoints_to_alarm: zod
         .number()
         .min(1)
         .max(visionAlertsCreateBodyDatapointsToAlarmMax)
-        .default(visionAlertsCreateBodyDatapointsToAlarmDefault)
+        .optional()
         .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
     cooldown_minutes: zod
         .number()
         .min(visionAlertsCreateBodyCooldownMinutesMin)
-        .default(visionAlertsCreateBodyCooldownMinutesDefault)
+        .optional()
         .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
     schedule_restriction: zod
         .union([
@@ -1677,7 +1670,7 @@ export const VisionScannersScoutsCreateBody = () => zod
             .string()
             .max(visionScannersScoutsCreateBodyNameMax)
             .describe(
-                'Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens, at most 64 characters. Creating again with a name that already exists applies the supplied config to that scout instead of creating a second one.'
+                "Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional. Repeating a create with this scanner's scout name and the same description and body returns that scout with the new config; any other reuse of a taken name is a conflict."
             ),
         description: zod
             .string()

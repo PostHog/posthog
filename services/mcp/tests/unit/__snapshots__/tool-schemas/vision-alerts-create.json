@@ -2,26 +2,22 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "check_interval_minutes": {
-            "default": 60,
             "description": "Metric alerts only: evaluation cadence in minutes, at least 15.",
             "minimum": 15,
             "type": "number"
         },
         "cooldown_minutes": {
-            "default": 0,
             "description": "Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.",
             "minimum": 0,
             "type": "number"
         },
         "datapoints_to_alarm": {
-            "default": 1,
             "description": "Metric alerts only: how many periods must breach to fire (N in N-of-M).",
             "maximum": 10,
             "minimum": 1,
             "type": "number"
         },
         "direction": {
-            "default": "above",
             "description": "Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n* `above` - At or above\n* `below` - At or below",
             "enum": ["above", "below"],
             "type": "string"
@@ -32,7 +28,6 @@
             "type": "boolean"
         },
         "evaluation_periods": {
-            "default": 1,
             "description": "Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).",
             "maximum": 10,
             "minimum": 1,
@@ -44,7 +39,6 @@
             "type": "string"
         },
         "metric": {
-            "default": "count",
             "description": "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n* `count` - Count matching observations\n* `avg_score` - Average score",
             "enum": ["count", "avg_score"],
             "type": "string"
@@ -148,7 +142,6 @@
             "description": "Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts."
         },
         "window_days": {
-            "default": 1,
             "description": "Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].",
             "type": "number"
         }

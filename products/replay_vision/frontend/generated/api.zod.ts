@@ -21,19 +21,12 @@ export const visionAlertsCreateBodySelectionOneTagsItemMax = 200
 
 export const visionAlertsCreateBodySelectionOneTagsMax = 20
 
-export const visionAlertsCreateBodyMetricDefault = `count`
-export const visionAlertsCreateBodyDirectionDefault = `above`
-export const visionAlertsCreateBodyWindowDaysDefault = 1
-export const visionAlertsCreateBodyCheckIntervalMinutesDefault = 60
 export const visionAlertsCreateBodyCheckIntervalMinutesMin = 15
 
-export const visionAlertsCreateBodyEvaluationPeriodsDefault = 1
 export const visionAlertsCreateBodyEvaluationPeriodsMax = 10
 
-export const visionAlertsCreateBodyDatapointsToAlarmDefault = 1
 export const visionAlertsCreateBodyDatapointsToAlarmMax = 10
 
-export const visionAlertsCreateBodyCooldownMinutesDefault = 0
 export const visionAlertsCreateBodyCooldownMinutesMin = 0
 
 export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
@@ -73,14 +66,14 @@ export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
     metric: zod
         .enum(['count', 'avg_score'])
         .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
-        .default(visionAlertsCreateBodyMetricDefault)
+        .optional()
         .describe(
             "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
         ),
     direction: zod
         .enum(['above', 'below'])
         .describe('\* `above` - At or above\n\* `below` - At or below')
-        .default(visionAlertsCreateBodyDirectionDefault)
+        .optional()
         .describe(
             'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
         ),
@@ -92,29 +85,29 @@ export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
     window_days: zod
         .number()
-        .default(visionAlertsCreateBodyWindowDaysDefault)
+        .optional()
         .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
     check_interval_minutes: zod
         .number()
         .min(visionAlertsCreateBodyCheckIntervalMinutesMin)
-        .default(visionAlertsCreateBodyCheckIntervalMinutesDefault)
+        .optional()
         .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
     evaluation_periods: zod
         .number()
         .min(1)
         .max(visionAlertsCreateBodyEvaluationPeriodsMax)
-        .default(visionAlertsCreateBodyEvaluationPeriodsDefault)
+        .optional()
         .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
     datapoints_to_alarm: zod
         .number()
         .min(1)
         .max(visionAlertsCreateBodyDatapointsToAlarmMax)
-        .default(visionAlertsCreateBodyDatapointsToAlarmDefault)
+        .optional()
         .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
     cooldown_minutes: zod
         .number()
         .min(visionAlertsCreateBodyCooldownMinutesMin)
-        .default(visionAlertsCreateBodyCooldownMinutesDefault)
+        .optional()
         .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
     schedule_restriction: zod
         .union([
@@ -162,19 +155,12 @@ export const visionAlertsUpdateBodySelectionOneTagsItemMax = 200
 
 export const visionAlertsUpdateBodySelectionOneTagsMax = 20
 
-export const visionAlertsUpdateBodyMetricDefault = `count`
-export const visionAlertsUpdateBodyDirectionDefault = `above`
-export const visionAlertsUpdateBodyWindowDaysDefault = 1
-export const visionAlertsUpdateBodyCheckIntervalMinutesDefault = 60
 export const visionAlertsUpdateBodyCheckIntervalMinutesMin = 15
 
-export const visionAlertsUpdateBodyEvaluationPeriodsDefault = 1
 export const visionAlertsUpdateBodyEvaluationPeriodsMax = 10
 
-export const visionAlertsUpdateBodyDatapointsToAlarmDefault = 1
 export const visionAlertsUpdateBodyDatapointsToAlarmMax = 10
 
-export const visionAlertsUpdateBodyCooldownMinutesDefault = 0
 export const visionAlertsUpdateBodyCooldownMinutesMin = 0
 
 export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
@@ -214,14 +200,14 @@ export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
     metric: zod
         .enum(['count', 'avg_score'])
         .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
-        .default(visionAlertsUpdateBodyMetricDefault)
+        .optional()
         .describe(
             "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
         ),
     direction: zod
         .enum(['above', 'below'])
         .describe('\* `above` - At or above\n\* `below` - At or below')
-        .default(visionAlertsUpdateBodyDirectionDefault)
+        .optional()
         .describe(
             'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
         ),
@@ -233,29 +219,29 @@ export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     window_days: zod
         .number()
-        .default(visionAlertsUpdateBodyWindowDaysDefault)
+        .optional()
         .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
     check_interval_minutes: zod
         .number()
         .min(visionAlertsUpdateBodyCheckIntervalMinutesMin)
-        .default(visionAlertsUpdateBodyCheckIntervalMinutesDefault)
+        .optional()
         .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
     evaluation_periods: zod
         .number()
         .min(1)
         .max(visionAlertsUpdateBodyEvaluationPeriodsMax)
-        .default(visionAlertsUpdateBodyEvaluationPeriodsDefault)
+        .optional()
         .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
     datapoints_to_alarm: zod
         .number()
         .min(1)
         .max(visionAlertsUpdateBodyDatapointsToAlarmMax)
-        .default(visionAlertsUpdateBodyDatapointsToAlarmDefault)
+        .optional()
         .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
     cooldown_minutes: zod
         .number()
         .min(visionAlertsUpdateBodyCooldownMinutesMin)
-        .default(visionAlertsUpdateBodyCooldownMinutesDefault)
+        .optional()
         .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
     schedule_restriction: zod
         .union([
@@ -303,19 +289,12 @@ export const visionAlertsPartialUpdateBodySelectionOneTagsItemMax = 200
 
 export const visionAlertsPartialUpdateBodySelectionOneTagsMax = 20
 
-export const visionAlertsPartialUpdateBodyMetricDefault = `count`
-export const visionAlertsPartialUpdateBodyDirectionDefault = `above`
-export const visionAlertsPartialUpdateBodyWindowDaysDefault = 1
-export const visionAlertsPartialUpdateBodyCheckIntervalMinutesDefault = 60
 export const visionAlertsPartialUpdateBodyCheckIntervalMinutesMin = 15
 
-export const visionAlertsPartialUpdateBodyEvaluationPeriodsDefault = 1
 export const visionAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
 
-export const visionAlertsPartialUpdateBodyDatapointsToAlarmDefault = 1
 export const visionAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
 
-export const visionAlertsPartialUpdateBodyCooldownMinutesDefault = 0
 export const visionAlertsPartialUpdateBodyCooldownMinutesMin = 0
 
 export const VisionAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -359,14 +338,14 @@ export const VisionAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     metric: zod
         .enum(['count', 'avg_score'])
         .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
-        .default(visionAlertsPartialUpdateBodyMetricDefault)
+        .optional()
         .describe(
             "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
         ),
     direction: zod
         .enum(['above', 'below'])
         .describe('\* `above` - At or above\n\* `below` - At or below')
-        .default(visionAlertsPartialUpdateBodyDirectionDefault)
+        .optional()
         .describe(
             'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
         ),
@@ -378,29 +357,29 @@ export const VisionAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     window_days: zod
         .number()
-        .default(visionAlertsPartialUpdateBodyWindowDaysDefault)
+        .optional()
         .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
     check_interval_minutes: zod
         .number()
         .min(visionAlertsPartialUpdateBodyCheckIntervalMinutesMin)
-        .default(visionAlertsPartialUpdateBodyCheckIntervalMinutesDefault)
+        .optional()
         .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
     evaluation_periods: zod
         .number()
         .min(1)
         .max(visionAlertsPartialUpdateBodyEvaluationPeriodsMax)
-        .default(visionAlertsPartialUpdateBodyEvaluationPeriodsDefault)
+        .optional()
         .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
     datapoints_to_alarm: zod
         .number()
         .min(1)
         .max(visionAlertsPartialUpdateBodyDatapointsToAlarmMax)
-        .default(visionAlertsPartialUpdateBodyDatapointsToAlarmDefault)
+        .optional()
         .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
     cooldown_minutes: zod
         .number()
         .min(visionAlertsPartialUpdateBodyCooldownMinutesMin)
-        .default(visionAlertsPartialUpdateBodyCooldownMinutesDefault)
+        .optional()
         .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
     schedule_restriction: zod
         .union([
@@ -981,7 +960,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(visionScannersScoutsCreateBodyNameMax)
             .describe(
-                'Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens, at most 64 characters. Creating again with a name that already exists applies the supplied config to that scout instead of creating a second one.'
+                "Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional. Repeating a create with this scanner's scout name and the same description and body returns that scout with the new config; any other reuse of a taken name is a conflict."
             ),
         description: zod
             .string()

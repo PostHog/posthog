@@ -82865,7 +82865,7 @@ export namespace Schemas {
      */
     export interface ScannerScoutCreate {
       /**
-         * Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens, at most 64 characters. Creating again with a name that already exists applies the supplied config to that scout instead of creating a second one.
+         * Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional. Repeating a create with this scanner's scout name and the same description and body returns that scout with the new config; any other reuse of a taken name is a conflict.
          * @maxLength 64
          */
       name: string;

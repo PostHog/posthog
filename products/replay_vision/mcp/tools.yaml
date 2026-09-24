@@ -423,7 +423,7 @@ tools:
             - replay_scanner:write
             - session_recording:read
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Estimate scanner backfill
@@ -574,7 +574,7 @@ tools:
             - replay_scanner:write
             - session_recording:read
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: false
         title: Draft scanner from goal
@@ -964,8 +964,8 @@ tools:
             `body`. The body should start by reading the scanner with `vision-scanners-get` by its id and read observations
             with `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never
             need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or
-            `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run spends
-            credits, so agree the schedule with the person.
+            `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run is a
+            full agent run, so agree the schedule with the person.
     vision-scanners-self-driving-stats:
         operation: vision_scanners_self_driving_stats_retrieve
         enabled: true
