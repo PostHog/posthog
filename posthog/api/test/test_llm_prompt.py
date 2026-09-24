@@ -32,7 +32,11 @@ from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrot
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
-from products.ai_observability.backend.prompt_references import MAX_PROMPT_REFERENCES
+from products.ai_observability.backend.prompt_references import (
+    MAX_ACTIVE_REFERENCE_RESULTS,
+    MAX_PROMPT_REFERENCES,
+    get_active_parents_referencing_label,
+)
 
 
 class TestLLMPromptAPI(APIBaseTest):
@@ -2392,3 +2396,49 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "Try again" in response.json()["detail"]
+
+    def test_create_rejects_references_inside_json_payloads(self):
+        self._make_prompt("guardrails", label="production")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "structured",
+                "prompt": {
+                    "messages": [{"role": "system", "content": "@@@prompt:name=guardrails|label=production@@@"}]
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "reference_in_non_text_prompt"
+
+        tag_free = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "structured", "prompt": {"messages": [{"role": "system", "content": "hi"}]}},
+            format="json",
+        )
+        assert tag_free.status_code == status.HTTP_201_CREATED
+
+    def test_label_parent_listing_is_capped(self):
+        base = self._make_prompt("base", label="production")
+        assert base is not None
+        parents = LLMPrompt.objects.bulk_create(
+            LLMPrompt(team=self.team, name=f"parent-{i}", prompt="x", version=1, is_latest=True, created_by=self.user)
+            for i in range(MAX_ACTIVE_REFERENCE_RESULTS + 1)
+        )
+        LLMPromptDependency.objects.bulk_create(
+            LLMPromptDependency(
+                team=self.team,
+                prompt=parent,
+                parent_name=parent.name,
+                child_name="base",
+                child_label="production",
+            )
+            for parent in parents
+        )
+
+        names = get_active_parents_referencing_label(self.team.id, "base", "production")
+
+        assert len(names) == MAX_ACTIVE_REFERENCE_RESULTS
+        assert names == sorted(names)

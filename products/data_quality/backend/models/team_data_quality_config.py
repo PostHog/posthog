@@ -1,11 +1,6 @@
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamDataQualityConfig(models.Model):
@@ -26,6 +21,3 @@ class TeamDataQualityConfig(models.Model):
 
     class Meta:
         app_label = "data_quality"
-
-
-register_team_extension_signal(TeamDataQualityConfig, logger=logger)

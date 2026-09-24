@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from time import monotonic
 from typing import Any
 from uuid import UUID
 
 import structlog
+from pydantic import ValidationError
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async
@@ -18,6 +20,7 @@ from products.conversations.backend.playbook import compose_support_playbook, is
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
     DIAGNOSTIC_SCOPES_PRESET,
+    DRAFT_ACTIVITY_MAX_ATTEMPTS,
     DRAFT_MODEL,
     DRAFT_POLL_SECONDS,
     DRAFT_RUNTIME_ADAPTER,
@@ -35,16 +38,91 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     PUBLISHABLE_DRAFT_SCOPES,
     TICKET_TYPE_HINTS,
 )
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_json_schema
+from products.conversations.backend.temporal.ai_reply.llms import llm_attempts
 from products.conversations.backend.temporal.ai_reply.schemas import DraftInput, DraftOutput, SupportReplyDraft
 from products.conversations.backend.temporal.helpers import (
     get_or_create_support_sandbox_env,
     resolve_user_id_for_support,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import MultiTurnSession
+from products.tasks.backend.facade.agents import EmptyAgentTurnError, MultiTurnSession
 
 logger = structlog.get_logger(__name__)
+
+_DRAFT_JSON_NUDGE = (
+    "You ended the turn before the draft JSON. Do not wait and do not send a status update. "
+    "Return only the JSON object now, using what you already have."
+)
+# The first poll uses DRAFT_POLL_SECONDS. The nudge can poll twice on an empty reply, and both
+# polls together must fit inside the draft activity's start_to_close timeout.
+_DRAFT_NUDGE_POLL_SECONDS = 90
+
+
+class DraftNotProducedError(RuntimeError):
+    """The draft agent gave no usable draft. Raised only while a retry attempt remains."""
+
+
+def _parse_draft(text: str | None) -> SupportReplyDraft | None:
+    """Return the last JSON object in `text` that is a valid draft.
+
+    The agent may quote an example or echo ticket JSON before its answer, so the final
+    object wins over the first one.
+    """
+    if not text:
+        return None
+    decoder = json.JSONDecoder()
+    candidates: list[Any] = []
+    start = 0
+    while (brace := text.find("{", start)) != -1:
+        try:
+            value, _ = decoder.raw_decode(text, brace)
+        except json.JSONDecodeError:
+            value = None
+        if isinstance(value, dict):
+            candidates.append(value)
+        start = brace + 1
+    for candidate in reversed(candidates):
+        try:
+            return SupportReplyDraft.model_validate(candidate)
+        except ValidationError:
+            continue
+    return None
+
+
+def _give_up(reason: str) -> SupportReplyDraft:
+    """Retry while an attempt remains. On the last attempt, return a draft that blocks auto-send.
+
+    A raise on the last attempt fails the workflow before it records a result, which leaves the
+    ticket in_progress.
+    """
+    if llm_attempts() < DRAFT_ACTIVITY_MAX_ATTEMPTS:
+        raise DraftNotProducedError(reason)
+    logger.warning("support_draft_blocked_last_attempt", reason=reason)
+    return SupportReplyDraft(
+        reply="",
+        citations=[],
+        confidence=0.0,
+        verdict="blocked_on_knowledge",
+        investigation_summary=reason,
+    )
+
+
+async def _draft_from_session(session: MultiTurnSession, first_text: str) -> SupportReplyDraft:
+    draft = _parse_draft(first_text)
+    if draft is not None:
+        return draft
+    logger.warning("support_draft_no_json_nudging", task_run_id=str(session.task_run.id))
+    session.max_poll_seconds = _DRAFT_NUDGE_POLL_SECONDS
+    try:
+        followup = await session.send_followup_raw(_DRAFT_JSON_NUDGE, label="support draft json")
+    except Exception:
+        logger.warning("support_draft_json_nudge_failed", task_run_id=str(session.task_run.id), exc_info=True)
+        return _give_up("The draft agent failed while it was asked for the draft JSON.")
+    draft = _parse_draft(followup)
+    if draft is not None:
+        return draft
+    return _give_up("The draft agent ended without a JSON object.")
+
 
 _TEAM_DOCS_SOURCE_TYPES = frozenset({"url", "file"})
 
@@ -312,29 +390,38 @@ INSTRUCTIONS:
 - The KNOWLEDGE BASE RESULTS above are a starting point, not a ceiling. Use the tools listed in TOOLS YOU HAVE ON THIS RUN to search for additional information.
 - Ground your reply in sources. Include citations (chunk_id UUIDs or doc URLs) and populate `sources` with the supporting excerpts so the reply can be validated.
 - Do NOT make up information -- only use what your tools return.
+- Do not end the turn while a tool or search is still running. Wait for it to finish. A status update is not a finished draft.
 
 Return your response as a JSON object with keys: reply, citations, confidence (a number from 0 to 1, never a word), sources (a list of {{ref, excerpt}}), verdict, clarifying_questions, investigation_summary, unknowns."""
 
     session: MultiTurnSession | None = None
     started = monotonic()
     try:
-        session, result = await MultiTurnSession.start(
-            prompt,
-            context,
-            model=SupportReplyDraft,
-            step_name="support_reply",
-            origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-            mcp_builtin_agent_key="support",
-            internal=True,
-            max_poll_seconds=DRAFT_POLL_SECONDS,
-            output_schema=anthropic_json_schema(SupportReplyDraft),
-        )
+        try:
+            session, first_text = await MultiTurnSession.start_raw(
+                prompt,
+                context,
+                step_name="support_reply",
+                origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+                mcp_builtin_agent_key="support",
+                internal=True,
+                max_poll_seconds=DRAFT_POLL_SECONDS,
+            )
+        except EmptyAgentTurnError:
+            # start_raw already ended the run, so there is no session to nudge.
+            logger.warning("support_draft_empty_first_turn", team_id=input.team_id)
+            result = _give_up("The draft agent ended the turn with no reply.")
+        except Exception:
+            logger.exception("support_draft_agent_failed", team_id=input.team_id)
+            result = _give_up("The draft agent failed before it returned a reply.")
+        else:
+            result = await _draft_from_session(session, first_text)
         return DraftOutput(
             reply=result.reply,
             citations=result.citations,
             confidence=result.confidence,
             sources=[{"ref": s.ref, "excerpt": s.excerpt[:MAX_EXCERPT_CHARS]} for s in result.sources[:MAX_SOURCES]],
-            task_run_id=str(session.task_run.id),
+            task_run_id=str(session.task_run.id) if session is not None else "",
             sandbox_seconds=monotonic() - started,
             verdict=result.verdict if result.verdict in DRAFT_VERDICTS else "blocked_on_knowledge",
             clarifying_questions=[q for q in result.clarifying_questions if q][:MAX_CLARIFYING_QUESTIONS],

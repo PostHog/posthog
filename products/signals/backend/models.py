@@ -22,7 +22,6 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -222,9 +221,6 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         if not repository or not isinstance(self.autostart_base_branches, dict):
             return None
         return self.autostart_base_branches.get(repository.lower()) or None
-
-
-register_team_extension_signal(SignalTeamConfig, logger=logger)
 
 
 class SignalUserAutonomyConfig(UUIDModel):
@@ -2593,6 +2589,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         *,
         pause_reason: "SignalScoutConfig.PauseReason",
         evaluated_at: datetime | None = None,
+        max_enabled_scouts: int | None = None,
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
@@ -2605,11 +2602,26 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
         caller read the state its decision is based on) to also refuse the transition if the
         status moved after that moment, e.g. a human re-enable racing a sweep's pause.
+        `max_enabled_scouts` is the project's already-resolved enabled-scout ceiling, for a
+        caller that is inside a locked section. Left `None`, a resume resolves it here — before
+        the transaction opens, so the flag read never happens while row locks are held.
         Saves and returns True when the transition applies; returns False without writing
         when it is refused or a no-op.
         """
         if new_status == self.Status.PAUSED_BY_USER:
             raise ValueError("Only a user write may set paused_by_user.")
+        # A resume must not carry the team past the enabled-scout cap: the pause freed a slot the
+        # config API may have legitimately given to another scout since. Only a resume needs the
+        # ceiling, so a pause pays for no flag read.
+        resume_cap: int | None = None
+        if new_status in self.RUNNABLE_STATUSES:
+            from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                max_enabled_scouts_for_team,
+            )
+
+            resume_cap = (
+                max_enabled_scouts if max_enabled_scouts is not None else max_enabled_scouts_for_team(self.team_id)
+            )
         with transaction.atomic():
             # One ordered query locks the whole team's rows, not just ours: the cap check below
             # counts sibling rows, so two concurrent resumes locking only their own rows would
@@ -2639,15 +2651,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 and locked.status_changed_at > evaluated_at
             ):
                 return False
-            # A resume must not carry the team past the enabled-scout cap: the pause freed a
-            # slot the config API may have legitimately given to another scout since.
-            from products.signals.backend.scout_harness.limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
-                MAX_ENABLED_SCOUTS_PER_TEAM,
-            )
-
-            if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
+            if resume_cap is not None and locked.status not in self.RUNNABLE_STATUSES:
                 peers = sum(1 for row in team_rows.values() if row.enabled and row.pk != locked.pk)
-                if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
+                if peers >= resume_cap:
                     return False
             recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
             if new_status == locked.status and recorded_reason == locked.pause_reason:
