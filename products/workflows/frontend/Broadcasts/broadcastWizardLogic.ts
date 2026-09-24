@@ -782,6 +782,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             await breakpoint(1000)
+            // An earlier autosave still in flight moves updated_at when it lands. Wait for it, or this save
+            // sends the old base, gets a 409, and the reload drops what the user typed since.
+            while ((cache.autosavesInFlight ?? 0) > 0) {
+                await breakpoint(100)
+            }
             const broadcastId = values.broadcastId
             if (!broadcastId || !values.currentProjectId) {
                 return
