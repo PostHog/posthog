@@ -31,6 +31,12 @@ FILE_LIST_PATHS = Histogram(
     buckets=(100, 1_000, 10_000, 50_000, 100_000, 200_000),
 )
 
+SOURCE_FILE_READS = Counter(
+    "error_tracking_repo_paths_source_file_reads_total",
+    "Reads of the file of a stack frame at the release commit, by outcome",
+    labelnames=("outcome",),
+)
+
 
 def record_git_fetch(*, outcome: str, seconds: float, fetched_bytes: int) -> None:
     GIT_FETCHES.labels(outcome=outcome).inc()
@@ -44,3 +50,7 @@ def record_job_outcome(outcome: str) -> None:
 
 def record_file_list_size(paths: int) -> None:
     FILE_LIST_PATHS.observe(paths)
+
+
+def record_source_file_read(outcome: str) -> None:
+    SOURCE_FILE_READS.labels(outcome=outcome).inc()

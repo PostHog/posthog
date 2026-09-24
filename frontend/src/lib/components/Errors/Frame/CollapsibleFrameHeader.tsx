@@ -31,7 +31,8 @@ export function CollapsibleFrameHeader({
     expanded: boolean
 }): JSX.Element {
     const { raw_id, source, line, column, resolved, resolve_failure, in_app, lang } = frame
-    const { getFrameFingerprint } = useValues(errorPropertiesLogic)
+    const { getFrameFingerprint, getSourceFileTarget } = useValues(errorPropertiesLogic)
+    const canReadSourceFile = !!getSourceFileTarget(frame)
 
     const part = getFrameFingerprint(raw_id)
     const functionName = formatFunctionName(frame)
@@ -68,7 +69,7 @@ export function CollapsibleFrameHeader({
                 className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)]', {
                     'cursor-progress': recordLoading,
                 })}
-                disabled={!hasRecordContext && !recordLoading}
+                disabled={!hasRecordContext && !recordLoading && !canReadSourceFile}
             >
                 {functionName && (
                     <span ref={functionRef} className="font-medium frame-function" title={functionName}>
@@ -99,7 +100,9 @@ export function CollapsibleFrameHeader({
                                 <UnresolvedIcon resolve_failure={resolve_failure} />
                             ))
                             .with([true, true, true, false], () => <SpinnerIcon />)
-                            .with([true, true, false, false], () => <NoContextIcon lang={lang} raw_id={raw_id} />)
+                            .with([true, true, false, false], () =>
+                                canReadSourceFile ? null : <NoContextIcon lang={lang} raw_id={raw_id} />
+                            )
                             .otherwise(() => null)
                     )}
                 </div>

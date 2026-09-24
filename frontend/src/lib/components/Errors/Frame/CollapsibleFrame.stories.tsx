@@ -295,3 +295,61 @@ export function MultipleFrames(): JSX.Element {
         </BindLogic>
     )
 }
+
+const repoFrame: ErrorTrackingStackFrame = { ...baseFrame, raw_id: 'repo-1', repo_path: 'apps/web/src/FrameLoader.ts' }
+
+const sourceFileLines = [
+    ...Array.from({ length: 5 }, (_, i) => `// FrameLoader.ts line ${i + 1}`),
+    ...frameContext.before.map(({ line }) => line),
+    frameContext.line.line,
+    ...frameContext.after.map(({ line }) => line),
+    ...Array.from({ length: 40 }, (_, i) => `// FrameLoader.ts line ${i + 15}`),
+]
+
+export function SourceFileFromRepository(): JSX.Element {
+    const properties = {
+        ...eventProperties,
+        $exception_release: {
+            id: 'release-1',
+            version: '1.0.0',
+            timestamp: '2024-01-01T00:00:00Z',
+            metadata: {
+                git: {
+                    remote_url: 'https://github.com/acme/web.git',
+                    commit_id: '0123456789abcdef0123456789abcdef01234567',
+                },
+            },
+        },
+    }
+    return (
+        <BindLogic
+            logic={errorPropertiesLogic}
+            props={{ properties, id: 'story-source-file', timestamp: '2024-01-01T00:00:00Z' }}
+        >
+            <div className="max-w-2xl border rounded">
+                <CollapsibleFrame
+                    frame={repoFrame}
+                    record={{ ...baseRecord, raw_id: 'repo-1', contents: repoFrame }}
+                    recordLoading={false}
+                    expanded
+                    onExpandedChange={() => {}}
+                />
+            </div>
+        </BindLogic>
+    )
+}
+SourceFileFromRepository.decorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/error_tracking/git-provider-file-links/source_file/': {
+                repo_path: 'apps/web/src/FrameLoader.ts',
+                commit: '0123456789abcdef0123456789abcdef01234567',
+                line: 11,
+                lines: sourceFileLines,
+            },
+        },
+    }),
+]
+SourceFileFromRepository.parameters = {
+    testOptions: { waitForSelector: '[data-attr="error-tracking-frame-source-file"]' },
+}

@@ -814,6 +814,20 @@ export interface GitProviderFileLinkResolveResponseApi {
     error?: string
 }
 
+export interface FrameSourceFileResponseApi {
+    /** The file's path in the repository. */
+    repo_path: string
+    /** The release commit that the file was read at. */
+    commit: string
+    /**
+     * The frame's line in the file, starting at 1.
+     * @nullable
+     */
+    line: number | null
+    /** Every line of the file, in order, without line endings. */
+    lines: string[]
+}
+
 /**
  * @nullable
  */
@@ -2410,6 +2424,23 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
      * @minLength 1
      */
     repository: string
+}
+
+export type ErrorTrackingGitProviderFileLinksSourceFileRetrieveParams = {
+    /**
+     * The timestamp of that event, so the lookup reads only the partition that holds it.
+     */
+    event_timestamp: string
+    /**
+     * The exception event that holds the frame.
+     */
+    event_uuid: string
+    /**
+     * The `raw_id` of the frame in the event's exception list.
+     * @minLength 1
+     * @maxLength 300
+     */
+    frame_raw_id: string
 }
 
 export type ErrorTrackingIssuesListParams = {

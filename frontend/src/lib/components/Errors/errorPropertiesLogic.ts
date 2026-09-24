@@ -26,6 +26,8 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { isStoredCrashFirst } from './displayOrder'
 import { framesCodeSourceLogic } from './Frame/framesCodeSourceLogic'
+import type { FrameSourceFileTarget } from './Frame/frameSourceFileLogic'
+import { getRepoFileLink } from './Frame/repoFileLink'
 import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 import type { ExceptionAttributes } from './types'
 
@@ -51,6 +53,7 @@ export interface errorPropertiesLogicValues {
     framesStoredCrashFirst: boolean
     getExceptionFingerprint: (excId: string) => FingerprintRecordPart | undefined
     getFrameFingerprint: (frameRawId: string) => FingerprintRecordPart | undefined
+    getSourceFileTarget: (frame: ErrorTrackingStackFrame) => FrameSourceFileTarget | null
     hasStacktrace: boolean
     properties: Record<string, any>
     recordingStatus: string | undefined
@@ -104,6 +107,11 @@ export interface errorPropertiesLogicMeta {
             frames: ErrorTrackingStackFrame[],
             stackFrameRecords: KeyedStackFrameRecords
         ) => ErrorTrackingRelease | null | undefined
+        getSourceFileTarget: (
+            release: ErrorTrackingRelease | null | undefined,
+            uuid: string,
+            arg: any
+        ) => (frame: ErrorTrackingStackFrame) => FrameSourceFileTarget | null
         releaseIdMissingFromSDK: (
             properties: Record<string, any>,
             frames: ErrorTrackingStackFrame[],
@@ -238,6 +246,18 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 )
                 return sortedReleases[0]
             },
+        ],
+        getSourceFileTarget: [
+            (s) => [s.release, s.uuid, (_, props) => props.timestamp],
+            (
+                release: ErrorTrackingRelease | null | undefined,
+                uuid: ErrorEventId,
+                timestamp: string | undefined
+            ): ((frame: ErrorTrackingStackFrame) => FrameSourceFileTarget | null) =>
+                (frame) =>
+                    timestamp && frame.in_app && getRepoFileLink(frame, release)?.provider === 'github'
+                        ? { eventUuid: uuid, eventTimestamp: timestamp, rawId: frame.raw_id }
+                        : null,
         ],
         releaseIdMissingFromSDK: [
             (s) => [s.properties, s.frames, s.stackFrameRecords, s.stackFrameRecordsLoading],

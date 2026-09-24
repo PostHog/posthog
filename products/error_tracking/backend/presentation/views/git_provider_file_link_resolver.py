@@ -17,6 +17,8 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
 
+from products.error_tracking.backend.logic.repo_paths.source_file import FrameSourceFile, get_frame_source_file
+
 logger = structlog.get_logger(__name__)
 
 MISSING_REQUIRED_PARAMS_ERROR = "owner, repository, code_sample, and file_name are required"
@@ -75,6 +77,26 @@ class GitProviderFileLinkResolveQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(help_text="Repository name.")
     code_sample = serializers.CharField(help_text="Code snippet to search for in repository files.")
     file_name = serializers.CharField(help_text="File name to match in search results.")
+
+
+class FrameSourceFileQuerySerializer(serializers.Serializer):
+    event_uuid = serializers.UUIDField(help_text="The exception event that holds the frame.")
+    event_timestamp = serializers.DateTimeField(
+        help_text="The timestamp of that event, so the lookup reads only the partition that holds it."
+    )
+    frame_raw_id = serializers.CharField(
+        max_length=300, help_text="The `raw_id` of the frame in the event's exception list."
+    )
+
+
+class FrameSourceFileResponseSerializer(serializers.Serializer):
+    repo_path = serializers.CharField(help_text="The file's path in the repository.")
+    commit = serializers.CharField(help_text="The release commit that the file was read at.")
+    line = serializers.IntegerField(allow_null=True, help_text="The frame's line in the file, starting at 1.")
+    lines = serializers.ListField(
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False),
+        help_text="Every line of the file, in order, without line endings.",
+    )
 
 
 class GitProviderFileLinkResolveResponseSerializer(serializers.Serializer):
@@ -259,7 +281,35 @@ def get_gitlab_file_url(
 
 class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
-    scope_object_read_actions = ["resolve_github", "resolve_gitlab"]
+    scope_object_read_actions = ["resolve_github", "resolve_gitlab", "source_file"]
+
+    @extend_schema(
+        parameters=[FrameSourceFileQuerySerializer],
+        responses={
+            200: OpenApiResponse(response=FrameSourceFileResponseSerializer),
+            404: OpenApiResponse(description="The frame has no readable source file."),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="source_file")
+    def source_file(self, request, **kwargs):
+        query = FrameSourceFileQuerySerializer(data=request.GET)
+        query.is_valid(raise_exception=True)
+        result = get_frame_source_file(
+            self.team,
+            event_uuid=str(query.validated_data["event_uuid"]),
+            event_timestamp=query.validated_data["event_timestamp"],
+            frame_raw_id=query.validated_data["frame_raw_id"],
+        )
+        if not isinstance(result, FrameSourceFile):
+            return Response({"detail": result}, status=404)
+        response = Response(
+            FrameSourceFileResponseSerializer(
+                {"repo_path": result.repo_path, "commit": result.commit, "line": result.line, "lines": result.lines}
+            ).data
+        )
+        # The file of a frame is read at a fixed commit, so it never changes.
+        response["Cache-Control"] = "private, max-age=86400"
+        return response
 
     @extend_schema(
         parameters=[GitProviderFileLinkResolveQuerySerializer],

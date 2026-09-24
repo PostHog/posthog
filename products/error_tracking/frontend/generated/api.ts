@@ -32,6 +32,7 @@ import type {
     ErrorTrackingFingerprintsResolveRetrieveParams,
     ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams,
     ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams,
+    ErrorTrackingGitProviderFileLinksSourceFileRetrieveParams,
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
@@ -88,6 +89,7 @@ import type {
     ErrorTrackingSymbolSetBulkStartUploadResponseApi,
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
+    FrameSourceFileResponseApi,
     GitProviderFileLinkResolveResponseApi,
     PaginatedErrorTrackingAlertListApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
@@ -807,6 +809,39 @@ export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
 ): Promise<GitProviderFileLinkResolveResponseApi> => {
     return apiMutator<GitProviderFileLinkResolveResponseApi>(
         getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getErrorTrackingGitProviderFileLinksSourceFileRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingGitProviderFileLinksSourceFileRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/git-provider-file-links/source_file/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/git-provider-file-links/source_file/`
+}
+
+export const errorTrackingGitProviderFileLinksSourceFileRetrieve = async (
+    projectId: string,
+    params: ErrorTrackingGitProviderFileLinksSourceFileRetrieveParams,
+    options?: RequestInit
+): Promise<FrameSourceFileResponseApi> => {
+    return apiMutator<FrameSourceFileResponseApi>(
+        getErrorTrackingGitProviderFileLinksSourceFileRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',
