@@ -18,6 +18,7 @@ import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
 import { ResponsiveLayouts } from 'react-grid-layout'
@@ -55,6 +56,7 @@ import {
     chunkTileIds,
     fetchRunWidgets,
     findNewlyAddedWidgetTiles,
+    isWidgetStale,
     WIDGET_CLIENT_TTL_MS,
 } from 'scenes/dashboard/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
@@ -358,6 +360,7 @@ export interface dashboardLogicValues {
     loadingPreview: boolean
     maxContext: MaxContextInput[]
     nextAllowedDashboardRefresh: Dayjs | null
+    nextWidgetStaleAt: number | null
     oldestRefreshed: Dayjs | null
     pageVisibility: boolean
     pendingInsertion: PendingInsertion | null
@@ -365,6 +368,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
         total: number
@@ -658,6 +662,9 @@ export interface dashboardLogicActions {
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
         tile: any
+    }
+    recheckRefreshEligibility: () => {
+        value: true
     }
     refreshDashboardItem: (payload: { tile: DashboardTile }) => {
         tile: DashboardTile
@@ -1207,8 +1214,31 @@ export interface dashboardLogicMeta {
         oldestRefreshed: (sortedDates: Dayjs[], pageVisibility: boolean) => Dayjs | null
         effectiveLastRefresh: (lastDashboardRefresh: Dayjs | null, oldestRefreshed: Dayjs | null) => Dayjs | null
         nextAllowedDashboardRefresh: (lastDashboardRefresh: Dayjs | null) => Dayjs | null
+        nextWidgetStaleAt: (
+            widgetTiles: DashboardTile[],
+            widgetRefreshStatus: Record<
+                number,
+                {
+                    error?: string | null
+                    fetchedAt?: number
+                    loading?: boolean
+                }
+            >,
+            dashboardWidgetsEnabled: boolean
+        ) => number | null
         blockRefresh: (
             nextAllowedDashboardRefresh: Dayjs | null,
+            widgetTiles: DashboardTile[],
+            widgetRefreshStatus: Record<
+                number,
+                {
+                    error?: string | null
+                    fetchedAt?: number
+                    loading?: boolean
+                }
+            >,
+            refreshEligibilityTick: number,
+            dashboardWidgetsEnabled: boolean,
             placement: DashboardPlacement,
             pageVisibility: boolean
         ) => boolean
@@ -1439,6 +1469,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveLayout: true,
         resetUrlFilters: () => true,
         resetUrlVariables: true,
+        recheckRefreshEligibility: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
@@ -2565,20 +2596,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tileIds.map((tileId) => [
                             tileId,
                             loading
-                                ? { loading: true, error: null }
-                                : { loading: false, error: error ?? null, fetchedAt: Date.now() },
+                                ? { ...state[tileId], loading: true, error: null }
+                                : {
+                                      ...state[tileId],
+                                      loading: false,
+                                      error: error ?? null,
+                                      fetchedAt: error ? state[tileId]?.fetchedAt : Date.now(),
+                                  },
                         ])
                     ),
                 }),
                 setWidgetRunResults: (state, { results }) => {
                     const next = { ...state }
                     for (const tileId of Object.keys(results).map(Number)) {
-                        next[tileId] = { ...next[tileId], loading: false, fetchedAt: Date.now() }
+                        next[tileId] = {
+                            ...next[tileId],
+                            loading: false,
+                            fetchedAt: results[tileId].error ? next[tileId]?.fetchedAt : Date.now(),
+                        }
                     }
                     return next
                 },
             },
         ],
+        refreshEligibilityTick: [0, { recheckRefreshEligibility: (state) => state + 1 }],
         addWidgetTileLoading: [
             false,
             {
@@ -3078,15 +3119,65 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return lastDashboardRefresh.add(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
             },
         ],
+        nextWidgetStaleAt: [
+            (s) => [s.widgetTiles, s.widgetRefreshStatus, s.dashboardWidgetsEnabled],
+            (
+                widgetTiles: DashboardTile[],
+                widgetRefreshStatus: Record<
+                    number,
+                    {
+                        error?: string | null
+                        fetchedAt?: number
+                        loading?: boolean
+                    }
+                >,
+                dashboardWidgetsEnabled: boolean
+            ): number | null => {
+                if (!dashboardWidgetsEnabled) {
+                    return null
+                }
+                const deadlines = widgetTiles
+                    .map((tile) => {
+                        const status = widgetRefreshStatus[tile.id]
+                        return status?.fetchedAt && !status.error && !status.loading
+                            ? status.fetchedAt + WIDGET_CLIENT_TTL_MS
+                            : null
+                    })
+                    .filter((deadline): deadline is number => deadline !== null && deadline > Date.now())
+                return deadlines.length ? Math.min(...deadlines) : null
+            },
+        ],
         blockRefresh: [
             // page visibility is only here to trigger a recompute when the page is hidden/shown
-            (s) => [s.nextAllowedDashboardRefresh, s.placement, s.pageVisibility],
-            (nextAllowedDashboardRefresh: Dayjs, placement: DashboardPlacement) => {
+            (s) => [
+                s.nextAllowedDashboardRefresh,
+                s.widgetTiles,
+                s.widgetRefreshStatus,
+                s.refreshEligibilityTick,
+                s.dashboardWidgetsEnabled,
+                s.placement,
+                s.pageVisibility,
+            ],
+            (
+                nextAllowedDashboardRefresh: Dayjs,
+                widgetTiles: DashboardTile[],
+                widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
+                _refreshEligibilityTick: number,
+                dashboardWidgetsEnabled: boolean,
+                placement: DashboardPlacement
+            ) => {
                 return (
                     !(placement === DashboardPlacement.FeatureFlag) &&
                     !(placement === DashboardPlacement.Group) &&
                     !!nextAllowedDashboardRefresh &&
-                    nextAllowedDashboardRefresh?.isAfter(now())
+                    nextAllowedDashboardRefresh?.isAfter(now()) &&
+                    !(
+                        dashboardWidgetsEnabled &&
+                        widgetTiles.some((tile) => {
+                            const status = widgetRefreshStatus[tile.id]
+                            return !status?.error && isWidgetStale(status)
+                        })
+                    )
                 )
             },
         ],
@@ -3341,6 +3432,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return [createMaxContextHelpers.dashboard(dashboard)]
             },
         ],
+    })),
+    subscriptions(({ actions, cache }) => ({
+        nextAllowedDashboardRefresh: (deadline: Dayjs | null) => {
+            cache.disposables.dispose('dashboardRefreshTimer')
+            if (!deadline || !deadline.isAfter(now())) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timerId = setTimeout(actions.recheckRefreshEligibility, Math.max(0, deadline.diff(now())) + 100)
+                return () => clearTimeout(timerId)
+            }, 'dashboardRefreshTimer')
+        },
+        nextWidgetStaleAt: (deadline: number | null) => {
+            cache.disposables.dispose('widgetFreshnessTimer')
+            if (!deadline) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timerId = setTimeout(actions.recheckRefreshEligibility, Math.max(0, deadline - Date.now()) + 100)
+                return () => clearTimeout(timerId)
+            }, 'widgetFreshnessTimer')
+        },
     })),
     events(({ actions, props, values, cache }) => ({
         afterMount: () => {
@@ -4254,7 +4367,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return true
                 }
                 const fetchedAt = values.widgetRefreshStatus[tileId]?.fetchedAt
-                return !fetchedAt || Date.now() - fetchedAt > WIDGET_CLIENT_TTL_MS
+                return (
+                    !!values.widgetRefreshStatus[tileId]?.error ||
+                    !fetchedAt ||
+                    Date.now() - fetchedAt >= WIDGET_CLIENT_TTL_MS
+                )
             })
 
             if (staleTileIds.length === 0) {
