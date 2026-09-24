@@ -1,8 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { IconGlobe, IconPencil } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -76,21 +76,16 @@ export function AccountDetailNavigation({
           : visibleTabs
 
     const displayedTab = tabDefinitions.find((tab) => tab.id === activeTabId)
-    const rightSlot = activeTab?.view ? (
-        <div className="flex items-center gap-2">
-            {activeTab.view.visibility === 'team' ? <LemonTag type="muted">Team</LemonTag> : null}
-            {activeTab.view.can_edit ? (
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    icon={<IconPencil />}
-                    onClick={() => openEditEditor(activeTab.view!)}
-                    data-attr="account-view-edit"
-                >
-                    Edit view
-                </LemonButton>
-            ) : null}
-        </div>
+    const rightSlot = activeTab?.view?.can_edit ? (
+        <LemonButton
+            size="xsmall"
+            type="secondary"
+            icon={<IconPencil />}
+            onClick={() => openEditEditor(activeTab.view!)}
+            data-attr="account-view-edit"
+        >
+            Edit view
+        </LemonButton>
     ) : undefined
 
     return (
@@ -110,7 +105,7 @@ export function AccountDetailNavigation({
                     rightSlot={rightSlot}
                     tabs={tabDefinitions.map((tab) => ({
                         key: tab.id,
-                        label: tab.label,
+                        label: getAccountTabLabel(tab),
                     }))}
                 />
             </div>
@@ -128,6 +123,21 @@ export function AccountDetailNavigation({
                 </div>
             ) : null}
         </div>
+    )
+}
+
+function getAccountTabLabel(tab: AccountTabDefinition): string | JSX.Element {
+    if (tab.view?.visibility !== 'team') {
+        return tab.label
+    }
+
+    return (
+        <span className="flex items-center gap-1">
+            <span>{tab.label}</span>
+            <Tooltip title="This view is shared with the team.">
+                <IconGlobe className="shrink-0 text-muted" />
+            </Tooltip>
+        </span>
     )
 }
 
