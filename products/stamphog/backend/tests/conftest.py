@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import Client, override_settings
 
 from cryptography.hazmat.primitives import serialization
@@ -178,6 +179,10 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     ``on_commit`` fires inline (the test's outer transaction never really commits). Everything else
     runs as production code.
     """
+    # The chain caches GitHub reads (installation tokens, the ownership reader's head commit and
+    # blobs), and those entries outlive one test, so a test would answer with the files of the one
+    # before it.
+    cache.clear()
     recorder = fakes.GitHubRecorder()
     # review-guidance.md is a required trusted policy file — run_review_in_sandbox fails closed without
     # it — so seed it for the whole chain; individual tests still set/override policy.yml as they need.
@@ -207,6 +212,9 @@ def stamphog_chain() -> Iterator[StamphogChain]:
         stack.enter_context(
             patch("products.stamphog.backend.logic.github_client.github_request", recorder.github_request)
         )
+        # Routing reads the repo's owners.yaml through the shared ownership reader, which talks to
+        # GitHub itself rather than through the stamphog client.
+        stack.enter_context(patch("posthog.ownership.github_files.github_request", recorder.github_request))
         stack.enter_context(
             patch(
                 "products.stamphog.backend.logic.github_client.remember_observed_core_limit",
