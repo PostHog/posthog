@@ -45,9 +45,6 @@ _NOW = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
 _OLD_MTIME = _NOW - dt.timedelta(hours=2)
 
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
-
-
 def _table(ids: list[int], seqs: list[int]) -> pa.Table:
     return pa.table({"id": pa.array(ids, pa.int64())}).append_column(
         pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())

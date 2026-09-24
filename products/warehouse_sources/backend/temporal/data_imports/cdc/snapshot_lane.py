@@ -17,8 +17,11 @@ from typing import TYPE_CHECKING
 
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
+from temporalio.service import RPCError, RPCStatusCode
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import CDC_EXTRACTION_WORKFLOW_ID_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
 if TYPE_CHECKING:
@@ -85,3 +88,31 @@ def resnapshot_stays_in_buffer(schema: ExternalDataSchema, logger: FilteringBoun
         and not (schema.sync_type_config or {}).get("cdc_deferred_runs")
         and is_buffered_snapshot_enabled(schema.team_id, logger)
     )
+
+
+def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
+    """Cancel the table's running scheduled sync, so a snapshot begun before a reset cannot hand over.
+
+    Returns the workflow id it cancelled. A workflow that already finished counts as cancelled. Any
+    other failure raises, so the caller stops before it changes the table.
+    """
+    # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+    from products.data_warehouse.backend.facade.api import cancel_external_data_workflow  # noqa: PLC0415
+
+    job = (
+        ExternalDataJob.objects.filter(
+            team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.RUNNING
+        )
+        .exclude(workflow_id__isnull=True)
+        .exclude(workflow_id__startswith=CDC_EXTRACTION_WORKFLOW_ID_PREFIX)
+        .order_by("-created_at")
+        .first()
+    )
+    if job is None or not job.workflow_id:
+        return None
+    try:
+        cancel_external_data_workflow(job.workflow_id)
+    except RPCError as e:
+        if e.status != RPCStatusCode.NOT_FOUND:
+            raise
+    return job.workflow_id

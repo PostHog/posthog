@@ -182,8 +182,6 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     removes = ["cdc_last_log_position", "cdc_deferred_runs"]
     if resnapshot_stays_in_buffer(instance, logger):
         updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
-    else:
-        removes.append(CDC_SNAPSHOT_LANE_KEY)
     instance.sync_type_config = update_sync_type_config_keys(
         instance.id, instance.team_id, updates=updates, removes=removes
     )
@@ -1512,6 +1510,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Add table to capture set when enabling CDC or toggling sync on
         if newly_set_to_cdc or (should_sync is True and not instance.should_sync):
             adapter.add_table(source, db_schema, source_table_name)
+            # Capture skipped the table while it was out of the set, so its buffer has a gap. Without
+            # the marker, capture empties the buffer before the new snapshot instead of replaying it.
+            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
 
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
@@ -1531,6 +1532,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Remove table from capture set when toggling sync off
         elif should_sync is False and instance.should_sync:
             adapter.remove_table(source, db_schema, source_table_name)
+            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
 
 
 class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
@@ -1887,8 +1889,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # capture run already in progress wrote after the snapshot started reading.
             if resnapshot_stays_in_buffer(instance, logger):
                 updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
-            else:
-                removes.append(CDC_SNAPSHOT_LANE_KEY)
 
         # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
         # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source

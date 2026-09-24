@@ -77,9 +77,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
-from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
+    CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
+    cdc_qualified_table_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     BUFFER_LANE,
+    cancel_running_sync,
     is_buffered_snapshot_enabled,
     snapshot_in_buffer,
 )
@@ -128,9 +132,6 @@ CDC_MAX_EXTRACTION_ATTEMPTS = 3
 # identical one says nothing new while burying the runs that do.
 CDC_FAILURE_VISIBILITY_COOLDOWN = dt.timedelta(hours=1)
 
-# Every extraction run carries the schedule's workflow id, which is built from this prefix (see
-# _get_cdc_extraction_schedule_id). Scopes the cooldown lookup to change-capture runs.
-CDC_EXTRACTION_WORKFLOW_ID_PREFIX = "cdc-extraction-"
 
 # Shown as latest_error on prior-run jobs reconciled by _reconcile_orphaned_prior_jobs.
 CDC_ORPHANED_JOB_MESSAGE = (
@@ -1482,6 +1483,12 @@ class CDCExtractActivity:
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
+        # A snapshot already running may have read the table before changes this reset drops, as
+        # when a retry reads a TRUNCATE again. It must not reach its hand-over. A failed cancel fails
+        # the run while the slot still holds the TRUNCATE, so the retry repeats the reset.
+        cancelled = cancel_running_sync(schema)
+        if cancelled:
+            self._schema_log(schema).info("cdc_reset_cancelled_running_sync", workflow_id=cancelled)
         # The re-seeding snapshot starts after this run, so it covers every change this run read.
         # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
         if self.batcher is not None:
@@ -1502,6 +1509,9 @@ class CDCExtractActivity:
             updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
         else:
             removes.append(CDC_SNAPSHOT_LANE_KEY)
+            # The unmarked hand-over purges the buffer, so the rest of this run's changes go to
+            # deferred runs, as the next run's will.
+            self._buffered_table_names.discard(schema.name)
         # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
         # preventing pre-truncate rows from surviving a TRUNCATE or lost-slot re-snapshot.
         self._update_schema_sync_type_config(
@@ -1632,15 +1642,18 @@ class CDCExtractActivity:
                 tracker.job.save(update_fields=["rows_synced", "status", "finished_at", "updated_at"])
 
     def _advance_slot_after_run(self) -> None:
-        """Advance the slot to the last LSN if the final flush moved past the last incremental advance.
+        """Advance the slot past everything this run read, once the final flush has landed.
 
-        Intermediate micro-batches already advanced the slot incrementally inside the
-        read loop, so this only fires if the final flush contained new events beyond
-        the last incremental advance.
+        A read always stops at a transaction boundary, and by now every event up to the decoder's
+        last commit is flushed. Confirming that commit rather than the last event also moves past
+        trailing transactions with no row events. A TRUNCATE on its own is one: this run already
+        handled it, and reading it again would reset the table a second time.
         """
-        if self.last_end_lsn is not None and self.last_end_lsn != self.last_confirmed_lsn:
-            self._confirm_position(self.last_end_lsn)
-            self.log.info("slot_advanced", position=self.last_end_lsn)
+        target = self.reader.last_commit_end_lsn or self.last_end_lsn
+        if target is not None and target != self.last_confirmed_lsn:
+            self._confirm_position(target)
+            self.last_end_lsn = target
+            self.log.info("slot_advanced", position=target)
 
     def _update_log_positions(self) -> None:
         """Update per-schema cdc_last_log_position (skip schemas reset to snapshot mode)."""
