@@ -6,7 +6,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { workflowLogic } from './workflowLogic'
+import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Element {

@@ -6042,6 +6042,7 @@ class HogFlowViewSet(
                 if enabled:
                     # get_or_create rather than create: two first-time enables race, and the loser of
                     # the one-to-one constraint would answer 500 for a workflow that is now on.
+                    # nosemgrep: idor-lookup-without-team - team scope is enforced by TeamScopedManager
                     row, created = HogFlowOptimisation.objects.get_or_create(
                         hog_flow=instance, defaults={"enabled": True}
                     )

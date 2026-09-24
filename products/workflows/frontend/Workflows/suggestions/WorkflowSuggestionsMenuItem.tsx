@@ -5,7 +5,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SceneMenuBarCheckboxItem } from '~/layout/scenes/components/SceneMenuBar'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { workflowLogic } from './workflowLogic'
+import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsMenuItem({ id }: { id: string }): JSX.Element {

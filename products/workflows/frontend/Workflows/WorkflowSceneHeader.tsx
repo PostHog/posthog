@@ -24,12 +24,12 @@ import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layou
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { WorkflowSuggestionsMenuItem } from './suggestions/WorkflowSuggestionsMenuItem'
+import { WorkflowSuggestionsPanelToggle } from './suggestions/WorkflowSuggestionsPanelToggle'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
-import { WorkflowSuggestionsMenuItem } from './WorkflowSuggestionsMenuItem'
-import { WorkflowSuggestionsPanelToggle } from './WorkflowSuggestionsPanelToggle'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const {
