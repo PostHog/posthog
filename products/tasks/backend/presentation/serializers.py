@@ -3,7 +3,7 @@ import json
 import base64
 import logging
 import binascii
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from django.conf import settings
@@ -53,7 +53,7 @@ from products.tasks.backend.facade.contracts import (
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
-from products.tasks.backend.facade.model_catalogue import ModelChoice
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -465,6 +465,12 @@ class TaskRunDetailSerializer(DataclassSerializer):
     """
 
     task = serializers.UUIDField(help_text="Parent task id this run belongs to.")
+    scheduled_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default_timezone=UTC,
+        help_text="Earliest start time in UTC. Null for runs without a schedule.",
+    )
     log_url = serializers.URLField(
         allow_null=True, required=False, help_text="Presigned S3 URL for log access (valid for 1 hour)."
     )
@@ -525,6 +531,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "completed_at",
+            "scheduled_at",
             "preview_available",
         ]
 
@@ -1034,12 +1041,37 @@ class TaskWriteSerializer(serializers.Serializer):
         return attrs
 
 
-class TaskCreateSerializer(TaskWriteSerializer):
+@extend_schema_field(OpenApiTypes.STR)
+class TaskRunScheduledAtField(serializers.DateTimeField):
+    pass
+
+
+class TaskRunScheduleSerializer(serializers.Serializer):
+    scheduled_at = TaskRunScheduledAtField(
+        required=False,
+        allow_null=True,
+        default_timezone=UTC,
+        help_text=(
+            "Earliest start time for a one-off cloud run, in ISO 8601 format. "
+            "Must be in the future and within 30 days. Times without an offset use UTC. "
+            "Omit or send null to start immediately."
+        ),
+    )
+
+    def validate_scheduled_at(self, value: datetime | None) -> datetime | None:
+        if value is not None:
+            now = django_timezone.now()
+            if value <= now or value > now + timedelta(days=30):
+                raise serializers.ValidationError("Choose a future time within 30 days.")
+        return value
+
+
+class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
     start_run = serializers.BooleanField(
         required=False,
         default=False,
         write_only=True,
-        help_text="Start the task's first cloud run immediately after creation.",
+        help_text="Create the first cloud run. It starts immediately unless scheduled_at is set.",
     )
     signal_report_discussion_question = serializers.CharField(
         required=False,
@@ -1085,6 +1117,8 @@ class TaskCreateSerializer(TaskWriteSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
+        if attrs.get("scheduled_at") is not None and not attrs.get("start_run"):
+            raise serializers.ValidationError({"scheduled_at": "Set start_run to true to schedule a run."})
         # Mirror image of the signal_report_task_relationship check: a report-less signal_report
         # task still mints under the Signals OAuth app with the interactive run scope, but skips
         # the per-report cap entirely. Require the report so the cap and interactive budget always
@@ -1116,6 +1150,7 @@ class TaskCreateSerializer(TaskWriteSerializer):
                     "initial_permission_mode",
                     "pending_user_message",
                     "auto_publish",
+                    "scheduled_at",
                 )
                 if attrs.get(key) is not None
             }
@@ -1126,7 +1161,9 @@ class TaskCreateSerializer(TaskWriteSerializer):
             )
             run_serializer.is_valid(raise_exception=True)
             attrs["run_data"] = {
-                key: run_serializer.validated_data[key] for key in run_payload if key in run_serializer.validated_data
+                key: run_serializer.validated_data[key]
+                for key in (*run_payload, "runtime_adapter")
+                if key in run_serializer.validated_data
             }
         return attrs
 
@@ -3365,7 +3402,7 @@ class TaskRunPreferencesFieldMixin(serializers.Serializer):
 
 
 class TaskRunCreateRequestSerializer(
-    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, TaskRunPreferencesFieldMixin, serializers.Serializer
+    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, TaskRunPreferencesFieldMixin, TaskRunScheduleSerializer
 ):
     """Request body for creating a new task run"""
 
@@ -3452,7 +3489,7 @@ class TaskRunCreateRequestSerializer(
         required=False,
         default=None,
         allow_blank=False,
-        help_text="LLM model identifier to run in the selected runtime.",
+        help_text="LLM model identifier. The server derives the runtime adapter when it is omitted.",
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
@@ -3498,6 +3535,25 @@ class TaskRunCreateRequestSerializer(
         _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         is_pi_task = _is_pi_task_run_request(self.context)
+        if attrs.get("scheduled_at") is not None:
+            if is_pi_task or attrs.get("mode") != "background":
+                errors["scheduled_at"] = "Scheduling requires a background ACP run."
+            for field in ("github_user_token", "imported_mcp_servers", "relayed_mcp_servers"):
+                if attrs.get(field):
+                    errors[field] = "Scheduled runs cannot use credentials or connections from a connected desktop."
+            if attrs.get("claude_model_access") == "own-subscription":
+                errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
+        if attrs.get("model") and attrs.get("runtime_adapter") is None:
+            attrs["runtime_adapter"] = get_runtime_adapter_for_model(attrs["model"]) or next(
+                (
+                    RuntimeAdapter(choice.runtime_adapter)
+                    for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+                    if choice.model == attrs["model"]
+                ),
+                None,
+            )
+            if attrs["runtime_adapter"] is None:
+                errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
         if is_pi_task:
             for field in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
                 if attrs.get(field) is not None:
@@ -4082,7 +4138,12 @@ class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     )
 
 
-class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
+class TaskRunResumeRequestSchemaSerializer(TaskRunScheduleSerializer):
+    model = serializers.CharField(required=False, allow_blank=False)
+    reasoning_effort = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.REASONING_EFFORT_CHOICES, required=False
+    )
+
     mode = serializers.ChoiceField(
         choices=TaskExecutionMode.choices,
         required=False,

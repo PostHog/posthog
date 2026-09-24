@@ -6,8 +6,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (

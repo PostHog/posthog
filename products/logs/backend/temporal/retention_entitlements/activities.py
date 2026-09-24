@@ -5,6 +5,8 @@ from posthog.models.team.logs_retention import (
     DEFAULT_LOGS_RETENTION_DAYS,
     required_logs_retention_feature,
     reset_logs_retention_rules,
+    reset_unentitled_span_retention_rules,
+    reset_unentitled_traces_retention,
 )
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -109,16 +111,28 @@ async def enforce_logs_retention_entitlements(
         if not input.dry_run and rules_to_update:
             await database_sync_to_async(reset_logs_retention_rules)(rules_to_update)
 
+        # Traces keep their default period and rules in the tracing product, gated by the same feature.
+        tracing_configs_reset = await database_sync_to_async(reset_unentitled_traces_retention)(
+            dry_run=input.dry_run, batch_size=batch_size
+        )
+        span_rules_reset = await database_sync_to_async(reset_unentitled_span_retention_rules)(
+            dry_run=input.dry_run, batch_size=batch_size
+        )
+
         logger.info(
             "Logs retention entitlement enforcement complete",
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
             rules_checked=rules_checked,
             rules_reset=len(rules_to_update),
+            tracing_configs_reset=tracing_configs_reset,
+            span_rules_reset=span_rules_reset,
         )
         return EnforceLogsRetentionEntitlementsOutput(
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
             rules_checked=rules_checked,
             rules_reset=len(rules_to_update),
+            tracing_configs_reset=tracing_configs_reset,
+            span_rules_reset=span_rules_reset,
         )

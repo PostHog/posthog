@@ -11,7 +11,7 @@ from time import monotonic
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import DatabaseError
+from django.db import DatabaseError, close_old_connections
 
 from asgiref.sync import sync_to_async
 from prometheus_client import start_http_server
@@ -25,6 +25,7 @@ from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
 from posthog.user_permissions import UserPermissions
 
+from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.workflow_dispatch import (
     WorkflowDispatchOptions,
     claim_dispatches,
@@ -46,15 +47,18 @@ from products.tasks.backend.metrics import (
     WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS,
     observe_task_run_workflow_start,
 )
-from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch
+from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import _capture_run_feature_flags
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+from products.tasks.backend.visibility import task_control_q
 
 logger = logging.getLogger(__name__)
 SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE = 500
 
 
-def _user_can_dispatch(run: TaskRun, options: WorkflowDispatchOptions | None) -> bool:
+def _user_can_dispatch(
+    run: TaskRun, options: WorkflowDispatchOptions | None, *, require_task_control: bool = False
+) -> bool:
     if options is not None and options.skip_user_check:
         return True
     user_id = options.user_id if options is not None else run.task.created_by_id
@@ -63,10 +67,24 @@ def _user_can_dispatch(run: TaskRun, options: WorkflowDispatchOptions | None) ->
     user = User.objects.filter(id=user_id, is_active=True).first()
     if user is None:
         return False
-    return UserPermissions(user=user, team=run.task.team).current_team.effective_membership_level is not None
+    if UserPermissions(user=user, team=run.task.team).current_team.effective_membership_level is None:
+        return False
+    return (
+        not require_task_control
+        or Task.objects.filter(task_control_q(user_id), id=run.task_id, team_id=run.team_id).exists()
+    )
 
 
-async def restart_attempt_already_started(client: Client, dispatch: TaskWorkflowDispatch) -> bool:
+def _scheduled_run_usage_error(user: User, team_id: int) -> str | None:
+    close_old_connections()
+    try:
+        response = usage_limit_response(user, team_id)
+        return str(response.data["error"]) if response is not None else None
+    finally:
+        close_old_connections()
+
+
+async def dispatch_attempt_already_started(client: Client, dispatch: TaskWorkflowDispatch) -> bool:
     try:
         description = await client.get_workflow_handle(dispatch.workflow_id).describe(
             rpc_timeout=timedelta(seconds=settings.TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS)
@@ -75,7 +93,13 @@ async def restart_attempt_already_started(client: Client, dispatch: TaskWorkflow
         if error.status == RPCStatusCode.NOT_FOUND:
             return False
         raise
-    return description.status == WorkflowExecutionStatus.RUNNING and description.start_time >= dispatch.enqueued_at
+    if dispatch.dispatch_kind == TaskWorkflowDispatch.Kind.RESTART:
+        return description.status == WorkflowExecutionStatus.RUNNING and description.start_time >= dispatch.enqueued_at
+    return description.status in (
+        WorkflowExecutionStatus.RUNNING,
+        WorkflowExecutionStatus.COMPLETED,
+        WorkflowExecutionStatus.CONTINUED_AS_NEW,
+    )
 
 
 class Command(BaseCommand):
@@ -194,23 +218,38 @@ class Command(BaseCommand):
             try:
                 await Team.objects.aget(id=run.team_id)
                 is_restart = dispatch.dispatch_kind == TaskWorkflowDispatch.Kind.RESTART
+                is_scheduled_create = run.scheduled_at is not None and not is_restart
                 if is_restart:
                     requester_id, _ = parse_restart_payload(dispatch.payload)
                     options = WorkflowDispatchOptions(user_id=requester_id)
-                    if dispatch.attempt_count > 1 and await restart_attempt_already_started(client, dispatch):
-                        await sync_to_async(mark_accepted)(dispatch.id, instance_id)
-                        WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(
-                            kind=dispatch.dispatch_kind, outcome="already_started"
-                        ).inc()
-                        return
                 else:
                     options = parse_create_payload(dispatch.payload)
-                if not await sync_to_async(_user_can_dispatch)(run, options):
+                if (
+                    (is_restart or is_scheduled_create)
+                    and dispatch.attempt_count > 1
+                    and await dispatch_attempt_already_started(client, dispatch)
+                ):
+                    await sync_to_async(mark_accepted)(dispatch.id, instance_id)
+                    WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="already_started").inc()
+                    return
+                if not await sync_to_async(_user_can_dispatch)(run, options, require_task_control=is_scheduled_create):
                     await sync_to_async(mark_dead)(
-                        dispatch.id, instance_id, "User no longer has team access", "permission"
+                        dispatch.id,
+                        instance_id,
+                        "User no longer has task access" if is_scheduled_create else "User no longer has team access",
+                        "permission",
                     )
                     WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                     return
+                if is_scheduled_create:
+                    user = await User.objects.aget(id=options.user_id)
+                    usage_error = await sync_to_async(_scheduled_run_usage_error, thread_sensitive=False)(
+                        user, run.team_id
+                    )
+                    if usage_error is not None:
+                        await sync_to_async(mark_dead)(dispatch.id, instance_id, usage_error, "usage_limit")
+                        WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
+                        return
                 await sync_to_async(_capture_run_feature_flags, thread_sensitive=False)(str(run.id))
                 if is_restart:
                     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415

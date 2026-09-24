@@ -25,6 +25,8 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '~/logs/outputs/producers'
 import { createTracesOutputsRegistry } from '~/logs/outputs/registry'
+import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
+import { TracingConfigCache } from '~/logs/retention/tracing-config-cache'
 import { TracesIngestionConsumer } from '~/logs/traces-ingestion-consumer'
 
 import { CommonConfig } from '../common/config'
@@ -117,6 +119,10 @@ export class IngestionTracesServer implements NodeServer {
             ? new LogsMetricsEmitter(this.config.TRACES_METRICS_RULES_EXPORT_URL)
             : undefined
 
+        // The tracing config supplies the per-team default for spans no rule matches.
+        const retentionRulesCache = new RetentionRulesCache(this.postgres)
+        const tracingConfigCache = new TracingConfigCache(this.postgres)
+
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
 
@@ -135,6 +141,8 @@ export class IngestionTracesServer implements NodeServer {
                 usageBatch,
                 metricRulesCache,
                 metricsEmitter,
+                retentionRulesCache,
+                tracingConfigCache,
             })
             await consumer.start()
             return consumer.service

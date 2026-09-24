@@ -163,6 +163,10 @@ export type TracesIngestionConsumerConfig = {
     TRACES_METRICS_RULES_ENABLED_TEAMS: string
     TRACES_METRICS_RULES_KILLSWITCH: boolean
     TRACES_METRICS_RULES_EXPORT_URL: string
+    /** Comma-separated team IDs, or `*` for all teams, or empty to disable per-row span retention rules. */
+    TRACES_RETENTION_ENABLED_TEAMS: string
+    /** When `true`, span retention rules are never evaluated (spans keep the team default via the batch header). */
+    TRACES_RETENTION_KILLSWITCH: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -192,6 +196,9 @@ export function getDefaultTracesIngestionConsumerConfig(): TracesIngestionConsum
         TRACES_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         TRACES_METRICS_RULES_KILLSWITCH: false,
         TRACES_METRICS_RULES_EXPORT_URL: '',
+        // Same rollout shape as the logs retention rules: on locally, off in prod until enabled per team.
+        TRACES_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        TRACES_RETENTION_KILLSWITCH: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
