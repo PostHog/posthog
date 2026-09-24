@@ -741,28 +741,6 @@ export class PostgresPersonMerge {
             }
             const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
 
-            let person = currentTarget
-            let updateMessages: PersonMessage[] = []
-            if (mergeSources.length > 0) {
-                const { changes, createdAt } = await this.lockedMergeOutcome(
-                    tx,
-                    targetParticipant,
-                    sourceParticipants,
-                    (role) => new MergeFoldConflictError(`Fold ${role} was deleted concurrently`)
-                )
-                ;[person, updateMessages] = await tx.updatePersonForMerge(
-                    currentTarget,
-                    {
-                        created_at: createdAt,
-                        properties: changes.toSet,
-                        properties_to_unset: changes.toUnset,
-                        is_identified: true,
-                        version,
-                    },
-                    this.targetDistinctId
-                )
-            }
-
             const moveResult = await tx.moveDistinctIdsFromPersons(mergeSources, currentTarget, this.targetDistinctId)
             if (!moveResult.success) {
                 throw new TargetPersonNotFoundError('Target person no longer exists')
@@ -781,15 +759,35 @@ export class PostgresPersonMerge {
                 // See mergeSingle for the distinctIdVersion logic.
                 const distinctIdVersion = 1
                 this.recordOverrideCount('fold')
-                addMessages.push(...(await tx.addDistinctId(person, pair.distinctId, distinctIdVersion)))
+                addMessages.push(...(await tx.addDistinctId(currentTarget, pair.distinctId, distinctIdVersion)))
             }
 
+            let person = currentTarget
+            let updateMessages: PersonMessage[] = []
             let deleteMessages: PersonMessage[] = []
             if (mergeSources.length > 0) {
                 await tx.updateCohortsAndFeatureFlagsForMergeBatch(
                     teamId,
                     mergeSources.map((source) => source.id),
                     currentTarget.id,
+                    this.targetDistinctId
+                )
+                // Read under lock right before the delete, so the lock spans only the delete.
+                const { changes, createdAt } = await this.lockedMergeOutcome(
+                    tx,
+                    targetParticipant,
+                    sourceParticipants,
+                    (role) => new MergeFoldConflictError(`Fold ${role} was deleted concurrently`)
+                )
+                ;[person, updateMessages] = await tx.updatePersonForMerge(
+                    currentTarget,
+                    {
+                        created_at: createdAt,
+                        properties: changes.toSet,
+                        properties_to_unset: changes.toUnset,
+                        is_identified: true,
+                        version,
+                    },
                     this.targetDistinctId
                 )
                 deleteMessages = await tx.deletePersons(mergeSources, this.targetDistinctId)
@@ -981,6 +979,26 @@ export class PostgresPersonMerge {
                         throw new SourcePersonNotFoundError('Source person was deleted concurrently')
                     }
                 }
+                // Move distinct IDs first to establish ownership of the source person quickly.
+                // This reduces contention when multiple concurrent merges target the same source,
+                // as subsequent lookups via distinct ID will fail faster.
+                const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(
+                    tx,
+                    currentSourcePerson,
+                    currentTargetPerson
+                )
+
+                // Update cohorts and feature flags after distinct IDs are moved.
+                // The source person row still exists (deleted below), so FK constraints are satisfied.
+                // TODO: Doesn't this table need to add updates to CH too?
+                await tx.updateCohortsAndFeatureFlagsForMerge(
+                    currentSourcePerson.team_id,
+                    currentSourcePerson.id,
+                    currentTargetPerson.id,
+                    this.targetDistinctId
+                )
+
+                // Read under lock right before the delete, so the lock spans only the delete.
                 const { changes, createdAt } = await this.lockedMergeOutcome(
                     tx,
                     currentTarget,
@@ -1015,25 +1033,6 @@ export class PostgresPersonMerge {
                         //    Person_1(version:7) will "lose" to this new Person_1.
                         version: Math.max(currentTargetPerson.version, currentSourcePerson.version) + 1,
                     },
-                    this.targetDistinctId
-                )
-
-                // Move distinct IDs first to establish ownership of the source person quickly.
-                // This reduces contention when multiple concurrent merges target the same source,
-                // as subsequent lookups via distinct ID will fail faster.
-                const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(
-                    tx,
-                    currentSourcePerson,
-                    currentTargetPerson
-                )
-
-                // Update cohorts and feature flags after distinct IDs are moved.
-                // The source person row still exists (deleted below), so FK constraints are satisfied.
-                // TODO: Doesn't this table need to add updates to CH too?
-                await tx.updateCohortsAndFeatureFlagsForMerge(
-                    currentSourcePerson.team_id,
-                    currentSourcePerson.id,
-                    currentTargetPerson.id,
                     this.targetDistinctId
                 )
 

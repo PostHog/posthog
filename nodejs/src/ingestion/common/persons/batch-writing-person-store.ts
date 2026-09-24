@@ -1,4 +1,3 @@
-import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
@@ -92,8 +91,6 @@ type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
 interface PersonUpdateResult {
     success: boolean
     messages: PersonMessage[]
-    /** The row's version after the write, when the write reports it. */
-    version?: number
     // If there's a updated person update, it will be returned here.
     // This is useful for the optimistic update case, where we need to update the cache with the latest version.
     personUpdate?: PersonUpdate
@@ -698,7 +695,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // that mutate an entry between this clear and the async DB write
         // will re-set `needs_write=true` and be picked up by the next flush.
         // DO NOT introduce any `await` inside this block.
-        // Write records are copies taken here; the entry keeps its pending until the write lands.
         const updateEntries: [string, PersonUpdate][] = []
         for (const [key, update] of this.personCache.getUpdateCacheEntries()) {
             // Skip null entries - these are deleted persons or cleared cache entries
@@ -727,14 +723,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 })
                 metricsKeys.forEach((propertyKey) => personPropertyKeyUpdateCounter.labels({ key: propertyKey }).inc())
 
-                updateEntries.push([
-                    key,
-                    {
-                        ...update,
-                        properties_to_set: { ...update.properties_to_set },
-                        properties_to_unset: [...update.properties_to_unset],
-                    },
-                ])
+                updateEntries.push([key, update])
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -777,8 +766,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             }
 
-            this.settleLandedWrites(updateEntries, allKafkaMessages)
-
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
@@ -797,50 +784,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 errorMessage: error instanceof Error ? error.message : String(error),
                 errorStack: error instanceof Error ? error.stack : undefined,
             })
-            // Pending is untouched until a write lands, so the next flush carries it again.
-            const cache = this.personCache.getUpdateCache()
-            for (const [key] of updateEntries) {
-                const entry = cache.get(key)
-                if (entry) {
-                    entry.needs_write = true
-                }
-            }
             throw error
-        }
-    }
-
-    /**
-     * Folds each landed record into the live entry at its key and prunes the pending it carried.
-     * A cache write replaces the entry object, so the key is the handle. The fold applies only when
-     * the row version the write returned is newer than the entry's: responses can arrive out of
-     * landing order, and an older one must not move the base or prune a newer pending value.
-     */
-    private settleLandedWrites(updateEntries: [string, PersonUpdate][], results: FlushResult[]): void {
-        const recordsByUuid = new Map(updateEntries.map(([key, record]) => [record.uuid, { key, record }]))
-        const cache = this.personCache.getUpdateCache()
-        for (const result of results) {
-            const landed = result.uuid === undefined ? undefined : recordsByUuid.get(result.uuid)
-            const entry = landed === undefined ? undefined : cache.get(landed.key)
-            if (!landed || !entry || result.version === undefined || result.version <= entry.version) {
-                continue
-            }
-            const { record } = landed
-            entry.properties = { ...entry.properties, ...record.properties_to_set }
-            for (const key of record.properties_to_unset) {
-                delete entry.properties[key]
-            }
-            for (const [key, value] of Object.entries(record.properties_to_set)) {
-                if (isEqual(entry.properties_to_set[key], value)) {
-                    delete entry.properties_to_set[key]
-                }
-            }
-            entry.properties_to_unset = entry.properties_to_unset.filter(
-                (key) => !record.properties_to_unset.includes(key)
-            )
-            entry.original_is_identified = record.is_identified
-            entry.original_created_at = record.created_at
-            entry.original_last_seen_at = record.last_seen_at
-            entry.version = result.version
         }
     }
 
@@ -876,7 +820,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     teamId: update.team_id,
                     uuid: update.uuid,
                     distinctId: update.distinct_id,
-                    version: result.version,
                 })
                 personWriteMethodAttemptCounter.inc({
                     db_write_mode: this.options.dbWriteMode,
@@ -945,7 +888,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                                     teamId: update.team_id,
                                     uuid: update.uuid,
                                     distinctId: update.distinct_id,
-                                    version: result.version,
                                 },
                             ]
                         } catch (error) {
@@ -997,7 +939,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                                 teamId: update.team_id,
                                 uuid: update.uuid,
                                 distinctId: update.distinct_id,
-                                version: result.version,
                             },
                         ]
                     } catch (error) {
@@ -1062,7 +1003,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                                 teamId: update.team_id,
                                 uuid: update.uuid,
                                 distinctId: update.distinct_id,
-                                version: result.version,
                             },
                         ]
                     } catch (error) {
@@ -1149,7 +1089,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
             const fallbackResult = await this.updatePersonNoAssert(error.latestPersonUpdate)
             const fallbackMessages = fallbackResult.success ? fallbackResult.messages : []
-            const fallbackVersion = fallbackResult.success ? fallbackResult.version : undefined
 
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
@@ -1163,7 +1102,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     teamId: error.latestPersonUpdate.team_id,
                     uuid: error.latestPersonUpdate.uuid,
                     distinctId: error.latestPersonUpdate.distinct_id,
-                    version: fallbackVersion,
                 },
             ]
         }
@@ -2065,8 +2003,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             }
         }
 
-        // The row assigns its own version on the write; the merge's stands in only for that statement.
-        const fieldsToExclude = ['properties', 'properties_to_unset', 'is_identified', 'version']
+        // Apply other updates (excluding properties which we handled above)
+        const fieldsToExclude = ['properties', 'properties_to_unset', 'is_identified']
         if (!allowCreatedAtUpdate) {
             fieldsToExclude.push('created_at')
         }
@@ -2178,7 +2116,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (!result?.success) {
             throw result?.error ?? new NoRowsUpdatedError(`Person with uuid="${personUpdate.uuid}" was not updated`)
         }
-        return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [], version: result.version }
+        return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [] }
     }
 
     /**
@@ -2207,12 +2145,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 ...personUpdate,
                 version: actualVersion,
             }
-            return {
-                success: true,
-                messages: kafkaMessages,
-                personUpdate: updatedPersonUpdate,
-                version: actualVersion,
-            }
+            return { success: true, messages: kafkaMessages, personUpdate: updatedPersonUpdate }
         }
 
         // Optimistic update failed due to version mismatch
