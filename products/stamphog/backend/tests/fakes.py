@@ -96,6 +96,7 @@ def sign_payload(body: bytes, secret: str) -> str:
 _TOKEN_RE = re.compile(r"^/app/installations/(?P<inst>[^/]+)/access_tokens$")
 _PR_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)$")
 _PR_FILES_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/files$")
+_PR_COMMITS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/commits$")
 _REVIEWS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/reviews$")
 _ISSUE_COMMENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/comments$")
 _COMMENT_PATCH_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/comments/(?P<cid>\d+)$")
@@ -177,6 +178,8 @@ class GitHubRecorder:
         # The merge base the compare API reports for every PR, and the familiarity GraphQL answers:
         # path -> blame ranges, and path -> the author's history nodes. Unscripted paths answer empty.
         self.merge_base_sha = "mergebase000"
+        # (repo, number) -> the PR's commits, oldest first. register_pr fills one commit at the head.
+        self.pr_commits: dict[tuple[str, int], list[dict]] = {}
         self.blame_ranges: dict[str, list[dict]] = {}
         self.author_history: dict[str, list[dict]] = {}
         self.policy_files: dict[str, str] = {}
@@ -193,9 +196,21 @@ class GitHubRecorder:
         self._next_id += 1
         return self._next_id
 
-    def register_pr(self, repo: str, number: int, pr_object: dict, files: list[dict] | None = None) -> None:
+    def register_pr(
+        self,
+        repo: str,
+        number: int,
+        pr_object: dict,
+        files: list[dict] | None = None,
+        commit_messages: tuple[str, ...] = ("feat: change",),
+    ) -> None:
         self.prs[(repo, number)] = pr_object
         self.pr_files[(repo, number)] = files if files is not None else []
+        head_sha = (pr_object.get("head") or {}).get("sha") or ""
+        shas = [f"{head_sha}-parent{index}" for index in range(len(commit_messages) - 1)] + [head_sha]
+        self.pr_commits[(repo, number)] = [
+            {"sha": sha, "commit": {"message": message}} for sha, message in zip(shas, commit_messages)
+        ]
 
     def github_request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
         """Drop-in for ``github_request`` — route by (method, path), record writes."""
@@ -207,6 +222,10 @@ class GitHubRecorder:
             return self._mint_token(m.group("inst"))
         if method == "GET" and (m := _PR_FILES_RE.match(path)):
             return self._get_files(m.group("repo"), int(m.group("number")), params)
+        if method == "GET" and (m := _PR_COMMITS_RE.match(path)):
+            page = int(params.get("page", 1))
+            commits = self.pr_commits.get((m.group("repo"), int(m.group("number"))), []) if page == 1 else []
+            return FakeResponse(200, json_data=commits)
         if method == "GET" and (m := _PR_RE.match(path)):
             return self._get_pr(m.group("repo"), int(m.group("number")))
         if method == "GET" and path == "/search/issues":

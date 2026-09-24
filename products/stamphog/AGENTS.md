@@ -232,8 +232,12 @@ changes both, and divergence here has produced real approve-when-should-wait fin
 Inputs `review_pr.py` fetches over the network reach the sandbox through the context JSON instead, and
 dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
 `author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
-tells the reviewer that every author owns the code they touched. `pr_provenance` needs no token and
-is computed in the sandbox from the checkout.
+tells the reviewer that every author owns the code they touched.
+
+The sandbox checkout is shallow and holds no PR history, so a hosted context always carries `merge_base_sha` (the engine diffs `merge_base..head`) and `commit_messages` (the provenance trailers).
+Without those keys (a manual `review_pr.py` run) the engine reads git history instead.
+The engine's git has no credential, so every object it reads must arrive in `_clone_pr` or `_prefetch_review_blobs`: an on-demand promisor fetch is anonymous and a private repository refuses it.
+Test clone changes with `GIT_NO_LAZY_FETCH=1`, because a public repository hides that failure.
 
 The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy.
 It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.

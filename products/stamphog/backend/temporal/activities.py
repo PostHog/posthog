@@ -79,7 +79,7 @@ from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
-    PREFETCH_BLAME_TIMEOUT_SECONDS,
+    PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
     REVIEWER_TIMEOUT_SECONDS,
     RUN_REVIEW_TIMEOUT,
     SANDBOX_PHASE_RESERVE_SECONDS,
@@ -386,6 +386,18 @@ def _resolve_sandbox_backend() -> str:
     return provider if provider else "modal"
 
 
+def _pr_commit_messages(client: StamphogGitHubClient, repo: str, pr_number: int, head_sha: str) -> list[str] | None:
+    """The PR's commit messages for the engine's provenance trailers, or None when they are unavailable.
+
+    Provenance is advisory, so a GitHub error leaves it out of the review instead of failing it.
+    """
+    try:
+        return client.get_pr_commit_messages(repo, pr_number, head_sha)
+    except Exception:
+        activity.logger.warning(f"stamphog: PR commit messages unavailable for {repo}#{pr_number}", exc_info=True)
+        return None
+
+
 @activity.defn
 @asyncify
 def fetch_review_context(input: StamphogReviewInput) -> dict:
@@ -419,6 +431,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     review_threads = client.get_pr_review_threads(repo, pull_request.pr_number)
     # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
     check_runs = client.get_check_runs(repo, run.head_sha)
+    commit_messages = _pr_commit_messages(client, repo, pull_request.pr_number, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
     # Skipped for self-driving runs, like the familiarity facts above.
@@ -455,6 +468,9 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         # so a null means "absent" rather than "compute it from git".
         "familiarity_facts": history.familiarity_facts,
         "merge_base_sha": history.merge_base_sha,
+        # Always set, null included, for the same reason: the sandbox checkout holds no history,
+        # so the engine must not fall back to `git log` for the provenance trailers.
+        "commit_messages": commit_messages,
     }
     run.save(update_fields=["output", "updated_at"])
 
@@ -644,7 +660,7 @@ def _destroy_sandbox_in_background(sandbox: SandboxBase, run_id: str) -> None:
     threading.Thread(target=destroy, name=f"stamphog-destroy-{run_id}", daemon=True).start()
 
 
-def _review_invocation(run: ReviewRun) -> ReviewerInvocation:
+def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerInvocation:
     """The engine context and command for this run, shared by the pre-check and the sandbox review."""
     output = run.output or {}
     pr = output.get("pr", {})
@@ -661,7 +677,9 @@ def _review_invocation(run: ReviewRun) -> ReviewerInvocation:
         # A run whose context predates the server facts gets None, which the engine reads as an
         # absent signal. The sandbox checkout holds no history for it to fall back on.
         familiarity_facts=output.get("familiarity_facts"),
+        commit_messages=output.get("commit_messages"),
         base_sha=(pr.get("base") or {}).get("sha") or "",
+        merge_base_sha=merge_base_sha,
         head_sha=run.head_sha,
         repo=run.pull_request.repo_config.repository,
         engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
@@ -711,7 +729,7 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
         activity.logger.info(f"Run {run.id}: pre-gates skipped ({skip_reason})")
         return {"refused": False, "skipped": skip_reason}
 
-    context = json.loads(_review_invocation(run).context_json)
+    context = json.loads(_review_invocation(run, output.get("merge_base_sha")).context_json)
     # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
     policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
     timer = _StepTimer()
@@ -822,8 +840,12 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
 
     client = StamphogGitHubClient(repo_config.installation_id)
     token = client._get_installation_token()
+    # The context fetch stores the merge base, but it keeps going without one, because familiarity
+    # only degrades. The shallow checkout cannot diff without it, so read it again here. A failure
+    # raises before the sandbox exists, and the activity retries.
+    merge_base_sha = output.get("merge_base_sha") or client.get_merge_base_sha(repo, base_sha, run.head_sha)
 
-    invocation = _review_invocation(run)
+    invocation = _review_invocation(run, merge_base_sha)
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
     environment, gateway = _reviewer_environment(run)
@@ -872,9 +894,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 sandbox = sandbox_class.create(config)
             try:
                 with timer.step("clone"):
-                    _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
+                    _clone_pr(sandbox, repo, merge_base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
                 with timer.step("prefetch"):
-                    _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, deadline)
+                    _prefetch_review_blobs(sandbox, merge_base_sha, token, deadline)
                 # The prefetch swallows its own failure, including a timeout that consumed the rest
                 # of the budget. Re-check here, because the three steps below write through the
                 # sandbox filesystem API and cannot take a deadline: passing one would switch them
@@ -1437,33 +1459,43 @@ def _git_credential(token: str) -> _GitCredential:
 
 
 def _clone_pr(
-    sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, pr_number: int, token: str, deadline: float
+    sandbox: SandboxBase,
+    repo: str,
+    merge_base_sha: str,
+    head_sha: str,
+    pr_number: int,
+    token: str,
+    deadline: float,
 ) -> None:
-    """Clone the repo with full history, then fetch the PR base and head and check out head.
+    """Fetch the PR head with its files and the merge base without them, then check out the head.
 
-    Full history (no ``--depth``) keeps the engine's ``git merge-base`` and its commit-trailer
-    provenance read working. The author-familiarity signal does not read history from the
-    checkout: the server injects blame and history facts read from GitHub.
+    The review needs the head tree, which the reviewer explores, and the merge base, which the
+    engine diffs against. It needs no history: the server reads familiarity and the commit
+    trailers from GitHub. So both commits arrive at depth 1. The head comes in one full pack,
+    which is faster than a blobless fetch whose checkout then asks for every file. The merge base
+    brings only its trees, and _prefetch_review_blobs then fetches the few old-side files that
+    the diff reads.
 
-    ``--filter=blob:none`` keeps every commit and tree; only file contents stay on the remote
-    until something reads them. An unfiltered clone of a monorepo does not finish inside the step
-    timeout, because it carries every blob of every commit. The head checkout batches the blobs it
-    needs into one fetch, and _prefetch_review_blobs batches the old-side ones the review reads,
-    because left to itself git fetches them one object at a time.
+    The ``--filter`` on the merge-base fetch turns the checkout into a partial clone, which makes
+    origin a promisor remote: git then fetches a missing object on demand. The engine runs git
+    without the credential, so on a private repository that on-demand fetch fails. Every object
+    the engine reads must therefore arrive here or in the prefetch. The checkout runs with
+    ``GIT_NO_LAZY_FETCH``, so a missing object fails it rather than a silent fetch of a commit this
+    run did not ask for.
 
     The head is fetched through ``pull/<n>/head`` rather than the bare sha: a fork PR's
     head commit only exists in the base repo through that ref, so a bare-sha fetch fails
     for member-authored fork PRs (the only fork PRs that pass the webhook's author gate).
-    The base sha is still fetched directly so the merge-base is reachable even when the
-    PR targets a non-default branch. If the head moved since this run was queued, the
-    checkout of the recorded sha fails and the superseding run takes over — a stale sha
-    must not be reviewed against a newer pull ref.
+    If the head moved since this run was queued, the fetched commit is not ``head_sha`` and
+    the clone fails, so the superseding run takes over. A stale sha must not be reviewed
+    against a newer pull ref.
 
-    The remote stays a clean, tokenless URL — see _git_with_auth for how the token reaches git.
+    The remote stays a clean, tokenless URL. See _git_credential for how the token reaches git.
     """
     credential = _git_credential(token)
     auth = credential.command
     repo_url = f"https://github.com/{repo}.git"
+    repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
 
     def _execute_or_raise(command: str, failure_prefix: str) -> None:
         # sandbox.execute failures raised by the Docker/Modal layer can embed the full command string —
@@ -1477,41 +1509,29 @@ def _clone_pr(
         if result.exit_code != 0:
             raise RuntimeError(f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}")
 
-    clone = (
-        f"rm -rf {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
-        f"{auth} clone --single-branch --filter=blob:none "
-        f"{shlex.quote(repo_url)} {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)}"
+    fetch_head = (
+        f"rm -rf {repo_dir} && git init --quiet {repo_dir} && cd {repo_dir} && "
+        f"git remote add origin {shlex.quote(repo_url)} && "
+        f"{auth} fetch --quiet --depth=1 --no-tags origin {shlex.quote(f'pull/{pr_number}/head')} && "
+        f'fetched=$(git rev-parse FETCH_HEAD) && if [ "$fetched" != {shlex.quote(head_sha)} ]; then '
+        f'echo "the PR head is now $fetched" >&2; exit 1; fi'
     )
-    _execute_or_raise(clone, f"Failed to clone {repo}")
+    _execute_or_raise(fetch_head, f"Failed to fetch the PR head {head_sha}")
 
-    fetch_specs = f"{auth} fetch origin {shlex.quote(f'pull/{pr_number}/head')}"
-    if base_sha:
-        fetch_specs = f"{auth} fetch origin {shlex.quote(base_sha)} && {fetch_specs}"
-    # The checkout carries the credential because it materializes the head tree: on a filtered
-    # clone that reads blobs the fetches above deliberately left on the remote, and git hands the
-    # -c settings to the promisor fetch it spawns. Without it that fetch is anonymous, which a
-    # private repository refuses.
     checkout = (
-        f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {fetch_specs} && {auth} checkout {shlex.quote(head_sha)}"
+        f"cd {repo_dir} && "
+        f"{auth} fetch --quiet --depth=1 --no-tags --filter=blob:none origin {shlex.quote(merge_base_sha)} && "
+        f"GIT_NO_LAZY_FETCH=1 git checkout --quiet --detach {shlex.quote(head_sha)}"
     )
     _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 
-def _prefetch_review_blobs(
-    sandbox: SandboxBase,
-    base_sha: str,
-    head_sha: str,
-    token: str,
-    deadline: float,
-) -> None:
-    """Fetch the old-side blobs the review reads, in one request.
+def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str, deadline: float) -> None:
+    """Fetch the old-side blobs of the PR diff, in one request.
 
-    On a blobless clone each missing blob is its own round trip. Enumerating the missing blobs
-    first costs nothing, because the trees are already local, and one batched fetch then serves the
-    whole set. The set is the merge-base revision of every changed file, because the engine diffs
-    merge-base against head before it does anything else, and a missing old side there fails the
-    diff outright rather than degrading it. No history is fetched: the author-familiarity signal
-    reads blame and history from the facts the server injects (see fetch_review_history).
+    The merge base arrives without file contents, and the engine diffs it against the head before
+    it does anything else. Enumerating the missing blobs costs nothing, because the trees are
+    already local, and one batched fetch then serves the whole set.
 
     ``diff --raw`` names the diff set: with rename detection off it compares tree entries, so it
     reads no content and needs no blobs, and it reports the old-side object id of every changed
@@ -1524,19 +1544,16 @@ def _prefetch_review_blobs(
     result does not depend on how a given git version reports a missing promisor object — some print
     it, some fail the command.
 
-    Best effort by design. Everything here is also reachable by a lazy fetch, so a failure costs the
-    review speed rather than its verdict wherever that fetch can authenticate. Anything raised is
-    swallowed; the reviewer's own share of the budget shrinks accordingly and the shared deadline
-    keeps that bounded.
+    Best effort. A failure is logged and swallowed, and the engine then reads the missing blobs with
+    an on-demand fetch that carries no credential. That works on a public repository and fails the
+    engine's diff on a private one, which escalates the review. The shared deadline bounds the time
+    either way.
 
     ``GIT_NO_LAZY_FETCH`` guards the enumeration: without it, the reads would fetch the very
     objects they are supposed to be reporting as missing. ``fetch.negotiationAlgorithm=noop``
-    skips the have/want negotiation, which walks history to tell the server what the clone already
-    holds — wasted work when the request names the objects it wants outright.
+    skips the have/want negotiation, which is wasted work when the request names the objects it
+    wants outright.
     """
-    if not base_sha:
-        return
-
     credential = _git_credential(token)
     oid_file = "/tmp/stamphog-review-oids"
     auth = credential.command
@@ -1544,19 +1561,18 @@ def _prefetch_review_blobs(
     # changed files can share an old side, hence sort -u.
     diff_oids = (
         "for oid in $("
-        'GIT_NO_LAZY_FETCH=1 git diff --raw --no-renames --abbrev=40 "$merge_base" HEAD '
+        f"GIT_NO_LAZY_FETCH=1 git diff --raw --no-renames --abbrev=40 {shlex.quote(merge_base_sha)} HEAD "
         "| grep -v '^:160000' | cut -d' ' -f3 | grep -v '^0*$'"
         '); do GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null || echo "$oid"; done'
     )
     command = (
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
-        f"merge_base=$(git merge-base {shlex.quote(base_sha)} {shlex.quote(head_sha)}) && "
         f"{{ {diff_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
         f"if [ -s {shlex.quote(oid_file)} ]; then "
         f"{auth} -c fetch.negotiationAlgorithm=noop fetch origin --no-tags --no-write-fetch-head "
         f"--filter=blob:none --stdin < {shlex.quote(oid_file)}; fi"
     )
-    timeout_seconds = _step_timeout(deadline, PREFETCH_BLAME_TIMEOUT_SECONDS)
+    timeout_seconds = _step_timeout(deadline, PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS)
     try:
         result = sandbox.execute(command, timeout_seconds=timeout_seconds)
     except Exception:

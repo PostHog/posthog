@@ -413,7 +413,7 @@ class Pipeline:
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
         risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT)
+            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha)
             if dep_manifests and self.checkout
             else []
         )
@@ -568,7 +568,7 @@ class Pipeline:
         cleanup so the file never lingers in the repo working tree.
         """
         if self._diff_path is None:
-            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT)
+            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT, self.pr.merge_base_sha)
         return self._diff_path
 
     def _run_gates(self) -> None:

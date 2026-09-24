@@ -84,6 +84,8 @@ def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
 _MAX_PAGES = 20
 _PER_PAGE = 100
+# GitHub lists at most 250 commits for a pull request, which is three pages of _PER_PAGE.
+_MAX_PR_COMMIT_PAGES = 3
 
 # Ceiling on a single compare diff. The value sits well above any diff that stamphog could have
 # approved, because stamphog's size gate refuses much smaller diffs. It also sits well below the
@@ -665,6 +667,40 @@ class StamphogGitHubClient:
                 break
         return files
 
+    def get_pr_commit_messages(self, repo: str, number: int, head_sha: str) -> list[str] | None:
+        """The messages of the PR's commits, or None when the list does not end at ``head_sha``.
+
+        Newest first, the order `git log` lists them, so the engine collects trailer values in the
+        same order on both paths.
+
+        The endpoint answers for the live head, so a push after the run was queued returns commits
+        the run does not review. GitHub also lists at most 250 commits per PR, and past that cap
+        the list stops short of the head. Both cases end on a different commit and return None.
+        """
+        commits: list[dict] = []
+        for page in range(1, _MAX_PR_COMMIT_PAGES + 1):
+            response = self._request(
+                "GET",
+                f"/repos/{repo}/pulls/{number}/commits",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/commits",
+                params={"per_page": _PER_PAGE, "page": page},
+                priority=Priority.BATCH,
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch PR commits {repo}#{number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            page_commits = self._json(response, f"/repos/{repo}/pulls/{number}/commits")
+            if not isinstance(page_commits, list):
+                raise StamphogGitHubError(f"Unexpected PR commits payload for {repo}#{number}")
+            commits.extend(commit for commit in page_commits if isinstance(commit, dict))
+            if len(page_commits) < _PER_PAGE:
+                break
+        if not commits or commits[-1].get("sha") != head_sha:
+            return None
+        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
+
     def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
         """The unified diff between two commits, as text.
 
@@ -1008,7 +1044,8 @@ class StamphogGitHubClient:
     def get_merge_base_sha(self, repo: str, base_sha: str, head_sha: str) -> str:
         """The merge base of two commits, from the compare API (``merge_base_commit.sha``).
 
-        A PR's diff line numbers are relative to this commit, not to the base branch tip.
+        A PR's diff line numbers are relative to this commit, not to the base branch tip. The
+        review sandbox's shallow checkout diffs from it, so it runs on the default lane.
         """
         path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
         response = self._request(
@@ -1016,7 +1053,6 @@ class StamphogGitHubClient:
             path,
             endpoint="/repos/{owner}/{repo}/compare/{basehead}",
             params={"per_page": 1},
-            priority=Priority.BATCH,
         )
         if response.status_code != 200:
             raise StamphogGitHubError(

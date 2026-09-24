@@ -158,30 +158,49 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
     assert "Migration risk" in result["reviewer"]["reasoning"]
 
 
-def test_offline_run_carries_commit_provenance(monkeypatch) -> None:
-    # pr_provenance reads commit trailers from the checkout and needs no token, so the sandbox can
-    # compute it. Without this call, provenance is null on every hosted review, which drops
-    # agent-authorship from the evidence bundle and from the stamphog_review_completed
-    # properties.
-    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
-    monkeypatch.setattr(
-        review_local,
-        "pr_provenance",
-        lambda *a, **k: CommitProvenance(
-            commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",)
+_GIT_PROVENANCE = CommitProvenance(commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",))
+
+
+@pytest.mark.parametrize(
+    "extra_context, expected",
+    [
+        pytest.param(
+            {},
+            {
+                "agent_authored": True,
+                "commit_count": 3,
+                "agent_commit_count": 2,
+                "generated_by": ["claude"],
+                "task_ids": ["t-1"],
+            },
+            id="git-log-without-server-messages",
         ),
-    )
-    context = _run_context([_api_file("posthog/migrations/0999_add_col.py")])
+        pytest.param(
+            {"commit_messages": ["feat: a\n\nGenerated-By: PostHog Code\nTask-Id: t-9", "fix: b"]},
+            {
+                "agent_authored": True,
+                "commit_count": 2,
+                "agent_commit_count": 1,
+                "generated_by": ["PostHog Code"],
+                "task_ids": ["t-9"],
+            },
+            id="server-messages",
+        ),
+        # The hosted checkout holds no PR history, so a null from the server stays null instead of
+        # reading a `git log` that would see no commits.
+        pytest.param({"commit_messages": None}, None, id="server-messages-unavailable"),
+    ],
+)
+def test_offline_run_carries_commit_provenance(monkeypatch, extra_context: dict, expected: dict | None) -> None:
+    # Without provenance, agent-authorship drops out of the evidence bundle and the
+    # stamphog_review_completed properties on every hosted review.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: _GIT_PROVENANCE)
+    context = {**_run_context([_api_file("posthog/migrations/0999_add_col.py")]), **extra_context}
 
     result = review_local.run(context)
 
-    assert result["provenance"] == {
-        "agent_authored": True,
-        "commit_count": 3,
-        "agent_commit_count": 2,
-        "generated_by": ["claude"],
-        "task_ids": ["t-1"],
-    }
+    assert result["provenance"] == expected
 
 
 _OWNED_FACTS = {

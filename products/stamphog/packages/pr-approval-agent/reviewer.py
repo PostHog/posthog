@@ -543,7 +543,7 @@ class Reviewer:
 
     def _write_diff_file(self, pr: PRData) -> Path:
         """Write the PR diff to a temp file so the LLM can Read it on demand."""
-        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root)
+        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root, pr.merge_base_sha)
 
     def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict, diff_path: Path) -> str:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)

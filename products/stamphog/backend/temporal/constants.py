@@ -78,7 +78,7 @@ RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
 # run_review_in_sandbox caps what the steps can spend between them. Granting each step its own
 # independent budget was the bug — the clone alone could hold the activity for twice its ceiling.
 CLONE_STEP_TIMEOUT_SECONDS = 5 * 60
-PREFETCH_BLAME_TIMEOUT_SECONDS = 3 * 60
+PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS = 3 * 60
 REVIEWER_TIMEOUT_SECONDS = 25 * 60
 # Held back from the deadline so a step that runs to its limit still leaves room for the sandbox
 # teardown and the terminal save that follow it.

@@ -205,7 +205,7 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
             "patch": "@@ -3,2 +3,2 @@\n-old\n+new\n keep",
         }
     ]
-    recorder.register_pr(REPO, 101, pr_object, files)
+    recorder.register_pr(REPO, 101, pr_object, files, commit_messages=("feat: one", "fix: two"))
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
 
     def commit(oid: str, login: str) -> dict:
@@ -239,6 +239,12 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert facts["path_history"] == ["c-author"]
     assert set(facts["commits"]) == {"c-author"}
     assert not any("rev-list" in command for command in stamphog_chain.sandbox_class.executed_commands)
+    # The checkout holds only the head and the merge base, so the engine diffs from the merge base and
+    # reads the commit trailers from the server's messages.
+    assert context["merge_base_sha"] == recorder.merge_base_sha
+    assert context["commit_messages"] == ["fix: two", "feat: one"]
+    clone_commands = " ".join(stamphog_chain.sandbox_class.executed_commands)
+    assert f"--filter=blob:none origin {recorder.merge_base_sha}" in clone_commands
 
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     assert len(approvals) == 1
@@ -298,7 +304,9 @@ def test_a_final_gate_deny_is_refused_without_a_sandbox(
     repo_config = _repo_config(team.id)
     author, head_sha = "devex-dev", "sha-pregate"
     pr_object = {**_pr_object(101, author, head_sha), "changed_files": len(files)}
-    stamphog_chain.recorder.register_pr(REPO, 101, pr_object, files)
+    stamphog_chain.recorder.register_pr(
+        REPO, 101, pr_object, files, commit_messages=("feat: infra\n\nGenerated-By: PostHog Code\nTask-Id: t-1",)
+    )
 
     engine_failure = EnginePregateError("the engine pre-check exited with code 1") if engine_breaks else None
     with (
@@ -318,6 +326,8 @@ def test_a_final_gate_deny_is_refused_without_a_sandbox(
     assert run.status == ReviewRunStatus.GATED
     assert run.output["fast_path"] is True
     assert "pregate" in run.output["timings_ms"]
+    # The fast path has no checkout, so the commit trailers come from the server's messages alone.
+    assert json.loads(run.output["reviewer_raw"])["provenance"]["task_ids"] == ["t-1"]
     refusals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
     assert len(refusals) == 1
     assert expect_in_body in refusals[0]["body"]["body"]

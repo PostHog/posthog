@@ -66,6 +66,7 @@ from gates import POLICY, assign_tier, substantive_size
 from gateway import REVIEWER_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
+    CommitProvenance,
     PRData,
     _git_diff_files,
     _normalize_discussion_for_prompt,
@@ -74,6 +75,7 @@ from github import (
     _reaction_emoji,
     is_bot_author,
     pr_provenance,
+    provenance_from_messages,
 )
 from migration_risk import migration_check_pending
 from policy import FamiliarityPolicy
@@ -118,9 +120,11 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     """Build the engine's PRData from the injected context.
 
     File stats are recomputed locally with the exact function that review_pr.py
-    uses (`git diff --numstat` over base...head), so PRData.files is identical to
-    a networked run. The context's file list is only a fallback for an empty
-    local diff, which happens when a sha failed to fetch. The context also
+    uses (`git diff --numstat` over the PR range), so PRData.files is identical to
+    a networked run. The hosted server passes the merge base, because its shallow
+    checkout cannot compute one (see github.diff_range). The context's file list
+    is only a fallback for an empty local diff, which happens when a sha failed to
+    fetch. The context also
     carries reviews, top-level discussion comments, and head-commit check runs.
     Reviews and discussion are normalized with the same helpers that review_pr.py
     uses, and check runs are passed through raw the same way. The prerequisite
@@ -143,12 +147,13 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     base = pr.get("base") or {}
     base_sha = context.get("base_sha") or base.get("sha") or ""
     head_sha = context.get("head_sha") or (pr.get("head") or {}).get("sha") or ""
+    merge_base_sha = context.get("merge_base_sha") or ""
     # Both feed PRData.stacked (the stacked-PR prompt note). A lean context without them reads as
     # non-stacked, matching the Action's default.
     default_branch = (base.get("repo") or {}).get("default_branch") or "master"
     base_ref = base.get("ref") or default_branch
 
-    files = _git_diff_files(base_sha, head_sha, REPO_ROOT) if checkout else []
+    files = _git_diff_files(base_sha, head_sha, REPO_ROOT, merge_base_sha) if checkout else []
     if not files:
         files = [_convert_api_file(f) for f in context.get("files") or []]
 
@@ -224,6 +229,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         base_ref=base_ref,
         base_sha=base_sha,
         head_sha=head_sha,
+        merge_base_sha=merge_base_sha,
         files=files,
         reviews=_normalize_reviews_for_prompt(reviews, head_sha),
         review_comments=review_comments,
@@ -234,6 +240,19 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
         default_branch=default_branch,
     )
+
+
+def _context_provenance(context: dict, pr: PRData) -> CommitProvenance | None:
+    """Commit-trailer provenance from the server's commit messages, else from `git log`.
+
+    The hosted server always sets ``commit_messages`` (null when GitHub could not list the commits
+    at the reviewed head), because its shallow checkout holds none of the PR's history. A context
+    without the key comes from a checkout with history, where `git log` reads the same trailers.
+    """
+    if "commit_messages" in context:
+        messages = context["commit_messages"]
+        return None if messages is None else provenance_from_messages([str(m) for m in messages])
+    return pr_provenance(pr.base_sha, pr.head_sha, REPO_ROOT)
 
 
 def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
@@ -491,6 +510,10 @@ def pregate(context: dict) -> dict:
         checkout=False,
     )
     pipeline.pr = _build_pr_data(context, checkout=False)
+    # Only the server's commit messages work here, because the pre-check tree is not a git
+    # repository. Without them, provenance stays null on the fast-path event.
+    if "commit_messages" in context:
+        pipeline.provenance = _context_provenance(context, pipeline.pr)
     outcome = {"final_deny": False, "needs_summary": False, "summary_model": REVIEWER_MODEL, "result": None}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
@@ -527,11 +550,9 @@ def run(context: dict) -> dict:
         head_checkout=True,
     )
     pipeline.pr = _build_pr_data(context)
-    # Reads commit trailers with `git log base..head` against the checkout, so it needs no token,
-    # and it behaves here exactly as it does on a networked run. Without this call, the
-    # agent-authorship evidence and the stamphog_review_completed provenance properties are null for
-    # every hosted review.
-    pipeline.provenance = pr_provenance(pipeline.pr.base_sha, pipeline.pr.head_sha, REPO_ROOT)
+    # Without this, the agent-authorship evidence and the stamphog_review_completed provenance
+    # properties are null for every hosted review.
+    pipeline.provenance = _context_provenance(context, pipeline.pr)
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()

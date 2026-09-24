@@ -112,7 +112,9 @@ def build_reviewer_invocation(
     author_pr_numbers: list[int],
     author_team_slugs: list[str],
     familiarity_facts: dict | None,
+    commit_messages: list[str] | None,
     base_sha: str,
+    merge_base_sha: str | None,
     head_sha: str,
     repo: str,
     engine_dir: str,
@@ -136,6 +138,12 @@ def build_reviewer_invocation(
     ``familiarity_facts`` are the blame and author-history facts the server read from GitHub
     (``logic/familiarity_facts.py``), or None when that failed. The key is always set, because
     its presence tells the engine to take familiarity from the facts and never from git history.
+    ``commit_messages`` are the PR's commit messages from GitHub, or None when they could not be read
+    at the reviewed head. The key is always set for the same reason: the engine reads provenance
+    trailers from them rather than from `git log`.
+    ``merge_base_sha`` lets the engine diff ``merge_base..head``. The sandbox checkout is shallow, so
+    git cannot compute the merge base there. It is None only for the gate-only pre-check, which reads
+    no checkout.
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
@@ -148,6 +156,7 @@ def build_reviewer_invocation(
     context = {
         "repo": repo,
         "base_sha": base_sha,
+        "merge_base_sha": merge_base_sha,
         "head_sha": head_sha,
         "pr": pr,
         "files": files,
@@ -159,6 +168,7 @@ def build_reviewer_invocation(
         "author_pr_numbers": list(author_pr_numbers),
         "author_team_slugs": list(author_team_slugs),
         "familiarity_facts": familiarity_facts,
+        "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
         "review_trigger": review_trigger,
     }

@@ -165,7 +165,9 @@ class BuildReviewerInvocationTests(SimpleTestCase):
             author_pr_numbers=[],
             author_team_slugs=[],
             familiarity_facts=None,
+            commit_messages=None,
             base_sha="base",
+            merge_base_sha="mergebase",
             head_sha="head",
             repo="owner/repo",
             engine_dir="/engine",
@@ -174,9 +176,10 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         context = json.loads(invocation.context_json)
         assert context["reviews"] == reviews
         assert context["review_threads"] == review_threads
-        # A null still has to be sent: without the key the engine falls back to git blame, which the
-        # sandbox checkout has no history for.
+        # A null still has to be sent: without the key the engine falls back to git blame and git log,
+        # which the sandbox checkout has no history for.
         assert "familiarity_facts" in context and context["familiarity_facts"] is None
+        assert "commit_messages" in context and context["commit_messages"] is None
 
     def test_review_trigger_reaches_the_sandbox_context(self) -> None:
         # The reviewer cannot derive why it was asked; dropping the key silently returns it to a
@@ -193,7 +196,9 @@ class BuildReviewerInvocationTests(SimpleTestCase):
                 author_pr_numbers=[],
                 author_team_slugs=[],
                 familiarity_facts=None,
+                commit_messages=None,
                 base_sha="base",
+                merge_base_sha="mergebase",
                 head_sha="head",
                 repo="owner/repo",
                 engine_dir="/engine",

@@ -131,11 +131,11 @@ Anything less certain, such as a size gate that a folder `AGENT_APPROVALS.md` co
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.
-The sandbox clones the repository, checks out the PR head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
+The sandbox fetches the PR head and its merge base at depth 1, checks out the head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
 
 **Stacked PRs.** A stacked PR targets its parent's branch and depends on parent code that has not merged yet.
 The sandbox checkout is already the PR head, so the reviewer's Read, Grep and Glob see the post-stack tree and parent symbols resolve.
-The sandbox fetches the base SHA explicitly during the clone, and the diff stays scoped `base...head`.
+The server reads the merge base from GitHub's compare API, and the sandbox fetches that commit next to the head, so the diff stays scoped to the PR's own changes.
 When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push, so no `synchronize` event fires and the normal push-dismiss path is skipped.
 The webhook path therefore retracts the standing approval on a base retarget (`_retract_approvals_on_base_retarget`) and queues a fresh run, and `post_verdict` rechecks the live base ref and SHA against the reviewed ones before posting.
 One limitation stays: a parent branch force-push or rebase without restacking the child emits no child PR event, so the child's approval is only revalidated once the child is restacked or pushed.
