@@ -56,7 +56,7 @@ export type ActivityLogItem = {
     was_impersonated?: boolean
     /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
-    /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
+    /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs) and for changes a sandbox agent made. */
     ip_address?: string | null
 }
 
