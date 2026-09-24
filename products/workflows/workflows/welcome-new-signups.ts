@@ -2,8 +2,6 @@ import { branch, delay, email, onEvent, path, person, workflow } from '@posthog/
 
 const SENDER_VARIABLE = 'POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID'
 
-// Integration ids belong to one project, and PostHog fails every send from an integration of
-// another project. So the environment of the push names the sender, and the file never guesses one.
 function senderIntegrationId(): number {
     const raw = process.env[SENDER_VARIABLE]?.trim() ?? ''
     if (!/^[1-9][0-9]*$/.test(raw)) {
