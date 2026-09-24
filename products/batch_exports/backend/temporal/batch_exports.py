@@ -164,6 +164,7 @@ def default_fields() -> list[BatchExportField]:
             alias="set_once",
         ),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -182,6 +183,7 @@ def events_model_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="properties", alias="properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -813,7 +815,7 @@ def make_internal_events_payload(
     batch_export_run_id: str,
     batch_export_name: str,
     data_interval_start: dt.datetime | None,
-    data_interval_end: dt.datetime,
+    data_interval_end: dt.datetime | None,
     destination_type: str,
     rows_exported: int,
     error: str | None,
@@ -830,7 +832,7 @@ def make_internal_events_payload(
         "batch_export_run_id": batch_export_run_id,
         "batch_export_name": batch_export_name,
         "data_interval_start": data_interval_start.isoformat() if data_interval_start is not None else None,
-        "data_interval_end": data_interval_end.isoformat(),
+        "data_interval_end": data_interval_end.isoformat() if data_interval_end is not None else None,
         "destination_type": destination_type,
     }
 

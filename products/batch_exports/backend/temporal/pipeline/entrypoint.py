@@ -40,7 +40,10 @@ LOGGER = get_write_only_logger(__name__)
 class _BatchExportInputsProtocol(typing.Protocol):
     team_id: int
     data_interval_start: str | None
-    data_interval_end: str
+
+    @property
+    def data_interval_end(self) -> str | None: ...
+
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
@@ -87,12 +90,31 @@ class IntervalConfig:
     failure_check_window: int
 
 
-def _get_config_for_interval(interval: str, override_start_to_close: dt.timedelta) -> IntervalConfig:
+def _get_config_for_interval(
+    interval: str | None,
+    override_start_to_close: dt.timedelta,
+    *,
+    main_activity_timeout_seconds: int | None = None,
+    stage_activity_timeout_seconds: int | None = None,
+) -> IntervalConfig:
     """Derive a run's activity timeouts and failure-check window from its interval.
 
     Raises:
         ValueError: If the interval is not one this function knows how to configure.
     """
+    if interval is None:
+        assert (
+            main_activity_timeout_seconds is not None
+            and main_activity_timeout_seconds > 0
+            and stage_activity_timeout_seconds is not None
+            and stage_activity_timeout_seconds > 0
+        ), "Exports without an interval require positive activity timeouts"
+        return IntervalConfig(
+            main_start_to_close=max(dt.timedelta(seconds=main_activity_timeout_seconds), override_start_to_close),
+            stage_start_to_close=dt.timedelta(seconds=stage_activity_timeout_seconds),
+            failure_check_window=50,
+        )
+
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
         # TODO: Review timeouts for internal stage activity.
@@ -231,13 +253,15 @@ async def _finish_run(finish_inputs: FinishBatchExportRunInputs, details: Workfl
 async def execute_batch_export_using_internal_stage(
     activity: BatchExportInsertActivity[BatchExportResultType],
     inputs: BatchExportInputs,
-    interval: str,
+    interval: str | None,
     maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = INITIAL_RETRY_INTERVAL_SECONDS,
     maximum_retry_interval_seconds: int = DEFAULT_MAX_RETRY_INTERVAL_SECONDS,
     maximum_stage_retry_interval_seconds: int = DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS,
     override_start_to_close_timeout_seconds: int | None = None,
     is_workflows: bool = False,
+    main_activity_timeout_seconds: int | None = None,
+    stage_activity_timeout_seconds: int | None = None,
 ) -> BatchExportResult:
     """Run one batch export: stage its data, write it to the destination, record how it went.
 
@@ -297,8 +321,15 @@ async def execute_batch_export_using_internal_stage(
     heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
     heartbeat_timeout = dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None
 
+    if interval is None:
+        assert model_name == "hogql" and batch_export_inputs.on_demand, (
+            "Only on-demand HogQL exports can omit the interval"
+        )
     interval_config = _get_config_for_interval(
-        interval, dt.timedelta(seconds=override_start_to_close_timeout_seconds or 0)
+        interval,
+        dt.timedelta(seconds=override_start_to_close_timeout_seconds or 0),
+        main_activity_timeout_seconds=main_activity_timeout_seconds,
+        stage_activity_timeout_seconds=stage_activity_timeout_seconds,
     )
 
     finish_inputs = FinishBatchExportRunInputs(

@@ -119,6 +119,12 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         properties = source_or_numerator["properties"]
         prompt_filter = next(p for p in properties if p.get("key") == "$ai_prompt_name")
         self.assertEqual(prompt_filter["value"], self.prompt_name)
+        if template_name == "eval_pass_rate":
+            for source in (metric["numerator"], metric["denominator"]):
+                self.assertIn(
+                    "JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')",
+                    [prop["key"] for prop in source["properties"]],
+                )
 
     def test_multiple_templates_creates_one_metric_each(self) -> None:
         # Pick all available templates so we exercise both mean and ratio shapes.

@@ -24,6 +24,9 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -167,6 +170,11 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
     )
 
 
+# A run parks one cursor per displaced attempt, so the bound must cover the largest attempt cap an
+# import activity gets. The trim keeps the newest entries, and a live run's entries are the newest.
+STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
+
+
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
     def update(self, **kwargs: Any) -> int:
         """Chokepoint for bulk writes that stop a schema from syncing.
@@ -203,6 +211,11 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
                 if schema_id in running:
                     _schedule_sync_teardown(schema_id=str(schema_id), team_id=team_id, deleted=deleting)
         return updated
+
+
+# In `sync_type_config`: set while the S3 change buffer carries this table's snapshot. Cleared by the
+# snapshot to streaming flip. See cdc/snapshot_lane.py.
+CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
@@ -496,6 +509,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_full_run(self) -> datetime | None:
+        """Parsed `last_full_run_at`, or None when it does not parse or has no zone.
+
+        Picking a zone for a naive stamp would invent freshness the schema may not have.
+        """
+        raw = self.last_full_run_at
+        if raw is None:
+            return None
+        try:
+            stamped = datetime.fromisoformat(raw)
+        except (TypeError, ValueError):
+            return None
+        return stamped if stamped.tzinfo is not None else None
+
+    @property
+    def last_run_at(self) -> datetime | None:
+        """When a sync last ran, whether or not it moved any rows.
+
+        A run that extracts nothing advances only `last_full_run_at`, because `last_synced_at` is
+        also the signals watermark. A fast return does the reverse, so neither stamp is enough alone.
+        """
+        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        return max(stamps) if stamps else None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)
@@ -683,23 +721,30 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         partition_mode: Optional[PartitionMode],
         partition_format: Optional[PartitionFormat],
     ) -> None:
-        self.sync_type_config["partitioning_enabled"] = True
-        self.sync_type_config["partition_count"] = partition_count
-        self.sync_type_config["partition_size"] = partition_size
-        self.sync_type_config["partitioning_keys"] = partitioning_keys
-        self.sync_type_config["partition_mode"] = partition_mode
-        self.sync_type_config["partition_format"] = partition_format
-        # Consume any operator-pinned overrides: they've now been baked into the effective
-        # settings above, so drop them. This makes the pin one-shot — a later reset falls
-        # back to auto-detection instead of re-applying a stale pin (re-pin via the admin
-        # repartition action if needed).
-        self.sync_type_config.pop("partition_count_override", None)
-        self.sync_type_config.pop("partition_size_override", None)
-        self.sync_type_config.pop("partition_mode_override", None)
-        self.sync_type_config.pop("partitioning_keys_override", None)
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT (see save()).
-        self.save(skip_activity_log=True)
+        # Merged under the row lock rather than saved from this copy, which the loader holds for the
+        # whole run while CDC capture writes the same JSON (the snapshot marker among it).
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id,
+            self.team_id,
+            updates={
+                "partitioning_enabled": True,
+                "partition_count": partition_count,
+                "partition_size": partition_size,
+                "partitioning_keys": partitioning_keys,
+                "partition_mode": partition_mode,
+                "partition_format": partition_format,
+            },
+            # Consume any operator-pinned overrides: they've now been baked into the effective
+            # settings above, so drop them. This makes the pin one-shot — a later reset falls
+            # back to auto-detection instead of re-applying a stale pin (re-pin via the admin
+            # repartition action if needed).
+            removes=[
+                "partition_count_override",
+                "partition_size_override",
+                "partition_mode_override",
+                "partitioning_keys_override",
+            ],
+        )
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -914,31 +959,68 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self._save_sync_type_config()
 
     def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
-        existing = self.sync_type_config.get("incremental_staged", {})
-        if existing.get("run_uuid") == run_uuid:
-            staged = existing
-        else:
-            staged = {"run_uuid": run_uuid}
-        if last_value is not None:
-            staged["last_value"] = self._serialize_incremental_value(last_value)
-        if earliest_value is not None:
-            staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
-        self.sync_type_config["incremental_staged"] = staged
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT (see save()).
-        self.save(skip_activity_log=True)
+        """Hold a run's cursor in `incremental_staged` until the load side promotes it.
+
+        The outgoing attempt of a run and the incoming attempt stage concurrently, and each holds its
+        own in-memory copy of this row. The merge runs under the row lock so neither copy erases the
+        other's entry.
+        """
+        values = {
+            key: self._serialize_incremental_value(value)
+            for key, value in (("last_value", last_value), ("earliest_value", earliest_value))
+            if value is not None
+        }
+
+        def mutate(config: dict[str, Any]) -> None:
+            live = config.get("incremental_staged", {})
+            if live.get("run_uuid") == run_uuid:
+                staged = live
+            else:
+                # A run that stages after a newer attempt displaced it continues its parked cursor,
+                # so one run's values are never split between the live slot and the parked list.
+                staged = _drop_parked_staged_cursor(config, run_uuid) or {"run_uuid": run_uuid}
+                _park_displaced_staged_cursor(config, live)
+            staged.update(values)
+            config["incremental_staged"] = staged
+
+        # Deferred: this module loads during django.setup() and the util pulls in temporalio.
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        )
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
-        staged = self.sync_type_config.get("incremental_staged")
-        if not staged or staged.get("run_uuid") != run_uuid:
-            return False
-        if "last_value" in staged:
-            self.sync_type_config["incremental_field_last_value"] = staged["last_value"]
-        if "earliest_value" in staged:
-            self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
-        self.sync_type_config.pop("incremental_staged", None)
-        self.save(skip_activity_log=True)
-        return True
+        """Move the staged cursor of `run_uuid` onto the live watermark keys.
+
+        Returns True when a staged cursor for the run existed, in the live slot or the parked list.
+        The monotonic guard can still keep the current watermark, so True does not mean a key changed.
+        """
+        found = False
+
+        def mutate(config: dict[str, Any]) -> None:
+            nonlocal found
+            live: dict[str, Any] | None = config.get("incremental_staged")
+            if live is not None and live.get("run_uuid") != run_uuid:
+                live = None
+            staged = live if live is not None else _drop_parked_staged_cursor(config, run_uuid)
+            if staged is None:
+                return
+            found = True
+            field_type = config.get("incremental_field_type")
+            if "last_value" in staged:
+                _advance_promoted_cursor(
+                    config, "incremental_field_last_value", staged["last_value"], "last", field_type
+                )
+            if "earliest_value" in staged:
+                _advance_promoted_cursor(
+                    config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
+                )
+            if live is not None:
+                config.pop("incremental_staged", None)
+
+        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        return found
 
     def _serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
@@ -971,23 +1053,26 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return str(value)
 
     def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
-        self.sync_type_config.pop("reset_pipeline", None)
-        # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
-        # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
-        # survives the reset it timestamps.
-        self.sync_type_config.pop("column_type_widened", None)
-        self.sync_type_config.pop("incremental_field_last_value", None)
-        self.sync_type_config.pop("incremental_field_earliest_value", None)
-        self.sync_type_config.pop("incremental_staged", None)
-        self.sync_type_config.pop("partitioning_enabled", None)
-        self.sync_type_config.pop("partition_size", None)
-        self.sync_type_config.pop("partition_count", None)
-        self.sync_type_config.pop("partitioning_keys", None)
-        self.sync_type_config.pop("partition_mode", None)
-        self.sync_type_config.pop("backfilled_partition_format", None)
-        self.sync_type_config.pop("xmin_last_value", None)
-        self.sync_type_config.pop("xmin_ceiling", None)
-        self.sync_type_config.pop("xmin_num_wraparound", None)
+        removes = [
+            "reset_pipeline",
+            # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
+            # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
+            # survives the reset it timestamps.
+            "column_type_widened",
+            "incremental_field_last_value",
+            "incremental_field_earliest_value",
+            "incremental_staged",
+            "incremental_staged_pending",
+            "partitioning_enabled",
+            "partition_size",
+            "partition_count",
+            "partitioning_keys",
+            "partition_mode",
+            "backfilled_partition_format",
+            "xmin_last_value",
+            "xmin_ceiling",
+            "xmin_num_wraparound",
+        ]
         # We don't reset partition_format
         # We don't reset chunk_size_override
         # We intentionally don't reset partition_count_override / partition_size_override /
@@ -1000,10 +1085,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # it false between runs whenever a sync wrote zero rows (no Delta table means post-load
         # never re-set it). Explicit resets (reset_pipeline, corruption rebuild, sync-method
         # change, delete_table) keep clearing so CDC's False->True streaming flip still fires.
+        extra_model_fields = {"initial_sync_complete": False} if clear_initial_sync_complete else None
+
+        # Merged under the row lock rather than saved from this copy: the sync loaded it when it
+        # started, and CDC capture writes the same JSON meanwhile (the snapshot marker among it).
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id, self.team_id, removes=removes, extra_model_fields=extra_model_fields
+        )
         if clear_initial_sync_complete:
             self.initial_sync_complete = False
-
-        self.save(skip_activity_log=True)
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -1121,6 +1211,89 @@ def _parse_datetime_string(value: str) -> datetime:
         if stripped == value:
             raise
         return parser.parse(stripped)
+
+
+def _align_epoch_cursor(value: Any, partner: Any) -> Any:
+    # Two epoch numbers already order as numbers, so only a mixed pair needs the conversion.
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return value
+    if not isinstance(partner, datetime | date):
+        return value
+    converted = datetime.fromtimestamp(value, tz=UTC)
+    if isinstance(partner, datetime):
+        return converted if partner.tzinfo else converted.replace(tzinfo=None)
+    return converted.date()
+
+
+def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]) -> None:
+    """A run is live or parked, never both: only another run's staging parks it, and its own
+    staging moves it back. Both happen under the row lock."""
+    if not staged.get("run_uuid") or not ({"last_value", "earliest_value"} & staged.keys()):
+        return
+    pending = [*config.get("incremental_staged_pending", []), staged]
+    config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
+
+
+def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
+    """Remove the parked cursor of `run_uuid` and return it, or None when the run has none."""
+    pending = config.get("incremental_staged_pending", [])
+    dropped = next((entry for entry in pending if entry.get("run_uuid") == run_uuid), None)
+    if dropped is None:
+        return None
+    remaining = [entry for entry in pending if entry.get("run_uuid") != run_uuid]
+    if remaining:
+        config["incremental_staged_pending"] = remaining
+    else:
+        config.pop("incremental_staged_pending", None)
+    return dropped
+
+
+def _advance_promoted_cursor(
+    config: dict[str, Any],
+    key: str,
+    value: Any,
+    kind: Literal["last", "earliest"],
+    field_type: IncrementalFieldType | None,
+) -> None:
+    current = config.get(key)
+    if current is None:
+        config[key] = value
+        return
+    comparison = _compare_incremental_values(current, value, field_type)
+    # For a pair the comparator cannot order (a null field type, a naive against an aware datetime,
+    # or a millisecond epoch) the newest promotion wins, so those sources still advance their
+    # watermark. Keeping the current value would freeze it for good.
+    if comparison is None or (kind == "last" and comparison < 0) or (kind == "earliest" and comparison > 0):
+        config[key] = value
+
+
+def _compare_incremental_values(current: Any, candidate: Any, field_type: IncrementalFieldType | None) -> int | None:
+    try:
+        left = process_incremental_value(current, field_type)
+        right = process_incremental_value(candidate, field_type)
+        left, right = _align_epoch_cursor(left, right), _align_epoch_cursor(right, left)
+    except Exception:
+        return None
+    if left is None or right is None:
+        return None
+    if field_type == IncrementalFieldType.ObjectID:
+        # An ObjectID is 24 hex digits that open with its creation time, so equal-length ids order
+        # as strings. Anything else is unordered.
+        if isinstance(left, str) and isinstance(right, str) and len(left) == len(right):
+            return (left > right) - (left < right)
+        return None
+    if isinstance(left, bool) or isinstance(right, bool):
+        return None
+    left_is_number = isinstance(left, int | float)
+    right_is_number = isinstance(right, int | float)
+    if left_is_number != right_is_number:
+        return None
+    if not left_is_number and not isinstance(left, datetime | date):
+        return None
+    try:
+        return (left > right) - (left < right)
+    except TypeError:
+        return None
 
 
 def _coerce_incremental_datetime(value: str) -> datetime | int:
@@ -1429,6 +1602,24 @@ def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime)
     return repainted
 
 
+def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
+    """Paint a schema Running at the start of a run, unless a CDC halt marker holds.
+
+    A halted schema absorbs every later status update, so Running painted over it would hide its
+    FAILED status and error until the marker clears. One conditional UPDATE: a marker written
+    under the row lock either commits first and blocks this, or commits after and repaints FAILED.
+    """
+    updated = (
+        ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)
+        .exclude(sync_type_config__has_key="cdc_broken")
+        .exclude(sync_type_config__has_key="cdc_extraction_paused")
+        .update(status=ExternalDataSchema.Status.RUNNING, updated_at=timezone.now())
+    )
+    if updated:
+        schema.status = ExternalDataSchema.Status.RUNNING
+    return bool(updated)
+
+
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
     """Mark a schema's first successful sync complete. Shared by the V2 pipelines and the V3 loader.
 
@@ -1452,6 +1643,8 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
         if schema.is_cdc and schema.cdc_mode == "snapshot":
             config = schema.sync_type_config or {}
             config["cdc_mode"] = "streaming"
+            # In the same lock as the flip, so a hand-over retried after a failed flip still finds it.
+            config.pop(CDC_SNAPSHOT_LANE_KEY, None)
             schema.sync_type_config = config
             update_fields.append("sync_type_config")
 

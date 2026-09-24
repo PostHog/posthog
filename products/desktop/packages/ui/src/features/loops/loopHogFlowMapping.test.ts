@@ -198,7 +198,7 @@ describe("loopHogFlowMapping", () => {
       expect(
         hogFlowToLoop(flow, { projectId: PROJECT_ID }).context_target,
       ).toEqual({
-        folder_id: "folder-1",
+        channel_id: "folder-1",
         name,
         outputs: defaultLoopContextOutputs(),
       });

@@ -29,6 +29,10 @@ import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src } from '../src/src-image.ts'
 import { detectFacesYunet, loadYunet } from '../src/yunet.ts'
 
+// yunet.ts loads image-input.ts, which blocks every loader except PNG, JPEG, GIF and WebP for the whole process.
+// zxing writes the QR fixture as SVG, so this script unblocks the SVG loader again.
+sharp.unblock({ operation: ['VipsForeignLoadSvg'] })
+
 const wasmFile = createRequire(`${process.cwd()}/`).resolve('zxing-wasm/writer/zxing_writer.wasm')
 const wasmBytes = readFileSync(wasmFile)
 prepareZXingModule({

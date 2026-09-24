@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict, runtime_checkable
@@ -102,6 +102,10 @@ class Resolution:
     slack: str | None
     source: str | None  # repo-relative path of the file that decided owners
     unowned_by_design: bool  # explicit `owners: null` exemption
+    # The owners of additions at the path, separate from its owners. Every other field is nearest-
+    # file-wins; this one collects every declaration on the walk, so a nested file cannot drop what
+    # an ancestor set. `inherit: false` still cuts it like everything else.
+    additions: list[str] = field(default_factory=list)
 
     @property
     def is_owned(self) -> bool:
@@ -122,10 +126,17 @@ class WireResolution(TypedDict):
     status: str
     slack: str | None
     source: str | None
+    additions: list[str]
 
 
 def resolution_to_wire(r: Resolution) -> WireResolution:
-    return {"owners": r.owners or [], "status": r.status, "slack": r.slack, "source": r.source}
+    return {
+        "owners": r.owners or [],
+        "status": r.status,
+        "slack": r.slack,
+        "source": r.source,
+        "additions": r.additions,
+    }
 
 
 def read_stdin_paths() -> list[str]:
@@ -153,6 +164,12 @@ class _Merged:
     owners: list[str] | None | _Unset = UNSET
     status: str | _Unset = UNSET
     source: str | None = None
+    additions: list[str] = field(default_factory=list)
+
+
+def _union(*groups: Iterable[str]) -> list[str]:
+    """Every entry across ``groups``, first occurrence first, without duplicates."""
+    return list(dict.fromkeys(item for group in groups for item in group))
 
 
 class RepoRootNotFound(Exception):
@@ -225,6 +242,9 @@ class OwnersResolver:
     Reads a worktree by default, locating the repo root via ``git rev-parse`` (override with
     ``repo_root`` for testing). Pass ``source`` to resolve without one. Parsed files are cached per
     directory.
+
+    ``purpose`` and ``producer`` decide which channel a resolution reports; ``team_channel``
+    documents how they select one.
     """
 
     def __init__(
@@ -232,10 +252,12 @@ class OwnersResolver:
         repo_root: Path | None = None,
         purpose: Purpose = DEFAULT_PURPOSE,
         source: OwnershipSource | None = None,
+        producer: Producer | None = None,
     ) -> None:
         self.repo_root = (repo_root or (VIRTUAL_ROOT if source is not None else _git_repo_root())).resolve()
         self.source = source if source is not None else DiskSource(self.repo_root)
         self.purpose = purpose
+        self.producer = producer
         self._dir_cache: dict[str, OwnersFile | None] = {}
         # The worktree is treated as immutable for the resolver's lifetime.
         self._tracked_cache: dict[str | None, list[str]] = {}
@@ -302,16 +324,13 @@ class OwnersResolver:
                 collected.append(f)
         return collected
 
-    def _file_contribution(self, f: OwnersFile, path: str) -> OwnersFile | None:
-        """A shallow copy of the file's fields with its own last-matching rule
-        applied. Returns an OwnersFile whose top-level fields hold the effective
-        contribution (rules already merged in). Returns the file itself if no rule."""
+    def _file_contribution(self, f: OwnersFile, path: str) -> OwnersFile:
+        """A shallow copy of the file's fields with every matching rule applied in order.
+        Each rule replaces only the fields it sets, so a later rule that sets only ``status``
+        keeps the ``owners`` an earlier rule set. Returns the file itself if no rule matches."""
         rel = path[len(f.directory) + 1 :] if f.directory else path
-        matched = None
-        for rule in f.rules:  # last-match-wins within the file
-            if compile_pattern(rule.match).test(rel):
-                matched = rule
-        if matched is None:
+        matched = [rule for rule in f.rules if compile_pattern(rule.match).test(rel)]
+        if not matched:
             return f
 
         contrib = OwnersFile(
@@ -321,13 +340,15 @@ class OwnersResolver:
             status=f.status,
             inherit=f.inherit,
             is_alias=f.is_alias,
+            additions=_union(f.additions, *(rule.additions for rule in matched)),
         )
-        if not isinstance(matched.owners, _Unset):
-            contrib.owners = matched.owners
-        if not isinstance(matched.status, _Unset):
-            contrib.status = matched.status
-        if not isinstance(matched.inherit, _Unset):
-            contrib.inherit = matched.inherit
+        for rule in matched:
+            if not isinstance(rule.owners, _Unset):
+                contrib.owners = rule.owners
+            if not isinstance(rule.status, _Unset):
+                contrib.status = rule.status
+            if not isinstance(rule.inherit, _Unset):
+                contrib.inherit = rule.inherit
         return contrib
 
     def ownership_file_paths(self, paths: list[str]) -> list[str]:
@@ -346,7 +367,6 @@ class OwnersResolver:
 
         for f in self._collect_files(norm):
             contrib = self._file_contribution(f, norm)
-            assert contrib is not None
 
             # The single `set noparent` site: contrib.inherit is the file-level
             # flag with any matched rule's override folded in, so a file-level
@@ -367,6 +387,9 @@ class OwnersResolver:
             if not isinstance(contrib.status, _Unset):
                 merged.status = contrib.status
 
+            if contrib.additions:
+                merged.additions = _union(merged.additions, contrib.additions)
+
         return self._build_resolution(norm, merged)
 
     def _teams_registry(self) -> dict[str, TeamEntry]:
@@ -383,12 +406,28 @@ class OwnersResolver:
         root = self._load_dir_file("")
         return root.settings if root is not None else RepoSettings()
 
+    def producer_error(self) -> str | None:
+        """Why this resolver's ``producer`` cannot be honored, or None when it can.
+
+        A name the root file does not declare would fall through to the people channel, which is
+        the one place automation must not post, so an entrypoint reports this instead of resolving.
+        A repo that declares no ``producers`` accepts any name.
+        """
+        if self.producer is None:
+            return None
+        if not self.producer:
+            return "producer name must not be empty"
+        declared = self.settings().producers
+        if declared is None or self.producer in declared:
+            return None
+        return f"unknown producer '{self.producer}' (declared in 'producers': {', '.join(sorted(declared))})"
+
     def _effective_slack(self, owners: list[str] | None) -> str | None:
         """The Slack channel for a path: the registry entry for the primary owner
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
         (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
-            return team_channel(owners[0], self._teams_registry(), self.purpose).channel
+            return team_channel(owners[0], self._teams_registry(), self.purpose, self.producer).channel
         return None
 
     def _build_resolution(self, path: str, merged: _Merged) -> Resolution:
@@ -406,6 +445,7 @@ class OwnersResolver:
             slack=slack,
             source=merged.source,
             unowned_by_design=unowned_by_design,
+            additions=merged.additions,
         )
 
     def _rel(self, path: Path) -> str:

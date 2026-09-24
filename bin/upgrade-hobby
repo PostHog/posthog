@@ -126,6 +126,8 @@ if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
     echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_KEY" >> .env
     echo "Added missing ENCRYPTION_SALT_KEYS to .env file"
     source .env
+    # The earlier `set -a` is off by now, so the new key needs an explicit export to reach the Compose renderer.
+    export ENCRYPTION_SALT_KEYS
 else
     # Read the existing key
     EXISTING_KEY=$(grep "ENCRYPTION_SALT_KEYS" .env | cut -d '=' -f2)
@@ -355,7 +357,7 @@ rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 cp posthog/.env.services .env.services
-envsubst < docker-compose.yml.tmpl > docker-compose.yml
+bash posthog/bin/helpers/render-hobby-compose.sh < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
 
 docker-compose pull

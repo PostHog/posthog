@@ -42,6 +42,7 @@ import type { SubscriptionDeliveryApi } from 'products/subscriptions/frontend/ge
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from '../AiPromptFields'
 import { InsightSelector } from '../InsightSelector'
+import { getNextDeliveryDate } from '../nextDeliveryDate'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { SubscriptionDayPicker } from '../SubscriptionDayPicker'
 import { subscriptionLogic } from '../subscriptionLogic'
@@ -52,7 +53,6 @@ import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getAiSubscriptionGate,
-    getNextDeliveryDate,
     integrationHasFilesWrite,
     intervalOptions,
     monthlyWeekdayOptions,

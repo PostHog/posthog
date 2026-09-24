@@ -1,7 +1,8 @@
 use anyhow::Result;
 use capture_load_gen::reset::reset_team_on_pool;
-use capture_load_gen::verify::Verifier;
+use capture_load_gen::verify::{Verifier, VerifyConfig};
 use sqlx::{PgPool, Row};
+use std::time::Duration;
 
 const TEAM: i64 = 5163;
 const TMP_PERSON: &str = "personhog_person_tmp";
@@ -89,6 +90,34 @@ fn verifier(pool: &PgPool) -> Verifier {
     Verifier::from_pool(pool.clone(), TEAM, TMP_PERSON.into(), TMP_PDI.into())
 }
 
+fn quick_config(deadline_ms: u64) -> VerifyConfig {
+    VerifyConfig {
+        database_url: String::new(),
+        team_id: TEAM,
+        tmp_person_table: TMP_PERSON.into(),
+        tmp_pdi_table: TMP_PDI.into(),
+        deadline: Duration::from_millis(deadline_ms),
+        probe_interval: Duration::from_millis(5),
+        compare_interval: Duration::from_millis(5),
+    }
+}
+
+async fn seed_both_legs(pool: &PgPool, ids: &[(i64, &str)]) -> Result<()> {
+    for (id, d) in ids {
+        seed_leg(
+            pool,
+            "posthog_person",
+            "posthog_persondistinctid",
+            TEAM,
+            *id,
+            d,
+        )
+        .await?;
+        seed_leg(pool, TMP_PERSON, TMP_PDI, TEAM, *id, d).await?;
+    }
+    Ok(())
+}
+
 #[sqlx::test]
 async fn identical_graphs_report_no_mismatch(pool: PgPool) -> Result<()> {
     create_schema(&pool).await?;
@@ -108,6 +137,54 @@ async fn identical_graphs_report_no_mismatch(pool: PgPool) -> Result<()> {
     assert_eq!(counts.mismatched, 0);
     assert_eq!(counts.main, 3);
     assert_eq!(counts.cohort, 3);
+    let cohort = verifier(&pool).probe().await?;
+    assert_eq!((cohort.main, cohort.shadow), (3, 3));
+    Ok(())
+}
+
+#[sqlx::test]
+async fn run_passes_once_a_settled_cohort_compares_clean_twice(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    seed_both_legs(&pool, &[(1, "a"), (2, "b")]).await?;
+    assert!(verifier(&pool).run(&quick_config(60_000)).await?);
+    Ok(())
+}
+
+#[sqlx::test]
+async fn run_fails_at_the_deadline_on_a_lasting_divergence(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    seed_both_legs(&pool, &[(1, "a")]).await?;
+    seed_leg(
+        &pool,
+        "posthog_person",
+        "posthog_persondistinctid",
+        TEAM,
+        2,
+        "b",
+    )
+    .await?;
+    assert!(!verifier(&pool).run(&quick_config(100)).await?);
+    Ok(())
+}
+
+#[sqlx::test]
+async fn run_retries_failed_queries_until_the_deadline(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    seed_both_legs(&pool, &[(1, "a")]).await?;
+    let broken = Verifier::from_pool(
+        pool.clone(),
+        TEAM,
+        TMP_PERSON.into(),
+        "no_such_table".into(),
+    );
+    let error = broken
+        .run(&quick_config(100))
+        .await
+        .expect_err("a query that never succeeds must surface at the deadline");
+    assert!(
+        format!("{error:#}").contains("probe failed at the deadline"),
+        "unexpected error: {error:#}"
+    );
     Ok(())
 }
 
@@ -126,6 +203,8 @@ async fn a_person_missing_from_shadow_is_reported(pool: PgPool) -> Result<()> {
     let counts = verifier(&pool).sweep().await?;
     assert_eq!(counts.mismatched, 1);
     assert_eq!(counts.missing_shadow, 1);
+    let cohort = verifier(&pool).probe().await?;
+    assert_eq!((cohort.main, cohort.shadow), (1, 0));
     Ok(())
 }
 

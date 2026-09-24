@@ -14,6 +14,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
+        environment: crates-posthog-symbol-data
 
         permissions:
             contents: read

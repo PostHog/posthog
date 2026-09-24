@@ -78,6 +78,9 @@ Create an API key and an application key in your [Datadog organization settings]
 - `slos_read`
 - `synthetics_read`
 - `user_access_read`
+- `metrics_read`
+- `teams_read`
+- `usage_read` and `billing_read` (usage and cost tables)
 
 Logs, audit logs, and events read access is governed by your Datadog account's data retention.""",
             iconPath="/static/services/datadog.svg",
@@ -123,6 +126,7 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
         return {
             "401 Client Error": "Invalid Datadog API key. Generate a valid key and reconnect.",
             "403 Client Error": "Your Datadog application key is missing the required read scopes for this data. Grant the scopes and reconnect.",
+            "expands one Datadog request per": "This table needs one Datadog request per parent record, and your account has more than we sync. Deselect the table to keep your other Datadog tables syncing.",
             "410 Client Error: Gone": "The requested Datadog data has fallen outside your account's retention window, or its pagination cursor expired. Retry the sync to start a fresh query.",
         }
 

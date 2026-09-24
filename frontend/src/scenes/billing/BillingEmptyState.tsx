@@ -1,6 +1,10 @@
 import React from 'react'
 
-import { WarningHog } from 'lib/components/hedgehogs'
+import * as errorPng from '@posthog/brand/hoggies/png/error'
+
+import { pngHoggie } from 'lib/brand/hoggies'
+
+const HedgehogError = pngHoggie(errorPng)
 
 export interface BillingEmptyStateProps {
     heading?: string
@@ -16,7 +20,7 @@ export function BillingEmptyState({
             data-attr="billing-empty-state"
             className="flex flex-col bg-white rounded px-4 py-8 items-center text-center mx-auto"
         >
-            <WarningHog width="100" height="100" className="mb-4" />
+            <HedgehogError width="100" height="100" className="mb-4" />
             <h2 className="text-xl leading-tight">{heading}</h2>
             {typeof detail === 'string' ? (
                 <p className="text-sm text-balance text-tertiary">{detail}</p>

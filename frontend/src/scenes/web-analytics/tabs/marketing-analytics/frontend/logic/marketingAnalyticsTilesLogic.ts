@@ -7,6 +7,7 @@ import { isNotNil } from 'lib/utils/guards'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import {
     CompareFilter,
     ConversionGoalFilter,
@@ -45,7 +46,7 @@ import {
     validColumnsForTiles,
 } from './utils'
 
-export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
+export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = pageCollectionId('marketing-analytics')
 
 const isSchemaBackedMarketingColumn = (column: validColumnsForTiles): column is rawColumnsForTiles =>
     column !== 'roas' && column !== 'cost_per_reported_conversion'

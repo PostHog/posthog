@@ -188,19 +188,23 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "marker",
-        [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
+        "marker,status",
+        [
+            (TIMED_OUT_WALL_CLOCK_STATE_KEY, TaskRun.Status.FAILED),
+            (SANDBOX_GONE_STATE_KEY, TaskRun.Status.FAILED),
+            (TIMED_OUT_WALL_CLOCK_STATE_KEY, TaskRun.Status.COMPLETED),
+        ],
     )
-    def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker):
+    def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker, status):
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
-            status=TaskRun.Status.FAILED,
+            status=status,
             timeout_marker=marker,
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         test_task_run.refresh_from_db()
-        assert test_task_run.status == TaskRun.Status.FAILED
+        assert test_task_run.status == status
         assert test_task_run.error_message is None
         assert test_task_run.state.get(marker) is True
 
@@ -245,6 +249,7 @@ class TestUpdateTaskRunStatusActivity:
             "rtk_effective": True,
             "benjamin_effective": True,
             "benjamin_version": "2026.08.1",
+            "agent_version": "2.4.213",
             "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
             "budget_guard": {
@@ -273,6 +278,7 @@ class TestUpdateTaskRunStatusActivity:
         assert props["rtk_enabled"] is True
         assert props["benjamin_enabled"] is True
         assert props["benjamin_version"] == "2026.08.1"
+        assert props["agent_version"] == "2.4.213"
         assert props["run_environment"] == test_task_run.environment
         assert props["termination_reason"] is None
         assert props["budget_cap_usd"] == 20
@@ -319,6 +325,13 @@ class TestUpdateTaskRunStatusActivity:
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
                 "task_run_failed",
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                "task_run_completed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
             ),
         ],

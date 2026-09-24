@@ -241,9 +241,9 @@ return { count: inv.files.length }`,
   });
 
   it.each([
-    ["strong", "gpt-5.6-sol"],
+    ["strong", "gpt-6-sol"],
     ["medium", "gpt-5.6-terra"],
-    ["cheap", "gpt-5.6-luna"],
+    ["cheap", "gpt-6-luna"],
   ])(
     "resolves model tier %s to %s before calling runAgent",
     async (tier, expectedModel) => {
@@ -294,7 +294,7 @@ return { count: inv.files.length }`,
       fakeCtx,
     );
     const passedAgent = runAgentMock.mock.calls[0][0].agent;
-    expect(passedAgent.model).toBe("gpt-5.6-luna");
+    expect(passedAgent.model).toBe("gpt-6-luna");
   });
 
   it("can dispatch to the General (read-write) persona by name", async () => {

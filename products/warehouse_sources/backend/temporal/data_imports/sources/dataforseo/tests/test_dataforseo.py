@@ -8,6 +8,7 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import (
     DATAFORSEO_BASE_URL,
+    MAX_KEYWORDS,
     MAX_PAGES_PER_TARGET,
     MAX_TARGETS,
     PAGE_SIZE,
@@ -18,17 +19,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     _request_task,
     dataforseo_source,
     get_rows,
+    parse_keywords,
     parse_targets,
     validate_credentials,
+    validate_keywords,
     validate_targets,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
     DATAFORSEO_ENDPOINTS,
     ENDPOINTS,
+    KEYWORD_SCOPES,
 )
 
-TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.targeted]
-LOOKUP_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if not config.targeted]
+TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope == "target"]
+UNTARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope != "target"]
+KEYWORD_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope in KEYWORD_SCOPES]
 
 
 def _resp(body: Any, status: int = 200) -> Any:
@@ -71,6 +76,7 @@ def _drive(
     manager: Any,
     responses: list[Any],
     targets: list[str] | None = None,
+    keywords: list[str] | None = None,
 ) -> tuple[list[tuple[str, Any]], list[list[dict[str, Any]]]]:
     # Drives get_rows with a mocked tracked session, returning ((url, payload) pairs, batches).
     # A GET lookup records a None payload.
@@ -95,6 +101,7 @@ def _drive(
                 api_login="login",
                 api_password="password",
                 targets=targets or ["example.com"],
+                keywords=keywords or [],
                 location_name="United States",
                 language_name="English",
                 endpoint=endpoint,
@@ -137,6 +144,40 @@ class TestParseTargets:
         parsed, error = validate_targets(raw)
         assert error is None
         assert len(parsed) == MAX_TARGETS
+
+
+class TestParseKeywords:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("posthog", ["posthog"]),
+            ("Product Analytics", ["product analytics"]),
+            ("product   analytics", ["product analytics"]),
+            ("a, b,, ,a", ["a", "b"]),
+            ("", []),
+        ],
+    )
+    def test_normalizes_and_dedupes(self, raw: str, expected: list[str]) -> None:
+        # DataForSEO lower-cases keywords server-side, so rows come back keyed this way.
+        assert parse_keywords(raw) == expected
+
+    def test_blank_input_is_not_an_error(self) -> None:
+        # The keywords field is optional; only the keyword-scoped tables require it.
+        parsed, error = validate_keywords(None)
+        assert parsed == []
+        assert error is None
+
+    def test_too_many_keywords_is_an_error(self) -> None:
+        raw = ", ".join(f"kw{i}" for i in range(MAX_KEYWORDS + 1))
+        _, error = validate_keywords(raw)
+        assert error is not None
+        assert str(MAX_KEYWORDS) in error
+
+    def test_max_keywords_is_allowed(self) -> None:
+        raw = ", ".join(f"kw{i}" for i in range(MAX_KEYWORDS))
+        parsed, error = validate_keywords(raw)
+        assert error is None
+        assert len(parsed) == MAX_KEYWORDS
 
 
 class TestBodyStatusClassification:
@@ -310,6 +351,7 @@ class TestGetRows:
                     api_login="login",
                     api_password="password",
                     targets=["example.com"],
+                    keywords=[],
                     location_name="United States",
                     language_name="English",
                     endpoint="ranked_keywords",
@@ -372,6 +414,7 @@ class TestGetRows:
                     api_login="login",
                     api_password="password",
                     targets=["example.com"],
+                    keywords=[],
                     location_name="United States",
                     language_name="English",
                     endpoint="domain_rank_overview",
@@ -402,6 +445,28 @@ class TestGetRows:
                 "backlinks_referring_domains",
                 "/backlinks/referring_domains/live",
                 {"target": "example.com", "include_subdomains": True, "limit": PAGE_SIZE, "offset": 0},
+            ),
+            (
+                "backlinks",
+                "/backlinks/backlinks/live",
+                {
+                    "target": "example.com",
+                    "include_subdomains": True,
+                    "order_by": ["rank,desc"],
+                    "limit": PAGE_SIZE,
+                    "offset": 0,
+                },
+            ),
+            (
+                "backlinks_anchors",
+                "/backlinks/anchors/live",
+                {
+                    "target": "example.com",
+                    "include_subdomains": True,
+                    "order_by": ["backlinks,desc"],
+                    "limit": PAGE_SIZE,
+                    "offset": 0,
+                },
             ),
             ("backlinks_history", "/backlinks/history/live", {"target": "example.com"}),
             (
@@ -461,6 +526,150 @@ class TestGetRows:
         assert "target" not in batches[0][0]
         manager.save_state.assert_not_called()
 
+    def test_historical_search_volume_sends_every_keyword_in_one_request(self) -> None:
+        manager = _manager()
+        item = {
+            "se_type": "google",
+            "keyword": "posthog",
+            "location_code": 2840,
+            "language_code": "en",
+            "search_partners": False,
+            "keyword_info": {
+                "search_volume": 1000,
+                "monthly_searches": [
+                    {"year": 2024, "month": 7, "search_volume": 450},
+                    {"year": 2024, "month": 6, "search_volume": 300},
+                ],
+            },
+        }
+        calls, batches = _drive(
+            "historical_search_volume",
+            manager,
+            [_resp(_body([_items_result([item])]))],
+            targets=["a.com", "b.com"],
+            keywords=["posthog", "session replay"],
+        )
+
+        # The endpoint takes the whole keyword list, and has no target fan-out to repeat it over.
+        assert calls == [
+            (
+                f"{DATAFORSEO_BASE_URL}/dataforseo_labs/google/historical_search_volume/live",
+                {
+                    "keywords": ["posthog", "session replay"],
+                    "location_name": "United States",
+                    "language_name": "English",
+                },
+            )
+        ]
+        assert batches == [
+            [
+                {
+                    "keyword": "posthog",
+                    "se_type": "google",
+                    "location_code": 2840,
+                    "language_code": "en",
+                    "search_partners": False,
+                    "year": 2024,
+                    "month": 7,
+                    "date": "2024-07-01",
+                    "search_volume": 450,
+                },
+                {
+                    "keyword": "posthog",
+                    "se_type": "google",
+                    "location_code": 2840,
+                    "language_code": "en",
+                    "search_partners": False,
+                    "year": 2024,
+                    "month": 6,
+                    "date": "2024-06-01",
+                    "search_volume": 300,
+                },
+            ]
+        ]
+        manager.save_state.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            {"keyword": "posthog", "keyword_info": {}},
+            {"keyword": "posthog", "keyword_info": {"monthly_searches": [{"year": None, "month": 6}]}},
+            {"keyword": None, "keyword_info": {"monthly_searches": [{"year": 2024, "month": 6}]}},
+        ],
+    )
+    def test_historical_search_volume_skips_rows_it_cannot_key(self, item: dict[str, Any]) -> None:
+        # keyword, year and month are the primary key and year/month also derive the partition
+        # column, so a row missing any of them has nowhere to land.
+        manager = _manager()
+        _, batches = _drive(
+            "historical_search_volume", manager, [_resp(_body([_items_result([item])]))], keywords=["posthog"]
+        )
+
+        assert batches == []
+
+    def test_serp_organic_fans_out_per_keyword_and_stamps_crawl_metadata(self) -> None:
+        manager = _manager()
+        result = {
+            "keyword": "posthog",
+            "se_domain": "google.com",
+            "location_code": 2840,
+            "language_code": "en",
+            "check_url": "https://www.google.com/search?q=posthog",
+            "datetime": "2024-08-11 13:24:34 +00:00",
+            "items_count": 1,
+            "items": [{"type": "organic", "rank_absolute": 1, "domain": "posthog.com"}],
+        }
+        calls, batches = _drive(
+            "serp_organic",
+            manager,
+            [_resp(_body([result])), _resp(_body([{**result, "keyword": "session replay", "items": []}]))],
+            keywords=["posthog", "session replay"],
+        )
+
+        # The SERP endpoint takes one keyword per request and has no limit/offset pagination.
+        assert calls == [
+            (
+                f"{DATAFORSEO_BASE_URL}/serp/google/organic/live/advanced",
+                {"keyword": keyword, "location_name": "United States", "language_name": "English"},
+            )
+            for keyword in ["posthog", "session replay"]
+        ]
+        assert batches == [
+            [
+                {
+                    "type": "organic",
+                    "rank_absolute": 1,
+                    "domain": "posthog.com",
+                    "keyword": "posthog",
+                    "se_domain": "google.com",
+                    "location_code": 2840,
+                    "language_code": "en",
+                    "check_url": "https://www.google.com/search?q=posthog",
+                    "datetime": "2024-08-11 13:24:34 +00:00",
+                }
+            ]
+        ]
+
+    def test_serp_organic_resumes_from_saved_keyword(self) -> None:
+        manager = _manager(DataForSEOResumeConfig(keyword="session replay"))
+        calls, _ = _drive(
+            "serp_organic",
+            manager,
+            [_resp(_body([{"keyword": "session replay", "items": []}]))],
+            keywords=["posthog", "session replay"],
+        )
+
+        assert [payload["keyword"] for _, payload in calls] == ["session replay"]
+
+    def test_serp_organic_saves_the_next_keyword(self) -> None:
+        manager = _manager()
+        responses = [_resp(_body([{"keyword": kw, "items": []}])) for kw in ["posthog", "session replay"]]
+
+        _drive("serp_organic", manager, responses, keywords=["posthog", "session replay"])
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [DataForSEOResumeConfig(keyword="session replay", offset=0)]
+
     def test_lookup_endpoint_ignores_saved_resume_state(self) -> None:
         # A lookup has no cursor, so state left behind by another endpoint must not skip the call.
         manager = _manager(DataForSEOResumeConfig(target="a.com", offset=PAGE_SIZE))
@@ -477,6 +686,7 @@ class TestDataForSEOSourceResponse:
             api_login="login",
             api_password="password",
             targets=["example.com"],
+            keywords=["posthog"],
             location_name="United States",
             language_name="English",
             endpoint=endpoint,
@@ -500,9 +710,16 @@ class TestDataForSEOSourceResponse:
         # be part of the key for table-wide uniqueness.
         assert "target" in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
 
-    @pytest.mark.parametrize("endpoint", LOOKUP_ENDPOINTS)
-    def test_lookup_primary_keys_exclude_target(self, endpoint: str) -> None:
-        # Lookup rows carry no target column, so keying on one would key every row on null.
+    @pytest.mark.parametrize("endpoint", KEYWORD_ENDPOINTS)
+    def test_keyword_primary_keys_include_keyword(self, endpoint: str) -> None:
+        # A keyword-scoped endpoint aggregates rows from every configured keyword, so the keyword
+        # must be part of the key for table-wide uniqueness.
+        assert "keyword" in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
+
+    @pytest.mark.parametrize("endpoint", UNTARGETED_ENDPOINTS)
+    def test_untargeted_primary_keys_exclude_target(self, endpoint: str) -> None:
+        # Lookup and keyword-scoped rows carry no target column, so keying on one would key
+        # every row on null.
         assert "target" not in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
 
 

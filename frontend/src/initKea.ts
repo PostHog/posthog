@@ -16,6 +16,7 @@ import {
     ensureRoutablePathname,
     removeProjectIdIfPresent,
     stripTrailingSlash,
+    stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
@@ -72,6 +73,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
+    'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
 ]
 
 /*
@@ -145,7 +147,11 @@ export function initKea({
                 // Runs before kea-router's `decodeURI(pathname)` on every navigation (initial
                 // load, push/replace, popstate). Keep the path decodable so a malformed `%`
                 // routes to 404 instead of crashing the router.
-                return addProjectIdIfMissing(ensureRoutablePathname(path))
+                // Drop the trailing slash here too, so the router's location matches the path
+                // `pathFromWindowToRoutes` matches routes against. The address bar is then
+                // corrected by a silent `replaceState` on mount, rather than by a second
+                // navigation that runs every `urlToAction` of the scene again.
+                return addProjectIdIfMissing(stripTrailingSlashFromUrl(ensureRoutablePathname(path)))
             },
             pathFromWindowToRoutes: (path) => {
                 return stripTrailingSlash(removeProjectIdIfPresent(path))

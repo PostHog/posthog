@@ -35,6 +35,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -57,7 +58,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import (
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+    MAX_RUN_NOTE_CHARS,
+    STALE_RUN_CUTOFF_S,
+)
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
@@ -1243,6 +1248,35 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         assert response.json()["structured_output_schema"] == _STRUCTURED_OUTPUT_SCHEMA
         config.refresh_from_db()
         assert config.structured_output_schema == _STRUCTURED_OUTPUT_SCHEMA
+
+    @parameterized.expand(
+        [
+            ("custom_scout_clears", "signals-scout-judge", _STRUCTURED_OUTPUT_SCHEMA, status.HTTP_200_OK, None),
+            (
+                "canonical_shipped_schema_refused",
+                "signals-scout-mcp-tool-calls",
+                _STRUCTURED_OUTPUT_SCHEMA,
+                status.HTTP_400_BAD_REQUEST,
+                _STRUCTURED_OUTPUT_SCHEMA,
+            ),
+            ("canonical_null_to_null_is_a_no_op", "signals-scout-mcp-tool-calls", None, status.HTTP_200_OK, None),
+        ]
+    )
+    def test_patch_null_clears_a_custom_schema_but_not_a_shipped_one(
+        self, _name: str, skill_name: str, stored: dict | None, expected_status: int, expected_schema: dict | None
+    ) -> None:
+        # The per-tick reconcile refills a null schema on a canonical scout, so accepting the clear
+        # would turn recording back on within the hour with nothing in the response saying so. A
+        # patch that sends null over a null column is not a clear and must not be refused.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name=skill_name, structured_output_schema=stored
+        )
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"structured_output_schema": None}, format="json"
+        )
+        assert response.status_code == expected_status, response.json()
+        config.refresh_from_db()
+        assert config.structured_output_schema == expected_schema
 
     def test_patch_rejects_invalid_schema(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
@@ -3846,7 +3880,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.output_destinations["slack"]["thread_reports"] is False
 
-    _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
+    _CAP_PATCH = "products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM"
 
     def test_create_disabled_config_is_allowed_at_team_cap(self) -> None:
         self._make_skill("signals-scout-first")
@@ -3881,6 +3915,84 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "enabled scouts" in response.json()["detail"]
+        second.refresh_from_db()
+        assert second.enabled is False
+
+    @parameterized.expand(
+        [
+            # A project given more capacity in the flag may enable past the code fallback.
+            ("raised", {"max_enabled_scouts": 2}, status.HTTP_200_OK, True),
+            # Lowering it below current usage blocks the next enable without touching what runs.
+            ("lowered", {"max_enabled_scouts": 1}, status.HTTP_400_BAD_REQUEST, False),
+        ]
+    )
+    def test_enable_is_gated_by_the_flag_configured_cap(
+        self, _name: str, team_config: dict, expected_status: int, expected_enabled: bool
+    ) -> None:
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=False)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"team_configs": {str(self.team.id): team_config}}):
+            response = self.client.patch(self._detail_url(str(second.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == expected_status
+        second.refresh_from_db()
+        assert second.enabled is expected_enabled
+        # A lowered cap never pauses what is already running.
+        first.refresh_from_db()
+        assert first.enabled is True
+
+    def test_cap_rejection_names_the_resolved_cap(self) -> None:
+        # The number a person reads must be the number enforcement used, or the message sends
+        # them looking for scouts that are not there.
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-second", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already has 1 enabled scouts" in response.json()["detail"]
+
+    def test_cap_rejection_above_a_lowered_cap_names_the_count_and_the_scouts_to_disable(self) -> None:
+        # A lowered cap leaves every running scout enabled, so the count can sit above the cap.
+        # Reporting the cap as the count, or asking for one disable, leaves the next enable refused.
+        for name in ("signals-scout-first", "signals-scout-second", "signals-scout-third"):
+            self._make_skill(name)
+            SignalScoutConfig.objects.create(team=self.team, skill_name=name, enabled=True)
+        self._make_skill("signals-scout-fourth")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fourth", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "This project already has 3 enabled scouts, and its limit is 1. Disable 3 scouts before you enable another."
+        )
+
+    def test_disabling_and_editing_stay_allowed_below_a_lowered_cap(self) -> None:
+        # Lowering the cap must leave a project able to dig itself out: disabling frees a slot,
+        # and tuning an enabled scout is not a net-new enable.
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=True)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            tuned = self.client.patch(
+                self._detail_url(str(first.id)), data={"run_interval_minutes": 120}, format="json"
+            )
+            disabled = self.client.patch(self._detail_url(str(second.id)), data={"enabled": False}, format="json")
+
+        assert tuned.status_code == status.HTTP_200_OK
+        assert disabled.status_code == status.HTTP_200_OK
         second.refresh_from_db()
         assert second.enabled is False
 
@@ -4028,7 +4140,33 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
             "max_runs_per_day",
             "runs_today",
             "runs_remaining_today",
+            "max_enabled_scouts",
         }
+
+    @parameterized.expand(
+        [
+            ("no_override", {}, MAX_ENABLED_SCOUTS_PER_TEAM),
+            ("fleet_default", {"default_team_config": {"max_enabled_scouts": 400}}, 400),
+            (
+                "project_override_wins",
+                {
+                    "default_team_config": {"max_enabled_scouts": 400},
+                    "team_configs": {"__team__": {"max_enabled_scouts": 500}},
+                },
+                500,
+            ),
+        ]
+    )
+    def test_metadata_reports_the_enforced_enabled_cap(self, _name: str, extra: dict, expected: int) -> None:
+        # The endpoint exists to show the enforced number, so the cap it reports must be the one
+        # the write surfaces apply — the same three layers, resolved the same way.
+        payload = {"guaranteed_team_ids": [self.team.id], **extra}
+        if "team_configs" in payload:
+            payload["team_configs"] = {str(self.team.id): payload["team_configs"]["__team__"]}
+
+        body = self._get(payload).json()
+
+        assert body["limits"]["max_enabled_scouts"] == expected
 
     @parameterized.expand([("listed", True), ("not_listed", False)])
     def test_enrolled_reflects_guaranteed_team_ids(self, _name: str, listed: bool) -> None:
@@ -4386,6 +4524,15 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         start.assert_not_called()
 
 
+_TEAM_ROSTER = "products.signals.backend.report_generation.team_membership.get_github_team_roster"
+
+
+def _membership(login: str, slug: str, *, is_maintainer: bool = False) -> GitHubTeamMembership:
+    return GitHubTeamMembership(
+        member_handle=login, team_slug=slug, team_name=slug.replace("-", " ").title(), is_maintainer=is_maintainer
+    )
+
+
 class TestScoutHarnessMembersAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -4393,6 +4540,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/members/"
+
+    def _link_github(self, user: User, login: str) -> None:
+        UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
 
     def test_lists_project_members_with_resolved_github_login(self) -> None:
         # self.user has a GitHub identity (login lowercased on resolution); a second member has
@@ -4433,6 +4583,70 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         emails = {row["email"] for row in response.json()}
         assert self.user.email in emails
         assert "outsider@example.com" not in emails
+
+    def test_team_filter_returns_the_team_with_its_maintainers_first(self) -> None:
+        # Routing input names a team while the artefact holds individuals, so the slug resolves to
+        # people. Guards both halves: the filter dropping a non-member, and the maintainer split.
+        self._link_github(self.user, "Plain")
+        maintainer = User.objects.create_and_join(self.organization, "boss@posthog.com", None, first_name="Boss")
+        self._link_github(maintainer, "boss")
+        outsider = User.objects.create_and_join(self.organization, "other@posthog.com", None, first_name="Other")
+        self._link_github(outsider, "other")
+        roster = GitHubTeamRoster(
+            memberships=(
+                _membership("plain", "team-desktop"),
+                _membership("boss", "team-desktop", is_maintainer=True),
+                _membership("other", "team-signals"),
+            ),
+            synced=True,
+        )
+
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "@PostHog/Team-Desktop"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()
+        assert [row["email"] for row in rows] == ["boss@posthog.com", self.user.email]
+        assert rows[0]["teams"] == [
+            {"provider": "github", "slug": "team-desktop", "name": "Team Desktop", "is_maintainer": True}
+        ]
+
+    @parameterized.expand(
+        [
+            # Nothing synced, so a 200 with an empty list would read as "nobody is on that team".
+            ("unsynced", GitHubTeamRoster(memberships=(), synced=False), "no synced team roster"),
+            # Synced, but no rows under this slug. Teams sync one at a time, so it is not a missing team.
+            (
+                "slug_not_covered",
+                GitHubTeamRoster(memberships=(_membership("someone", "team-signals"),), synced=True),
+                "isn't synced here",
+            ),
+        ]
+    )
+    def test_team_filter_that_resolves_nothing_says_why(self, _name: str, roster, expected: str) -> None:
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected in response.json()["detail"]
+
+    def test_team_filter_reports_a_failed_roster_read_as_retryable(self) -> None:
+        # A read failure and an unsynced project both resolve nothing, but the fixes differ. Telling
+        # a scout to turn a sync on when the sync is already on sends it to change a correct setting,
+        # and it caches that reason.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "Try the call again" in response.json()["detail"]
+
+    def test_unfiltered_roster_survives_a_failing_membership_read(self) -> None:
+        # Teams ride along on the member list, so a warehouse failure must not take the roster down.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["teams"] for row in response.json()] == [[]]
 
     @parameterized.expand([("session", None), ("public_read_token", "read_only")])
     def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:

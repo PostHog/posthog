@@ -412,11 +412,13 @@ def _finalize_under_lock(
     candidate_score = best.holdout_score or 0.0
     current = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
     is_cold_start = current is None
+    # A stub champion's score is a fixed placeholder, not a measurement, so any trained candidate replaces it.
+    replaces_stub = current is not None and bool((current.metrics or {}).get("stub"))
     beats_champion = current is not None and _beats_incumbent(candidate_score, current.holdout_score or 0.0)
 
     promoted = False
     role: str
-    if is_cold_start or beats_champion:
+    if is_cold_start or replaces_stub or beats_champion:
         if current is not None:
             AutoresearchModel.objects.filter(pk=current.pk).update(
                 role=AutoresearchModel.Role.ARCHIVED, archived_at=now
