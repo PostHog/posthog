@@ -93,15 +93,18 @@ impl Checkpoint {
 mod tests {
     use super::*;
 
-    fn temp_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ph-loki-import-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        dir.join(name)
+    /// A unique directory per call, removed when the guard drops. Callers hold the guard so the
+    /// directory outlives the path they use.
+    fn temp_path(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join(name);
+        (dir, path)
     }
 
     #[test]
     fn a_missing_checkpoint_starts_a_run_rather_than_failing_it() {
-        let loaded = Checkpoint::load(&temp_path("does-not-exist.json")).expect("starts clean");
+        let (_guard, path) = temp_path("does-not-exist.json");
+        let loaded = Checkpoint::load(&path).expect("starts clean");
 
         assert_eq!(loaded, Checkpoint::default());
         assert_eq!(loaded.resume_from("{app=\"api\"}"), None);
@@ -109,7 +112,7 @@ mod tests {
 
     #[test]
     fn a_saved_checkpoint_resumes_each_selector_independently() {
-        let path = temp_path("two-selectors.json");
+        let (_guard, path) = temp_path("two-selectors.json");
         let mut checkpoint = Checkpoint::default();
         checkpoint.complete_shard("{app=\"api\"}", 200, 10, 1000);
         checkpoint.complete_shard("{app=\"web\"}", 500, 5, 500);
@@ -163,7 +166,7 @@ mod tests {
     #[test]
     fn a_truncated_checkpoint_is_reported_rather_than_silently_restarting() {
         // Silently starting over would re-import months of data without saying so.
-        let path = temp_path("truncated.json");
+        let (_guard, path) = temp_path("truncated.json");
         std::fs::write(&path, b"{\"completed_through\": {").expect("writes");
 
         let error = Checkpoint::load(&path).expect_err("must not be treated as a fresh run");
@@ -173,7 +176,7 @@ mod tests {
 
     #[test]
     fn saving_replaces_the_previous_checkpoint_atomically() {
-        let path = temp_path("atomic.json");
+        let (_guard, path) = temp_path("atomic.json");
         let mut first = Checkpoint::default();
         first.complete_shard("{app=\"api\"}", 100, 1, 1);
         first.save(&path).expect("first save");
