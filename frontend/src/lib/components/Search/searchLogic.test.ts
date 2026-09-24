@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
+import * as generatedApi from '~/generated/core/api'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -64,6 +65,81 @@ describe('searchLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it('publishes ranked commands and files together and ignores a superseded response', async () => {
+        logic.unmount()
+        logic = searchLogic({ logicKey: 'command' })
+        logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_SEARCH_JEV]: true })
+        let resolveFirst!: (response: Awaited<ReturnType<typeof generatedApi.fileSystemCommandSearchCreate>>) => void
+        const rank = jest
+            .spyOn(generatedApi, 'fileSystemCommandSearchCreate')
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFirst = resolve
+                    })
+            )
+            .mockResolvedValueOnce({
+                results: [
+                    {
+                        id: 'file:second',
+                        name: 'Rollout overview',
+                        description: '',
+                        type: 'dashboard',
+                        href: '/dashboard/second',
+                        command_id: '',
+                    },
+                    {
+                        id: 'command:flags',
+                        name: 'Feature flags',
+                        description: '',
+                        type: 'command',
+                        href: '',
+                        command_id: 'app-Feature flags',
+                    },
+                ],
+            })
+        await expectLogic(logic, () => logic.actions.setSearch('checkout')).toDispatchActions(['loadRankedSearch'])
+        expect(logic.values.visibleCategories).toEqual([{ key: 'results', items: [], isLoading: true }])
+        expect(personListMock).not.toHaveBeenCalled()
+        await expectLogic(logic, () => logic.actions.setSearch('rollout')).toDispatchActions([
+            'loadRankedSearchSuccess',
+        ])
+        expect(logic.values.visibleCategories[0].items.map((item) => item.name)).toEqual([
+            'Rollout overview',
+            'Feature flags',
+        ])
+        resolveFirst({
+            results: [
+                {
+                    id: 'file:first',
+                    name: 'Stale checkout',
+                    description: '',
+                    type: 'insight',
+                    href: '/insights/first',
+                    command_id: '',
+                },
+            ],
+        })
+        await rank.mock.results[0].value
+        expect(logic.values.visibleCategories[0].items[0].name).toBe('Rollout overview')
+        logic.actions.setSearch('')
+        expect(logic.values.visibleCategories.some((category) => category.key === 'recents')).toBe(true)
+        logic.actions.setSearch('rollout')
+        expect(logic.values.visibleCategories).toEqual([{ key: 'results', items: [], isLoading: true }])
+    })
+
+    it('falls back once to available commands when the ranking endpoint fails', async () => {
+        logic.unmount()
+        logic = searchLogic({ logicKey: 'command' })
+        logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_SEARCH_JEV]: true })
+        jest.spyOn(generatedApi, 'fileSystemCommandSearchCreate').mockRejectedValue(new Error('Unavailable'))
+        await expectLogic(logic, () => logic.actions.setSearch('replay')).toDispatchActions(['loadRankedSearchSuccess'])
+        expect(logic.values.visibleCategories[0].isLoading).toBe(false)
+        expect(logic.values.visibleCategories[0].items.some((item) => item.name === 'Session replay')).toBe(true)
     })
 
     it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {

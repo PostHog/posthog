@@ -186,6 +186,26 @@ If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself un
 
 If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
 
+### Trying command palette ranking
+
+Cmd+k can rank commands and files with Jev through Django.
+Set `TYPESAFE_API_KEY` and `COMMAND_SEARCH_JEV_TEAM_IDS` (a comma-separated list of local team IDs), use a staff account, and enable the `command-search-jev` flag for that user.
+The backend evaluates the flag locally, so the analytics SDK must have its local feature flag definitions available.
+Use synthetic data or projects owned by PostHog only; TypeSafe is approved for staff experiments, not customer data.
+Cloud access is restricted to the US.
+
+The browser sends the search text and available command metadata; it does not fetch or upload a project's files for ranking.
+Django retrieves up to 48 newest files, 48 files created by the current user, and 32 path text matches, within the current team and web surface.
+It removes duplicate references and ranks these alongside up to 126 commands, favoring text matches when the available command list exceeds that limit.
+This is bounded candidate retrieval: older files that neither belong to the user nor match the query text can be missed.
+File bodies and arbitrary file metadata are excluded.
+
+Typing waits 200 milliseconds before starting a request.
+The palette displays one completed result set and discards superseded responses.
+Rankings are cached for 30 seconds; provider failures and exhausted budgets fall back to text matches without a later rerank.
+A network failure between the browser and Django falls back to available commands.
+The existing search remains available when the flag is off.
+
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
