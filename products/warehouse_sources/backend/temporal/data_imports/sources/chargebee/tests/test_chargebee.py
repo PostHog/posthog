@@ -162,7 +162,10 @@ class TestChargebeeSourceResumeBehavior:
             list(cast(Iterable[Any], resource))
             return mock_session, sent_params
 
-    @pytest.mark.parametrize("endpoint", ["Customers", "Events", "Invoices", "Subscriptions", "Transactions", "Orders"])
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["Customers", "Events", "Invoices", "ItemPrices", "Items", "Subscriptions", "Transactions", "Orders"],
+    )
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -265,6 +268,60 @@ class TestChargebeeSiteNameValidation:
         mock_validate.assert_not_called()
 
 
+class TestChargebeeCatalogEndpoints:
+    """`Items` and `ItemPrices` carry the product catalog that `subscription_items` points at.
+
+    Their rows sit one level deeper than the response list, so a wrong `data_selector` or
+    path yields an empty table rather than an error.
+    """
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "wrapper", "row"),
+        [
+            ("Items", "/v2/items", "item", {"id": "gold", "type": "plan", "metadata": {"seats": 10}}),
+            (
+                "ItemPrices",
+                "/v2/item_prices",
+                "item_price",
+                {"id": "gold-USD-monthly", "item_id": "gold", "price": 1000},
+            ),
+        ],
+    )
+    def test_yields_the_nested_catalog_object(self, endpoint: str, path: str, wrapper: str, row: dict) -> None:
+        urls: list[str] = []
+        response_iter = iter([_make_http_response({"list": [{wrapper: row}]})])
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            urls.append(request.url)
+            return next(response_iter)
+
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = chargebee_source(
+                api_key="test-key",
+                site_name="site-test",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+                should_use_incremental_field=False,
+            )
+            yielded = list(cast(Iterable[Any], resource))
+
+        assert urls == [f"https://site-test.chargebee.com/api{path}"]
+        assert yielded == [[row]]
+
+
 class TestChargebeeIncrementalFilter:
     """The server-side cursor filter must only be sent once a real watermark exists (#76090).
 
@@ -279,6 +336,8 @@ class TestChargebeeIncrementalFilter:
         "Customers": "updated_at[after]",
         "Events": "occurred_at[after]",
         "Invoices": "updated_at[after]",
+        "ItemPrices": "updated_at[after]",
+        "Items": "updated_at[after]",
         "Orders": "updated_at[after]",
         "Subscriptions": "updated_at[after]",
         "Transactions": "updated_at[after]",
