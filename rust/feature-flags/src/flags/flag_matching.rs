@@ -1160,7 +1160,8 @@ impl FeatureFlagMatcher {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                let flag_details = if self.detailed_analysis {
+                // Condition analysis reads v1 release conditions; a v2 flag omits it.
+                let flag_details = if self.detailed_analysis && flag.filters.is_v1() {
                     // Use merged person properties (DB + overrides) for condition analysis
                     let merged_person_props = self
                         .get_person_properties(person_property_overrides.as_ref())

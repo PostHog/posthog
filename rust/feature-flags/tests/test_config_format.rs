@@ -657,3 +657,58 @@ async fn mixed_team_projects_supported_v2_beside_v1(#[case] cached: bool) -> Res
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn detailed_analysis_is_omitted_for_a_v2_flag_and_kept_for_v1() {
+    let db = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        db.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let mut matcher = FeatureFlagMatcher::new(
+        "example-person".to_string(),
+        None,
+        1,
+        db.create_postgres_router(),
+        cohort_cache,
+        mock_group_type_cache(HashMap::new()),
+        None,
+    )
+    .with_detailed_analysis(true);
+    let flags: Vec<FeatureFlag> = serde_json::from_value(json!([
+        {"id": 1, "team_id": 1, "key": "v1", "active": true,
+         "filters": {"groups": [{"rollout_percentage": 100}]}},
+        {"id": 2, "team_id": 1, "key": "v2", "active": true,
+         "filters": {"version": 2, "return_type": "boolean", "default_value": false, "rules": [
+            {"id": "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1", "rule_type": "targeted_release",
+             "targeting": {"properties": []}, "value": true}]}}
+    ]))
+    .unwrap();
+    let response = matcher
+        .evaluate_all_feature_flags(
+            FeatureFlagList {
+                flags: PreparedFlags::seal(flags),
+                evaluation_metadata: Arc::new(EvaluationMetadata {
+                    dependency_stages: vec![vec![1, 2]],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+            Uuid::new_v4(),
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(!response.errors_while_computing_flags);
+    assert_eq!(
+        response.flags["v1"].conditions.as_ref().map(Vec::len),
+        Some(1)
+    );
+    assert!(response.flags["v2"].enabled);
+    assert!(response.flags["v2"].conditions.is_none());
+}

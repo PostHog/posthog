@@ -61,6 +61,7 @@ Its caller supplies the resolved person distinct ID, complete or partial propert
 Person properties come from the same override-and-database acquisition v1 conditions use: a v2 predicate key absent from the request overrides triggers database preparation, the merged map is `Complete` once the database was consulted, `Partial` when only overrides are known, and `Unavailable` without any overrides.
 The typed outcome is projected onto the existing match shape and reaches every response format unchanged: a targeting match sets `enabled` to the rule value with `condition_match` and the rule index, a terminal rollout miss and no rule match set `enabled` to the flag default (`false` for a null default) with `out_of_rollout_bound` or `no_condition_match`, never a variant or a payload.
 An evaluation error (missing context, an invalid property value, an invalid regex, a hash failure) takes the existing failed-record path and sets `errorsWhileComputingFlags`, so a configured `false` stays distinct from a failed record and from omission.
+Detailed condition analysis describes v1 release conditions, so a v2 flag omits the `conditions` field even when a request asks for it.
 The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
 The service adapter must retain eligibility and load/merge property context before invoking it.
 
