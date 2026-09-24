@@ -185,6 +185,41 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         bytecode = self.filters_to_bytecode(filters=filters)
         assert execute_bytecode(bytecode, {"properties": row}).result is expected
 
+    @parameterized.expand(
+        [
+            # The column hint lists bare names, so that is what people type into the SQL leaf.
+            ("bare_column", {"type": "hogql", "key": "organization = 'acme'"}),
+            # What an input template reads the row as.
+            ("record_alias", {"type": "hogql", "key": "record.organization = 'acme'"}),
+            # Already where the row is; must not become properties.properties.
+            ("qualified_column", {"type": "hogql", "key": "properties.organization = 'acme'"}),
+            # A lambda parameter is a local, not a column.
+            ("lambda_local", {"type": "hogql", "key": "arrayExists(x -> x = 'acme', [organization])"}),
+        ]
+    )
+    def test_warehouse_sql_filters_read_columns_from_the_row(self, _name: str, prop: dict):
+        for filters in (
+            {"source": "data-warehouse-view", "properties": [prop]},
+            {"source": "data-warehouse-table", "data_warehouse": [{"table_name": "accounts", "properties": [prop]}]},
+        ):
+            response = compile_filters_bytecode(filters=filters, team=self.team)
+            assert "bytecode_error" not in response, response
+            row = {"$source_table": "accounts"}
+            assert (
+                execute_bytecode(response["bytecode"], {"properties": {**row, "organization": "acme"}}).result is True
+            )
+            assert (
+                execute_bytecode(response["bytecode"], {"properties": {**row, "organization": "globex"}}).result
+                is False
+            )
+
+    def test_event_filters_still_reject_a_bare_unknown_column(self):
+        # Only a warehouse row lives under properties; an event filter naming an unknown root is a typo.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "organization = 'acme'"}]}, team=self.team
+        )
+        assert "organization" in response["bytecode_error"]
+
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(
             filters={

@@ -190,6 +190,27 @@ def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
     return result
 
 
+class _WarehouseRowFields(CloningVisitor):
+    """
+    A warehouse row reaches the filter with its columns under `properties`. A hand-written filter
+    names a column bare, the way the column hint lists it, or as `record.<column>` the way an input
+    template does. Both resolve there. Only the given roots move, so a local such as a lambda
+    parameter and a global the runtime does provide stay where they are.
+    """
+
+    def __init__(self, roots: set[str]):
+        super().__init__()
+        self.roots = roots
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        chain = list(node.chain)
+        if chain and str(chain[0]) == "record":
+            return ast.Field(chain=["properties", *chain[1:]])
+        if chain and str(chain[0]) in self.roots:
+            return ast.Field(chain=["properties", *chain])
+        return super().visit_field(node)
+
+
 def _as_row_properties(properties: list[Any]) -> list[Any]:
     """Read a `data_warehouse` column filter from `properties`, where the consumer puts the row.
 
@@ -435,6 +456,18 @@ def _unknown_filter_globals(expr: ast.Expr) -> list[str]:
     )
 
 
+def _compile_against_runtime(expr: ast.Expr, team: Team) -> tuple[list[Any], list[str], HogQLContext]:
+    """The bytecode, every root it reads that the runtime does not provide, and the compile context."""
+    # Declaring the globals turns the compiler's field resolution into a check: it warns on a
+    # root that is neither a local, an upvalue, nor one of ours.
+    context = HogQLContext(team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
+    bytecode = create_bytecode(expr, context=context).bytecode
+    unknown = sorted(
+        {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+    )
+    return bytecode, unknown, context
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -443,16 +476,10 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception("Select queries are not allowed in filters")
 
         expr = _LowerConstantMembership().visit(expr)
-        # Declaring the globals turns the compiler's field resolution into a check: it warns on a
-        # root that is neither a local, an upvalue, nor one of ours.
-        context = HogQLContext(
-            team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS
-        )
-        filters["bytecode"] = create_bytecode(expr, context=context).bytecode
-
-        unknown = sorted(
-            {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
-        )
+        filters["bytecode"], unknown, context = _compile_against_runtime(expr, team)
+        if unknown and filters.get("source") in DATA_WAREHOUSE_SOURCES:
+            expr = _WarehouseRowFields(roots=set(unknown)).visit(expr)
+            filters["bytecode"], unknown, context = _compile_against_runtime(expr, team)
         if unknown:
             # The person saving a destination did not write the team's test account filters, so a
             # message that only names the field sends them looking in the wrong place.
