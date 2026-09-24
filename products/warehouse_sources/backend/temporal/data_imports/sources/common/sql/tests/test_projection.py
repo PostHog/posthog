@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pyarrow as pa
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import projection as projection_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     AnsiIdentifierQuoter,
     BacktickIdentifierQuoter,
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     InvalidIdentifierError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    MissingIncrementalFieldError,
     PrunedColumns,
     compute_projected_columns,
     filter_columns_by_enabled_columns,
@@ -104,10 +106,60 @@ class TestResolveTableProjection:
             _table_with("id", "email", "secret"),
             enabled_columns=enabled_columns,
             primary_keys=["id"],
+            should_use_incremental_field=False,
             available_columns=available_columns,
         )
         assert projection.enabled_columns == expected_enabled
         assert [column.name for column in projection.table.columns] == expected_table
+
+
+class TestResolveTableProjectionAgainstAStaleSelection:
+    """A stored selection is only reconciled when a person reloads the source, so a column dropped
+    at the source stays in the SELECT list and every run fails on it, which disables the schema."""
+
+    def _resolve(self, enabled_columns, catalog, **kwargs):
+        return resolve_table_projection(
+            _table_with(*catalog),
+            enabled_columns=enabled_columns,
+            primary_keys=["id"],
+            **{"should_use_incremental_field": False, **kwargs},
+        )
+
+    @parameterized.expand(
+        [
+            ("drops_the_name_the_source_lost", ["id", "ghost"], ("id", "email"), ["id"]),
+            ("keeps_a_selection_that_still_matches", ["id", "email"], ("id", "email"), ["id", "email"]),
+            # Pruning against nothing would drop every column, so an empty read changes nothing.
+            ("an_empty_catalog_changes_nothing", ["id", "ghost"], (), ["id", "ghost"]),
+            # Pruning to empty renders as `SELECT *`, which would sync the columns the customer
+            # excluded, so a selection with nothing left is kept and the read fails instead.
+            ("a_selection_with_nothing_left_is_kept", ["ghost"], ("id", "email"), ["ghost"]),
+        ]
+    )
+    def test_prunes(self, _name, enabled_columns, catalog, expected) -> None:
+        assert self._resolve(enabled_columns, catalog).enabled_columns == expected
+
+    @parameterized.expand([("an_explicit_selection", ["id"]), ("sync_all", None)])
+    def test_raises_when_the_incremental_field_left_the_source(self, _name, enabled_columns) -> None:
+        # It sits in the WHERE and ORDER BY of every query, so pruning it cannot rescue the run.
+        # Sync-all reaches the same dropped field, so the guard runs before the selection branch.
+        with pytest.raises(MissingIncrementalFieldError, match="updated_at"):
+            self._resolve(enabled_columns, ("id",), incremental_field="updated_at", should_use_incremental_field=True)
+
+    def test_tolerates_a_missing_incremental_field_on_a_full_refresh(self) -> None:
+        # A full refresh never puts the field in a WHERE or ORDER BY.
+        projection = self._resolve(["id"], ("id",), incremental_field="updated_at")
+        assert projection.enabled_columns == ["id"]
+
+    def test_leaves_sync_all_deriving_from_the_catalog(self) -> None:
+        assert self._resolve(None, ("id", "email")).enabled_columns == ["id", "email"]
+
+    def test_reports_the_dropped_names(self) -> None:
+        # The synced column set changes without the customer asking, so an operator needs to see
+        # which names went and why the column stopped arriving.
+        with patch.object(projection_module.logger, "warning") as warning:
+            self._resolve(["id", "ghost"], ("id", "email"))
+        assert warning.call_args.kwargs["removed_columns"] == ["ghost"]
 
 
 class TestFormatProjectedSelectClause:
