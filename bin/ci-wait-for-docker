@@ -23,9 +23,11 @@ COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 # timeout leaves the whole stack missing.
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
-# Registry that mirrors Docker Hub, such as mirror.gcr.io. When set, launch pulls each Docker
-# Hub image from it first, so `compose up` finds the image locally and never asks Docker Hub.
-REGISTRY_MIRROR="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
+# Registries that mirror Docker Hub, such as mirror.gcr.io, separated by whitespace and tried
+# in order. When set, launch pulls each Docker Hub image from the first mirror that has it, so
+# `compose up` finds the image locally and never asks Docker Hub. A Depot Registry host
+# (*.registry.depot.dev) is logged into with DEPOT_TOKEN, which every Depot CI job carries.
+REGISTRY_MIRRORS="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 
 usage() {
     cat <<'EOF'
@@ -189,13 +191,38 @@ run_launch_once() {
     compose_up "$@"
 }
 
+login_to_depot_mirrors() {
+    local mirror
+
+    for mirror in "${REGISTRY_MIRRORS[@]}"; do
+        [[ "$mirror" == *.registry.depot.dev && -n "${DEPOT_TOKEN:-}" ]] || continue
+        printf '%s' "$DEPOT_TOKEN" | docker login "$mirror" --username x-token --password-stdin >/dev/null 2>&1 \
+            || echo "Could not log in to ${mirror}; its images pull from the next source." >&2
+    done
+}
+
+pull_from_first_mirror() {
+    local path="$1" image="$2"
+    local mirror
+
+    for mirror in "${REGISTRY_MIRRORS[@]}"; do
+        if docker pull -q "${mirror}/${path}" >/dev/null 2>&1 && docker tag "${mirror}/${path}" "$image"; then
+            echo "Pulled ${image} from ${mirror}."
+            return 0
+        fi
+    done
+    echo "No mirror has ${image}; compose pulls it from Docker Hub."
+}
+
 pull_through_registry_mirror() {
     local image
     local path
     local host
     local pids=()
 
-    [ -n "$REGISTRY_MIRROR" ] || return 0
+    [ -n "$REGISTRY_MIRRORS" ] || return 0
+    read -r -a REGISTRY_MIRRORS <<< "$REGISTRY_MIRRORS"
+    login_to_depot_mirrors
     while read -r image; do
         [[ -z "$image" || "$image" == *@* ]] && continue
         path="${image#docker.io/}"
@@ -206,9 +233,7 @@ pull_through_registry_mirror() {
         else
             path="library/${path}"
         fi
-        # A failed mirror pull leaves the image for `compose up` to pull from Docker Hub.
-        { docker pull -q "${REGISTRY_MIRROR}/${path}" >/dev/null 2>&1 \
-            && docker tag "${REGISTRY_MIRROR}/${path}" "$image"; } &
+        pull_from_first_mirror "$path" "$image" &
         pids+=("$!")
     done < <(compose config --images "$@" 2>/dev/null)
     for pid in "${pids[@]}"; do
