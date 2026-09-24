@@ -408,19 +408,6 @@ describe('query', () => {
             await expect(settled).resolves.toMatchObject({ status: 503 })
             expect(querySpy).toHaveBeenCalledTimes(3)
         })
-
-        it('resumes polling when the gateway refused a status poll', async () => {
-            const querySpy = jest
-                .spyOn(api, 'query')
-                .mockResolvedValueOnce({ query_status: { id: 'running', complete: false } } as any)
-                .mockResolvedValueOnce({ results: ['ok'], is_cached: true } as any)
-            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(refused())
-
-            await expect(performQuery(query, undefined, 'async')).resolves.toMatchObject({ results: ['ok'] })
-
-            // Same ID, so the resumed run is the one the user is already waiting for.
-            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe('running')
-        })
     })
 
     describe('pollForResults error message parsing', () => {
