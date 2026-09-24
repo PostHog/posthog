@@ -149,9 +149,9 @@ Key things to know:
 | File                                                       | Purpose                                                                           |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `posthog/models/feature_flag/flag_matching.py`             | **Legacy** Python evaluation engine (only used for static cohort creation)        |
-| `posthog/models/feature_flag/flags_cache.py`               | HyperCache for the Rust flags service with signal-based invalidation              |
-| `posthog/models/feature_flag/local_evaluation.py`          | Prepares flag data for SDK local evaluation with HyperCache                       |
-| `posthog/models/feature_flag/user_blast_radius.py`         | Estimates user/group match counts for conditions                                  |
+| `products/feature_flags/backend/flags_cache.py`            | HyperCache for the Rust flags service with signal-based invalidation              |
+| `products/feature_flags/backend/local_evaluation.py`       | Prepares flag data for SDK local evaluation with HyperCache                       |
+| `products/feature_flags/backend/user_blast_radius.py`      | Estimates user/group match counts for conditions                                  |
 | `products/feature_flags/backend/blast_radius_flag_deps.py` | Sizes flag-dependency filters for that estimate as per-person match probabilities |
 | `posthog/api/services/flags_service.py`                    | HTTP proxy to the Rust flags service                                              |
 

@@ -9903,82 +9903,157 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("false_when_the_flag_is_on_for_everyone", [{"properties": [], "rollout_percentage": 100}], None, False, 0),
-            ("true_when_the_flag_is_on_for_everyone", [{"properties": [], "rollout_percentage": 100}], None, True, 10),
-            ("string_true_reads_as_boolean", [{"properties": [], "rollout_percentage": 100}], None, "true", 10),
-            ("true_scales_by_rollout", [{"properties": [], "rollout_percentage": 10}], None, True, 1),
+            (
+                "false_when_the_flag_is_on_for_everyone",
+                {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                False,
+                0,
+            ),
+            (
+                "true_when_the_flag_is_on_for_everyone",
+                {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                True,
+                10,
+            ),
+            ("string_true_is_a_variant_name", {"groups": [{"properties": [], "rollout_percentage": 100}]}, "true", 0),
+            ("true_scales_by_rollout", {"groups": [{"properties": [], "rollout_percentage": 10}]}, True, 1),
+            ("null_rollout_means_everyone", {"groups": [{"properties": [], "rollout_percentage": None}]}, True, 10),
             (
                 "true_follows_targeting",
-                [
-                    {
-                        "properties": [
-                            {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                None,
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
                 True,
                 4,
             ),
             (
                 "false_is_the_complement_of_targeting",
-                [
-                    {
-                        "properties": [
-                            {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                None,
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
                 False,
                 6,
             ),
             (
+                # Max over the sets gives 6; a sum would give 7 and the first set alone 4.
                 "shared_rollout_hash_takes_the_widest_admitting_set",
-                [
-                    {
-                        "properties": [{"key": "group", "type": "person", "value": ["0", "1"], "operator": "exact"}],
-                        "rollout_percentage": 10,
-                    },
-                    {"properties": [], "rollout_percentage": 100},
-                ],
-                None,
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "group",
+                                    "type": "person",
+                                    "value": ["0", "1", "2", "3", "4"],
+                                    "operator": "exact",
+                                }
+                            ],
+                            "rollout_percentage": 20,
+                        },
+                        {"properties": [], "rollout_percentage": 60},
+                    ]
+                },
                 True,
-                10,
+                6,
             ),
             (
                 "variant_splits_by_variant_rollout",
-                [{"properties": [], "rollout_percentage": 100}],
-                {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]},
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 30},
+                            {"key": "test", "rollout_percentage": 70},
+                        ]
+                    },
+                },
                 "control",
-                5,
+                3,
             ),
             (
                 "pinned_variant_wins_for_its_set",
-                [
-                    {
-                        "properties": [{"key": "group", "type": "person", "value": ["0", "1"], "operator": "exact"}],
-                        "rollout_percentage": 100,
-                        "variant": "control",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "group", "type": "person", "value": ["0", "1"], "operator": "exact"}
+                            ],
+                            "rollout_percentage": 100,
+                            "variant": "control",
+                        },
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
                     },
-                    {"properties": [], "rollout_percentage": 100},
-                ],
-                {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]},
+                },
                 "control",
                 6,
             ),
             (
                 "unknown_variant_is_never_served",
-                [{"properties": [], "rollout_percentage": 100}],
-                {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]},
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
                 "missing-variant",
                 0,
             ),
+            (
+                "group_aggregated_dependency_stays_neutral",
+                {"groups": [{"properties": [], "rollout_percentage": 100}], "aggregation_group_type_index": 0},
+                False,
+                10,
+            ),
+            (
+                "holdout_stays_neutral",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "holdout": {"id": 1, "exclusion_percentage": 10},
+                },
+                False,
+                10,
+            ),
+            (
+                "super_groups_stay_neutral",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 0}],
+                    "super_groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                True,
+                10,
+            ),
+            (
+                "early_exit_stays_neutral",
+                {"groups": [{"properties": [], "rollout_percentage": 10}], "early_exit": True},
+                True,
+                10,
+            ),
         ]
     )
-    def test_user_blast_radius_with_flag_dependency(self, _name, groups, multivariate, value, expected_affected):
+    def test_user_blast_radius_with_flag_dependency(self, _name, filters, value, expected_affected):
         for i in range(10):
             _create_person(
                 team_id=self.team.pk,
@@ -9990,7 +10065,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             key="dependency-flag",
             created_by=self.user,
-            filters={"groups": groups, "multivariate": multivariate},
+            filters=filters,
         )
 
         response = self.client.post(
@@ -10015,28 +10090,28 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("inactive_flag", "inactive", True, 0),
-            ("inactive_flag_negated", "inactive", False, 10),
-            ("missing_flag", "missing", True, 0),
-            ("missing_flag_negated", "missing", False, 10),
+            ("inactive_flag", {"active": False}, "id", True, 0),
+            ("inactive_flag_negated", {"active": False}, "id", False, 10),
+            ("deleted_flag", {"deleted": True}, "id", True, 0),
+            ("missing_flag", {}, "missing", True, 0),
+            ("missing_flag_negated", {}, "missing", False, 10),
+            ("key_reference_never_resolves", {}, "key", True, 0),
         ]
     )
-    def test_user_blast_radius_with_unevaluable_flag_dependency(self, _name, flag_state, value, expected_affected):
+    def test_user_blast_radius_with_unresolvable_flag_dependency(
+        self, _name, flag_kwargs, reference, value, expected_affected
+    ):
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
-        if flag_state == "inactive":
-            key = str(
-                FeatureFlag.objects.create(
-                    team=self.team,
-                    key="dependency-flag",
-                    created_by=self.user,
-                    active=False,
-                    filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-                ).pk
-            )
-        else:
-            key = "999999999"
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            **flag_kwargs,
+        )
+        key = {"id": str(dependency_flag.pk), "key": dependency_flag.key, "missing": "999999999"}[reference]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -10051,7 +10126,14 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
 
-    def test_user_blast_radius_with_cohort_targeted_flag_dependency(self):
+    @parameterized.expand(
+        [
+            ("live_cohort", False, 3),
+            # The dependency's broken targeting is not the caller's input, so it sizes neutrally.
+            ("hard_deleted_cohort", True, 10),
+        ]
+    )
+    def test_user_blast_radius_with_cohort_targeted_flag_dependency(self, _name, delete_cohort, expected_affected):
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
         cohort = Cohort.objects.create(
@@ -10072,6 +10154,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         )
+        if delete_cohort:
+            Cohort.objects.filter(pk=cohort.pk).delete()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -10086,9 +10170,16 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertLessEqual({"affected": 3, "total": 10}.items(), response.json().items())
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
 
-    def test_user_blast_radius_with_nested_flag_dependency(self):
+    @parameterized.expand(
+        [
+            ("nested_dependency", False, 2),
+            # The repeated flag sizes neutrally, so a cycle stops there instead of recursing until a 500.
+            ("cyclic_dependency", True, 2),
+        ]
+    )
+    def test_user_blast_radius_with_nested_flag_dependency(self, _name, cyclic, expected_affected):
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
@@ -10122,6 +10213,11 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         )
+        if cyclic:
+            root_flag.filters["groups"][0]["properties"].append(
+                {"key": str(middle_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+            )
+            root_flag.save()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -10136,7 +10232,44 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertLessEqual({"affected": 2, "total": 10}.items(), response.json().items())
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    @parameterized.expand(
+        [
+            # The flags service evaluates a flag once, so repeats do not compound and contradictions never match.
+            ("repeated_dependency_counts_once", [("half", True), ("half", True)], 5),
+            ("contradictory_values_never_match", [("half", True), ("half", False)], 0),
+            ("independent_dependencies_multiply", [("half", True), ("two_fifths", True)], 2),
+        ]
+    )
+    def test_user_blast_radius_with_several_flag_dependencies(self, _name, dependencies, expected_affected):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        flags = {
+            key: FeatureFlag.objects.create(
+                team=self.team,
+                key=key,
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": rollout}]},
+            )
+            for key, rollout in [("half", 50), ("two_fifths", 40)]
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(flags[key].pk), "type": "flag", "value": value, "operator": "flag_evaluates_to"}
+                        for key, value in dependencies
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
 
     def test_user_blast_radius_with_flag_dependency_and_person_property(self):
         for i in range(10):
@@ -10150,10 +10283,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             key="dependency-flag",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
         )
 
-        # The dependency is on for everyone, so only the person property filter narrows the estimate
+        # The person property filter keeps 4 persons and the 50% dependency halves them
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
@@ -10178,7 +10311,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertLessEqual({"affected": 4, "total": 10}.items(), response.json().items())
+        self.assertLessEqual({"affected": 2, "total": 10}.items(), response.json().items())
 
     def test_user_blast_radius_with_groups_and_flag_dependency(self):
         create_group_type_mapping_without_created_at(

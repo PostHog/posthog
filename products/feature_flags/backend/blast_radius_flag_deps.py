@@ -1,13 +1,19 @@
 from collections.abc import Callable
 from typing import Any, Optional
 
+from django.core.exceptions import ObjectDoesNotExist
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import clone_expr
 
 from posthog.models.filters import Filter
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyValidationError
 from posthog.models.team.team import Team
+from posthog.utils import safe_int
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -15,14 +21,32 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 # save time, so the cap only guards against pathological chains blowing up the query.
 MAX_DEPENDENCY_DEPTH = 5
 
+# Dependencies are deduplicated per condition, so a real configuration expands a handful of
+# flags. The budget bounds the Postgres lookups and the query size when a chain fans out anyway.
+MAX_DEPENDENCY_NODES = 50
+
+# Probability used when a dependency cannot be sized per person: every person counts, which is
+# what property_to_expr's neutral filter for flag properties already does.
 NEUTRAL = 1.0
+
+# Flag-level settings the flags service evaluates before, or instead of, the condition sets.
+# The rollout model below does not apply to them.
+_UNMODELED_FILTER_KEYS = ("holdout", "holdout_groups", "super_groups", "feature_enrollment", "early_exit")
+
+# Errors that mean the dependency's stored targeting cannot be compiled. They describe that
+# flag's configuration, not the caller's condition, so they must not surface as a 400.
+_TARGETING_BUILD_ERRORS = (ValidationError, ExposedHogQLError, PropertyValidationError, ObjectDoesNotExist)
+
+
+class _DependencyBudgetExceeded(Exception):
+    pass
 
 
 class FlagDependencyEstimator:
     """
-    Translates a flag-dependency filter (`type: "flag"`, `flag_evaluates_to`) into a HogQL
-    expression for the probability that the dependency flag evaluates to the requested value
-    for a person.
+    Translates the flag-dependency filters of a condition (`type: "flag"`, `flag_evaluates_to`)
+    into a HogQL expression for the probability that every dependency flag evaluates to its
+    requested value for a person.
 
     Flag matching hashes the distinct_id, so a person-grained query cannot say whether one
     person is in a rollout. It can say how likely they are, which is what a sizing estimate
@@ -33,29 +57,56 @@ class FlagDependencyEstimator:
     flag compares the same hash against its rollout, so a person targeted by several sets is
     admitted with probability max(rollout) rather than the sum. The winning set's pinned
     variant applies when it has one; otherwise the variant is a second, independent hash split
-    by the variant rollouts.
+    by the variant rollouts. A dependency is resolved by flag id only and a string value is a
+    variant name, as the flags service does. The max over sets is exact when every non-rollout
+    factor of a set is 0 or 1; a nested dependency inside a set makes it an approximation.
 
-    Not modeled, on purpose: hash key overrides (experience continuity), super conditions,
-    holdout groups, and group-aggregated dependency flags. Those fall back to the neutral
-    estimate, which is the pre-existing behavior of counting every person.
+    Not modeled: holdouts, super conditions, feature enrollment, early exit and group-aggregated
+    dependency flags, plus a dependency whose stored targeting cannot be compiled. Those fall
+    back to the neutral estimate, which is the pre-existing behavior of counting every person.
     """
 
     def __init__(self, team: Team, clean_condition: Callable[[Team, dict], Filter]):
         self.team = team
-        # The caller's condition cleaner normalizes values and relative dates the same way for the
-        # dependency flag's stored filters as for the condition being sized.
+        # Injected rather than imported: user_blast_radius imports this module, and its cleaner
+        # must normalize the dependency's stored filters the same way as the condition being sized.
         self.clean_condition = clean_condition
+        self._flags: dict[int, Optional[FeatureFlag]] = {}
+        self._nodes = 0
 
-    def probability_expr(self, flag_property: Property) -> ast.Expr:
-        return self._probability_expr(flag_property, depth=0, seen=frozenset())
+    def weight_expr(self, flag_properties: list[Property]) -> ast.Expr:
+        """Probability that every flag dependency in the condition evaluates to its requested value."""
+        references = [(str(prop.key), prop.value) for prop in flag_properties]
+        try:
+            return self._conjunction_expr(references, depth=0, seen=frozenset())
+        except _DependencyBudgetExceeded:
+            # A partially expanded chain would give a misleading number, so the whole weight is neutral.
+            return ast.Constant(value=NEUTRAL)
 
-    def _probability_expr(self, flag_property: Property, depth: int, seen: frozenset[int]) -> ast.Expr:
-        requested = _requested_value(flag_property.value)
-        flag = self._find_flag(flag_property.key)
+    def _conjunction_expr(self, references: list[tuple[str, Any]], depth: int, seen: frozenset[int]) -> ast.Expr:
+        requested_by_flag = _merge_requested_values(references)
+        if requested_by_flag is None:
+            # The flags service evaluates a flag once, so contradictory requests never match.
+            return ast.Constant(value=0.0)
+        return _product(
+            [
+                self._probability_expr(reference, requested, depth, seen)
+                for reference, requested in requested_by_flag.items()
+            ]
+        )
+
+    def _probability_expr(self, reference: str, requested: bool | str, depth: int, seen: frozenset[int]) -> ast.Expr:
+        self._nodes += 1
+        if self._nodes > MAX_DEPENDENCY_NODES:
+            raise _DependencyBudgetExceeded()
+        if depth >= MAX_DEPENDENCY_DEPTH:
+            return ast.Constant(value=NEUTRAL)
+
+        flag = self._find_flag(reference)
         if flag is None or not flag.active:
             # A missing, deleted, or disabled dependency evaluates to false for everyone.
-            return _from_true_probability(requested, ast.Constant(value=0.0))
-        if flag.pk in seen or depth >= MAX_DEPENDENCY_DEPTH:
+            return ast.Constant(value=1.0 if requested is False else 0.0)
+        if flag.pk in seen or _has_unmodeled_evaluation(flag):
             return ast.Constant(value=NEUTRAL)
 
         admitted_by_set = self._admitted_probabilities(flag, depth, seen | {flag.pk})
@@ -67,10 +118,15 @@ class FlagDependencyEstimator:
         return _variant_probability(flag, admitted_by_set, requested)
 
     def _find_flag(self, reference: str) -> Optional[FeatureFlag]:
-        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id, deleted=False)
-        if reference.isdigit():
-            return queryset.filter(pk=int(reference)).first()
-        return queryset.filter(key=reference).first()
+        # The flags service resolves a dependency by id only, so a key reference never matches.
+        flag_id = safe_int(reference)
+        if flag_id is None:
+            return None
+        if flag_id not in self._flags:
+            self._flags[flag_id] = FeatureFlag.objects.filter(
+                team__project_id=self.team.project_id, deleted=False, pk=flag_id
+            ).first()
+        return self._flags[flag_id]
 
     def _admitted_probabilities(self, flag: FeatureFlag, depth: int, seen: frozenset[int]) -> Optional[list[ast.Expr]]:
         """
@@ -81,40 +137,57 @@ class FlagDependencyEstimator:
         for condition in flag.conditions:
             if _is_group_aggregated(flag, condition):
                 return None
-            rollout = float(
-                condition.get("rollout_percentage") if condition.get("rollout_percentage") is not None else 100
-            )
-            factors: list[ast.Expr] = [ast.Constant(value=rollout / 100)]
+            rollout_percentage = condition.get("rollout_percentage")
+            rollout = 1.0 if rollout_percentage is None else float(rollout_percentage) / 100
+            factors: list[ast.Expr] = [ast.Constant(value=rollout)]
 
             properties = condition.get("properties") or []
             plain_properties = [prop for prop in properties if prop.get("type") != "flag"]
             if plain_properties:
-                cleaned = self.clean_condition(self.team, {"properties": plain_properties})
-                targeting = property_to_expr(cleaned.property_groups, self.team, scope="person")
+                try:
+                    cleaned = self.clean_condition(self.team, {"properties": plain_properties})
+                    targeting = property_to_expr(cleaned.property_groups, self.team, scope="person")
+                except _TARGETING_BUILD_ERRORS:
+                    return None
                 factors.append(ast.Call(name="if", args=[targeting, ast.Constant(value=1.0), ast.Constant(value=0.0)]))
-            for prop in properties:
-                if prop.get("type") == "flag":
-                    nested = Property(key=str(prop.get("key")), type="flag", value=prop.get("value"))
-                    factors.append(self._probability_expr(nested, depth + 1, seen))
+            nested = [(str(prop.get("key")), prop.get("value")) for prop in properties if prop.get("type") == "flag"]
+            if nested:
+                factors.append(self._conjunction_expr(nested, depth + 1, seen))
 
             admitted.append(_product(factors))
         return admitted
 
 
-def _from_true_probability(requested: bool | str, true_probability: ast.Expr) -> ast.Expr:
-    if requested is True:
+def _merge_requested_values(references: list[tuple[str, Any]]) -> Optional[dict[str, bool | str]]:
+    """
+    The one value each dependency flag must evaluate to, keyed by reference. None when two
+    filters on the same flag contradict each other. `true` matches any served variant, so it
+    narrows to a variant requested alongside it.
+    """
+    merged: dict[str, bool | str] = {}
+    for reference, value in references:
+        requested = _requested_value(value)
+        previous = merged.get(reference)
+        if previous is None or previous == requested or (previous is True and requested is not False):
+            merged[reference] = requested
+        elif requested is True and previous is not False:
+            continue
+        else:
+            return None
+    return merged
+
+
+def _from_true_probability(requested: bool, true_probability: ast.Expr) -> ast.Expr:
+    if requested:
         return true_probability
-    if requested is False:
-        return ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=1.0), right=true_probability
-        )
-    # A variant of a flag that never evaluates true is never served.
-    return ast.Constant(value=0.0)
+    return ast.ArithmeticOperation(
+        op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=1.0), right=true_probability
+    )
 
 
 def _variant_probability(flag: FeatureFlag, admitted_by_set: list[ast.Expr], variant: str) -> ast.Expr:
     variant_keys = {v.get("key") for v in flag.variants}
-    share_by_hash = next(
+    hashed_variant_share = next(
         (float(v.get("rollout_percentage") or 0) / 100 for v in flag.variants if v.get("key") == variant), 0.0
     )
 
@@ -125,7 +198,8 @@ def _variant_probability(flag: FeatureFlag, admitted_by_set: list[ast.Expr], var
         if pinned in variant_keys:
             share = 1.0 if pinned == variant else 0.0
         else:
-            share = share_by_hash
+            share = hashed_variant_share
+        # previous_max is reused in `won` below, so every use needs its own copy of the node.
         current_max = ast.Call(name="greatest", args=[clone_expr(previous_max), admitted])
         if share > 0:
             # The set wins only for the slice of the hash range above every earlier admitted set.
@@ -140,17 +214,19 @@ def _variant_probability(flag: FeatureFlag, admitted_by_set: list[ast.Expr], var
 
 
 def _requested_value(value: Any) -> bool | str:
+    # The flags service compares a string value against the served variant name only, so a
+    # string "true" is a variant name, not the boolean.
     if isinstance(value, bool):
         return value
-    text = str(value)
-    if text.lower() == "true":
-        return True
-    if text.lower() == "false":
-        return False
-    return text
+    return str(value)
 
 
-def _is_group_aggregated(flag: FeatureFlag, condition: dict) -> bool:
+def _has_unmodeled_evaluation(flag: FeatureFlag) -> bool:
+    filters = flag.get_filters()
+    return any(filters.get(key) for key in _UNMODELED_FILTER_KEYS)
+
+
+def _is_group_aggregated(flag: FeatureFlag, condition: dict[str, Any]) -> bool:
     if "aggregation_group_type_index" in condition:
         return condition["aggregation_group_type_index"] is not None
     return flag.aggregation_group_type_index is not None
