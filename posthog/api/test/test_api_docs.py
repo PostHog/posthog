@@ -4,6 +4,27 @@ import re
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.urls import path
+
+from drf_spectacular.generators import SchemaGenerator
+from rest_framework import serializers, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.documentation import extend_schema
+
+
+class _XInternalMarkerSerializer(serializers.Serializer):
+    ok = serializers.BooleanField(help_text="Always true.")
+
+
+class _XInternalMarkerViewSet(viewsets.ViewSet):
+    scope_object = "project"
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-internal": True})
+    def list(self, request: Request) -> Response:
+        return Response({"ok": True})
+
 
 class TestAPIDocsSchema(APIBaseTest):
     def test_retired_project_environments_route_is_not_in_schema(self) -> None:
@@ -22,16 +43,15 @@ class TestAPIDocsSchema(APIBaseTest):
         assert any(p.endswith("/tracing_config/") for p in paths)
 
     def test_x_internal_operations_are_only_in_the_codegen_schema(self) -> None:
-        self.client.logout()
-        internal_suffix = "/access_control_members/"
+        patterns = [path("api/x_internal_marker/", _XInternalMarkerViewSet.as_view({"get": "list"}))]
 
-        served_paths = self.client.get("/api/schema/").data["paths"]
-        assert not [p for p in served_paths if p.endswith(internal_suffix)]
+        served_schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+        assert "/api/x_internal_marker/" not in served_schema["paths"]
 
         codegen_env = {"OPENAPI_INCLUDE_INTERNAL": "1", "OPENAPI_MOCK_INTERNAL_API_SECRET": "1"}
         with mock.patch.dict(os.environ, codegen_env):
-            codegen_paths = self.client.get("/api/schema/").data["paths"]
-        assert [p for p in codegen_paths if p.endswith(internal_suffix)]
+            codegen_schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+        assert "/api/x_internal_marker/" in codegen_schema["paths"]
 
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()
