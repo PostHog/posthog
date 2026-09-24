@@ -1,14 +1,17 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -263,6 +266,74 @@ describe('llmEvaluationLogic', () => {
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
+        })
+
+        it.each([
+            [DEFAULT_HOG_SOURCE, 'return 0;'],
+            ['return 42;', 'return 42;'],
+        ])('updates only untouched Hog source %s when selecting numeric output', (source, expected) => {
+            const warning = jest.spyOn(lemonToast, 'warning')
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource(source)
+            logic.actions.setTrueIsFailure(true)
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'numeric',
+                evaluation_config: { source: expected },
+            })
+            expect(logic.values.evaluation?.output_config).not.toHaveProperty('true_is_failure')
+            if (source === expected) {
+                expect(warning).toHaveBeenCalledWith(
+                    'Your code was kept. Update it to return a number and test it before enabling this evaluation.'
+                )
+            } else {
+                expect(warning).not.toHaveBeenCalled()
+            }
+            warning.mockRestore()
+            const numericConfig = { min: 0, max: 10, passing_rule: { operator: 'gte' as const, threshold: 7 } }
+            logic.actions.patchOutputConfig(numericConfig)
+            logic.actions.setOutputType('boolean')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'boolean',
+                evaluation_config: { source },
+                output_config: { true_is_failure: true },
+            })
+            expect(logic.values.evaluation?.output_config).not.toHaveProperty('passing_rule')
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation?.output_config).toMatchObject(numericConfig)
+            logic.actions.patchOutputConfig({ max: 20 })
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation?.output_config.max).toBe(20)
+        })
+
+        it('preserves numeric output while switching runtimes and locks saved output types', async () => {
+            const numeric = {
+                ...mockEvaluation,
+                output_type: 'numeric' as const,
+                output_config: {
+                    min: 0,
+                    max: 10,
+                    allows_na: true,
+                    passing_rule: { operator: 'gte' as const, threshold: 7 },
+                },
+            }
+            logic.actions.loadEvaluationSuccess(numeric)
+            logic.actions.setEvaluationType('hog')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'numeric',
+                output_config: numeric.output_config,
+            })
+            logic.actions.setEvaluationType('llm_judge')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'numeric',
+                output_config: numeric.output_config,
+            })
+            const savedLogic = llmEvaluationLogic({ evaluationId: 'saved-numeric' })
+            savedLogic.mount()
+            savedLogic.actions.loadEvaluationSuccess(numeric)
+            savedLogic.actions.setOutputType('boolean')
+            expect(savedLogic.values.evaluation?.output_type).toBe('numeric')
+            savedLogic.unmount()
         })
 
         it('setEvaluationName updates evaluation name', async () => {
@@ -741,6 +812,150 @@ return result`,
         })
 
         describe('runsSummary', () => {
+            it('applies the selected dates to both runs and statistics, preserving the full backfill view', async () => {
+                const queries: HogQLQuery[] = []
+                useMocks({
+                    get: {
+                        '/api/projects/:teamId/evaluations/:id/backfills/:backfillId/': () => ({
+                            id: 'backfill-1',
+                            window_start: '2024-01-01T00:00:00Z',
+                            window_end: '2024-02-01T00:00:00Z',
+                        }),
+                    },
+                    post: {
+                        '/api/environments/:teamId/query/HogQLQuery/': async ({ request }) => {
+                            const { query } = (await request.json()) as { query: HogQLQuery }
+                            queries.push(query)
+                            return { results: query.query.includes('count() as total') ? [[4, 4, 3]] : [] }
+                        },
+                    },
+                })
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess', 'loadRunsStatsSuccess'])
+                expect(queries.length).toBeGreaterThan(0)
+                expect(queries.every((query) => query.filters?.dateRange?.date_from === '-7d')).toBe(true)
+
+                for (const dateRange of [
+                    { date_from: '-30d', date_to: null },
+                    { date_from: '2024-01-01', date_to: '2024-02-01' },
+                    { date_from: 'all', date_to: null },
+                ]) {
+                    queries.length = 0
+                    await expectLogic(logic, () =>
+                        logic.actions.setRunsDates(dateRange.date_from, dateRange.date_to)
+                    ).toDispatchActions(['loadEvaluationRunsSuccess', 'loadRunsStatsSuccess'])
+                    expect(queries).toHaveLength(2)
+                    expect(queries.every((query) => query.query.includes('AND {filters}'))).toBe(true)
+                    expect(queries.map((query) => query.filters?.dateRange)).toEqual([dateRange, dateRange])
+                    expect(router.values.searchParams.date_from).toBe(dateRange.date_from)
+                }
+
+                queries.length = 0
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.aiObservabilityEvaluation('eval-123'), {
+                        backfill_id: 'backfill-1',
+                        date_from: '-7d',
+                    })
+                ).toDispatchActions(['loadEvaluationRunsSuccess', 'loadRunsStatsSuccess'])
+                expect(queries).toHaveLength(2)
+                expect(
+                    queries.every((query) => query.query.includes("$ai_evaluation_backfill_id = 'backfill-1'"))
+                ).toBe(true)
+                expect(queries.every((query) => !query.filters?.dateRange && !query.query.includes('{filters}'))).toBe(
+                    true
+                )
+            })
+
+            it('loads numeric threshold counts after the evaluation configuration arrives', async () => {
+                logic.unmount()
+                const numeric: EvaluationConfig = {
+                    ...mockEvaluation,
+                    output_type: 'numeric',
+                    output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
+                }
+                let resolveEvaluation: (value: EvaluationConfig) => void = () => {}
+                const evaluationResponse = new Promise<EvaluationConfig>((resolve) => {
+                    resolveEvaluation = resolve
+                })
+                useMocks({
+                    get: { '/api/projects/:teamId/evaluations/:id/': () => evaluationResponse },
+                    post: {
+                        '/api/environments/:teamId/query/HogQLQuery/': async ({ request }) => {
+                            const { query } = (await request.json()) as { query: { query: string } }
+                            return {
+                                results: query.query.includes('count() as total')
+                                    ? [[4, 0, 0, 4, 8, query.query.includes('>= 7') ? 4 : 0]]
+                                    : [],
+                            }
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                await expectLogic(logic, () => resolveEvaluation(numeric)).toDispatchActions([
+                    'loadEvaluationSuccess',
+                    'loadRunsStatsSuccess',
+                ])
+                expect(logic.values.runsSummary).toMatchObject({ total: 4, scoreMean: 8, successRate: 100 })
+            })
+
+            it('uses numeric aggregate scores instead of the limited run list', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_type: 'numeric',
+                    output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
+                })
+                const savedTrendUrl = logic.values.trendInsightUrl
+                expect(savedTrendUrl).toContain('Pass%20rate')
+                expect(logic.values.isReportableEvaluation).toBe(true)
+                logic.actions.loadRunsStatsSuccess({
+                    total: 1000,
+                    applicable: 0,
+                    trueCount: 0,
+                    scoreCount: 800,
+                    scoreMean: 6.5,
+                    numericPassCount: 400,
+                })
+                expect(logic.values.runsSummary).toMatchObject({
+                    total: 1000,
+                    scoreMean: 6.5,
+                    successful: 400,
+                    successRate: 50,
+                    applicabilityRate: 80,
+                })
+                logic.actions.loadEvaluationRunsSuccess([
+                    { ...mockRuns[0], result_type: 'numeric', score: 6, result: null },
+                    { ...mockRuns[1], result_type: 'numeric', score: 8, result: null },
+                ])
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
+                logic.actions.patchOutputConfig({ passing_rule: { operator: 'lte', threshold: 7 } })
+                expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
+                expect(logic.values.runsSummary?.successRate).toBe(50)
+                expect(logic.values.trendInsightUrl).toBe(savedTrendUrl)
+                expect(logic.values.isReportableEvaluation).toBe(true)
+                logic.actions.patchOutputConfig({ passing_rule: null })
+                expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
+                expect(logic.values.runsSummary?.successRate).toBe(50)
+                expect(logic.values.trendInsightUrl).toBe(savedTrendUrl)
+                expect(logic.values.isReportableEvaluation).toBe(true)
+                logic.actions.saveEvaluationSuccess(logic.values.evaluation!)
+                expect(logic.values.isReportableEvaluation).toBe(false)
+                expect(logic.values.trendInsightUrl).toContain('Mean%20score')
+                logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                expect(logic.values.isReportableEvaluation).toBe(false)
+            })
+
+            it.each(['boolean', 'numeric'] as const)('has no success rate for ungraded %s runs', (output_type) => {
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_type,
+                    output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
+                })
+                logic.actions.loadRunsStatsSuccess({ total: 4, applicable: 0, trueCount: 0, scoreCount: 0 })
+                expect(logic.values.runsSummary?.successRate).toBeNull()
+            })
+
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
                 logic.mount()
@@ -751,11 +966,13 @@ return result`,
             })
 
             it('calculates summary from server-side aggregate counts', async () => {
+                logic.actions.loadEvaluationSuccess(mockEvaluation)
                 logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, trueCount: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {
                         total: 3,
+                        scoreMean: null,
                         successful: 1,
                         failed: 1,
                         errors: 0,
@@ -1372,93 +1589,147 @@ return result`,
     })
 
     describe('Hog sample testing', () => {
-        it('sends the trace aggregation window and clears completed results when it changes', async () => {
-            let requestBody: Record<string, unknown> | undefined
-            useMocks({
-                post: {
-                    '/api/projects/:teamId/evaluations/test_hog/': async ({ request }) => {
-                        requestBody = (await request.json()) as Record<string, unknown>
-                        return {
-                            results: [
-                                {
-                                    sample_id: 'trace-1',
-                                    sample_type: 'trace',
-                                    event_uuid: null,
-                                    trace_id: 'trace-1',
-                                    input_preview: 'hello',
-                                    output_preview: 'world',
-                                    result: true,
-                                    reasoning: null,
-                                    error: null,
-                                },
-                            ],
-                        }
-                    },
-                },
-            })
+        it.each([NaN, Infinity, -Infinity])('leaves scores ungraded for threshold %s', (threshold) => {
+            expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
+        })
+
+        it('does not request a sample with an invalid numeric config', async () => {
+            const testSample = jest.fn(() => ({ results: [] }))
+            useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
             logic.actions.setEvaluationType('hog')
-            logic.actions.setEvaluationTarget('trace')
-            logic.actions.patchTargetConfig({ window_seconds: 120 })
-            logic.actions.testHogOnSample()
+            logic.actions.setOutputType('numeric')
+            logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: NaN } })
 
-            await expectLogic(logic)
-                .toDispatchActions(['testHogOnSampleSuccess'])
-                .toMatchValues({
-                    hogTestResults: [expect.objectContaining({ sample_id: 'trace-1', sample_type: 'trace' })],
+            await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
+
+            expect(testSample).not.toHaveBeenCalled()
+            expect(logic.values.hogTestResults).toBeNull()
+        })
+
+        it.each(['boolean', 'numeric'] as const)(
+            'sends %s output config and clears sample results after configuration changes',
+            async (outputType) => {
+                let requestBody: Record<string, unknown> | undefined
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/test_hog/': async ({ request }) => {
+                            requestBody = (await request.json()) as Record<string, unknown>
+                            return {
+                                results: [
+                                    {
+                                        sample_id: 'trace-1',
+                                        sample_type: 'trace',
+                                        event_uuid: null,
+                                        trace_id: 'trace-1',
+                                        input_preview: 'hello',
+                                        output_preview: 'world',
+                                        result: true,
+                                        reasoning: null,
+                                        error: null,
+                                    },
+                                ],
+                            }
+                        },
+                    },
                 })
-            expect(requestBody).toMatchObject({
-                target: 'trace',
-                target_config: { window_seconds: 120 },
-            })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            logic.actions.patchTargetConfig({ window_seconds: 240 })
-            await expectLogic(logic).toMatchValues({ hogTestResults: null })
-        })
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType(outputType)
+                if (outputType === 'numeric') {
+                    logic.actions.patchOutputConfig({
+                        min: 0,
+                        max: 10,
+                        passing_rule: { operator: 'gte', threshold: 7 },
+                    })
+                }
+                logic.actions.setEvaluationTarget('trace')
+                logic.actions.patchTargetConfig({ window_seconds: 120 })
+                logic.actions.testHogOnSample()
 
-        it('does not restore results from a request whose target changed in flight', async () => {
-            let resolveRequest: (value: TestHogResponseApi) => void = () => {}
-            const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
-                resolveRequest = resolve
-            })
-            useMocks({
-                post: {
-                    '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
-                },
-            })
-            logic = llmEvaluationLogic({ evaluationId: 'new' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(logic)
+                    .toDispatchActions(['testHogOnSampleSuccess'])
+                    .toMatchValues({
+                        hogTestResults: [expect.objectContaining({ sample_id: 'trace-1', sample_type: 'trace' })],
+                    })
+                expect(requestBody).toMatchObject({
+                    target: 'trace',
+                    output_type: outputType,
+                    output_config:
+                        outputType === 'numeric'
+                            ? { min: 0, max: 10, allows_na: false, passing_rule: { operator: 'gte', threshold: 7 } }
+                            : { allows_na: false },
+                    target_config: { window_seconds: 120 },
+                })
+                expect(requestBody).not.toHaveProperty('allows_na')
 
-            logic.actions.setEvaluationType('hog')
-            logic.actions.testHogOnSample()
-            await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
+                if (outputType === 'numeric') {
+                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                    expect(logic.values.hogTestResults).not.toBeNull()
+                    logic.actions.patchOutputConfig({ max: 20 })
+                } else {
+                    logic.actions.patchTargetConfig({ window_seconds: 240 })
+                }
+                await expectLogic(logic).toMatchValues({ hogTestResults: null })
+            }
+        )
 
-            logic.actions.setEvaluationTarget('trace')
-            await expectLogic(logic).toMatchValues({ hogTestResults: null })
-            resolveRequest({
-                results: [
-                    {
-                        sample_id: 'generation-1',
-                        sample_type: 'generation',
-                        event_uuid: 'generation-1',
-                        trace_id: 'trace-1',
-                        input_preview: 'hello',
-                        output_preview: 'world',
-                        result: true,
-                        reasoning: '',
-                        error: null,
+        it.each(['target', 'passing_rule'])(
+            'handles a %s change while a preview is in flight',
+            async (changedField) => {
+                let resolveRequest: (value: TestHogResponseApi) => void = () => {}
+                const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
+                    resolveRequest = resolve
+                })
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
                     },
-                ],
-            })
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            await expectLogic(logic)
-                .toDispatchActions(['testHogOnSampleSuccess'])
-                .toMatchValues({ hogTestResults: null })
-        })
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType('numeric')
+                logic.actions.testHogOnSample()
+                await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
+
+                if (changedField === 'target') {
+                    logic.actions.setEvaluationTarget('trace')
+                } else {
+                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                }
+                await expectLogic(logic).toMatchValues({ hogTestResults: null })
+                resolveRequest({
+                    results: [
+                        {
+                            sample_id: 'generation-1',
+                            sample_type: 'generation',
+                            event_uuid: 'generation-1',
+                            trace_id: 'trace-1',
+                            input_preview: 'hello',
+                            output_preview: 'world',
+                            result: null,
+                            score: 7,
+                            reasoning: '',
+                            error: null,
+                        },
+                    ],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['testHogOnSampleSuccess'])
+                    .toMatchValues({
+                        hogTestResults: changedField === 'target' ? null : [expect.objectContaining({ score: 7 })],
+                    })
+            }
+        )
     })
 
     describe('saveEvaluation list refresh', () => {

@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+import { teamLogic } from 'scenes/teamLogic'
+
+import { performQuery } from '~/queries/query'
+
 import { dashboardsList, dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
 import { featureFlagsList, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 import {
@@ -16,8 +20,9 @@ import { NotebooksPartialUpdateBody } from 'products/notebooks/frontend/generate
 import { insightsList, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
 import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
-import { TerminalCommands } from './terminalCommands'
+import { RUN_HELP, TerminalCommands } from './terminalCommands'
 import { parseRemovalArguments, RM_SCRIPT } from './terminalRemove'
+import { terminalQueryTable } from './terminalSql'
 
 interface Command {
     name: string
@@ -46,6 +51,8 @@ ph <command> --json '{...}'       Supply a JSON arguments object
 ph <command> --json @args.json    Read arguments from a Linux file
 ph <command> --json -            Read arguments from stdin
 ph refresh                       Reload the project tree and connected tool catalog
+run <file.sql>                    Run SQL and print a Markdown table
+run --help                       Show SQL export formats and examples
 ph open [path]                   Open a project file or folder in PostHog (defaults to .)
 
 Examples:
@@ -60,6 +67,7 @@ or /posthog/api. JSON results go to stdout; errors go to stderr with a nonzero e
 Connected tools use server/tool names from ph tools and their existing MCP permissions.
 The built-in commands cover notebooks and reading insights, dashboards, and feature flags.
 Tool schemas are files under /posthog/tools. Run ph refresh after creating or deleting objects.
+Tab completes ph commands and --arguments, including connected MCP tools.
 `
 
 function command<T extends z.ZodType>(
@@ -366,6 +374,77 @@ export class PosthogCommands {
 
     async execute(argv: string[], cwd: string): Promise<unknown> {
         const [name = 'help', ...rest] = argv
+        if (name === '_complete') {
+            const [position, prefix = '', previous, commandName] = rest
+            if (position === '1' || (position === '2' && commandName === 'help')) {
+                try {
+                    await this.loadConnected()
+                } catch {
+                    // Keep built-in completion available when the connected tool catalog is unavailable.
+                }
+                return [
+                    ...new Set([
+                        'help',
+                        'tools',
+                        'refresh',
+                        'run',
+                        'open',
+                        ...Object.keys(aliases),
+                        ...this.commands.keys(),
+                    ]),
+                ]
+                    .filter((candidate) => /^[A-Za-z0-9_@/.-]+$/.test(candidate) && candidate.startsWith(prefix))
+                    .sort()
+                    .join('\n')
+            }
+            if (prefix.startsWith('--') && previous !== '--json') {
+                const flags = ['help', 'tools', 'refresh', 'open'].includes(commandName)
+                    ? []
+                    : commandName === 'run'
+                      ? ['--help', '--markdown', '--json', '--csv', '--tsv']
+                      : [
+                            '--help',
+                            '--json',
+                            ...Object.keys(object((await this.find(commandName)).inputSchema.properties)).map(
+                                (key) => `--${key}`
+                            ),
+                        ]
+                return flags
+                    .filter((candidate) => /^[A-Za-z0-9_@/.-]+$/.test(candidate) && candidate.startsWith(prefix))
+                    .sort()
+                    .join('\n')
+            }
+            return ''
+        }
+        if (name === 'run') {
+            if (rest.length === 1 && ['--help', '-h'].includes(rest[0])) {
+                return RUN_HELP
+            }
+            if (rest.length < 2 || rest.length > 3 || !rest[0].endsWith('.sql')) {
+                throw new Error('Usage: run <file.sql>. Run run --help for examples.')
+            }
+            const format = rest[2] ?? '--markdown'
+            if (!['--markdown', '--json', '--csv', '--tsv'].includes(format)) {
+                throw new Error('Unknown output format. Run run --help for formats.')
+            }
+            if (teamLogic.values.currentTeamId !== Number(this.projectId) || this.signal.aborted) {
+                throw new Error('The current project changed. Restart the terminal before running SQL.')
+            }
+            const query = await this.filesystem.queryFor(rest[0], rest[1])
+            if (teamLogic.values.currentTeamId !== Number(this.projectId) || this.signal.aborted) {
+                throw new Error('The current project changed. Restart the terminal before running SQL.')
+            }
+            const result = await performQuery(query, { signal: this.signal }, 'force_blocking')
+            if (format === '--json') {
+                return {
+                    columns: result.columns,
+                    types: result.types,
+                    results: result.results,
+                    hasMore: result.hasMore,
+                }
+            }
+            return terminalQueryTable(result, format === '--csv' ? 'csv' : format === '--tsv' ? 'tsv' : 'markdown')
+        }
         if (name === 'terminal-remove') {
             if (rest.length !== 2 || rest[0] !== '--json') {
                 throw new Error('Use rm to delete PostHog files.')
@@ -392,6 +471,9 @@ export class PosthogCommands {
         if (name === 'help' || name === '--help') {
             if (!rest.length) {
                 return help
+            }
+            if (rest[0] === 'run') {
+                return RUN_HELP
             }
             const tool = await this.find(rest[0])
             const { invoke: _, ...description } = tool
@@ -428,6 +510,12 @@ export class PosthogCommands {
                 description: tool.name.includes('/')
                     ? `Run ${tool.name} from project ${this.projectId}. Connected tools can change or delete data in external services. Review the tool and its arguments before continuing.`
                     : `Run ${tool.name} in project ${this.projectId}. This deletes the specified notebook for everyone in the project.`,
+                items: [tool.description, JSON.stringify(args, null, 2)],
+            })
+        } else if (!tool.readOnly) {
+            await this.filesystem.confirmWrite({
+                title: 'Change PostHog data?',
+                description: `Run ${tool.name} in project ${this.projectId}. This affects everyone in the project.`,
                 items: [tool.description, JSON.stringify(args, null, 2)],
             })
         }

@@ -4755,13 +4755,13 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=["heartbeat", "awaiting_input", "turn_failed", "command_dispatched", "agent_activity"],
+        choices=["heartbeat", "awaiting_input", "turn_failed", "command_dispatched", "agent_activity", "budget_steer"],
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
             "interactive run finishes a turn and is waiting for user input. 'turn_failed' fails "
             "the run outright when a pi turn ends in a runtime error. 'command_dispatched' "
-            "and 'agent_activity' record boot milestones."
+            "and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning."
         ),
     )
     agent_active = serializers.BooleanField(
@@ -4786,6 +4786,22 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
         min_value=1,
         help_text="Numeric team (project) ID. Must match the JWT claim.",
     )
+    sequence = serializers.IntegerField(
+        required=False, min_value=1, help_text="Event sequence used to deduplicate a budget steer."
+    )
+    timestamp = serializers.DateTimeField(required=False, help_text="Original event time, preserved across retries.")
+    stage = serializers.CharField(required=False, help_text="Budget stage: warn or critical.")
+    mode = serializers.CharField(required=False, help_text="Budget steer mode: publish or wrap_up.")
+    delivered = serializers.BooleanField(required=False, help_text="Whether the steer reached the agent.")
+    spent_usd = serializers.FloatField(
+        required=False, min_value=0, help_text="Estimated spend when the steer was sent."
+    )
+    cap_usd = serializers.FloatField(required=False, min_value=0, help_text="Gateway spending cap for this run.")
+    threshold_spent_usd = serializers.FloatField(
+        required=False, min_value=0, help_text="Estimated spend when the budget stage was reached."
+    )
+    threshold_at = serializers.DateTimeField(required=False, help_text="Time when the budget stage was reached.")
+    delivered_at = serializers.DateTimeField(required=False, help_text="Time when the steer reached the agent.")
 
 
 class AgentProxyCallbackResponseSerializer(serializers.Serializer):

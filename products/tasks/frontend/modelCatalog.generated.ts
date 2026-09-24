@@ -86,6 +86,12 @@ export interface CatalogModel {
     /** The rates behind the multiplier, ready to render. Absent whenever
         `cost` is. */
     costSummary?: string
+    /** Runs with the 1M-token context window. Absent means it does not, and a
+        picker offers no window choice. */
+    supports1MContext?: boolean
+    /** Runs in fast mode. Absent means it does not, and a picker offers no
+        fast-mode toggle. */
+    supportsFastMode?: boolean
 }
 
 /** The model `1×` refers to. */
@@ -197,6 +203,8 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '2.5×',
         costSummary: 'Input $5 · Output $25 per 1M tokens',
+        supports1MContext: true,
+        supportsFastMode: true,
     },
     {
         id: 'claude-opus-4-8',
@@ -209,6 +217,8 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '2.5×',
         costSummary: 'Input $5 · Output $25 per 1M tokens',
+        supports1MContext: true,
+        supportsFastMode: true,
     },
     {
         id: 'claude-opus-5',
@@ -221,6 +231,8 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '2.5×',
         costSummary: 'Input $5 · Output $25 per 1M tokens',
+        supports1MContext: true,
+        supportsFastMode: true,
     },
     {
         id: 'claude-opus-5-5',
@@ -233,6 +245,8 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '2×',
         costSummary: 'Input $4 · Output $20 per 1M tokens',
+        supports1MContext: true,
+        supportsFastMode: true,
     },
     {
         id: 'claude-fable-5',
@@ -245,6 +259,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '5×',
         costSummary: 'Input $10 · Output $50 per 1M tokens',
+        supports1MContext: true,
     },
     {
         id: 'claude-fable-5-1',
@@ -257,6 +272,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '5×',
         costSummary: 'Input $10 · Output $50 per 1M tokens',
+        supports1MContext: true,
     },
     {
         id: 'claude-sonnet-5',
@@ -269,6 +285,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '1×',
         costSummary: 'Input $2 · Output $10 per 1M tokens',
+        supports1MContext: true,
     },
     {
         id: 'claude-sonnet-4-6',
@@ -281,6 +298,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '1.5×',
         costSummary: 'Input $3 · Output $15 per 1M tokens',
+        supports1MContext: true,
     },
     {
         id: 'gpt-5',

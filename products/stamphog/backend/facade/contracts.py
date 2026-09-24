@@ -86,6 +86,11 @@ class DigestRunDTO:
     posted_at: datetime | None = None
 
 
+# The keys of ReviewRun.output the API returns. The rest of the blob holds the PR payload, patches,
+# policy files and reviewer stdout, which the API must not expose and a list page must not load.
+REVIEW_RUN_OUTPUT_SUMMARY_KEYS = ("stamphog_version", "reviewer_exit_code")
+
+
 @dataclass(frozen=True)
 class ReviewRunDTO:
     """A single stamphog review attempt against a pull request."""

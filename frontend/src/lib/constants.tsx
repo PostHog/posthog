@@ -208,6 +208,7 @@ export const FEATURE_FLAGS = {
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
+    HEATMAPS_CAPTURE_ALLOWLIST_NOTICE: 'heatmaps-capture-allowlist-notice', // owner: #team-web-analytics, gates the pre-enforcement notice about heatmap capture URL rules
     HEATMAPS_CLICKMAP_DISCRIMINATORS: 'heatmaps-clickmap-discriminators', // owner: #team-web-analytics
     HEATMAPS_CLICKMAP_PAGINATION: 'heatmaps-clickmap-pagination', // owner: #team-web-analytics
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
@@ -362,6 +363,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EVAL_BACKFILLS: 'llm-analytics-eval-backfills', // owner: #team-ai-observability
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
+    LLM_ANALYTICS_NUMERIC_EVALS: 'llm-analytics-numeric-evaluations', // owner: #team-ai-observability
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
