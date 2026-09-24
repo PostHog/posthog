@@ -14,6 +14,7 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
     Citation,
@@ -376,11 +377,7 @@ def deliver_slack_report(
         if not integration_id or not channel:
             continue
 
-        # The Slack channel picker stores the target as "<channel_id>|#<channel_name>"
-        # (e.g. "C0B5CHB0JQH|#tech-devops-cron"). chat.postMessage only accepts the channel
-        # ID, so strip the "|#name" suffix before sending. Mirrors the subscriptions path in
-        # ee/tasks/subscriptions/slack_subscriptions.py, which splits the same composite value.
-        channel_id = channel.split("|")[0]
+        channel_id = channel_id_from_target(channel)
         if not channel_id:
             error_msg = f"Failed to send Slack message to {channel}: no channel ID in target value"
             logger.warning(error_msg)
@@ -393,7 +390,7 @@ def deliver_slack_report(
             integration = Integration.objects.select_related("team__organization").get(
                 id=integration_id, team_id=team_id, kind="slack"
             )
-            client = SlackIntegration(integration).client
+            client = SlackIntegration(integration, source="eval_reports").client
 
             # Main message: header + context + metrics grid + first section (if any)
             blocks: list[dict] = [

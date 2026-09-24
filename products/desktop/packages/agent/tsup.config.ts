@@ -200,6 +200,7 @@ export default defineConfig([
       "src/server/schemas.ts",
       "src/server/agent-server.ts",
       "src/server/bin.ts",
+      "src/smoke/bin.ts",
     ],
     format: ["esm"],
     dts: false,
