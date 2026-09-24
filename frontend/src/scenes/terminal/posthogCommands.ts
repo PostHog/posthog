@@ -512,6 +512,12 @@ export class PosthogCommands {
                     : `Run ${tool.name} in project ${this.projectId}. This deletes the specified notebook for everyone in the project.`,
                 items: [tool.description, JSON.stringify(args, null, 2)],
             })
+        } else if (!tool.readOnly) {
+            await this.filesystem.confirmWrite({
+                title: 'Change PostHog data?',
+                description: `Run ${tool.name} in project ${this.projectId}. This affects everyone in the project.`,
+                items: [tool.description, JSON.stringify(args, null, 2)],
+            })
         }
         return tool.invoke(args)
     }

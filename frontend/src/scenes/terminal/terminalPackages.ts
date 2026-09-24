@@ -5,6 +5,7 @@ export interface TerminalPackage {
     name: string
     version: string
     file: string
+    baseUrl?: string
     sha256: string
     size: number
     archiveSize: number
@@ -25,7 +26,7 @@ export class TerminalPackages {
     ) {}
 
     private async download(pkg: TerminalPackage): Promise<Uint8Array> {
-        const url = `${this.baseUrl}/${pkg.file}`
+        const url = `${pkg.baseUrl ?? this.baseUrl}/${pkg.file}`
         let cache: Cache | undefined
         try {
             cache = await globalThis.caches?.open(CACHE_NAME)

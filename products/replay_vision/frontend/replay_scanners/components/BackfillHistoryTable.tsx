@@ -4,17 +4,12 @@ import { combineUrl } from 'kea-router'
 import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
-
-import { DateMappingOption } from '~/types'
 
 import { VisionDocsLink } from '../../components/DocsLink'
 import type { BackfillStatusEnumApi, ReplayScannerBackfillApi } from '../../generated/api.schemas'
@@ -23,19 +18,6 @@ import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import type { ScannerCreatedBy } from '../types'
-import { BackfillCostEstimate } from './BackfillCostEstimate'
-
-// Hour-scale presets matter as much as day-scale ones: a common case is re-scanning the last couple
-// of hours after fixing a prompt, not re-scanning a month.
-const BACKFILL_DATE_OPTIONS: DateMappingOption[] = [
-    { key: CUSTOM_OPTION_KEY, values: [] },
-    { key: 'Last 3 hours', values: ['-3h'] },
-    { key: 'Last 6 hours', values: ['-6h'] },
-    { key: 'Last 24 hours', values: ['-24h'] },
-    { key: 'Last 7 days', values: ['-7d'] },
-    { key: 'Last 30 days', values: ['-30d'] },
-    { key: 'Last 90 days', values: ['-90d'] },
-]
 
 const BACKFILL_STATUS_TAG: Record<BackfillStatusEnumApi, { label: string; type: LemonTagType }> = {
     running: { label: 'Running', type: 'success' },
@@ -47,27 +29,12 @@ const BACKFILL_STATUS_TAG: Record<BackfillStatusEnumApi, { label: string; type: 
 /** Raw instant, so two window bounds can be compared at a glance. */
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
-/** Convert a DateFilter token (`-30d`, an ISO date, or null) into an ISO instant for the API. */
-export function resolveWindowBound(value: string | null, fallback: dayjs.Dayjs): string {
-    return ((value && dateStringToDayJs(value)) || fallback).toISOString()
-}
-
-export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.Element {
+/** Every backfill this scanner has run, with its progress, spend, and pause or cancel controls. */
+export function BackfillHistoryTable({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = backfillsLogic({ scannerId })
-    const {
-        backfills,
-        backfillsLoading,
-        estimate,
-        estimateLoading,
-        creatingBackfill,
-        transitioningIds,
-        windowDateFrom,
-        windowDateTo,
-    } = useValues(logic)
-    const { requestEstimate, createBackfill, cancelBackfill, resumeBackfill, setWindowRange } = useActions(logic)
+    const { backfills, backfillsLoading, transitioningIds } = useValues(logic)
+    const { cancelBackfill, resumeBackfill } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-
-    const activeBackfill = backfills.find(isBackfillActive)
 
     // A capped or disabled scanner holds its running backfill without changing the row's status, so
     // the row itself has to say why nothing is progressing.
@@ -83,19 +50,6 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                 tooltip: 'The backfill is on hold and resumes when the scanner is enabled again.',
             }
           : null
-
-    const estimateWindow = (dateFrom: string | null, dateTo: string | null): void => {
-        setWindowRange(dateFrom, dateTo)
-        requestEstimate(resolveWindowBound(dateFrom, dayjs().subtract(30, 'day')), resolveWindowBound(dateTo, dayjs()))
-    }
-
-    const startDisabledReason = activeBackfill
-        ? 'This scanner already has an active backfill'
-        : !estimate
-          ? 'Pick a time range to see the cost first'
-          : estimate.total_sessions === 0
-            ? 'No eligible sessions in this time range'
-            : undefined
 
     const columns: LemonTableColumns<ReplayScannerBackfillApi> = [
         {
@@ -151,16 +105,20 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                 // Both count as done: dispatched by this backfill, or taken over by the sweep while it ran.
                 const handled = backfill.dispatched_count + backfill.skipped_count
                 const nothingToDo = backfill.status === 'completed' && handled === 0
-                const progress = nothingToDo
-                    ? 'Nothing left to scan'
-                    : `${handled.toLocaleString('en-US')} of ${backfill.total_count.toLocaleString(
-                          'en-US'
-                      )} scanned${settled > 0 ? ` (${settled.toLocaleString('en-US')} settled)` : ''}`
+                if (nothingToDo) {
+                    return <span className="text-muted">Nothing left to scan</span>
+                }
+                const percent = backfill.total_count > 0 ? Math.min(100, (handled / backfill.total_count) * 100) : 0
                 return (
                     <Tooltip
-                        title={`${backfill.succeeded_count} succeeded, ${backfill.failed_count} failed, ${backfill.ineligible_count} ineligible, ${backfill.in_flight_count} in flight${skippedNote}`}
+                        title={`${settled.toLocaleString('en-US')} settled: ${backfill.succeeded_count} succeeded, ${backfill.failed_count} failed, ${backfill.ineligible_count} ineligible. ${backfill.in_flight_count} in flight${skippedNote}.`}
                     >
-                        <span className={nothingToDo ? 'text-muted' : undefined}>{progress}</span>
+                        <div className="flex items-center gap-2 min-w-40">
+                            <LemonProgress percent={percent} className="flex-1" />
+                            <span className="text-xs text-muted tabular-nums whitespace-nowrap">
+                                {handled.toLocaleString('en-US')} / {backfill.total_count.toLocaleString('en-US')}
+                            </span>
+                        </div>
                     </Tooltip>
                 )
             },
@@ -242,58 +200,20 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
     ]
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="rounded border p-4 flex flex-col gap-3">
-                <div>
-                    <h3 className="mb-1">Scan historical recordings</h3>
-                    <p className="text-muted mb-0">
-                        Run this scanner over older recordings, including ones from before you created it. The backfill
-                        skips recordings it has already scanned, so you're not billed twice. It uses the scanner's
-                        settings as they are now, so editing the scanner later won't change a backfill that's already
-                        running.
-                    </p>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <DateFilter
-                        size="small"
-                        dateFrom={windowDateFrom}
-                        dateTo={windowDateTo}
-                        dateOptions={BACKFILL_DATE_OPTIONS}
-                        onChange={(dateFrom, dateTo) => estimateWindow(dateFrom, dateTo)}
-                        allowTimePrecision
-                        allowFixedRangeWithTime
-                        allowedRollingDateOptions={['hours', 'days', 'weeks', 'months']}
-                        data-attr="vision-backfill-date-filter"
-                    />
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={() => estimate && createBackfill(estimate.window_start, estimate.window_end)}
-                        loading={creatingBackfill}
-                        disabledReason={startDisabledReason}
-                        data-attr="vision-backfill-start"
-                    >
-                        Start backfill
-                    </LemonButton>
-                </div>
-                <BackfillCostEstimate estimate={estimate} loading={estimateLoading} />
-            </div>
-
-            <LemonTable
-                dataSource={backfills}
-                columns={columns}
-                loading={backfillsLoading}
-                rowKey="id"
-                emptyState={
-                    <>
-                        No backfills yet. Pick a time range above to scan historical recordings.{' '}
-                        <VisionDocsLink page="running-scanners" dataAttr="vision-empty-docs-link-backfills">
-                            Learn how backfills work
-                        </VisionDocsLink>
-                    </>
-                }
-                data-attr="vision-backfills-table"
-            />
-        </div>
+        <LemonTable
+            dataSource={backfills}
+            columns={columns}
+            loading={backfillsLoading}
+            rowKey="id"
+            emptyState={
+                <>
+                    No backfills yet. Pick a time range above to scan historical recordings.{' '}
+                    <VisionDocsLink page="running-scanners" dataAttr="vision-empty-docs-link-backfills">
+                        Learn how backfills work
+                    </VisionDocsLink>
+                </>
+            }
+            data-attr="vision-backfills-table"
+        />
     )
 }

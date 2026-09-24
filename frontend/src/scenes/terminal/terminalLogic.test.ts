@@ -46,6 +46,7 @@ jest.mock('./posthogFilesystem', () => ({
     })),
 }))
 jest.mock('./posthogCommands', () => ({ PosthogCommands: jest.fn() }))
+jest.mock('./terminalAI', () => ({ TerminalAI: jest.fn() }))
 
 describe('terminal lifecycle', () => {
     beforeEach(() => {

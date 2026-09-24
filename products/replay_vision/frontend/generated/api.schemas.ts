@@ -1021,6 +1021,8 @@ export interface ReplayScannerApi {
     readonly credits_used_against_limit: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached: boolean
+    /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+    readonly sweep_throttle_factor: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -1145,6 +1147,8 @@ export interface PatchedReplayScannerApi {
     readonly credits_used_against_limit?: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached?: boolean
+    /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+    readonly sweep_throttle_factor?: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -1161,6 +1165,19 @@ export interface PatchedReplayScannerApi {
 }
 
 /**
+ * * `yes` - Yes
+ * * `no` - No
+ * * `inconclusive` - Inconclusive
+ */
+export type ObservationVerdictEnumApi = (typeof ObservationVerdictEnumApi)[keyof typeof ObservationVerdictEnumApi]
+
+export const ObservationVerdictEnumApi = {
+    Yes: 'yes',
+    No: 'no',
+    Inconclusive: 'inconclusive',
+} as const
+
+/**
  * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
  */
 export interface AffectedCohortRequestApi {
@@ -1170,6 +1187,12 @@ export interface AffectedCohortRequestApi {
      * @maximum 90
      */
     window_days?: number
+    /** Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+     *
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive */
+    verdict?: ObservationVerdictEnumApi | null
     /**
      * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
      * @maxLength 100
@@ -1267,7 +1290,7 @@ export interface BulkObserveResponseApi {
  * Who this scanner's findings affected in the window; counted from observations, not estimated.
  */
 export interface ScannerImpactApi {
-    /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+    /** Distinct sessions with an affected observation in the window. For monitors only observations with the requested verdict count (yes by default); for other scanner types every succeeded observation counts. */
     readonly affected_sessions: number
     /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
     readonly affected_users: number
@@ -1304,6 +1327,25 @@ export interface ObserveResponseApi {
     workflow_id: string
 }
 
+export interface SelfDrivingReportApi {
+    /** Signal report ID, for linking to it in the inbox. */
+    id: string
+    /**
+     * Report title. Null until the report is summarized.
+     * @nullable
+     */
+    title: string | null
+    /** The report's inbox status. */
+    status: string
+}
+
+export interface SelfDrivingPullRequestApi {
+    /** URL of the implementation pull request. */
+    url: string
+    /** Whether the pull request has merged. */
+    merged: boolean
+}
+
 /**
  * Response of GET /vision/scanners/:id/self_driving_stats/.
  */
@@ -1316,6 +1358,10 @@ export interface ScannerSelfDrivingStatsApi {
     prs_opened: number
     /** Of the opened PRs, how many have merged. */
     prs_merged: number
+    /** The newest reports counted in `reports_contributed`, at most 20. */
+    reports: SelfDrivingReportApi[]
+    /** The newest PRs counted in `prs_opened`, at most 20. */
+    pull_requests: SelfDrivingPullRequestApi[]
 }
 
 /**
@@ -2776,12 +2822,31 @@ export type VisionScannersImpactRetrieveParams = {
      */
     tag?: string | null
     /**
+     * Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+     *
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive
+     * @nullable
+     */
+    verdict?: VisionScannersImpactRetrieveVerdict
+    /**
      * Trailing window of observations to count. Defaults to 30 days.
      * @minimum 1
      * @maximum 90
      */
     window_days?: number
 }
+
+export type VisionScannersImpactRetrieveVerdict =
+    | (typeof VisionScannersImpactRetrieveVerdict)[keyof typeof VisionScannersImpactRetrieveVerdict]
+    | null
+
+export const VisionScannersImpactRetrieveVerdict = {
+    Yes: 'yes',
+    No: 'no',
+    Inconclusive: 'inconclusive',
+} as const
 
 export type VisionScannersBackfillsListParams = {
     /**
