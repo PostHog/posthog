@@ -45,17 +45,19 @@ from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.impersonation import get_original_user_from_session, get_original_user_id_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
+    ActivityCredential,
     activity_storage,
     client_from_header,
     record_agent_intent,
 )
+from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1261,6 +1263,21 @@ class OAuthCoopMiddleware:
         return response
 
 
+def _session_credential(request: HttpRequest, session_user_pk: object) -> ActivityCredential | None:
+    """The session credential for a row written now, or None when the session did not authenticate
+    the request.
+
+    DRF writes the principal of the authentication class that succeeded back onto `request.user`.
+    Another principal there means that a class which records no credential of its own (a sharing
+    link, a widget token) authenticated the request, so the row must not name the session cookie.
+    The check compares primary keys, not objects, because later middleware such as django-otp's
+    wraps the same user in a new object.
+    """
+    if getattr(request.user, "pk", None) != session_user_pk:
+        return None
+    return session_activity_credential(request, get_original_user_id_from_session(request))
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -1277,8 +1294,10 @@ class ActivityLoggingMiddleware:
 
         # Set user in activity storage if authenticated
         if request.user.is_authenticated:
+            session_user_pk = request.user.pk
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
+            activity_storage.set_credential_resolver(lambda: _session_credential(request, session_user_pk))
             record_agent_intent(request)
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
