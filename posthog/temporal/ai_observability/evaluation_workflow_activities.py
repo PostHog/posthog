@@ -26,6 +26,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -127,9 +128,10 @@ async def disable_evaluation_activity(
 ) -> bool:
     """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
 
-    Returns True only for the first workflow that disables the evaluation. Later in-flight
+    Returns True only for the first workflow that disables a running evaluation. Later in-flight
     workflows can hit the same terminal error after the first transition, but shouldn't send
-    duplicate disabled notifications or write duplicate activity log rows.
+    duplicate disabled notifications or write duplicate activity log rows. An evaluation that was
+    already off keeps its new error state, but returns False, because nothing was disabled.
     """
 
     def _disable() -> bool:
@@ -142,8 +144,9 @@ async def disable_evaluation_activity(
             if evaluation.status == EvaluationStatus.ERROR and not evaluation.enabled:
                 return False
 
+            was_enabled = evaluation.enabled
             evaluation.set_status("error", reason, status_reason_detail)
-            return True
+            return was_enabled
 
     return await database_sync_to_async(_disable)()
 
@@ -173,10 +176,11 @@ _STATUS_REASON_SUBJECTS = {
 
 @temporalio.activity.defn
 async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
-    """Email org members when an evaluation enters the ERROR state."""
+    """Email subscribed org members who can view the evaluation when it enters the ERROR state."""
 
     def _send() -> None:
         from posthog.email import EmailMessage, is_email_available
+        from posthog.tasks.email import NotificationSetting, get_members_to_notify
 
         if not is_email_available(with_absolute_urls=True):
             logger.info(
@@ -190,6 +194,15 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             team = Team.objects.select_related("organization").get(id=inputs.team_id)
         except Team.DoesNotExist:
             logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
+            return
+
+        evaluation = Evaluation.objects.filter(id=inputs.evaluation_id, team_id=team.id, deleted=False).first()
+        if evaluation is None:
+            logger.info(
+                "Evaluation not found for evaluation disabled email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
             return
 
         settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
@@ -213,8 +226,9 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             },
         )
 
-        for user in team.organization.members.all():
-            message.add_user_recipient(user)
+        for membership in get_members_to_notify(team, NotificationSetting.AI_EVALUATION_DISABLED.value):
+            if UserAccessControl(membership.user, team).check_access_level_for_object(evaluation, "viewer"):
+                message.add_user_recipient(membership.user)
 
         if message.to:
             message.send()
