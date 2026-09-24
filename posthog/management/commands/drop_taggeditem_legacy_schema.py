@@ -21,7 +21,7 @@ partial failure picks up exactly what remains.
 import time
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
 from posthog.dataclasses import frozen
@@ -127,18 +127,23 @@ class Command(BaseCommand):
         if options["dry_run"]:
             return
 
-        failed: list[str] = []
         for pending in remaining:
             if self._drop(editor, pending, options["attempts"], options["pause"]):
                 self.stdout.write(self.style.SUCCESS(f"dropped {pending.label}"))
             else:
-                failed.append(pending.label)
-                self.stdout.write(self.style.WARNING(f"gave up on {pending.label}, re-run to retry"))
+                self.stdout.write(self.style.WARNING(f"gave up on {pending.label}"))
 
-        if failed:
-            self.stdout.write(self.style.WARNING(f"{len(failed)} left: {', '.join(failed)}"))
-        else:
-            self.stdout.write(self.style.SUCCESS("All legacy constraints and foreign keys are gone."))
+        # The catalog has the last word, not the loop above: the release that stops writing the
+        # legacy keys may only ship once this reports nothing left, so a non-zero exit has to
+        # mean exactly that.
+        left = self._remaining()
+        if left:
+            raise CommandError(
+                f"{len(left)} objects still on {TABLE}, so this region is not ready: "
+                + ", ".join(pending.label for pending in left)
+                + ". Re-run to retry; each pass picks up what is left."
+            )
+        self.stdout.write(self.style.SUCCESS("All legacy constraints and foreign keys are gone."))
 
     def _drop(self, editor: Any, pending: _PendingDrop, attempts: int, pause: float) -> bool:
         """One object, one transaction per attempt. A lost lock race costs nothing."""
