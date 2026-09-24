@@ -234,7 +234,7 @@ class TestCodeManagedHogFlow(APIBaseTest):
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}", payload)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert response.json()["code"] == "immutable", response.json()
         gui_workflow.refresh_from_db()
         assert getattr(gui_workflow, field) != payload[field]

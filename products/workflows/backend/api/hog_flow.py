@@ -33,7 +33,6 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import exceptions, permissions, serializers, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
@@ -181,6 +180,12 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
+from products.workflows.backend.services.code_ownership import (
+    OwnershipRefusal,
+    RefusalKind,
+    check_write,
+    is_mcp_transport_request,
+)
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -226,57 +231,8 @@ DRAFT_CONTENT_FIELDS = (
 )
 
 
-# An allow-list rather than a deny-list, so an EventSource added upstream is refused by default.
-CODE_MANAGED_WRITER_EVENT_SOURCES: Final = frozenset({EventSource.API, EventSource.CLI})
-
-# Matched as whole payloads, so a form body spread into a PATCH cannot release or stop by accident.
-_CODE_MANAGED_ALLOWED_PAYLOADS: Final = (frozenset({"status"}), frozenset({"managed_by"}))
-
-# Actions that operate a workflow rather than define it, so the file has no opinion on them.
-# `schedules` and `schedule_detail` are absent because a schedule is part of the trigger.
-_CODE_MANAGED_OPERATIONS_ACTIONS: Final = frozenset(
-    {
-        "rerun",
-        "run",
-        "invocations",
-        "cancel_invocations",
-        "batch_jobs",
-        "cancel_batch_job",
-        "resume_email_sending",
-    }
-)
-
-# Keys that fence a write rather than change the row, so they do not make a payload a content edit.
-# The editor sends them with every save, including the status-only one.
-_CODE_MANAGED_INERT_KEYS: Final = frozenset({"base_updated_at", "base_live_updated_at"})
-
-
-def is_code_managed_writer(request: Request) -> bool:
-    """Whether this request is the client that pushes the file, and so may write a code-managed row."""
-    # `cli` is resolved from client-declared headers, so a browser could claim it from the editor.
-    if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
-        return False
-    # The MCP server forwards a caller-supplied consumer header with no allow-list, so read the
-    # transport, which cannot be declared away.
-    if is_mcp_transport_request(request):
-        return False
-    return get_event_source(request) in CODE_MANAGED_WRITER_EVENT_SOURCES
-
-
-def is_mcp_transport_request(request: Request) -> bool:
-    """Whether this request reached the API through the MCP server."""
-    user_agent = request.headers.get("user-agent") or ""
-    return request.headers.get("x-posthog-client") == "mcp" or "posthog/mcp-server" in user_agent
-
-
-def _payload_keys(request: Request) -> frozenset[str]:
-    data = request.data
-    keys = frozenset(data.keys()) if isinstance(data, dict) else frozenset()
-    return keys - _CODE_MANAGED_INERT_KEYS
-
-
 class CodeManagedWorkflowError(exceptions.PermissionDenied):
-    """Refusal of a write to a workflow a repository owns. `extra` is drf-exceptions-hog's channel
+    """Refusal of a write that code ownership forbids. `extra` is drf-exceptions-hog's channel
     for anything beyond `detail`."""
 
     default_code = "immutable"
@@ -284,24 +240,12 @@ class CodeManagedWorkflowError(exceptions.PermissionDenied):
     # refusal is about the state of the row, not about who is asking.
     default_type = "invalid_request"
 
-    def __init__(self, hog_flow: HogFlow) -> None:
-        source = describe_workflow_source(hog_flow)
-        super().__init__(
-            detail=f"This workflow is managed by code, in {source}. Change it there and push, or release it first.",
-            code="immutable",
-        )
-        self.extra = {
-            "why": (
-                "A repository is the source of truth for this workflow, so an edit made here would be "
-                "reverted by the next push."
-            ),
-            "fix": (
-                "Edit the workflow in its file and push it. To hand it back to the UI, send a PATCH whose "
-                "only field is managed_by: gui - the next push claims it again."
-            ),
-            "source_repository": hog_flow.source_repository,
-            "source_path": hog_flow.source_path,
-        }
+    def __init__(self, refusal: OwnershipRefusal) -> None:
+        super().__init__(detail=refusal.detail, code="immutable")
+        self.extra: dict[str, Optional[str]] = {"why": refusal.why, "fix": refusal.fix}
+        if refusal.kind == RefusalKind.MANAGED_BY_CODE:
+            self.extra["source_repository"] = refusal.source_repository
+            self.extra["source_path"] = refusal.source_path
 
 
 # Which attribution each transport earns a new workflow. Copied in shape from the warehouse table
@@ -333,13 +277,6 @@ def resolve_workflow_created_via(request: Request) -> str:
     if created_via == HogFlow.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
         return HogFlow.CreatedVia.SELF_DRIVING
     return created_via
-
-
-def describe_workflow_source(hog_flow: HogFlow) -> str:
-    """Name the file that owns a workflow, as far as the row records it."""
-    if hog_flow.source_repository and hog_flow.source_path:
-        return f"{hog_flow.source_path} in {hog_flow.source_repository}"
-    return hog_flow.source_repository or hog_flow.source_path or "the repository that pushed it"
 
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
@@ -3623,8 +3560,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated_data["created_by"] = _actor(request)
         validated_data["team_id"] = team_id
         validated_data["created_via"] = resolve_workflow_created_via(request)
-        self._validate_managed_by_claim(validated_data.get("managed_by"), request)
-        self._validate_source_claim(validated_data, None, request)
+        self._enforce_code_ownership(action="create", stored=None)
         self._strip_secret_inputs(validated_data)
 
         try:
@@ -3639,77 +3575,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise
 
     def update(self, instance, validated_data):
-        request = self.context["request"]
-        self._validate_managed_by_release(instance, request)
-        self._validate_managed_by_claim(validated_data.get("managed_by"), request)
-        self._validate_source_claim(validated_data, instance, request)
+        self._enforce_code_ownership(action="update", stored=instance)
         self._strip_secret_inputs(validated_data)
         return super().update(instance, validated_data)
 
-    def _validate_managed_by_release(self, instance: HogFlow, request: Request) -> None:
-        """A `managed_by` that moves the lock has to be the only field in the request.
-
-        The rule exists for the editor, which loads a workflow and spreads the whole thing into its
-        next save, so a form body must not move the lock by accident. A push sends the ownership and
-        the content together on purpose, so the client that may write the row is exempt.
-
-        Read from the raw payload, not from validated_data, because validate() injects derived fields
-        that would make every release look like a mixed edit.
-        """
-        if is_code_managed_writer(request):
+    def _enforce_code_ownership(self, *, action: str, stored: Optional[HogFlow]) -> None:
+        # Checked on save rather than in validate(), because the test-run endpoint validates a whole
+        # workflow as its `configuration` and saves nothing. The editor sends a code-managed workflow
+        # there as it loaded it, with `managed_by: code`.
+        request = self.context.get("request")
+        # The lock is a rule of the REST API, and a facade caller saves without a request.
+        if request is None:
             return
-        keys = set(self.initial_data.keys()) if isinstance(self.initial_data, dict) else set()
-        keys -= _CODE_MANAGED_INERT_KEYS
-        if "managed_by" not in keys or keys == {"managed_by"}:
-            return
-        # NULL and `gui` are the same answer, so a re-sent stored value moves nothing.
-        claimed = self.initial_data.get("managed_by") or HogFlow.ManagedBy.GUI
-        if claimed == (instance.managed_by or HogFlow.ManagedBy.GUI):
-            return
-        raise serializers.ValidationError(
-            {
-                "managed_by": (
-                    "managed_by changes ownership, so it has to be the only field in the request. "
-                    "Send it on its own, then send the rest."
-                )
-            },
-            code="immutable",
-        )
-
-    @staticmethod
-    def _validate_source_claim(validated_data: dict, instance: Optional[HogFlow], request: Request) -> None:
-        """Only a push may say where a workflow comes from.
-
-        The three source fields are rendered back to the reader: in the refusal, in the badge's
-        tooltip, and later as a link. A caller that cannot write the row must not be able to put a
-        repository name in front of someone else. Re-sending a stored value passes, because a client
-        that reads a workflow and writes it back sends every field it read.
-        """
-        if is_code_managed_writer(request):
-            return
-        for field in ("source_repository", "source_path", "source_ref"):
-            if field not in validated_data:
-                continue
-            stored = getattr(instance, field, None) if instance is not None else None
-            if (validated_data[field] or None) != (stored or None):
-                raise serializers.ValidationError(
-                    {field: "Only a push can record where a workflow comes from."},
-                    code="immutable",
-                )
-
-    @staticmethod
-    def _validate_managed_by_claim(managed_by: Optional[str], request: Request) -> None:
-        """Only the client that pushes a file may declare that a file owns the workflow."""
-        if managed_by == HogFlow.ManagedBy.CODE and not is_code_managed_writer(request):
-            raise serializers.ValidationError(
-                {
-                    "managed_by": (
-                        "Only a push can mark a workflow as managed by code. Push the file with the "
-                        "workflows CLI instead."
-                    )
-                },
-                code="immutable",
-            )
+        refusal = check_write(request, action=action, stored=stored, payload=getattr(self, "initial_data", None))
+        if refusal is not None:
+            raise CodeManagedWorkflowError(refusal)
 
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
@@ -4566,34 +4446,25 @@ class HogFlowViewSet(
         return super().safely_get_object(queryset)
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
-        """Refuse every write to a code-managed workflow except the two the UI still owns.
+        """Refuse every write that code ownership forbids.
 
         Placed here because there is no single write chokepoint: `graph`, `action_email`, `publish`,
         `discard_draft` and `restore_revision` never reach `perform_update`, and every detail action
-        reaches this through `get_object()`. The rule keys on the action and the whole payload rather
-        than on field names, because half the write actions carry bodies that name no workflow field.
+        reaches this through `get_object()`.
         """
         super().check_object_permissions(request, obj)
         if request.method in permissions.SAFE_METHODS or not isinstance(obj, HogFlow):
             return
-        self._refuse_if_code_managed(request, obj)
+        self._enforce_code_ownership(request, obj)
 
-    def _refuse_if_code_managed(self, request: Request, hog_flow: HogFlow) -> None:
-        """Raise unless this request is one of the writes a code-managed workflow still takes.
-
-        Called again on the locked row inside each mutating transaction, because a push can claim the
+    def _enforce_code_ownership(self, request: Request, hog_flow: HogFlow) -> None:
+        """Called again on the locked row inside each mutating transaction, because a push can claim the
         workflow between `check_object_permissions` and the lock, and the row the write lands on is
         the one that decides.
         """
-        if hog_flow.managed_by != HogFlow.ManagedBy.CODE:
-            return
-        if is_code_managed_writer(request):
-            return
-        if self.action in _CODE_MANAGED_OPERATIONS_ACTIONS:
-            return
-        if self.action in ("update", "partial_update") and _payload_keys(request) in _CODE_MANAGED_ALLOWED_PAYLOADS:
-            return
-        raise CodeManagedWorkflowError(hog_flow)
+        refusal = check_write(request, action=self.action, stored=hog_flow, payload=request.data)
+        if refusal is not None:
+            raise CodeManagedWorkflowError(refusal)
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,
@@ -4890,7 +4761,7 @@ class HogFlowViewSet(
                 # Saving the serializer's copy now would insert the deleted row again.
                 raise exceptions.NotFound()
 
-            self._refuse_if_code_managed(self.request, before_update)
+            self._enforce_code_ownership(self.request, before_update)
             serializer = self._validate_against_locked_row(serializer, before_update)
             route_to_draft = stages_draft_if_active and before_update.status == HogFlow.State.ACTIVE
 
@@ -4979,7 +4850,7 @@ class HogFlowViewSet(
         flow_id = instance.id
         with transaction.atomic():
             locked = HogFlow.objects.select_for_update().get(pk=flow_id)
-            self._refuse_if_code_managed(self.request, locked)
+            self._enforce_code_ownership(self.request, locked)
             self._log_activity(locked, activity="deleted")
             locked.delete()
         locked.id = flow_id
@@ -5074,7 +4945,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
-            self._refuse_if_code_managed(request, locked)
+            self._enforce_code_ownership(request, locked)
 
             route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
@@ -5174,7 +5045,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
-            self._refuse_if_code_managed(request, locked)
+            self._enforce_code_ownership(request, locked)
 
             route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
@@ -5423,7 +5294,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
-            self._refuse_if_code_managed(request, locked)
+            self._enforce_code_ownership(request, locked)
             if not locked.draft:
                 raise exceptions.ValidationError("This workflow has no staged draft to publish.")
             if previewed_value != _publish_confirm_value(locked):
@@ -5473,7 +5344,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
-            self._refuse_if_code_managed(request, locked)
+            self._enforce_code_ownership(request, locked)
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = None
@@ -5536,7 +5407,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
-            self._refuse_if_code_managed(request, locked)
+            self._enforce_code_ownership(request, locked)
             try:
                 revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=int(version or 0))
             except HogFlowRevision.DoesNotExist:
@@ -5938,10 +5809,8 @@ class HogFlowViewSet(
         # check_object_permissions never runs for it. Without this the lock is bypassable one archived
         # row at a time. Refuse the whole request rather than skipping the locked rows, so the caller
         # cannot mistake a partial delete for a complete one.
-        if not is_code_managed_writer(request):
-            for flow in deletable:
-                if flow.managed_by == HogFlow.ManagedBy.CODE:
-                    raise CodeManagedWorkflowError(flow)
+        for flow in deletable:
+            self._enforce_code_ownership(request, flow)
 
         # Hard deletes must leave a trail, same as the single destroy path. Lock the rows so the
         # audit entries match exactly what this request deletes (a concurrently removed row gets no
@@ -5952,15 +5821,13 @@ class HogFlowViewSet(
                 self.get_queryset()
                 .select_for_update()
                 .filter(id__in=[flow.id for flow in deletable])
-                .values_list("id", "managed_by")
+                .only("id", "managed_by", "source_repository", "source_path")
             )
             # A push can claim a workflow between the check above and this lock, so the locked row is
             # the one that decides.
-            if not is_code_managed_writer(request):
-                claimed = {row_id for row_id, managed_by in locked_rows if managed_by == HogFlow.ManagedBy.CODE}
-                if claimed:
-                    raise CodeManagedWorkflowError(next(flow for flow in deletable if flow.id in claimed))
-            deleted_ids = {row_id for row_id, _ in locked_rows}
+            for row in locked_rows:
+                self._enforce_code_ownership(request, row)
+            deleted_ids = {row.id for row in locked_rows}
             # delete() also counts the cascaded rows (revisions, schedules); report workflows only.
             _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
             deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)

@@ -366,7 +366,10 @@ Nothing writes the three source columns yet; the CLI that pushes workflows does.
 
 ### What the API allows on a code-managed workflow
 
-`HogFlowViewSet.check_object_permissions` carries the refusal, and `bulk_delete` repeats it because it is `detail=False` and never calls `get_object()`.
+`check_write` in `backend/services/code_ownership.py` holds the rule, and every write path asks it.
+`HogFlowViewSet.check_object_permissions` asks it for each detail action, and the locked re-read inside each write asks again.
+`bulk_delete` asks for each row, because it is `detail=False` and never calls `get_object()`.
+`HogFlowSerializer.create` and `update` ask as well, which covers a create.
 The rule is an allow-list over the action and the whole payload, not over a set of field names.
 
 A request that `is_code_managed_writer` accepts may write anything. That is the client that pushes the file.
@@ -379,6 +382,7 @@ The operational actions stay open as well: `rerun`, `run`, `invocations`, `cance
 `schedules` and `schedule_detail` are refused, because a schedule is part of the trigger and the trigger is in the file.
 
 Everything else is refused with a 403 that names the recorded file, with `why` and `fix` in `extra`.
+On any workflow, a request from another caller that sets `managed_by: code` or changes a source field gets the same 403 with the code `immutable`.
 
 Three costs of that rule, all deliberate:
 
