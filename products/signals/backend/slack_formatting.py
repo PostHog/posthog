@@ -4,7 +4,7 @@ import re
 from collections import Counter
 
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 # A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack cannot
 # place an image mid-sentence, and the link degrades badly if left alone: `chart:` is no scheme a

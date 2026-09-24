@@ -58,7 +58,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
 from posthog.ownership.github_files import fetcher_for_team
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership, resolve_path_owners
-from posthog.team_notifications.slack import (
+from posthog.slack.channels import (
     MAX_BLOCKS,
     MAX_BUTTON_URL_CHARS,
     MAX_SECTION_CHARS,

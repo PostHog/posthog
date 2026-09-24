@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.team_notifications.slack import SlackPostRefused, post_message, post_with_join
+from posthog.slack.channels import SlackPostRefused, post_message, post_with_join
 
 from .digest import as_channel_paragraph
 

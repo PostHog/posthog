@@ -24,8 +24,8 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.event_usage import groups
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 

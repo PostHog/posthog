@@ -14,9 +14,9 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import (

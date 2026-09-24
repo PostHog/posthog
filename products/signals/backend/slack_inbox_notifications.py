@@ -23,10 +23,10 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.helpers.slack_markdown import slack_markdown_block as _markdown_block
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
