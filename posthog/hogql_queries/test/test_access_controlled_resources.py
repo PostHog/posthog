@@ -297,7 +297,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
 
     def test_view_fan_out_does_not_scale_queries(self):
-        # Cached views walk once per fingerprint, not once per reference path.
+        # Views that share a base view must each be walked once, so six of them cost the same queries as two.
         def _cost(fan_out: int) -> tuple[int, int]:
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
@@ -326,7 +326,7 @@ class TestQueriedAccessControlledResources(BaseTest):
 
         (queries_6, parses_6), (queries_2, parses_2) = _cost(6), _cost(2)
         assert queries_6 == queries_2
-        # Each added view costs one parse; without caching, a base view walked per parent would cost two.
+        # Each added view costs one parse. A base view walked again for each parent would cost two.
         assert parses_6 - parses_2 == 4
 
     def test_warehouse_and_system_scopes_combined(self):
