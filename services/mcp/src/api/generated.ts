@@ -18658,6 +18658,23 @@ export namespace Schemas {
     }
 
     /**
+     * The build a publish queued, as it stood when the response was sent.
+     */
+    export interface CanvasPublishedBuild {
+      /** The build's id. */
+      id: string;
+      /** 'ready': the build finished. The canvas is live with this version when canvas.published_build_id equals this id; then you do not need canvas-builds-retrieve. 'failed': fix the error diagnostics and save again. 'queued' or 'building': poll canvas-builds-retrieve until the build is terminal.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum;
+      /** Structured diagnostics recorded by the build (errors explain a failed status). */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
      * Payload for reporting a runtime error observed while rendering a canvas build.
      */
     export interface CanvasReportError {
@@ -18804,24 +18821,57 @@ export namespace Schemas {
     }
 
     /**
-     * One per-file edit: set a file's content, or delete it.
+     * * `write` - Write
+     * * `delete` - Delete
+     * * `rename` - Rename
+     * * `str_replace` - Str Replace
+     */
+    export type CanvasSourceEditOpEnum = typeof CanvasSourceEditOpEnum[keyof typeof CanvasSourceEditOpEnum];
+
+
+    export const CanvasSourceEditOpEnum = {
+      Write: 'write',
+      Delete: 'delete',
+      Rename: 'rename',
+      StrReplace: 'str_replace',
+    } as const;
+
+    /**
+     * One file edit: replace text in a file, write a whole file, delete it, or rename it.
      */
     export interface CanvasSourceEditOperation {
-      /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+      /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and content null means 'delete'. An operation with none of these fields is rejected.
+       *
+       * * `write` - Write
+       * * `delete` - Delete
+       * * `rename` - Rename
+       * * `str_replace` - Str Replace */
+      op?: CanvasSourceEditOpEnum;
+      /** Project-relative path of the file to edit (e.g. "src/canvas.tsx"). */
       path: string;
       /**
-         * The file's complete new content. Null (or omitted) deletes the file.
+         * For 'write': the file's complete new content.
          * @nullable
          */
       content?: string | null;
+      /** For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted. */
+      old_string?: string;
+      /** For 'str_replace': the text that replaces old_string. An empty string deletes old_string. */
+      new_string?: string;
+      /** For 'str_replace': replace every exact match of old_string instead of requiring exactly one. */
+      replace_all?: boolean;
+      /** For 'rename': the file's new project-relative path. */
+      new_path?: string;
     }
 
     /**
      * Payload for publishing per-file edits against the canvas's current source.
      */
     export interface CanvasSourceEdit {
-      /** Edits applied in order to the canvas's current source project. */
-      operations: CanvasSourceEditOperation[];
+      /** Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities. */
+      operations?: CanvasSourceEditOperation[];
+      /** The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities. */
+      capabilities?: CanvasCapabilities;
       /** Short description of the change, stored on the appended version history entry. */
       prompt?: string;
       /**
@@ -18878,6 +18928,8 @@ export namespace Schemas {
       current_version_id: string;
       /** Advisory (warning-severity) diagnostics recorded for the published project. */
       diagnostics: CanvasDiagnostic[];
+      /** The queued build. The server waits a few seconds for it, so it is often already terminal. */
+      build: CanvasPublishedBuild;
     }
 
     /**
@@ -20059,6 +20111,11 @@ export namespace Schemas {
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
       claude_model_access?: ClaudeModelAccessEnum | null;
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -20476,6 +20533,11 @@ export namespace Schemas {
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
       claude_model_access?: ClaudeModelAccessEnum | null;
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -59274,6 +59336,71 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+     */
+    export interface ProjectAccessSource {
+      /** The access level that applies. */
+      access_level: string;
+      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+       *
+       * * `object` - object
+       * * `parent_object` - parent_object
+       * * `resource` - resource
+       * * `parent_resource` - parent_resource
+       * * `system_default` - system_default
+       * * `org_admin` - org_admin
+       * * `creator` - creator
+       * * `org_membership` - org_membership */
+      source: ResolvedAccessSourceEnum;
+      /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+       *
+       * * `member` - member
+       * * `role` - role
+       * * `default` - default */
+      source_subject: ResolvedAccessSourceSubjectEnum | null;
+      /** The resource the deciding rule belongs to. */
+      source_resource: string;
+      /**
+         * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+         * @nullable
+         */
+      source_resource_id: string | null;
+      /**
+         * The name of the role or member whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_name: string | null;
+    }
+
+    export interface MemberProjectAccessEntry {
+      /** The project's id. */
+      team_id: number;
+      /** The project's name. */
+      team_name: string;
+      /** The member's enforced access to the project: none, member or admin. */
+      access_level: string;
+      /** The rule that supplies the level. Read `source` and `source_subject` to tell an organization admin's bypass from a member rule, a role rule or the project default. */
+      resolved: ProjectAccessSource | null;
+      /**
+         * The id of the role or organization membership whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_id: string | null;
+    }
+
+    export interface MemberProjectAccess {
+      /** The organization membership id. */
+      organization_membership_id: string;
+      /** One entry per project the caller can access, including projects the member cannot. */
+      projects: MemberProjectAccessEntry[];
+    }
+
+    export interface MemberProjectAccessResponse {
+      /** One entry per visible organization member. */
+      results: MemberProjectAccess[];
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -66010,7 +66137,7 @@ export namespace Schemas {
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -67007,6 +67134,11 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+      /**
+         * Earliest start time in UTC. Null for runs without a schedule.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
       preview_available?: boolean;
     }
@@ -67801,6 +67933,41 @@ export namespace Schemas {
       results: TraceReview[];
     }
 
+    export interface TracesRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracesRetentionRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracesRetentionRule[];
+    }
+
     /**
      * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
      */
@@ -68186,6 +68353,11 @@ export namespace Schemas {
       readonly is_impersonated_reason: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at: string | null;
+      /**
+         * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+         * @nullable
+         */
+      readonly fresh_reauth_expires_at: string | null;
       readonly team: TeamBasic;
       readonly organization: Organization;
       readonly organizations: readonly OrganizationBasic[];
@@ -77139,6 +77311,10 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       tracing_session_id_attribute_keys?: string[];
+      /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+      retention_days?: number;
+      /** @nullable */
+      readonly retention_last_updated?: string | null;
     }
 
     /**
@@ -77318,6 +77494,32 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export interface PatchedTracesRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config?: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -77500,6 +77702,11 @@ export namespace Schemas {
       readonly is_impersonated_reason?: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at?: string | null;
+      /**
+         * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+         * @nullable
+         */
+      readonly fresh_reauth_expires_at?: string | null;
       readonly team?: TeamBasic;
       readonly organization?: Organization;
       readonly organizations?: readonly OrganizationBasic[];
@@ -94292,6 +94499,26 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for turning reviews on for a repository from a connected installation.
+     */
+    export interface StamphogAddRepository {
+      /** Repository full name, e.g. 'PostHog/posthog'. It must be in one of the project's connected GitHub installations, as available_repositories lists them. A repository the project already has is turned back on. */
+      repository: string;
+    }
+
+    /**
+     * Repositories from the team's connected GitHub installations that are not added to stamphog yet.
+     */
+    export interface StamphogAvailableRepositories {
+      /** Repository full names the team can add, sorted by name and capped by limit. Only repositories a project member proved access to on GitHub are listed, and never one another project already holds under the same installation. */
+      readonly repositories: readonly string[];
+      /** How many repositories match the search in total, before limit applies. */
+      readonly total_count: number;
+      /** Whether a project member connected a GitHub installation yet. False means GitHub must be connected before any repository can be added. True with a total_count of 0 and no search means no repository is left to add. */
+      readonly has_installation: boolean;
+    }
+
+    /**
      * One installation of the App the authorizing user can reach, offered for an explicit pick.
      */
     export interface StamphogDiscoveredInstallation {
@@ -94362,13 +94589,15 @@ export namespace Schemas {
     }
 
     /**
-     * Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped.
+     * Result of syncing an installation: the team's rows bound to it, and what the team can add now.
      */
     export interface StamphogSyncInstallationResponse {
-      /** Repo configs now bound to this team for the installation (created this call or already present). */
+      /** Repo configs this team already had for the installation's repositories, now bound to it. A sync creates no repo config: use add_repository to turn reviews on for a repository. */
       readonly synced: readonly StamphogRepoConfig[];
       /** Repository full names skipped because another team already owns them under this installation. */
       readonly skipped: readonly string[];
+      /** How many repositories this team can add after the sync, across all its connected installations. List them with available_repositories. */
+      readonly available_count: number;
       /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
       readonly app_not_installed: boolean;
       /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
@@ -95881,7 +96110,12 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
-      /** Start the task's first cloud run immediately after creation. */
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
       start_run?: boolean;
       /**
          * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
@@ -96579,6 +96813,13 @@ export namespace Schemas {
     }
 
     export interface TaskRunResumeRequestSchema {
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      model?: string;
+      reasoning_effort?: ReasoningEffortEnum;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -97808,6 +98049,10 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       tracing_session_id_attribute_keys: string[];
+      /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+      retention_days?: number;
+      /** @nullable */
+      readonly retention_last_updated: string | null;
     }
 
     export interface TemplateInfo {
@@ -104074,6 +104319,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type MembersProjectAccessRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string;
+    };
+
     export type OauthApplicationsListParams = {
     /**
      * Number of results to return per page.
@@ -109263,6 +109515,10 @@ export namespace Schemas {
 
     export type FileSystemListParams = {
     /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -113871,6 +114127,19 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type StamphogRepoConfigsAvailableRepositoriesRetrieveParams = {
+    /**
+     * Maximum number of repositories to return. Defaults to 50, at most 200.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring to match against the repository full name, e.g. 'posthog'.
+     */
+    search?: string;
+    };
+
     export type StamphogReviewRunsListParams = {
     /**
      * Number of results to return per page.
@@ -114697,6 +114966,28 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type TracingRetentionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TracingRetentionRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type TracingSpansAttributesRetrieveParams = {
     /**

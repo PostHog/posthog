@@ -30,6 +30,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import (
@@ -2730,7 +2731,7 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         deduped: list[str] = []
         seen_ids: set[str] = set()
         for target in value:
-            member_id = target.split("|", 1)[0].strip()
+            member_id = channel_id_from_target(target)
             if not re.fullmatch(r"[UW][A-Z0-9]{4,}", member_id):
                 raise serializers.ValidationError(
                     f"{target!r} is not a Slack member target. Expected a member ID starting with U or W, "

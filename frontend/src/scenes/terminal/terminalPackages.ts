@@ -15,6 +15,23 @@ export interface TerminalPackage {
 
 const CACHE_NAME = 'posthog-terminal-packages-v1'
 
+// Doom configuration stores keyboard bindings as PC scancodes.
+const DOOM_CONFIG = `key_up 17
+key_down 31
+key_strafeleft 30
+key_straferight 32
+key_left 75
+key_right 77
+key_fire 57
+key_use 18
+key_speed 42
+use_mouse 1
+mouseb_fire 0
+mouseb_strafe -1
+mouseb_forward -1
+mouse_sensitivity 5
+`
+
 export class TerminalPackages {
     private downloads = new Map<string, Promise<Uint8Array>>()
 
@@ -73,6 +90,8 @@ export class TerminalPackages {
     mount(): void {
         const directory = this.filesystem.directory('packages', this.filesystem.root)
         const bin = this.filesystem.directory('bin', this.filesystem.root)
+        const config = this.filesystem.directory('config', this.filesystem.root)
+        this.filesystem.text('doom.cfg', config, DOOM_CONFIG)
         const cases: string[] = []
         for (const [id, pkg] of Object.entries(this.packages)) {
             this.filesystem.file(`${id}.tar`, directory, async () => {
@@ -93,7 +112,13 @@ export class TerminalPackages {
                         ...[...pkg.dependencies, id].map(
                             (dependency) => `sh /posthog/bin/install-tool ${dependency} || exit $?`
                         ),
-                        `exec ${entrypoint} "$@"`,
+                        ...(command === 'doom'
+                            ? [
+                                  'mkdir -p /tmp/doom',
+                                  '[ -f /tmp/doom/posthog-controls.cfg ] || cp /posthog/config/doom.cfg /tmp/doom/posthog-controls.cfg',
+                                  `exec ${entrypoint} "$@" -config /tmp/doom/posthog-controls.cfg`,
+                              ]
+                            : [`exec ${entrypoint} "$@"`]),
                         '',
                     ].join('\n')
                 )

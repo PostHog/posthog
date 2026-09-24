@@ -20,6 +20,8 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from fakeredis import FakeConnection
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -73,13 +75,22 @@ from posthog.models.user_integration import (
 )
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
-from posthog.team_notifications.slack import is_shared_channel
+from posthog.slack.channels import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models import BatchExport, BatchExportDestination
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
+
+
+def _p256_public_pem() -> str:
+    return (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
 
 
 class TestSlackIntegration:
@@ -194,7 +205,7 @@ class TestSlackIntegration:
 
         channels = SlackIntegration(self.integration).list_public_channels()
 
-        # team_notifications reads all three flags to keep an internal message out of a channel
+        # posthog.slack.channels reads all three flags to keep an internal message out of a channel
         # shared beyond the workspace. A dropped flag reads as not shared.
         assert is_shared_channel(channels[0])
 
@@ -6979,9 +6990,12 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+    @parameterized.expand([("with_a_public_key", True), ("without_a_public_key", False)])
     @patch("posthog.models.integration.push.GoogleRequest")
     @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
-    def test_setting_the_mode_reaches_the_integration(self, mock_from_sa, _mock_google_request):
+    def test_setting_the_mode_reaches_the_integration(
+        self, _name: str, with_public_key: bool, mock_from_sa: MagicMock, _mock_google_request: MagicMock
+    ) -> None:
         # The serializer builds each provider's arguments from named config fields, so a key it doesn't
         # know about is dropped before it ever reaches the integration. That silently made the setup
         # UI's toggle inert; this covers the plumbing rather than just the model helper underneath it.
@@ -7001,11 +7015,17 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
                         "token_uri": "https://oauth2.googleapis.com/token",
                     },
                     "push_identity_verification": "required",
+                    **({"push_identity_public_keys": [_p256_public_pem()]} if with_public_key else {}),
                 },
             },
             format="json",
         )
 
+        if not with_public_key:
+            # Verification checks tokens against a public key only, so without one every device is refused.
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert not Integration.objects.filter(team=self.team, kind="firebase").exists()
+            return
         assert response.status_code == status.HTTP_201_CREATED, response.content
         integration = Integration.objects.get(team=self.team, kind="firebase")
         assert integration.config["push_identity_verification"] == "required"

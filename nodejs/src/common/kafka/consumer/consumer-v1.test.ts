@@ -379,9 +379,11 @@ describe('consumer', () => {
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
 
-        it('should unassign and resume consuming when no background tasks exist', async () => {
+        it('should unassign, call the revoke hook and resume consuming when no background tasks exist', async () => {
             consumer['backgroundTask'] = []
             mockRdKafkaConsumer.assignments.mockReturnValue([{ topic: 'test-topic', partition: 2 }])
+            const onPartitionsRevoked = jest.fn().mockResolvedValue(undefined)
+            consumer['onPartitionsRevoked'] = onPartitionsRevoked
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -392,6 +394,7 @@ describe('consumer', () => {
                 { topic: 'test-topic', partition: 1 },
             ])
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
+            expect(onPartitionsRevoked).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 1 }])
         })
 
         it('should resume consuming when unassigning revoked partitions throws', () => {

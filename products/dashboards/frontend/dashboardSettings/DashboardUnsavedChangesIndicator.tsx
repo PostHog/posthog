@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -68,14 +67,13 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
     return (
         <span
             data-attr="dashboard-filters-unsaved"
-            className="flex max-w-full items-center gap-1.5 rounded-full border border-warning bg-warning-highlight py-0.5 pl-2.5 pr-1 text-xs font-semibold text-warning"
+            className="flex max-w-full items-center rounded border border-warning bg-warning-highlight text-xs font-semibold text-warning"
         >
             <DashboardSettingsChangesTooltip changes={dashboardSettingsChanges} title="Unsaved changes">
                 <LemonButton
                     type="tertiary"
                     size="small"
-                    noPadding
-                    className="text-inherit"
+                    className="rounded-l text-inherit"
                     aria-label={`Show ${changeSummary}`}
                 >
                     <span className="flex items-center gap-1.5">
@@ -88,26 +86,22 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                     </span>
                 </LemonButton>
             </DashboardSettingsChangesTooltip>
-            <span className="flex items-center gap-1.5 @max-lg/dashboard-filters:hidden">
-                <span className="h-4 border-l border-warning" />
-                <span className="flex items-center gap-1.5">
-                    {actions.map((action, index) => (
-                        <Fragment key={action.key}>
-                            {index > 0 && <span className="h-4 border-l border-warning" />}
-                            <LemonButton
-                                data-attr={action.dataAttr}
-                                type="tertiary"
-                                size="small"
-                                disabledReason={action.disabledReason}
-                                tooltip={action.tooltip}
-                                onClick={action.onClick}
-                                loading={action.loading}
-                            >
-                                {action.label}
-                            </LemonButton>
-                        </Fragment>
-                    ))}
-                </span>
+            <span className="flex items-center @max-lg/dashboard-filters:hidden">
+                {actions.map((action, index) => (
+                    <LemonButton
+                        key={action.key}
+                        data-attr={action.dataAttr}
+                        type="tertiary"
+                        size="small"
+                        className={`border-l border-warning ${index === actions.length - 1 ? 'rounded-r' : 'rounded-none'}`}
+                        disabledReason={action.disabledReason}
+                        tooltip={action.tooltip}
+                        onClick={action.onClick}
+                        loading={action.loading}
+                    >
+                        {action.label}
+                    </LemonButton>
+                ))}
             </span>
             <LemonMenu
                 items={actions.map((action) => ({
@@ -121,7 +115,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                 placement="bottom-end"
             >
                 <LemonButton
-                    className="@min-lg/dashboard-filters:hidden"
+                    className="@min-lg/dashboard-filters:hidden rounded-r border-l border-warning"
                     type="tertiary"
                     size="small"
                     loading={dashboardFiltersSaving}
