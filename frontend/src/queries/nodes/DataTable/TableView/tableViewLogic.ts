@@ -156,6 +156,7 @@ export interface tableViewLogicValues {
     isCreating: boolean
     isNewViewFormSubmitting: boolean
     isNewViewFormValid: boolean
+    isOnDefaultColumns: boolean
     newViewForm: {
         name: string
         visibility: 'private' | 'shared'
@@ -358,6 +359,7 @@ export interface tableViewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasUnsavedChanges: (currentView: ColumnConfigurationApi | null, arg: any) => boolean
+        isOnDefaultColumns: (arg: TableViewSupportedQueryType, arg2: string[]) => boolean
         canEditCurrentView: (currentView: ColumnConfigurationApi | null, user: UserType | null) => boolean
     }
 }
@@ -481,6 +483,14 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 const queryFromView = getQueryFromView(query, currentView)
                 return !equal(queryFromView, query)
             },
+        ],
+        isOnDefaultColumns: [
+            () => [
+                (_: unknown, props: TableViewLogicProps) => props.query,
+                (_: unknown, props: TableViewLogicProps) => props.defaultColumns,
+            ],
+            (query: TableViewSupportedQueryType, defaultColumns: string[]): boolean =>
+                equal(query.select, defaultColumns),
         ],
         canEditCurrentView: [
             (s) => [s.currentView, s.user],

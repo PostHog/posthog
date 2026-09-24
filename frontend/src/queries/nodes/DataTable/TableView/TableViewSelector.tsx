@@ -34,7 +34,8 @@ export function TableViewSelector({
 }: TableViewSelectorProps): JSX.Element {
     const tableViewLogicProps = { contextKey, query, setQuery, defaultColumns }
     const logic = tableViewLogic(tableViewLogicProps)
-    const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, user } = useValues(logic)
+    const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, isOnDefaultColumns, user } =
+        useValues(logic)
     const { applyView, updateView, setShowDeleteConfirm, setIsCreating, resetToDefaultColumns } = useActions(logic)
 
     const menuItems: LemonMenuItems = [
@@ -123,14 +124,28 @@ export function TableViewSelector({
                         </LemonButton>
                     </LemonMenu>
                 ) : (
-                    <LemonButton
-                        icon={<IconDownload />}
-                        size="small"
-                        type="secondary"
-                        onClick={() => setIsCreating(true)}
-                    >
-                        Save current view
-                    </LemonButton>
+                    <>
+                        {/* Deleting the last view leaves its columns on the table, and the menu
+                            that would undo that is gone with it. */}
+                        {!isOnDefaultColumns && (
+                            <LemonButton
+                                icon={<IconRevert />}
+                                size="small"
+                                type="secondary"
+                                onClick={() => resetToDefaultColumns()}
+                            >
+                                Default columns
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            icon={<IconDownload />}
+                            size="small"
+                            type="secondary"
+                            onClick={() => setIsCreating(true)}
+                        >
+                            Save current view
+                        </LemonButton>
+                    </>
                 )}
 
                 {currentView && hasUnsavedChanges && (
