@@ -83,7 +83,6 @@ export async function resolveProxyRegion(
     return 'us'
 }
 
-/** A client can send any header, so the Worker removes every signed IP header before it adds its own. */
 export async function honoRequestHeaders(incoming: Headers, region: CloudRegion): Promise<Headers> {
     const headers = new Headers(incoming)
     for (const name of [...Object.values(EDGE_CLIENT_IP_HEADERS), ...Object.values(MCP_CLIENT_IP_HEADERS)]) {
