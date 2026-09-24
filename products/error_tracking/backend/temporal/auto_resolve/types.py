@@ -1,7 +1,7 @@
-import dataclasses
+from posthog.dataclasses import frozen
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class AutoResolveInputs:
     # Max teams per batch activity.
     batch_size: int = 50
@@ -9,25 +9,26 @@ class AutoResolveInputs:
     max_concurrent_batches: int = 3
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class TeamAutoResolveConfig:
     team_id: int
-    days: int
+    # Kept on the wire for workflow history compatibility. Each activity reloads the setting.
+    days: int | None
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class AutoResolveBatchInputs:
     teams: list[TeamAutoResolveConfig]
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class AutoResolveBatchResult:
     teams_processed: int
     teams_failed: int
     issues_resolved: int
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class AutoResolveResult:
     teams_total: int
     teams_failed: int

@@ -922,6 +922,14 @@ async fn new_issue_stores_event_timestamp_as_fingerprint_first_seen(db: PgPool) 
         stored_first_seen,
         Some(input.timestamp.parse().expect("timestamp should be valid"))
     );
+    let recent_receipt: bool = sqlx::query_scalar(
+        "SELECT i.last_received_at >= now() - interval '1 minute' FROM posthog_errortrackingissue i JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id WHERE f.team_id = 1 AND f.fingerprint = $1",
+    )
+    .bind(fingerprint)
+    .fetch_one(&harness.db)
+    .await
+    .unwrap();
+    assert!(recent_receipt);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

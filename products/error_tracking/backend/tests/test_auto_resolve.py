@@ -14,7 +14,11 @@ from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import uuid7
 
-from products.error_tracking.backend.logic.auto_resolve import auto_resolve_team, get_auto_resolve_team_settings
+from products.error_tracking.backend.logic.auto_resolve import (
+    TeamAutoResolveSetting,
+    auto_resolve_team,
+    get_auto_resolve_team_settings,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -43,6 +47,7 @@ class TestAutoResolve(ClickhouseTestMixin, BaseTest):
         ErrorTrackingIssue.objects.filter(id=issue.id).update(
             created_at=timezone.now() - timedelta(days=60),
             state_updated_at=timezone.now() - timedelta(days=last_state_change_days_ago),
+            last_received_at=timezone.now() - timedelta(days=last_state_change_days_ago),
         )
         for i in range(fingerprints):
             ErrorTrackingIssueFingerprintV2.objects.create(
@@ -61,10 +66,11 @@ class TestAutoResolve(ClickhouseTestMixin, BaseTest):
         )
 
     def _run(self, days: int = 3) -> int:
+        ErrorTrackingSettings.objects.update_or_create(team=self.team, defaults={"auto_resolve_after_days": days})
         with self.captureOnCommitCallbacks(execute=True):
-            return auto_resolve_team(self.team.id, days)
+            return auto_resolve_team(self.team.id)
 
-    def test_resolves_quiet_issue_as_system_and_keeps_recently_seen_issue(self):
+    def test_resolves_quiet_issue_as_system_and_keeps_recently_seen_issue(self) -> None:
         quiet = self._create_issue(last_state_change_days_ago=10)
         self._create_exception(f"fp::{quiet.id}::0", days_ago=5)
         noisy = self._create_issue(last_state_change_days_ago=10, fingerprints=2)
@@ -98,7 +104,9 @@ class TestAutoResolve(ClickhouseTestMixin, BaseTest):
             ("missing_fingerprints", ErrorTrackingIssue.Status.ACTIVE, 10, 0),
         ]
     )
-    def test_leaves_ineligible_issues_untouched(self, _name, status, last_state_change_days_ago, fingerprints):
+    def test_leaves_ineligible_issues_untouched(
+        self, _name: str, status: str, last_state_change_days_ago: int, fingerprints: int
+    ) -> None:
         issue = self._create_issue(
             status=status, last_state_change_days_ago=last_state_change_days_ago, fingerprints=fingerprints
         )
@@ -109,7 +117,7 @@ class TestAutoResolve(ClickhouseTestMixin, BaseTest):
         assert issue.status == status
 
     @parameterized.expand([("saved_cursor", False), ("lost_cursor", True)])
-    def test_sweeps_progress_past_noisy_issues_and_wrap(self, _name, lose_cursor):
+    def test_sweeps_progress_past_noisy_issues_and_wrap(self, _name: str, lose_cursor: bool) -> None:
         noisy = self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=1))
         quiet = self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=2))
         self._create_exception(f"fp::{noisy.id}::0", days_ago=1)
@@ -132,7 +140,7 @@ class TestAutoResolve(ClickhouseTestMixin, BaseTest):
                 assert noisy.status == ErrorTrackingIssue.Status.RESOLVED
                 assert self._run() == 0
 
-    def test_failed_page_is_retried_before_later_issues(self):
+    def test_failed_page_is_retried_before_later_issues(self) -> None:
         first = self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=1))
         second = self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=2))
         flush_persons_and_events()
@@ -150,10 +158,11 @@ class TestAutoResolve(ClickhouseTestMixin, BaseTest):
             assert first.status == ErrorTrackingIssue.Status.RESOLVED
             assert second.status == ErrorTrackingIssue.Status.ACTIVE
 
-    def test_reactivation_during_exception_query_stays_active(self):
+    @time_machine.travel(timezone.now, tick=False)
+    def test_reactivation_during_exception_query_stays_active(self) -> None:
         issue = self._create_issue(last_state_change_days_ago=10)
 
-        def reactivate(*args, **kwargs):
+        def reactivate(*args: object, **kwargs: object) -> list[tuple[str]]:
             ErrorTrackingIssue.objects.filter(id=issue.id).update(state_updated_at=timezone.now())
             return []
 
@@ -164,13 +173,127 @@ class TestAutoResolve(ClickhouseTestMixin, BaseTest):
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
         assert not ActivityLog.objects.filter(scope="ErrorTrackingIssue", item_id=str(issue.id)).exists()
 
-    def test_only_opted_in_teams_are_swept(self):
+    @time_machine.travel(timezone.now, tick=False)
+    def test_opted_in_and_pending_sync_teams_are_swept(self) -> None:
         ErrorTrackingSettings.objects.create(team=self.team, auto_resolve_after_days=7)
+        disabled = Team.objects.create(organization=self.organization)
+        ErrorTrackingSettings.objects.create(team=disabled)
+        missing_settings = Team.objects.create(organization=self.organization)
         ErrorTrackingSettings.objects.create(team=Team.objects.create(organization=self.organization))
+        for team in [disabled, missing_settings, disabled]:
+            ErrorTrackingIssue.objects.create(
+                team=team,
+                status=ErrorTrackingIssue.Status.RESOLVED,
+                auto_resolve_sync_requested_at=timezone.now(),
+            )
 
-        assert get_auto_resolve_team_settings() == [(self.team.id, 7)]
+        assert get_auto_resolve_team_settings() == [
+            TeamAutoResolveSetting(team_id=self.team.id, days=7),
+            TeamAutoResolveSetting(team_id=disabled.id, days=None),
+            TeamAutoResolveSetting(team_id=missing_settings.id, days=None),
+        ]
 
-    def test_batch_continues_after_a_team_fails(self):
+    def test_new_higher_ids_do_not_prevent_revisiting_older_issues(self) -> None:
+        older = self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=1))
+        self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=2))
+        self._create_exception(f"fp::{older.id}::0", days_ago=1)
+        flush_persons_and_events()
+
+        with patch("products.error_tracking.backend.logic.auto_resolve.MAX_ISSUES_PER_TEAM_RUN", 1):
+            assert self._run() == 0
+            self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=3))
+            assert self._run() == 1
+            self._create_issue(last_state_change_days_ago=10, issue_id=UUID(int=4))
+            with time_machine.travel(timezone.now() + timedelta(days=4), tick=False):
+                assert self._run() == 1
+            older.refresh_from_db()
+            assert older.status == ErrorTrackingIssue.Status.RESOLVED
+
+    @parameterized.expand([("disabled", None), ("increased", 30), ("deleted", None)])
+    def test_batch_reloads_settings_after_enumeration(self, name: str, days: int | None) -> None:
+        issue = self._create_issue(last_state_change_days_ago=10)
+        ErrorTrackingSettings.objects.create(team=self.team, auto_resolve_after_days=3)
+        team_settings = get_auto_resolve_team_settings()
+        inputs = AutoResolveBatchInputs(
+            teams=[TeamAutoResolveConfig(team_id=setting.team_id, days=setting.days) for setting in team_settings]
+        )
+        if name == "deleted":
+            ErrorTrackingSettings.objects.filter(team=self.team).delete()
+        else:
+            ErrorTrackingSettings.objects.filter(team=self.team).update(auto_resolve_after_days=days)
+
+        with (
+            patch("products.error_tracking.backend.temporal.auto_resolve.activities.close_old_connections"),
+            patch("products.error_tracking.backend.temporal.auto_resolve.activities.activity.heartbeat"),
+        ):
+            assert auto_resolve_batch_activity(inputs) == AutoResolveBatchResult(
+                teams_processed=1, teams_failed=0, issues_resolved=0
+            )
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    @parameterized.expand([("disabled", None), ("increased", 30), ("deleted", None)])
+    def test_setting_change_during_exception_query_stays_active(self, name: str, days: int | None) -> None:
+        issue = self._create_issue(last_state_change_days_ago=10)
+
+        def change_setting(*args: object, **kwargs: object) -> list[tuple[str]]:
+            if name == "deleted":
+                ErrorTrackingSettings.objects.filter(team=self.team).delete()
+            else:
+                ErrorTrackingSettings.objects.filter(team=self.team).update(auto_resolve_after_days=days)
+            return []
+
+        with patch("products.error_tracking.backend.logic.auto_resolve.sync_execute", side_effect=change_setting):
+            assert self._run() == 0
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
+        assert not ActivityLog.objects.filter(scope="ErrorTrackingIssue", item_id=str(issue.id)).exists()
+
+    @parameterized.expand([("recent_receipt", False), ("unknown_receipt", True)])
+    @time_machine.travel(timezone.now, tick=False)
+    def test_old_event_does_not_override_receipt_grace_period(self, _name: str, unknown_receipt: bool) -> None:
+        issue = self._create_issue(last_state_change_days_ago=10)
+        self._create_exception(f"fp::{issue.id}::0", days_ago=10)
+        flush_persons_and_events()
+        ErrorTrackingIssue.objects.filter(team=self.team, id=issue.id).update(
+            last_received_at=None if unknown_receipt else timezone.now()
+        )
+
+        assert self._run() == 0
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    @parameterized.expand(
+        [("inside_cache_window", 59, 0), ("cache_window_boundary", 60, 0), ("outside_cache_window", 61, 1)]
+    )
+    def test_receipt_cache_grace_period(self, _name: str, seconds: int, expected_resolved: int) -> None:
+        with time_machine.travel(timezone.now(), tick=False):
+            issue = self._create_issue(last_state_change_days_ago=10)
+            ErrorTrackingIssue.objects.filter(team=self.team, id=issue.id).update(
+                last_received_at=timezone.now() - timedelta(days=3, seconds=seconds)
+            )
+            with patch("products.error_tracking.backend.logic.auto_resolve.sync_execute", return_value=[]):
+                assert self._run() == expected_resolved
+            issue.refresh_from_db()
+            assert issue.status == (
+                ErrorTrackingIssue.Status.RESOLVED if expected_resolved else ErrorTrackingIssue.Status.ACTIVE
+            )
+
+    @time_machine.travel(timezone.now, tick=False)
+    def test_receipt_during_exception_query_stays_active(self) -> None:
+        issue = self._create_issue(last_state_change_days_ago=10)
+
+        def receive_event(*args: object, **kwargs: object) -> list[tuple[str]]:
+            ErrorTrackingIssue.objects.filter(team=self.team, id=issue.id).update(last_received_at=timezone.now())
+            return []
+
+        with patch("products.error_tracking.backend.logic.auto_resolve.sync_execute", side_effect=receive_event):
+            assert self._run() == 0
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
+        assert not ActivityLog.objects.filter(scope="ErrorTrackingIssue", item_id=str(issue.id)).exists()
+
+    def test_batch_continues_after_a_team_fails(self) -> None:
         teams = [TeamAutoResolveConfig(team_id=1, days=3), TeamAutoResolveConfig(team_id=2, days=3)]
 
         with (

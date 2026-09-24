@@ -13,6 +13,7 @@ use crate::modes::processing::redis_heal::HealGate;
 use crate::{
     core::config::build_pg_pool,
     error::UnhandledError,
+    issue_resolution::{IssueReceiptCache, ISSUE_RECEIPT_CACHE_TTL},
     modes::processing::config::{init_global_state, ProcessingConfig},
     stages::rate_limiting::RedisRateLimiter,
     stages::resolution::event_release::ReleaseCache,
@@ -57,6 +58,7 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    pub issue_receipt_cache: IssueReceiptCache,
     // Caches event-level release resolution (`$release_id` and the mobile app-metadata hash) so a
     // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
     // for apps that never bound one. Lives here so it survives across batches.
@@ -169,6 +171,10 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
+        let issue_receipt_cache = CacheBuilder::new(config.issue_cache_capacity)
+            .time_to_live(ISSUE_RECEIPT_CACHE_TTL)
+            .build();
+
         let release_cache = ReleaseCache::new(
             config.release_cache_max_entries,
             Duration::from_secs(config.release_cache_ttl_seconds),
@@ -195,6 +201,7 @@ impl AppContext {
             rate_limiter,
             rate_limiter_enabled_team_ids,
             issue_cache,
+            issue_receipt_cache,
             release_cache,
             remote_resolution,
             remote_resolution_refresh_task,

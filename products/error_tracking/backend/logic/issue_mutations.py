@@ -5,6 +5,7 @@ assignment side effects that previously lived in the presentation layer, so the 
 can stay thin (parse -> facade -> serialize).
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -22,6 +23,7 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 from products.access_control.backend.facade.api import role_belongs_to_organization
 from products.cohorts.backend.facade.api import cohort_exists_for_team
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
+from products.error_tracking.backend.logic.auto_resolve_sync import retry_auto_resolve_sync
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
     ISSUE_MERGED_EVENT,
@@ -36,10 +38,12 @@ from products.error_tracking.backend.logic.lifecycle_events import (
     status_label,
 )
 from products.error_tracking.backend.models import (
+    AUTO_RESOLVE_RECEIPT_GRACE_PERIOD,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
     ErrorTrackingIssueMergeResult,
+    ErrorTrackingSettings,
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
@@ -310,7 +314,7 @@ def bulk_update_issues(
 
 def _set_issues_status(
     team_id: int,
-    issues: list[ErrorTrackingIssue],
+    issues: Sequence[ErrorTrackingIssue],
     new_status: "ErrorTrackingIssue.Status",
     *,
     user: User | None,
@@ -368,12 +372,21 @@ def _set_issues_status(
     return changed_issue_ids
 
 
-def auto_resolve_issues(team_id: int, issue_ids: list[UUID], *, cutoff: datetime) -> list[UUID]:
-    """Recheck state age under the row lock so a recent manual reactivation stays active."""
+def auto_resolve_issues(team_id: int, issue_ids: list[UUID], *, cutoff: datetime, days: int) -> list[UUID]:
+    """Resolve only issues whose setting, state and receipt age still qualify under locks."""
     with transaction.atomic():
+        current_settings = ErrorTrackingSettings.objects.select_for_update().filter(team_id=team_id).first()
+        if current_settings is None or current_settings.auto_resolve_after_days != days:
+            return []
+
         issues = list(
             ErrorTrackingIssue.objects.select_for_update(of=("self",))
-            .filter(team_id=team_id, id__in=issue_ids, status=ErrorTrackingIssue.Status.ACTIVE)
+            .filter(
+                team_id=team_id,
+                id__in=issue_ids,
+                status=ErrorTrackingIssue.Status.ACTIVE,
+                last_received_at__lt=cutoff - AUTO_RESOLVE_RECEIPT_GRACE_PERIOD,
+            )
             .annotate(last_state_change=Coalesce("state_updated_at", "created_at", output_field=DateTimeField()))
             .filter(last_state_change__lt=cutoff)
             .select_related("team__organization")
@@ -387,8 +400,11 @@ def auto_resolve_issues(team_id: int, issue_ids: list[UUID], *, cutoff: datetime
             was_impersonated=False,
             extra_properties={"resolved_reason": "inactivity"},
         )
+        ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
+            auto_resolve_sync_requested_at=timezone.now()
+        )
 
-    sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
+    retry_auto_resolve_sync(team_id)
     return changed_issue_ids
 
 

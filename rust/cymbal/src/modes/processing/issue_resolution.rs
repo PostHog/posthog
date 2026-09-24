@@ -1,9 +1,14 @@
-use std::{fmt::Display, str::FromStr};
+use std::{
+    fmt::Display,
+    str::FromStr,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
     send_iter_to_kafka, send_keyed_iter_to_kafka, KafkaProduceError,
 };
+use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use uuid::Uuid;
@@ -23,6 +28,16 @@ use crate::{
         ISSUE_REOPENED,
     },
 };
+
+// Django adds this interval to its inactivity cutoff because cached receipts skip writes.
+pub const ISSUE_RECEIPT_CACHE_TTL: Duration = Duration::from_secs(60);
+pub type IssueReceiptCache = Cache<(i32, Uuid), Instant>;
+
+#[derive(sqlx::FromRow)]
+struct RecordedIssueReceipt {
+    status: String,
+    previous_status: String,
+}
 
 const ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX: &str = "error_tracking:event_properties:v1";
 
@@ -249,32 +264,69 @@ impl Issue {
         Ok(())
     }
 
-    pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
+    pub async fn has_recent_receipt(&self, receipts: &IssueReceiptCache) -> bool {
+        receipts
+            .get(&(self.team_id, self.id))
+            .await
+            .is_some_and(|started_at| started_at.elapsed() < ISSUE_RECEIPT_CACHE_TTL)
+    }
+
+    pub async fn maybe_reopen<'c, E>(
+        &mut self,
+        executor: E,
+        receipts: &IssueReceiptCache,
+    ) -> Result<bool, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        // If this issue is already active, or permanently suppressed, we don't need to do anything
-        if matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed) {
+        if matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed)
+            && self.has_recent_receipt(receipts).await
+        {
             return Ok(false);
         }
 
-        let res = sqlx::query_scalar!(
+        // Start the cache window before the write so a slow response cannot extend it.
+        let started_at = Instant::now();
+        // The sweep locks this same row. Read the status under that lock because a
+        // cached active issue may have been resolved while this occurrence was in flight.
+        let receipt = sqlx::query_as::<_, RecordedIssueReceipt>(
             r#"
-            UPDATE posthog_errortrackingissue
-            SET status = 'active'
-            WHERE id = $1 AND status != 'active'
-            RETURNING id
+            WITH locked_issue AS MATERIALIZED (
+                SELECT id, status
+                FROM posthog_errortrackingissue
+                WHERE id = $1 AND team_id = $2
+                FOR UPDATE
+            )
+            UPDATE posthog_errortrackingissue AS issue
+            SET last_received_at = GREATEST(issue.last_received_at, clock_timestamp()),
+                auto_resolve_sync_requested_at = CASE
+                    WHEN locked_issue.status IN ('active', 'suppressed') THEN issue.auto_resolve_sync_requested_at
+                    ELSE clock_timestamp()
+                END,
+                status = CASE
+                    WHEN locked_issue.status IN ('active', 'suppressed') THEN locked_issue.status
+                    ELSE 'active'
+                END
+            FROM locked_issue
+            WHERE issue.id = locked_issue.id AND issue.team_id = $2
+            RETURNING issue.status, locked_issue.status AS previous_status
             "#,
-            self.id
         )
-        .fetch_all(executor)
-        .await?;
+        .bind(self.id)
+        .bind(self.team_id)
+        .fetch_optional(executor)
+        .await?
+        .ok_or_else(|| {
+            UnhandledError::Other("issue disappeared while recording receipt".to_string())
+        })?;
 
-        let reopened = !res.is_empty();
+        self.status = IssueStatus::from(receipt.status);
+        let reopened = !matches!(
+            IssueStatus::from(receipt.previous_status),
+            IssueStatus::Active | IssueStatus::Suppressed
+        );
+        receipts.insert((self.team_id, self.id), started_at).await;
         if reopened {
-            // DB row is now active; keep in-memory state in sync so downstream Kafka payloads
-            // (fingerprint_issue_state, internal events) are not stale.
-            self.status = IssueStatus::Active;
             metrics::counter!(ISSUE_REOPENED).increment(1);
         }
 
@@ -808,6 +860,166 @@ mod test {
         let snapshot = super::issue_snapshot(&issue);
         assert_eq!(state.issue_severity.as_deref(), Some("critical"));
         assert_eq!(snapshot.severity.as_deref(), Some("critical"));
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn receipt_refresh_uses_locked_status_and_preserves_suppression(pool: sqlx::PgPool) {
+        let receipts = super::IssueReceiptCache::new(10);
+        for status in ["active", "resolved", "suppressed"] {
+            let mut issue =
+                super::Issue::insert_new(1, "Error".into(), "Example".into(), None, &pool)
+                    .await
+                    .unwrap();
+            sqlx::query("UPDATE posthog_errortrackingissue SET status = $1, last_received_at = NULL WHERE id = $2")
+                .bind(status).bind(issue.id).execute(&pool).await.unwrap();
+
+            let reopened = issue.maybe_reopen(&pool, &receipts).await.unwrap();
+            assert_eq!(reopened, status == "resolved");
+            assert_eq!(
+                issue.status.to_string(),
+                if status == "suppressed" {
+                    "suppressed"
+                } else {
+                    "active"
+                }
+            );
+            let (recent, pending): (bool, bool) = sqlx::query_as(
+                "SELECT last_received_at >= now() - interval '1 minute', auto_resolve_sync_requested_at IS NOT NULL FROM posthog_errortrackingissue WHERE id = $1",
+            )
+            .bind(issue.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(recent);
+            assert_eq!(pending, status == "resolved");
+
+            sqlx::query("UPDATE posthog_errortrackingissue SET auto_resolve_sync_requested_at = now() - interval '1 day' WHERE id = $1")
+                .bind(issue.id).execute(&pool).await.unwrap();
+            receipts.invalidate(&(issue.team_id, issue.id)).await;
+            assert!(!issue.maybe_reopen(&pool, &receipts).await.unwrap());
+            let preserved: bool = sqlx::query_scalar(
+                "SELECT auto_resolve_sync_requested_at < now() - interval '23 hours' FROM posthog_errortrackingissue WHERE id = $1",
+            )
+            .bind(issue.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(preserved);
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn receipt_waiting_for_resolve_lock_reopens_committed_status(pool: sqlx::PgPool) {
+        let receipts = super::IssueReceiptCache::new(10);
+        let mut issue = super::Issue::insert_new(1, "Error".into(), "Example".into(), None, &pool)
+            .await
+            .unwrap();
+        let issue_id = issue.id;
+        let mut receipt_connection = pool.acquire().await.unwrap();
+        let receipt_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *receipt_connection)
+            .await
+            .unwrap();
+        let mut resolving = pool.begin().await.unwrap();
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
+            .bind(issue_id)
+            .execute(&mut *resolving)
+            .await
+            .unwrap();
+
+        let receipt = tokio::spawn(async move {
+            let reopened = issue
+                .maybe_reopen(&mut *receipt_connection, &receipts)
+                .await
+                .unwrap();
+            (issue, reopened)
+        });
+        // Confirm the receipt is waiting on the resolver's lock before it commits.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid = $1 AND NOT granted)",
+                )
+                .bind(receipt_pid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+                if waiting {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("receipt query must wait for the issue lock");
+        resolving.commit().await.unwrap();
+
+        let (issue, reopened) = receipt.await.unwrap();
+        assert!(reopened);
+        assert_eq!(issue.status, super::IssueStatus::Active);
+        let (recent, pending): (bool, bool) = sqlx::query_as(
+            "SELECT last_received_at >= now() - interval '1 minute', auto_resolve_sync_requested_at IS NOT NULL FROM posthog_errortrackingissue WHERE id = $1",
+        )
+        .bind(issue_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(recent);
+        assert!(pending);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn receipt_cache_throttles_successful_writes_and_expired_receipts_refresh(
+        pool: sqlx::PgPool,
+    ) {
+        let receipts = super::IssueReceiptCache::new(10);
+        let mut issue = super::Issue::insert_new(1, "Error".into(), "Example".into(), None, &pool)
+            .await
+            .unwrap();
+        assert!(!issue.maybe_reopen(&pool, &receipts).await.unwrap());
+        let first: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+            "SELECT last_received_at FROM posthog_errortrackingissue WHERE id = $1",
+        )
+        .bind(issue.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!issue.maybe_reopen(&pool, &receipts).await.unwrap());
+        let second: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+            "SELECT last_received_at FROM posthog_errortrackingissue WHERE id = $1",
+        )
+        .bind(issue.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(first, second);
+
+        receipts
+            .insert(
+                (issue.team_id, issue.id),
+                std::time::Instant::now() - super::ISSUE_RECEIPT_CACHE_TTL,
+            )
+            .await;
+        sqlx::query("UPDATE posthog_errortrackingissue SET last_received_at = now() - interval '2 days' WHERE id = $1")
+            .bind(issue.id).execute(&pool).await.unwrap();
+        assert!(!issue.maybe_reopen(&pool, &receipts).await.unwrap());
+        let recent: bool = sqlx::query_scalar("SELECT last_received_at >= now() - interval '1 minute' FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(issue.id).fetch_one(&pool).await.unwrap();
+        assert!(recent);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn failed_receipt_write_is_not_cached(pool: sqlx::PgPool) {
+        let receipts = super::IssueReceiptCache::new(10);
+        let mut issue = super::Issue::insert_new(1, "Error".into(), "Example".into(), None, &pool)
+            .await
+            .unwrap();
+        issue.team_id = 2;
+        assert!(issue.maybe_reopen(&pool, &receipts).await.is_err());
+        assert!(!issue.has_recent_receipt(&receipts).await);
+        issue.team_id = 1;
+        assert!(!issue.maybe_reopen(&pool, &receipts).await.unwrap());
+        assert!(issue.has_recent_receipt(&receipts).await);
     }
 
     #[tokio::test]

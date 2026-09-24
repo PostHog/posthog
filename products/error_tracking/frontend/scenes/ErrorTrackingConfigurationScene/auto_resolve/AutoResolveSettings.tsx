@@ -1,25 +1,44 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { MAX_AUTO_RESOLVE_DAYS, MIN_AUTO_RESOLVE_DAYS, autoResolveConfigLogic } from './autoResolveConfigLogic'
 
 export function AutoResolveSettings(): JSX.Element {
-    const { configLoading, configForm, configFormChanged, isConfigFormSubmitting } = useValues(autoResolveConfigLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const logic = autoResolveConfigLogic({ teamId: currentTeamId })
+    const { config, configLoading, configLoadFailed, configForm, configFormChanged, isConfigFormSubmitting } =
+        useValues(logic)
+    const { loadConfig } = useActions(logic)
 
-    if (configLoading) {
+    if (configLoading || (!config && !configLoadFailed)) {
         return <LemonSkeleton className="w-full h-10" />
     }
 
+    if (!config) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadConfig() }}>
+                Couldn't load the auto-resolve settings. Try again.
+            </LemonBanner>
+        )
+    }
+
     return (
-        <Form logic={autoResolveConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
+        <Form
+            logic={autoResolveConfigLogic}
+            props={{ teamId: currentTeamId }}
+            formKey="configForm"
+            enableFormOnSubmit
+            className="space-y-4"
+        >
             <p className="text-muted-foreground">
                 Resolve active issues that stop receiving exceptions. If the error happens again, the issue reopens on
                 its own.
@@ -58,6 +77,7 @@ export function AutoResolveSettings(): JSX.Element {
                 <LemonButton
                     type="primary"
                     htmlType="submit"
+                    data-attr="error-tracking-auto-resolve-save"
                     disabledReason={
                         errorTrackingEditAccessDisabledReason() ??
                         (!configFormChanged ? 'No changes to save' : undefined)

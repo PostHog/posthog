@@ -1,5 +1,6 @@
 import time
 from collections.abc import Sequence
+from datetime import timedelta
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -8,12 +9,14 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.functions import Now
 from django.utils import timezone
 
 import structlog
 from rest_framework.exceptions import ValidationError
 
-from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
@@ -55,6 +58,11 @@ class ErrorTrackingIssueMergeResult(StrEnum):
     STALE_FINGERPRINTS = "stale_fingerprints"
 
 
+# Cymbal caches successful receipt writes for at most this long. Wait out that
+# interval so the full inactivity period also covers receipts served by the cache.
+AUTO_RESOLVE_RECEIPT_GRACE_PERIOD = timedelta(seconds=60)
+
+
 class ErrorTrackingIssue(UUIDTModel):
     class Status(models.TextChoices):
         ARCHIVED = "archived", "Archived"
@@ -72,6 +80,10 @@ class ErrorTrackingIssue(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     state_updated_at = models.DateTimeField(null=True, blank=True)
+    # A server-time watermark, independent of client event timestamps. The DB
+    # default gives existing issues a full inactivity window after rollout.
+    last_received_at = models.DateTimeField(null=True, blank=True, db_default=Now())
+    auto_resolve_sync_requested_at = models.DateTimeField(null=True, blank=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     severity = models.TextField(choices=Severity, null=True, default=None)
     name = models.TextField(null=True, blank=True)
@@ -86,7 +98,12 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            models.Index(
+                fields=["team", "id"],
+                name="et_issue_pending_sync_idx",
+                condition=models.Q(auto_resolve_sync_requested_at__isnull=False),
+            ),
         ]
 
     def merge(
@@ -746,7 +763,7 @@ def _clickhouse_status(issue_status: str) -> str:
     return issue_status
 
 
-def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
+def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int, wait_for_delivery: bool = False) -> None:
     if not issue_ids:
         return
 
@@ -757,6 +774,12 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
     fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(issue_id__in=issue_ids, team_id=team_id)
 
     producer = ClickhouseProducer()
+    acknowledged_producer = (
+        get_producer(topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE)
+        if wait_for_delivery and not settings.TEST
+        else None
+    )
+    delivery_results: list[ProduceResult] = []
     version = int(
         time.time() * 1000
     )  # ReplacingMergeTree version — match rust/cymbal FingerprintIssueState::new (Utc::now().timestamp_millis())
@@ -777,24 +800,35 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
 
         first_seen_raw = fp.first_seen or issue.created_at
         first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
-        producer.produce(
-            sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
-            topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
-            data={
-                "fingerprint": fp.fingerprint,
-                "issue_id": str(issue.id),
-                "team_id": team_id,
-                "issue_name": issue.name,
-                "issue_description": issue.description,
-                "issue_status": _clickhouse_status(issue.status),
-                "issue_severity": issue.severity,
-                "assigned_user_id": assigned_user_id,
-                "assigned_role_id": assigned_role_id,
-                "first_seen": first_seen,
-                "is_deleted": 0,
-                "version": version,
-            },
-        )
+        data = {
+            "fingerprint": fp.fingerprint,
+            "issue_id": str(issue.id),
+            "team_id": team_id,
+            "issue_name": issue.name,
+            "issue_description": issue.description,
+            "issue_status": _clickhouse_status(issue.status),
+            "issue_severity": issue.severity,
+            "assigned_user_id": assigned_user_id,
+            "assigned_role_id": assigned_role_id,
+            "first_seen": first_seen,
+            "is_deleted": 0,
+            "version": version,
+        }
+        if acknowledged_producer is not None:
+            delivery_results.append(
+                acknowledged_producer.produce(topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE, data=data)
+            )
+        else:
+            producer.produce(
+                sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+                topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+                data=data,
+            )
+
+    if acknowledged_producer is not None:
+        acknowledged_producer.flush(timeout=30)
+        for result in delivery_results:
+            result.get(timeout=0)
 
 
 def delete_symbol_set_contents(upload_path: str) -> None:

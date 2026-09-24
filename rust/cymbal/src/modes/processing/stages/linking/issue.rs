@@ -98,13 +98,31 @@ impl IssueLinker {
         // and `maybe_reopen` never see stale state.
         let input_for_load = input.clone();
         let ctx_for_load = ctx.clone();
-        let issue: Issue = ctx
+        let mut issue: Issue = ctx
             .batch_issue_cache
             .try_get_with(key, async move {
                 resolve_via_id_cache(input_for_load, &ctx_for_load).await
             })
             .await
             .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+
+        // A long-running batch must not let its Issue cache bypass receipt expiry.
+        if !issue
+            .has_recent_receipt(&ctx.app_context.issue_receipt_cache)
+            .await
+        {
+            issue = load_and_maybe_reopen(
+                ctx.app_context.as_ref(),
+                input.team_id(),
+                issue.id,
+                input.fingerprint().value(),
+                &input,
+            )
+            .await?
+            .ok_or_else(|| {
+                UnhandledError::Other("issue disappeared while linking occurrence".to_string())
+            })?;
+        }
 
         // The only `Arc` clones were captured by this call's loader closures, which have
         // all completed (or been dropped when moka deduped them), so we uniquely own the
@@ -190,7 +208,10 @@ async fn load_and_maybe_reopen(
         return Ok(None);
     };
 
-    if !issue.maybe_reopen(&mut *conn).await? {
+    if !issue
+        .maybe_reopen(&mut *conn, &context.issue_receipt_cache)
+        .await?
+    {
         return Ok(Some(issue));
     }
 
@@ -248,7 +269,10 @@ async fn resolve_issue(
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {
         let (mut issue, fingerprint_first_seen) = result.into_issue();
-        if issue.maybe_reopen(&mut *conn).await? {
+        if issue
+            .maybe_reopen(&mut *conn, &context.issue_receipt_cache)
+            .await?
+        {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment = process_event_assignment(
                 &mut conn,
@@ -329,7 +353,10 @@ async fn resolve_issue(
         }
 
         // Since we just loaded an issue, check if it needs to be reopened
-        if issue.maybe_reopen(&mut *conn).await? {
+        if issue
+            .maybe_reopen(&mut *conn, &context.issue_receipt_cache)
+            .await?
+        {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment = process_event_assignment(
                 &mut conn,
