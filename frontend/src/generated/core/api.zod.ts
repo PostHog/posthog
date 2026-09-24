@@ -1421,6 +1421,29 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries a token.
+ * @summary Connect a ChatGPT account for Codex cloud tasks
+ */
+export const UsersIntegrationsCodexCreateBody = /* @__PURE__ */ zod.object({
+    tokens: zod
+        .object({
+            access_token: zod
+                .string()
+                .describe('The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`.'),
+            refresh_token: zod.string().describe('The single-use ChatGPT refresh token from the same `tokens` object.'),
+            id_token: zod
+                .string()
+                .nullish()
+                .describe(
+                    'The OpenID id token from the same `tokens` object, when present. Used to read the account email.'
+                ),
+        })
+        .describe(
+            'The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on.'
+        ),
+})
+
+/**
  * Seed personal GitHub manage callback state before opening installation settings on GitHub.
  */
 export const UsersIntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.object({
