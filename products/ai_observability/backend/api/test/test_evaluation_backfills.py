@@ -587,7 +587,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         ]
     )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_every_action_is_off_while_the_flag_is_off(self, _case, method, path, payload, mock_capture):
+    def test_every_action_is_off_while_the_flag_is_off(self, action, method, path, payload, mock_capture):
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
             response = getattr(self.client, method)(f"{self.url}{path}", payload, format="json")
 
@@ -602,7 +602,15 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             for call in mock_capture.call_args_list
             if call.kwargs.get("event") == "evaluation backfill refused"
         ]
-        assert [properties["reason"] for properties in refusals] == ["feature_flag_required"]
+        assert [(one["action"], one["reason"]) for one in refusals] == [(action, "feature_flag_required")]
+
+    @patch("posthog.event_usage.posthoganalytics.capture", side_effect=Exception("analytics is down"))
+    def test_refusal_holds_when_the_report_fails(self, _mock_capture):
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            response = self.client.get(f"{self.url}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["detail"] == BACKFILL_LIMITED_RELEASE_MESSAGE
 
     def test_list_is_scoped_to_evaluation_and_team(self):
         mine = self._running_backfill()

@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Protocol, cast
+from typing import Any, NoReturn, Protocol, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -279,21 +279,28 @@ class EvaluationBackfillViewSet(
             PostHogFeatureFlagPermission(),
         ]
 
-    def permission_denied(self, request: Request, message: str | None = None, code: str | None = None) -> None:
+    def permission_denied(self, request: Request, message: str | None = None, code: str | None = None) -> NoReturn:
         if code == FEATURE_FLAG_REQUIRED_ERROR_CODE:
-            try:
-                team = self.team
-            except (ValueError, KeyError, AttributeError):
-                team = None
-            # Nothing else reports a refusal, so the reach for backfills has no other measure.
+            self._report_refusal(request)
+            message = BACKFILL_LIMITED_RELEASE_MESSAGE
+        super().permission_denied(request, message=message, code=code)
+
+    def _report_refusal(self, request: Request) -> None:
+        """Count the reach for backfills, which nothing else measures."""
+        try:
+            team = self.team
+        except (ValueError, KeyError, AttributeError):
+            team = None
+        try:
             report_user_action(
                 cast(User, request.user),
                 "evaluation backfill refused",
-                {"action": self.action, "reason": code},
+                {"action": self.action, "reason": FEATURE_FLAG_REQUIRED_ERROR_CODE},
                 team=team,
             )
-            message = BACKFILL_LIMITED_RELEASE_MESSAGE
-        super().permission_denied(request, message=message, code=code)
+        except Exception as error:
+            # The caller is owed the 403 and its message, so a failed report stays a log line.
+            logger.warning("llma.evaluation_backfill_refusal_report_failed", error=str(error))
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Append, never replace: returning only these throttles would drop the global burst and
