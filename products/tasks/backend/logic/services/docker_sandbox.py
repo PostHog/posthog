@@ -1315,7 +1315,7 @@ def _base_image_source_sha(dockerfile_path: str) -> str:
     digest = hashlib.sha256()
     for path in [
         Path(dockerfile_path),
-        *sorted(Path(settings.BASE_DIR, "products/desktop/packages/agent-shadow").rglob("*")),
+        *sorted(Path(settings.BASE_DIR, "packages/agent/agent-shadow").rglob("*")),
     ]:
         if path.is_file():
             digest.update(path.read_bytes())

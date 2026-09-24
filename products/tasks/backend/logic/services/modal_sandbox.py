@@ -357,7 +357,7 @@ LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_pac
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 # The base image builds the agent-shadow observer from source in its first stage.
-LOCAL_MODAL_AGENT_SHADOW_DIR = Path("products/desktop/packages/agent-shadow")
+LOCAL_MODAL_AGENT_SHADOW_DIR = Path("packages/agent/agent-shadow")
 
 
 # One entry per registry-backed template, so a worker serving every template evicts nothing.
