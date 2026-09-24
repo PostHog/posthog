@@ -587,8 +587,8 @@ def _literal_json_path_value(document: object, path: list[str | int]) -> object:
     for component in path:
         if isinstance(current, dict) and isinstance(component, str) and component in current:
             current = current[component]
-        elif isinstance(current, list) and isinstance(component, int) and 0 <= component < len(current):
-            current = current[component]
+        elif isinstance(current, list) and isinstance(component, int) and 0 < component <= len(current):
+            current = current[component - 1]
         else:
             return _JSON_PATH_MISSING
     return current

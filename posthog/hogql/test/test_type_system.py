@@ -1290,7 +1290,7 @@ class TestHogQLTypeSystem:
             resolve_types(
                 self._select(
                     "SELECT "
-                    "JSONExtractString('{\"users\": [{\"name\": \"Ada\"}]}', 'users', 0, 'name') AS name, "
+                    "JSONExtractString('{\"users\": [{\"name\": \"Ada\"}]}', 'users', 1, 'name') AS name, "
                     "JSONExtractInt('{\"count\": 2}', 'count') AS count, "
                     "JSONExtractFloat('{\"score\": 2}', 'score') AS score, "
                     "JSONExtractBool('{\"active\": true}', 'active') AS active, "
