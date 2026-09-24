@@ -68,7 +68,15 @@ export function parseScoutStructuredOutputSchema(text: string): ScoutStructuredO
     if (parsed.type !== 'object') {
         return { schema: null, error: 'The schema must set "type": "object" at its root.' }
     }
-    if (apiSerializedByteLength(parsed) > SCOUT_STRUCTURED_OUTPUT_SCHEMA_MAX_BYTES) {
+    let bytes: number
+    try {
+        bytes = apiSerializedByteLength(parsed)
+    } catch {
+        // JSON.parse reads nesting deeper than JSON.stringify can write, and the RangeError it
+        // throws would crash the settings form during render.
+        return { schema: null, error: 'The schema is nested too deeply. Use fewer nested levels.' }
+    }
+    if (bytes > SCOUT_STRUCTURED_OUTPUT_SCHEMA_MAX_BYTES) {
         return {
             schema: null,
             error: `The schema is over the ${SCOUT_STRUCTURED_OUTPUT_SCHEMA_MAX_BYTES} byte limit. Describe fewer fields.`,
