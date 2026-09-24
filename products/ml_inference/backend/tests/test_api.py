@@ -33,4 +33,6 @@ class TestDecideFacade:
     def test_unchecked_path_skips_enrollment(self, _enabled, decide) -> None:
         decide.return_value = DecisionResult(model="jevk5-0.2", answers={}, input_tokens=1)
 
-        assert api.decide_unchecked(_request()).model == "jevk5-0.2"
+        request = _request()
+        assert api.decide_unchecked(request, timeout_seconds=3.0).model == "jevk5-0.2"
+        decide.assert_called_once_with(request, timeout_seconds=3.0)

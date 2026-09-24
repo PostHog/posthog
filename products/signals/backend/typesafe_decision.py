@@ -1,8 +1,9 @@
+import math
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import perf_counter
-from typing import Generic, Literal, TypeVar
+from typing import Generic, Literal, TypedDict, TypeVar
 
 import structlog
 import posthoganalytics
@@ -10,13 +11,17 @@ from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.typesafe_client import TypesafeClient, TypesafeResult, get_typesafe_client
+from products.ml_inference.backend.facade import api as decision_api
+from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest, NoulAnswer
+from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
 logger = structlog.get_logger(__name__)
 
 MODEL_MODE_FLAG = "signals-typesafe-mode"
 ModelMode = Literal["traditional-only", "typesafe-shadow", "traditional-shadow", "typesafe-only"]
-TYPESAFE_DIRECT_INPUT_USD_PER_MILLION = 0.042
+JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+JEV_INPUT_USD_PER_MILLION = 0.042
+JEV_TIMEOUT_SECONDS = 3.0
 
 ACTIONABILITY_THRESHOLD = 0.95
 SIGNAL_SAFETY_THRESHOLD = 0.90
@@ -48,12 +53,12 @@ _LATENCY = Histogram(
 )
 _INPUT_TOKENS = Counter(
     "signals_typesafe_decision_input_tokens",
-    "TypeSafe input tokens reported by Cloudflare.",
+    "Jev input tokens reported by the AI Gateway.",
     ["stage"],
 )
-_DIRECT_LIST_COST = Counter(
-    "signals_typesafe_decision_direct_list_cost_usd",
-    "TypeSafe input-token cost at TypeSafe's direct list price, not Cloudflare billing.",
+_ESTIMATED_COST = Counter(
+    "signals_typesafe_decision_estimated_cost_usd",
+    "Jev input-token cost at the AI Gateway catalog price.",
     ["stage"],
 )
 
@@ -70,6 +75,14 @@ class _ModelCallResult(Generic[T]):
 
 class TypesafeDecisionError(RuntimeError):
     pass
+
+
+class TypesafeResult(TypedDict):
+    probability: float
+    model: str
+    input_tokens: int
+    category: str | None
+    category_confidence: float | None
 
 
 async def _mode(team_id: int) -> ModelMode:
@@ -94,24 +107,54 @@ async def _mode(team_id: int) -> ModelMode:
     return "traditional-only"
 
 
-async def _query(
-    stage: str, state: dict[str, object], instructions: str, client: TypesafeClient | None = None
-) -> TypesafeResult:
-    question = "actionable" if stage == "actionability" else "safe"
-    questions: dict[str, object] = {question: {"type": "noul", "instructions": instructions}}
+async def _query(team_id: int, stage: str, state: dict[str, object], instructions: str) -> TypesafeResult:
+    question_name = "actionable" if stage == "actionability" else "safe"
+    questions = {
+        question_name: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions),
+    }
     if stage != "actionability":
-        questions["category"] = {
-            "type": "choice",
-            "instructions": "Which safety category best describes the content? Choose none when no category applies.",
-            "criteria": SAFETY_CATEGORIES,
-        }
-    resolved_client = client or get_typesafe_client()
-    if resolved_client is None:
-        raise RuntimeError("TypeSafe client is not configured")
-    result = await resolved_client.query(state=state, questions=questions)
-    if result["category"] is not None and result["category"] not in SAFETY_CATEGORIES:
+        questions["category"] = DecisionQuestion(
+            type=DecisionQuestionType.CHOICE,
+            instructions="Which safety category best describes the content? Choose none when no category applies.",
+            criteria=SAFETY_CATEGORIES,
+        )
+    result = await asyncio.to_thread(
+        decision_api.decide_unchecked,
+        DecisionRequest(
+            team_id=team_id,
+            state=state,
+            questions=questions,
+            model=JEV_MODEL,
+            ai_product="signals",
+        ),
+        timeout_seconds=JEV_TIMEOUT_SECONDS,
+    )
+    answer = result.answers.get(question_name)
+    if not isinstance(answer, NoulAnswer):
+        raise ValueError("Jev returned an invalid yes/no answer")
+    if not math.isfinite(answer.probability) or not 0 <= answer.probability <= 1:
+        raise ValueError("Jev returned an invalid probability")
+    category = None
+    category_confidence = None
+    if stage != "actionability":
+        category_answer = result.answers.get("category")
+        if not isinstance(category_answer, ChoiceAnswer):
+            raise ValueError("Jev returned an invalid safety category")
+        category = category_answer.choice
+        category_confidence = category_answer.confidence
+    if category is not None and category not in SAFETY_CATEGORIES:
         raise ValueError("TypeSafe returned an unknown safety category")
-    return result
+    if category_confidence is not None and (
+        not math.isfinite(category_confidence) or not 0 <= category_confidence <= 1
+    ):
+        raise ValueError("Jev returned an invalid safety category confidence")
+    return {
+        "probability": answer.probability,
+        "model": result.model,
+        "input_tokens": result.input_tokens,
+        "category": category,
+        "category_confidence": category_confidence,
+    }
 
 
 async def run_model_decision(
@@ -129,8 +172,9 @@ async def run_model_decision(
     typesafe_result: Callable[[bool, str | None], T],
     traditional_category: Callable[[T], str | None] | None = None,
 ) -> T:
-    typesafe_client = get_typesafe_client()
-    mode = await _mode(team_id) if team_id is not None and typesafe_client is not None else "traditional-only"
+    if team_id is None:
+        return await traditional()
+    mode = await _mode(team_id)
     if mode == "traditional-only":
         return await traditional()
 
@@ -148,7 +192,7 @@ async def run_model_decision(
     async def run_typesafe() -> _ModelCallResult[TypesafeResult]:
         started = perf_counter()
         try:
-            result = await _query(stage, state, instructions, typesafe_client)
+            result = await _query(team_id, stage, state, instructions)
             return _ModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except Exception as error:
             logger.warning("TypeSafe call failed", stage=stage, error_type=type(error).__name__)
@@ -242,9 +286,9 @@ async def run_model_decision(
         }
         if typesafe is not None:
             disagreement = traditional_verdict != typesafe_verdict if traditional_verdict is not None else None
-            estimated_cost = typesafe["input_tokens"] * TYPESAFE_DIRECT_INPUT_USD_PER_MILLION / 1_000_000
+            estimated_cost = typesafe["input_tokens"] * JEV_INPUT_USD_PER_MILLION / 1_000_000
             _INPUT_TOKENS.labels(stage).inc(typesafe["input_tokens"])
-            _DIRECT_LIST_COST.labels(stage).inc(estimated_cost)
+            _ESTIMATED_COST.labels(stage).inc(estimated_cost)
             if disagreement:
                 _DISAGREEMENTS.labels(stage, str(traditional_verdict).lower(), str(typesafe_verdict).lower()).inc()
             properties.update(
@@ -261,8 +305,7 @@ async def run_model_decision(
                         else None
                     ),
                     "typesafe_input_tokens": typesafe["input_tokens"],
-                    "typesafe_output_tokens": typesafe["output_tokens"],
-                    "typesafe_direct_list_cost_usd": estimated_cost,
+                    "typesafe_estimated_cost_usd": estimated_cost,
                 }
             )
         posthoganalytics.capture(

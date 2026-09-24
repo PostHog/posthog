@@ -59,9 +59,10 @@ class DecisionQuestion:
 @dataclass(frozen=True)
 class DecisionRequest:
     team_id: int
-    state: str
+    state: str | dict[str, object]
     questions: dict[str, DecisionQuestion]
     model: str = DEFAULT_DECISION_MODEL
+    ai_product: str = "ml_inference"
 
     def __post_init__(self) -> None:
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:
