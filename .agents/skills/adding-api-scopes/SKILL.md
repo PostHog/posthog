@@ -37,8 +37,6 @@ The groups make a long list readable, so a person can find a product quickly.
 - Add a new group only when it gets two or more objects. A group with one object makes the list longer, not easier to read.
 - Internal and OAuth-hidden objects go in "Internal tools". The pickers do not show these objects, so a person never sees this group. Do not put a public object there, because it would show under the "Internal tools" label.
 
-If `API_SCOPE_GROUPS` does not exist yet, skip this step.
-
 ## Where the object must appear
 
 - `posthog/scopes.py`: the `APIScopeObject` literal, the lists you chose above, and one group.
@@ -52,7 +50,7 @@ If `API_SCOPE_GROUPS` does not exist yet, skip this step.
 These tests catch most omissions:
 
 - `frontend/src/lib/scopes.test.ts`: an object with no picker row and no reason, or an internal object in the picker.
-- `posthog/test/test_scopes.py`: the project secret API key lists, and an object in no group or in two groups when groups exist.
+- `posthog/test/test_scopes.py`: an object in no group or in two groups, and the project secret API key lists.
 - `services/mcp/tests/unit/tool-filtering.test.ts`: an MCP tool that needs a scope OAuth does not list.
 
 No test catches a custom action without `required_scopes`, a read scope on a write action, or a wrong group or label.
