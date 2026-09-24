@@ -105,9 +105,14 @@ def _write_tree(root: Path, policy_files: Mapping[str, str]) -> None:
             (root / subdir / name).write_text(content)
 
 
+# What the interpreter itself needs to start, and nothing the engine could read as input. A Python
+# built with a shared libpython (setup-python, some base images) exits 127 without LD_LIBRARY_PATH.
+_INHERITED_ENVIRONMENT = ("PATH", "LD_LIBRARY_PATH", "HOME", "LANG", "LC_ALL", "TMPDIR")
+
+
 def _child_environment(root: Path, extra: Mapping[str, str]) -> dict[str, str]:
     return {
-        "PATH": os.environ.get("PATH", ""),
+        **{name: os.environ[name] for name in _INHERITED_ENVIRONMENT if name in os.environ},
         # The engine asks git for the policy commit when it renders the review body. The tree is not a
         # repository, and this stops git from walking up into one that encloses the temp dir.
         "GIT_CEILING_DIRECTORIES": str(root.parent),

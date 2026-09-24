@@ -14,6 +14,7 @@ import asyncio
 
 import temporalio.workflow
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import describe_failure
@@ -88,13 +89,18 @@ class StamphogReviewWorkflow(PostHogWorkflow):
             # replay like the eyes reaction above.
             refused_on_pre_gates = False
             if workflow.patched("stamphog-pre-gates"):
-                pre_gates = await workflow.execute_activity(
-                    refuse_on_pre_gates,
-                    input,
-                    start_to_close_timeout=PRE_GATES_TIMEOUT,
-                    retry_policy=ACTIVITY_RETRY_POLICY,
-                )
-                refused_on_pre_gates = bool(pre_gates["refused"])
+                try:
+                    pre_gates = await workflow.execute_activity(
+                        refuse_on_pre_gates,
+                        input,
+                        start_to_close_timeout=PRE_GATES_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                    refused_on_pre_gates = bool(pre_gates["refused"])
+                except ActivityError:
+                    # The pre-check is only a shortcut. A timeout or a lost worker falls through to
+                    # the full review rather than failing the run.
+                    workflow.logger.warning(f"stamphog pre-gates failed for run {input.review_run_id}")
 
             if not refused_on_pre_gates:
                 # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before provisioning: the

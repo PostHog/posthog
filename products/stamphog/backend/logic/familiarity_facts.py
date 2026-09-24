@@ -119,21 +119,26 @@ def base_side_lines(patch: str) -> list[int]:
     return lines
 
 
-def _history_paths(considered: list[dict]) -> tuple[list[str], list[str]]:
-    """(directory pathspecs, file paths) for the history queries.
+def _history_directories(considered: list[dict]) -> list[str]:
+    """Directory pathspecs for the prior-PR history queries.
 
-    Mirrors the engine: prior PRs are counted over the parent directory of each changed file (a
-    root-level file stands for itself), and previously modified files match either path of a
-    rename.
+    Mirrors the engine: prior PRs are counted over the parent directory of each changed file, and a
+    root-level file stands for itself.
     """
     directories: set[str] = set()
-    file_paths: set[str] = set()
     for entry in considered:
         filename = entry.get("filename") or ""
         parent = str(PurePosixPath(filename).parent)
         directories.add(filename if parent == "." else parent)
-        file_paths.update(path for path in (filename, entry.get("previous_filename")) if path)
-    return sorted(directories), sorted(file_paths)
+    return sorted(directories)
+
+
+def _history_file_paths(considered: list[dict]) -> list[str]:
+    """File paths for the previously-modified history queries, both paths of a rename included."""
+    file_paths: set[str] = set()
+    for entry in considered:
+        file_paths.update(path for path in (entry.get("filename"), entry.get("previous_filename")) if path)
+    return sorted(file_paths)
 
 
 def _commit_fact(node: dict) -> tuple[str, dict] | None:
@@ -216,7 +221,8 @@ class FamiliarityFactsCollector:
             if lines:
                 blame_targets[entry.get("previous_filename") or entry["filename"]] = lines
 
-        directories, file_paths = _history_paths(considered)
+        directories = _history_directories(considered)
+        file_paths = _history_file_paths(considered)
         since = (datetime.now(UTC) - _HISTORY_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
         history_jobs: list[tuple[list[str], int]] = [
             (chunk, first)

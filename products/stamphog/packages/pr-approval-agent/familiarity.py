@@ -572,9 +572,7 @@ def _prior_prs_from_facts(facts: dict, identity: _AuthorIdentity, now: float) ->
     return len(prs_recent), days_since
 
 
-def _files_previously_modified_from_facts(
-    considered: list[_FileDiff], facts: dict, identity: _AuthorIdentity
-) -> tuple[int, int]:
+def _files_previously_modified_from_facts(considered: list[_FileDiff], facts: dict, identity: _AuthorIdentity) -> int:
     """_files_previously_modified over the server's per-file history, matched on old and new path."""
     commits = facts.get("commits") or {}
     file_history = facts.get("file_history") or {}
@@ -583,8 +581,7 @@ def _files_previously_modified_from_facts(
         for path, oids in file_history.items()
         if any(oid in commits and identity.owns(commits[oid]) for oid in oids)
     }
-    owned_count = sum(1 for f in considered if (f.old_path in touched) or (f.new_path in touched))
-    return owned_count, len(considered)
+    return sum(1 for f in considered if (f.old_path in touched) or (f.new_path in touched))
 
 
 # ── Orchestration ────────────────────────────────────────────────
@@ -675,7 +672,8 @@ def familiarity_from_facts(
     overlap = _blame_overlap_from_facts(considered, facts, identity)
     blame_overlap_pct = (100.0 * overlap.owned_lines / overlap.total_lines) if overlap.total_lines else 0.0
     prior_prs, days_since = _prior_prs_from_facts(facts, identity, now)
-    files_prev_count, files_total = _files_previously_modified_from_facts(considered, facts, identity)
+    files_prev_count = _files_previously_modified_from_facts(considered, facts, identity)
+    files_total = len(considered)
     band = _band(blame_overlap_pct, prior_prs, days_since, thresholds)
 
     return AuthorFamiliarity(

@@ -637,12 +637,15 @@ def _build_stamphog_review_template_image() -> modal.Image:
     # header-only script fills the same cache entries the real engine resolves against. PyPI
     # stays on the review egress allowlist, so a pin that drifted past this image still installs.
     header = _pep723_script_header(Path(settings.STAMPHOG_REVIEW_ENGINE_SCRIPT))
+    # Modal turns each command into one Dockerfile RUN line, so the multi-line header travels as
+    # base64 on a single line.
+    encoded_header = base64.b64encode(header.encode()).decode()
     warm_script = "/opt/stamphog-review-deps.py"
     return (
         _build_slim_template_image()
         .env({"UV_CACHE_DIR": SANDBOX_STAMPHOG_UV_CACHE_DIR})
         .run_commands(
-            f"printf %s {shlex.quote(header)} > {warm_script}",
+            f"echo {encoded_header} | base64 -d > {warm_script}",
             f"uv sync --no-config --script {warm_script}",
         )
     )

@@ -134,7 +134,11 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
         _run_activity(dismiss_stale_approvals, inp)
         _run_activity(signal_review_started, inp)
         _run_activity(fetch_review_context, inp)
-        if not _run_activity(refuse_on_pre_gates, inp)["refused"]:
+        try:
+            refused = _run_activity(refuse_on_pre_gates, inp)["refused"]
+        except Exception:  # noqa: BLE001 — the workflow falls through when the pre-gates activity fails
+            refused = False
+        if not refused:
             # One bot-wait poll, no sleeping: mirrors the workflow's loop semantics (refresh the
             # reactions snapshot, then proceed) without its durable timers.
             _run_activity(list_in_flight_reviewer_bots, inp)
