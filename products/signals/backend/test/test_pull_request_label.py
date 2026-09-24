@@ -73,12 +73,6 @@ class TestConfiguredPullRequestLabel:
 
         assert configured_pull_request_label(team.id) == DEFAULT_PULL_REQUEST_LABEL
 
-    @pytest.mark.django_db
-    def test_a_team_that_never_touched_the_setting_gets_the_default_label(self, org_and_team):
-        _, team = org_and_team
-
-        assert configured_pull_request_label(team.id) == DEFAULT_PULL_REQUEST_LABEL
-
 
 class TestApplyPullRequestLabel:
     @pytest.mark.django_db

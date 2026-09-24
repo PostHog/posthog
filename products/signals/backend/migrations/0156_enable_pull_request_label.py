@@ -7,8 +7,6 @@ def enable_pull_request_label(apps, schema_editor):
     The switch shipped opt-in about a day before this migration, so a `false` today means the team
     never opened the settings page rather than that it declined. A `false` written after this runs
     is a real refusal, and no later migration touches it.
-
-    One UPDATE: the table holds one row per team, and the column carries no index.
     """
     SignalTeamConfig = apps.get_model("signals", "SignalTeamConfig")
     SignalTeamConfig.objects.filter(pull_request_label_enabled=False).update(pull_request_label_enabled=True)
