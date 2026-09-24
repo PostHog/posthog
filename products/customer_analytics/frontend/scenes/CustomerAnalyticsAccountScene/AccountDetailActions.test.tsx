@@ -24,7 +24,6 @@ describe('AccountDetailActions', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true,
-            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TAB_CONFIGURATION]: true,
         })
     })
     afterEach(cleanup)

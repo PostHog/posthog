@@ -107,7 +107,6 @@ const meta: Meta = {
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS,
-            FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TAB_CONFIGURATION,
         ],
         pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID),
         testOptions: {

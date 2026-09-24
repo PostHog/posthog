@@ -18,36 +18,31 @@ export function AccountDetailActions({ projectId }: AccountDetailActionsProps): 
     const { accountDetailTabs } = useValues(logic)
     const { openConfigure, openCreateEditor } = useActions(logic)
     const accountViewsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]
-    const tabConfigurationEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TAB_CONFIGURATION]
 
-    if (!accountViewsEnabled && !tabConfigurationEnabled) {
+    if (!accountViewsEnabled) {
         return null
     }
 
     return (
         <>
-            {tabConfigurationEnabled ? (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconGear />}
-                    data-attr="account-detail-configure-tabs"
-                    onClick={() => openConfigure(accountDetailTabs)}
-                >
-                    Configure tabs
-                </LemonButton>
-            ) : null}
-            {accountViewsEnabled ? (
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlus />}
-                    data-attr="account-detail-add-view"
-                    onClick={openCreateEditor}
-                >
-                    Add view
-                </LemonButton>
-            ) : null}
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconGear />}
+                data-attr="account-detail-configure-tabs"
+                onClick={() => openConfigure(accountDetailTabs)}
+            >
+                Configure tabs
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlus />}
+                data-attr="account-detail-add-view"
+                onClick={openCreateEditor}
+            >
+                Add view
+            </LemonButton>
         </>
     )
 }

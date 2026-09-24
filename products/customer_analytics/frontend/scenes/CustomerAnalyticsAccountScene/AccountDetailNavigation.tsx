@@ -44,7 +44,6 @@ export function AccountDetailNavigation({
     const { views, accountDetailTabs, viewsError, viewsLoading } = useValues(logic)
     const { openEditEditor, openConfigure, loadViews } = useActions(logic)
     const accountViewsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]
-    const tabConfigurationEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TAB_CONFIGURATION]
     const tabs = listAccountTabs(featureFlags, accountViewsEnabled ? views : [])
     const requestedTabIdFromRoute = requestedTab ? getAccountTabIdFromRoute(requestedTab) : undefined
     const requestedTabId =
@@ -114,7 +113,7 @@ export function AccountDetailNavigation({
                         externalId,
                         accountDetailTabs,
                         loadingViewId: loadingView ? activeTabId : undefined,
-                        openConfigure: tabConfigurationEnabled ? openConfigure : undefined,
+                        openConfigure: accountViewsEnabled ? openConfigure : undefined,
                     }),
                 }))}
             />
