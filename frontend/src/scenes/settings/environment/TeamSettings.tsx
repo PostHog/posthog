@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
@@ -14,58 +13,34 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { isProjectNameTaken } from 'scenes/project/isProjectNameTaken'
-import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BusinessModelConfig } from './BusinessModelConfig'
+import { NAME_TAKEN_REASON, teamDisplayNameLogic } from './teamDisplayNameLogic'
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
 
-const NAME_TAKEN_REASON = 'There is already a project with this name in this organization. Choose a different name.'
-
 export function TeamDisplayName(): JSX.Element {
     const { currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentProject } = useValues(projectLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    // The field follows the stored name until the user edits it, so a project that resolves after
-    // the first render, or a rename made elsewhere, does not leave a stale value on screen.
-    const [editedName, setEditedName] = useState<string | null>(null)
-    const name = editedName ?? currentProject?.name ?? ''
+    const { name, nameTaken, renameDisabledReason } = useValues(teamDisplayNameLogic)
+    const { setDraftName, submitRename } = useActions(teamDisplayNameLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    // A rename patches the project, so the uniqueness rule applies to the project's name. That can
-    // differ from the environment's name, which is what `teamLogic` holds.
-    const trimmedName = name.trim()
-    const nameTaken = isProjectNameTaken(trimmedName, currentOrganization?.projects, {
-        excludeProjectId: currentProject?.id,
-        currentName: currentProject?.name,
-    })
-    const renameDisabledReason =
-        restrictedReason ||
-        (!trimmedName && 'Enter a name') ||
-        (!currentProject && 'Loading the project') ||
-        (trimmedName === currentProject?.name && "This is already the project's name") ||
-        (nameTaken && NAME_TAKEN_REASON) ||
-        null
-
     return (
         <div className="deprecated-space-y-4 max-w-160">
             <LemonField.Pure error={nameTaken ? NAME_TAKEN_REASON : undefined}>
-                <LemonInput value={name} onChange={setEditedName} disabledReason={restrictedReason} />
+                <LemonInput value={name} onChange={setDraftName} disabledReason={restrictedReason} />
             </LemonField.Pure>
             <LemonButton
                 type="primary"
-                onClick={() => updateCurrentTeam({ name: trimmedName })}
-                disabledReason={renameDisabledReason}
+                onClick={submitRename}
+                disabledReason={restrictedReason || renameDisabledReason}
                 loading={currentTeamLoading}
             >
                 Rename project

@@ -57,4 +57,16 @@ describe('<TeamDisplayName />', () => {
         expect(input).toHaveValue('My new name')
         expect(screen.getByText('Rename project').closest('button')).toHaveAttribute('aria-disabled', 'false')
     })
+
+    it('follows the stored name again once the rename lands', async () => {
+        const { container } = render(<TeamDisplayName />)
+        await userEvent.type(container.querySelector('input') as HTMLInputElement, ' edited')
+
+        act(() => {
+            teamLogic.actions.updateCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, name: 'Saved name' })
+            projectLogic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, name: 'Saved name' })
+        })
+
+        expect(container.querySelector('input')).toHaveValue('Saved name')
+    })
 })

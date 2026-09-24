@@ -671,8 +671,9 @@ export const teamLogic = kea<teamLogicType>([
                 return
             }
             // It builds its message from `detail` or `statusText`, which a request that never got a
-            // response carries neither of, so that failure also leaves nothing on screen.
-            if (apiError?.status === undefined || apiError.status === 0) {
+            // response carries neither of, so that failure also leaves nothing on screen. The
+            // `ApiError` check keeps out the plain `Error` this loader throws before it calls the API.
+            if (errorObject instanceof ApiError && (errorObject.status === undefined || errorObject.status === 0)) {
                 lemonToast.error("Couldn't save your project settings. Check your connection and try again.")
             }
         },

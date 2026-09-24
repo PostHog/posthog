@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
@@ -107,19 +107,25 @@ describe('teamLogic', () => {
 
         const abortError = Object.assign(new Error('The user aborted a request.'), { name: 'AbortError' })
 
+        const CONNECTION_MESSAGE = "Couldn't save your project settings. Check your connection and try again."
+
         it.each([
-            ['shows a message when the request got no response', new ApiError('Failed to fetch'), 1],
-            ['shows a message on a conflict', new ApiError('Conflict', 409, undefined, { detail: 'Taken' }), 1],
-            ['leaves a denied request to the global handler', new ApiError('Forbidden', 403), 0],
-            ['stays quiet when the request was cancelled', abortError, 0],
-        ])('%s', async (_, errorObject, expectedToasts) => {
+            ['a request that got no response', new NetworkError('network'), CONNECTION_MESSAGE],
+            ['a response with no status', new ApiError('Failed to fetch', 0), CONNECTION_MESSAGE],
+            ['a conflict', new ApiError('Conflict', 409, undefined, { detail: 'Taken' }), 'Taken'],
+            ['a denied request, left to the global handler', new ApiError('Forbidden', 403), null],
+            ['a cancelled request', abortError, null],
+            ['a failure raised before the request, such as an unloaded team', new Error('Not loaded'), null],
+        ])('%s', async (_, errorObject, expectedMessage) => {
             const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
 
             await expectLogic(logic, () => {
                 logic.actions.updateCurrentTeamFailure('Update failed', errorObject)
             }).toFinishAllListeners()
 
-            expect(toastError).toHaveBeenCalledTimes(expectedToasts)
+            expect(toastError.mock.calls.map(([message]) => message)).toEqual(
+                expectedMessage === null ? [] : [expectedMessage]
+            )
             toastError.mockRestore()
         })
     })
