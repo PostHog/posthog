@@ -14,7 +14,6 @@ describe('transformationsSetupLogic', () => {
     let listSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         listSpy = jest.spyOn(generatedApi, 'hogFunctionsList')
         initKeaTests()
     })

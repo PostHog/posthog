@@ -17,7 +17,6 @@ describe('destinationsSetupLogic', () => {
     let batchExportsSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         hogFunctionsSpy = jest.spyOn(generatedApi, 'hogFunctionsList')
         pluginsSpy = jest.spyOn(api, 'get')
         batchExportsSpy = jest.spyOn(api.batchExports, 'list')

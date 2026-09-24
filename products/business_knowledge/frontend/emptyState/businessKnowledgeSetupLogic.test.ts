@@ -14,7 +14,6 @@ describe('businessKnowledgeSetupLogic', () => {
     let listSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         listSpy = jest.spyOn(generatedApi, 'businessKnowledgeSourcesList')
         initKeaTests()
     })

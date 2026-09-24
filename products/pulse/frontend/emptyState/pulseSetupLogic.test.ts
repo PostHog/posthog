@@ -16,7 +16,6 @@ describe('pulseSetupLogic', () => {
     let configsSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         briefsSpy = jest.spyOn(generatedApi, 'pulseBriefsList')
         configsSpy = jest
             .spyOn(generatedApi, 'pulseBriefConfigsList')

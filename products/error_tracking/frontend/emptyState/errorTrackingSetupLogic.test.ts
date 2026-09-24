@@ -19,10 +19,6 @@ jest.mock('lib/api', () => ({
 const { ApiRequest } = require('lib/api')
 
 describe('errorTrackingSetupLogic', () => {
-    beforeEach(() => {
-        localStorage.clear()
-    })
-
     function mountWith(exists: boolean, autocaptureOptIn: boolean): void {
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,

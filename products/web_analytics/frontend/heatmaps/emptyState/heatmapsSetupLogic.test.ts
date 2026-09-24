@@ -14,7 +14,6 @@ describe('heatmapsSetupLogic', () => {
     let listSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         listSpy = jest.spyOn(api.savedHeatmaps, 'list')
         initKeaTests()
     })

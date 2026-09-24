@@ -15,7 +15,6 @@ describe('dataCatalogSetupLogic', () => {
     let listSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         listSpy = jest.spyOn(generatedApi, 'dataCatalogMetricsList')
         initKeaTests()
     })

@@ -12,7 +12,6 @@ describe('engineeringAnalyticsSetupLogic', () => {
     let sourcesSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         sourcesSpy = jest.spyOn(generatedApi, 'engineeringAnalyticsSources')
         initKeaTests()
     })

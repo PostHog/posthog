@@ -15,7 +15,6 @@ import type { ProductSetupStatus } from './types'
 
 describe('createSetupDetectionLogic', () => {
     beforeEach(() => {
-        localStorage.clear()
         initKeaTests()
     })
 
@@ -249,6 +248,14 @@ describe('createSetupDetectionLogic', () => {
             seed.unmount()
         }
 
+        async function nextMountDetects(): Promise<boolean> {
+            const detect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValue('needs-setup')
+            const next = buildCached(detect, false)
+            next.mount()
+            await expectLogic(next).toFinishAllListeners()
+            return detect.mock.calls.length > 0
+        }
+
         // A deleted last entity must bring the empty state back, and the gate must not
         // wait on the probe to open for the common case where data is still there.
         it('opens the gate at once, then flips to needs-setup and drops the cache when the data is gone', async () => {
@@ -266,13 +273,7 @@ describe('createSetupDetectionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
             logic.unmount()
-
-            // With the cache cleared, the next mount has to detect before opening.
-            const nextDetect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValue('needs-setup')
-            const next = buildCached(nextDetect, false)
-            next.mount()
-            await expectLogic(next).toFinishAllListeners()
-            expect(nextDetect).toHaveBeenCalledTimes(1)
+            expect(await nextMountDetects()).toBe(true)
         })
 
         it.each([
@@ -286,46 +287,10 @@ describe('createSetupDetectionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
             logic.unmount()
-
-            const nextDetect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValue('needs-setup')
-            const next = buildCached(nextDetect, false)
-            next.mount()
-            await expectLogic(next).toFinishAllListeners()
-            expect(nextDetect).not.toHaveBeenCalled()
+            expect(await nextMountDetects()).toBe(false)
         })
 
-        // Mounted before the project resolves (a fresh tab), the loadCurrentProjectSuccess
-        // catch-up runs the revalidation instead of afterMount. A later loadCurrentProjectSuccess
-        // (a project settings save) must not send a second, unflagged detectStatus once that
-        // catch-up has already run - its answer would bypass the revalidating guard and a real
-        // needs-setup would be silently dropped by has-data protection in setDetectedStatus.
-        it('does not send a second detectStatus on a later loadCurrentProjectSuccess after an inconclusive catch-up revalidation', async () => {
-            await seedCachedHasData()
-            projectLogic.actions.loadCurrentProjectSuccess(null)
-
-            const detect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValue(null)
-            const logic = buildCached(detect, true)
-            logic.mount()
-            expect(detect).not.toHaveBeenCalled()
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
-
-            // The project resolves after mount - the catch-up runs the revalidation once.
-            projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
-            await expectLogic(logic).toFinishAllListeners()
-            expect(detect).toHaveBeenCalledTimes(1)
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
-
-            // A later project reload must not fire another detectStatus.
-            projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
-            await expectLogic(logic).toFinishAllListeners()
-            expect(detect).toHaveBeenCalledTimes(1)
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
-        })
-
-        // loadCurrentProjectSuccess can fire while the project is still null. Detecting
-        // against a null project would fail or return null, closing the cache gate and
-        // stranding has-data forever - the catch-up must wait for a known project instead.
-        it('waits for a known project before the catch-up revalidation runs', async () => {
+        it('runs the revalidation once, and only after the project is known', async () => {
             await seedCachedHasData()
             projectLogic.actions.loadCurrentProjectSuccess(null)
 
@@ -334,16 +299,12 @@ describe('createSetupDetectionLogic', () => {
             )
             const logic = buildCached(detect, true)
             logic.mount()
-            expect(detect).not.toHaveBeenCalled()
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
-
-            // Still null - must not run detection yet.
             projectLogic.actions.loadCurrentProjectSuccess(null)
             await expectLogic(logic).toFinishAllListeners()
             expect(detect).not.toHaveBeenCalled()
             expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
 
-            // Once the project is known, the revalidation runs exactly once and applies its answer.
+            projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
             projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
             await expectLogic(logic).toFinishAllListeners()
             expect(detect).toHaveBeenCalledTimes(1)

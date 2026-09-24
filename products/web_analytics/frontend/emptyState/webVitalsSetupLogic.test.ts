@@ -15,10 +15,6 @@ import { webVitalsSetupLogic } from './webVitalsSetupLogic'
 jest.mock('products/event_definitions/frontend/generated/api', () => ({ eventDefinitionsList: jest.fn() }))
 
 describe('webVitalsSetupLogic', () => {
-    beforeEach(() => {
-        localStorage.clear()
-    })
-
     // Guards the three-state mapping the web vitals gate hangs off: dropping the
     // opt-in branch would show "enable autocapture" to already-enabled projects,
     // and existing vitals must outrank the toggle.

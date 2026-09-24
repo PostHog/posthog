@@ -109,7 +109,7 @@ function tryStorage<T>(fallback: T, run: (storage: Storage) => T): T {
     }
 }
 
-/** Drops every product's cached has-data answer, so isolated renders (stories) detect afresh. */
+/** Drops every product's cached has-data answer, so isolated renders (stories, tests) detect afresh. */
 export function clearAllCachedHasData(): void {
     tryStorage(undefined, (storage) =>
         Object.keys(storage)

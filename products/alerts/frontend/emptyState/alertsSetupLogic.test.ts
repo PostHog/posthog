@@ -19,7 +19,6 @@ describe('alertsSetupLogic', () => {
     let logAlertsSpy: jest.SpyInstance
 
     beforeEach(() => {
-        localStorage.clear()
         insightAlertsSpy = jest.spyOn(generatedApi, 'alertsList')
         logAlertsSpy = jest.spyOn(logsApi, 'logsAlertsList')
         initKeaTests()
