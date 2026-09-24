@@ -139,12 +139,13 @@ NON_RETRYABLE_ERROR_TYPES = (
 
 MERGE_LOCK_TIMEOUT_SECONDS = 5 * 60
 
-# If our worker stops during a merge, the destination does not know that the client is gone, and the
-# session can keep the merge's row locks for hours. These server-side settings make the destination
-# end such a session. The libpq keepalive connection parameters do not help here, because they only
-# let the client find a dead server.
+# If our worker stops during a merge, the destination can keep the session and its row locks for hours.
+# Server-side keepalives find a client that stopped without closing the connection, and
+# client_connection_check_interval (PostgreSQL 14+) cancels a running statement when that occurs.
+# The libpq keepalive parameters cannot do this, because they only configure our side of the connection.
 MERGE_SESSION_SETTINGS: dict[str, str] = {
     "idle_in_transaction_session_timeout": "5min",
+    "client_connection_check_interval": "10s",
     "tcp_keepalives_idle": "60",
     "tcp_keepalives_interval": "10",
     "tcp_keepalives_count": "6",
