@@ -84,7 +84,7 @@ Without a limit, overload makes the wait longer than the timeout, and the box an
 
 `Dockerfile` builds the serving image, which is the whole serving box: the official `vllm/vllm-openai:v0.29.0` image with this package installed on top, Caddy for the bearer check, and s5cmd to fetch the weights. `.github/workflows/cd-ml-inference-decision-image.yml` builds it for amd64 on every master push that touches the package and publishes it as `posthog-ml-inference-decision` to ECR and GHCR; add the `build-ml-inference-image` label to a PR to build it early and push it to GHCR alone, tagged `pr-<number>`.
 
-The entrypoint (`bin/serve.sh`) fetches the checkpoint from `MODEL_URI` into `MODEL_DIR` unless one already matches its manifest there, checks it, runs `vllm serve` on loopback, and runs Caddy on `PORT` in front of it. Caddy answers 401 without `Authorization: Bearer $DECISION_BEARER` and exposes only `/pooling`, `/health` and `/metrics`. If either process exits, the container exits, so a host runs it under a restart policy:
+The entrypoint (`bin/serve.sh`) fetches the checkpoint from `MODEL_URI` into `MODEL_DIR` unless one already matches its manifest there, checks it, runs `vllm serve` on loopback, and runs Caddy on `PORT` in front of it. Caddy answers 401 without `Authorization: Bearer $DECISION_BEARER` and exposes only `/pooling`, `/health` and `/metrics`. If either process exits, the container exits with a failure status, even when the process itself exited cleanly, so a host runs it under a restart policy (`always` or `on-failure`):
 
 ```bash
 docker run -d --restart always --gpus all --network host --shm-size 8g \
@@ -95,7 +95,7 @@ docker run -d --restart always --gpus all --network host --shm-size 8g \
 ```
 
 - The host network lets s5cmd read the instance role's credentials from the metadata service, and Caddy listens on the host's `PORT`. Keep the port closed to the network and reach it over the tailnet.
-- The named volume keeps the weights across container restarts; it starts owned by the serving user (uid 10001). A host directory mounted instead must be writable by that user.
+- The named volume keeps the weights and the compile caches (`/models/cache`, or `CACHE_DIR`) across containers, so only the first container on a host pays the full compile. Docker creates the volume owned by the serving user (uid 10001). A host directory, or a volume created by an image without the cache directory, must be writable by that user. If the cache directory is not writable, the entrypoint says so and keeps the caches in the container.
 - `DTYPE=float16` on GPUs without bf16. `MODEL_NAME` (the served name the gateway asks for, default `jevk5-0.2`), `MAX_MODEL_LEN`, `GPU_MEMORY_UTILIZATION`, `PORT` and `VLLM_PORT` override the defaults; extra arguments go to `vllm serve`.
 - `MAX_NUM_QUEUED_TOKENS` is vLLM's backlog limit. Unset, the entrypoint uses about four seconds of the GPU's measured prefill, which exists for an L4 and a T4 (see [Load test on an L4](#load-test-on-an-l4)). On any other GPU the container refuses to start until it is set.
 - The image sets `GLOO_SOCKET_IFNAME=lo`. vLLM otherwise resolves the host name at start-up and fails with "File name too long" where a VPC's DHCP domain makes it 64 characters.
@@ -127,6 +127,18 @@ Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0
 | Engine start after weights are on disk                               | 31 s                                                                                                |
 
 MLHog's `models/kev/load_generator.py` produced the throughput row: a closed loop of N workers over the parity records.
+
+### JevK5
+
+Measured 2026-09-24 on an L4 (EC2 g6.xlarge), vLLM 0.29.0, JevK5 at revision `27d2d6b8`: 294 questions, being JevBench's public sets, 28 of its hard states cut to about 1,300 tokens, and 35 invented edge cases. The reference is JevK5's own runtime (`jevk5` 0.2.0, transformers 5.17) on the same GPU, with its bf16 backbone and the answer read out again in fp32.
+
+| Compared                                          | Max probability difference | Median | Argmax flips                                  |
+| ------------------------------------------------- | -------------------------- | ------ | --------------------------------------------- |
+| Runtime's fp32 readout vs this image (bf16)       | 0.046                      | 0.0025 | 1, where the top two were 0.019 apart         |
+| Runtime's fp32 readout vs its own default readout | 0.059                      | 0.0036 | 4, where the top two were 0.024 apart or less |
+| Runtime's default readout vs `--quantization fp8` | 0.41                       | 0.014  | at least 5, one with the top two 0.08 apart   |
+
+The image is as close to the runtime's fp32 readout as the runtime's own default output is, so it serves JevK5 within the model's rounding noise. fp8 answers about 30% faster, but it moves answers far past that noise, so the image serves bf16. One short question (about 190 tokens) takes 51 ms at the median when it is alone on the GPU. The throughput under load is in [Load test on an L4](#load-test-on-an-l4).
 
 ## Evals
 
