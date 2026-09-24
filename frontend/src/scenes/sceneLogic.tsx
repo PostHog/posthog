@@ -171,6 +171,12 @@ const DelayedLoadingSpinner = (): JSX.Element => {
     return <>{show ? <Spinner /> : null}</>
 }
 
+/** A countable companion to the exception, so scene-load failures can be measured across the fleet. */
+const captureSceneLoadFailure = (sceneId: string, stage: 'import' | 'logic_mount'): void => {
+    // pinned: analytics event name — renaming breaks dashboards
+    posthog.capture('scene load failed', { scene_id: sceneId, stage })
+}
+
 const scrollMainContentToTop = (): void => {
     const element = document.getElementById('main-content')
     if (!element) {
@@ -808,6 +814,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 } catch (error) {
                     posthog.captureException(error, { extra: { sceneId, sceneKey } })
+                    captureSceneLoadFailure(sceneId, 'logic_mount')
                     newLogicErrored = true
                 }
             } else {
@@ -823,7 +830,11 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             if (newLogicErrored) {
-                actions.loadScene(Scene.Error404, undefined, emptySceneParams, 'REPLACE')
+                // Not a 404: the route exists and the person is allowed on it, so saying the page
+                // is missing sends them looking for a URL mistake that isn't there. `setScene`
+                // rather than `loadScene`, because the error scenes are preloaded and so are
+                // absent from `props.scenes`.
+                actions.setScene(Scene.ErrorSceneLoad, undefined, emptySceneParams, false)
                 return
             }
 
@@ -975,7 +986,16 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                         return
                     }
-                    throw error
+                    // A slow import can reject after the person has already navigated somewhere
+                    // else, so break first: the error scene must not replace a newer one.
+                    breakpoint()
+                    // Rethrowing here escapes the listener unhandled: the address bar sits on the
+                    // scene that failed while the previous one stays rendered, and nothing reaches
+                    // error tracking. Report it, then render an error where the URL points.
+                    posthog.captureException(error, { extra: { sceneId, sceneKey, source: 'sceneLogic.loadScene' } })
+                    captureSceneLoadFailure(sceneId, 'import')
+                    actions.setScene(Scene.ErrorSceneLoad, undefined, emptySceneParams, clickedLink)
+                    return
                 } finally {
                     window.clearTimeout(timeout)
                 }

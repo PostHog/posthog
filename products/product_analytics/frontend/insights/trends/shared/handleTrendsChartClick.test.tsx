@@ -3,7 +3,7 @@ import { CompareLabelType, EntityTypes } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import { handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
+import { canHandleTrendsChartClick, handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
 
 function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
@@ -237,5 +237,24 @@ describe('handleTrendsChartClick', () => {
         handleTrendsChartClick(keyFor(trendResult), 1, deps)
 
         expect(openPersonsModal).not.toHaveBeenCalled()
+    })
+
+    // The charts gate their tooltip click hint on this, so anything it allows the handler above
+    // must act on. A hint that promises a drill-down the handler declines is a dead end.
+    describe('canHandleTrendsChartClick', () => {
+        const querySource = makeDeps().querySource
+
+        it.each([
+            ['the persons modal has a query source', { hasPersonsModal: true, querySource }, true],
+            ['the persons modal has no query source', { hasPersonsModal: true, querySource: null }, false],
+            ['there is no persons modal', { hasPersonsModal: false, querySource }, false],
+            [
+                'a context callback handles the click instead',
+                { context: { onDataPointClick: jest.fn() }, hasPersonsModal: false, querySource: null },
+                true,
+            ],
+        ])('is %s -> %s', (_desc, input, expected) => {
+            expect(canHandleTrendsChartClick(input)).toBe(expected)
+        })
     })
 })

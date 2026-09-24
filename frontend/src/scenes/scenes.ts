@@ -12,6 +12,7 @@ import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorA
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectAccessDenied as ErrorProjectAccessDeniedComponent } from '~/layout/ErrorProjectAccessDenied'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
+import { SceneLoadError as SceneLoadErrorComponent } from '~/layout/SceneLoadError'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
@@ -35,6 +36,9 @@ export const preloadedScenes: Record<string, SceneExport> = {
     },
     [Scene.ErrorProjectUnavailable]: {
         component: ErrorProjectUnavailableComponent,
+    },
+    [Scene.ErrorSceneLoad]: {
+        component: SceneLoadErrorComponent,
     },
 }
 
@@ -159,6 +163,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ErrorNetwork]: { name: 'Network error' },
     [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
     [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
+    [Scene.ErrorSceneLoad]: { name: 'Page could not load' },
     [Scene.EventDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',

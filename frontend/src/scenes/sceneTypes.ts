@@ -58,6 +58,7 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectAccessDenied = 'ProjectAccessDenied',
     ErrorProjectUnavailable = 'ProjectUnavailable',
+    ErrorSceneLoad = 'SceneLoadError',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
