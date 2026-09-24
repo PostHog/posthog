@@ -270,7 +270,10 @@ class OfflineEvaluationIngestionService:
             version.id: version
             for version in dataset_item_versions_at_revision(
                 team_id=self.team_id, dataset_id=revision.dataset_id, revision=revision.revision, archived=False
-            ).filter(id__in=linked_ids)
+            )
+            .filter(id__in=linked_ids)
+            .only("id", "dataset_item_id")
+            .order_by()
         }
 
     def _new_item(
