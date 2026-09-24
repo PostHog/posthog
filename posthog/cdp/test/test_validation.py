@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -782,6 +783,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, inputs, function_type="transformation")
         assert validated["first"]["bytecode"] is not None
         assert validated["second"]["bytecode"] is not None
+
+    def test_validate_inputs_stamps_compiled_templates_with_the_runtime_contract(self):
+        # A hog template gets the stamp beside its bytecode. A liquid template has no bytecode and no
+        # stamp, and a plain value compiles to nothing that could drift.
+        inputs_schema = [
+            {"key": "hog", "type": "string", "required": False},
+            {"key": "liquid", "type": "string", "required": False},
+            {"key": "body", "type": "json", "required": False},
+        ]
+        inputs = {
+            "hog": {"value": "{event.uuid}", "bytecode_contract": "older"},
+            "liquid": {"value": "{{ event.uuid }}", "templating": "liquid"},
+            "body": {"value": {"id": "{event.uuid}", "kind": "x"}},
+        }
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["hog"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert validated["body"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert "bytecode_contract" not in validated["liquid"]
 
     def test_validate_transformation_inputs_allows_stl_and_runtime_functions(self):
         # STL functions (e.g. now) and transformation runtime helpers (e.g. geoipLookup)

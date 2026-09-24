@@ -218,7 +218,7 @@ DRAFT_CONTENT_FIELDS = (
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
-_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:

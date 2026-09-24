@@ -15,6 +15,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -4517,6 +4518,8 @@ class TestHogFlowAPI(APIBaseTest):
         # Bytecode should just check for $pageview event
         bytecode_without = response_without.json()["trigger"]["filters"]["bytecode"]
         assert bytecode_without == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+        # A flow's trigger is stamped like a destination's filters, so its errors classify the same way.
+        assert response_without.json()["trigger"]["filters"]["bytecode_contract"] == RUNTIME_CONTRACT
 
         # Create a workflow WITH filter_test_accounts: true
         trigger_action_with_filter = {
