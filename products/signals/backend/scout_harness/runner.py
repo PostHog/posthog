@@ -55,6 +55,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
+from products.signals.backend.scout_repo_pins import intersect_pins, normalized_pin
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1110,6 +1111,12 @@ def _create_run_row(
     # when the run was repo-less, so absence reads as "no checkout".
     if repositories:
         metadata["repositories"] = list(repositories)
+    configured_repositories = normalized_pin(config.repositories)
+    metadata["repository_scope"] = (
+        intersect_pins(configured_repositories, normalized_pin(repositories) if repositories else None)
+        if configured_repositories
+        else configured_repositories
+    )
     # Omitted on the default path like the model triple, so absence reads as "the schedule".
     # Load-bearing for the workflow path specifically: its 30-minute cooldown counts prior
     # *workflow*-triggered runs of this (team, skill), and this is the only record of which those

@@ -508,6 +508,7 @@ def test_create_implementation_task_freezes_billing_exemption(
                 skill_name=authoring_scout_skill,
                 skill_version=1,
                 emitted_report_ids=[str(report.id)],
+                metadata={"repository_scope": []},
             )
 
     def _fake_create_and_run_task(**kwargs):
@@ -1056,6 +1057,115 @@ async def test_free_trial_gate_blocks_autostart(
     assert (capture_mock.call_count == 1) is expect_pause_event
     if expect_pause_event:
         assert capture_mock.call_args.kwargs == {"report_id": str(report.id), "stage": "autostart"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("repository", "scenario", "expect_task"),
+    [
+        ("acme/hub", "normal", True),
+        # The repository the scout was configured for is the only one its report may route work to.
+        # Research built on sources only this scout reads must not start work in another codebase.
+        ("acme/widgets", "normal", False),
+        ("acme/hub", "deleted_config", True),
+        ("acme/widgets", "deleted_config", False),
+        ("acme/widgets", "missing_tally", False),
+        ("acme/widgets", "widened_config", False),
+        ("acme/widgets", "missing_author", False),
+        ("acme/widgets", "unrestricted", True),
+        ("acme/hub", "revoked_before_create", False),
+    ],
+)
+async def test_autostart_refuses_a_repository_outside_the_authoring_scouts_pin(repository, scenario, expect_task):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="pin-org")
+        team = Team.objects.create(organization=organization, name="pin-team")
+        enabler = User.objects.create(email="pin-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="signals_scout", source_type="cross_source_issue", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        with team_scope(team.id, canonical=True):
+            config = SignalScoutConfig.objects.create(team=team, skill_name=SCOUT_SKILL, repositories=["acme/hub"])
+            task = Task.objects.create(
+                team=team, title="scout run", description="d", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+            )
+            scout_run = SignalScoutRun.objects.create(
+                team=team,
+                task_run=TaskRun.objects.create(task=task, team=team),
+                scout_config=config,
+                skill_name=SCOUT_SKILL,
+                skill_version=1,
+                emitted_report_ids=[str(report.id)],
+                metadata={"repository_scope": ["acme/hub"]},
+            )
+            report.scout_idempotency_key = f"{scout_run.id}:key:example"
+            report.save(update_fields=["scout_idempotency_key"])
+            if scenario == "deleted_config":
+                config.delete()
+            if scenario == "missing_tally":
+                scout_run.emitted_report_ids = []
+                scout_run.save(update_fields=["emitted_report_ids"])
+            if scenario == "widened_config":
+                config.repositories = []
+                config.save(update_fields=["repositories"])
+            if scenario == "missing_author":
+                scout_run.delete()
+            if scenario == "unrestricted":
+                config.repositories = []
+                config.save(update_fields=["repositories"])
+                scout_run.metadata = {"repository_scope": []}
+                scout_run.save(update_fields=["metadata"])
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _resolve_runtime(*args, **kwargs):
+        if scenario == "revoked_before_create":
+            SignalScoutConfig.objects.for_team(team.id).filter(skill_name=SCOUT_SKILL).update(
+                repositories=["acme/other"]
+            )
+        return AgentRuntime()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", side_effect=_resolve_runtime),
+    ):
+        outcome = await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository=repository,
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    assert (mock_create.call_count == 1) is expect_task
+    if not expect_task and scenario != "revoked_before_create":
+        assert outcome.status == "blocked"
 
 
 @pytest.mark.asyncio

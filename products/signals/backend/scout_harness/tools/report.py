@@ -93,6 +93,13 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
+from products.signals.backend.scout_repo_pins import (
+    intersect_pins,
+    report_pinned_repositories,
+    repositories_within_pin,
+    repository_within_pin,
+    run_pinned_repositories,
+)
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
@@ -551,6 +558,22 @@ def _normalize_repository(repository: str | None) -> str | None:
     return normalized
 
 
+def _assert_repository_within_pin(repository: str | None, pinned: Sequence[str] | None) -> None:
+    """Refuse a target outside the pin of the scout making the call.
+
+    A pinned scout reads the repositories it was configured for, so those are the only ones its
+    findings may route work to (see `scout_repo_pins`). Raising rather than dropping the value: the
+    scout named this repository, and a silently unrouted report would read to it as a correction
+    that landed. An unpinned scout is unbounded, so nothing here applies to it.
+    """
+    if repository is None or repository == NO_REPO or repository_within_pin(repository, pinned):
+        return
+    raise InvalidScoutReportError(
+        f"This scout cannot target {repository}. Permitted repositories: {', '.join(pinned or []) or 'none'}. "
+        "Pass a pinned repository, or NO_REPO when nothing under version control could change."
+    )
+
+
 def _gate_skip_result(preflight: str) -> EmitReportResult:
     logger.warning("signals_scout.emit_report: skipped %s", preflight, extra={"skipped_reason": preflight})
     return EmitReportResult(
@@ -842,13 +865,17 @@ def _extract_linked_repository(
     return extract_linked_repo("\n".join([title, summary, *(e.description for e in evidence)]), connected_repos)
 
 
-def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: ArtefactAttribution) -> None:
+def _refresh_inferred_repository(
+    *, team_id: int, report_id: str, attribution: ArtefactAttribution, pinned_repositories: Sequence[str] | None = ()
+) -> None:
     """Re-derive an inferred `repo_selection` from a report's rewritten title and summary.
 
     An inferred target is a reading of the report's text, so a rewrite that moves the report onto a
     different repository leaves it pointing somewhere the report no longer describes. Only a selection
     this same inference wrote is re-derived; one the scout named or the selection agent chose is a
     decision, not a reading, and a content edit does not overturn it.
+
+    Candidates must satisfy both the author's restriction and the editing run's restriction.
 
     New content that links nothing keeps the existing target. A repository the reader can override at
     Create PR time costs less than clearing it, since a cleared selection reads as the scout's
@@ -864,9 +891,9 @@ def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: A
     report = SignalReport.objects.filter(team_id=team_id, id=report_id).values("title", "summary").first()
     if report is None:
         return
-    linked = extract_linked_repo(
-        "\n".join([report["title"] or "", report["summary"] or ""]), _connected_repositories(team_id)
-    )
+    pinned = intersect_pins(pinned_repositories, report_pinned_repositories(team_id=team_id, report_id=report_id))
+    candidates = repositories_within_pin(_connected_repositories(team_id), pinned)
+    linked = extract_linked_repo("\n".join([report["title"] or "", report["summary"] or ""]), candidates)
     if linked is None or linked == selection.repository:
         return
     set_scout_report_inferred_repository(
@@ -895,6 +922,7 @@ async def _resolve_report_repository(
     summary: str,
     evidence: list[ReportEvidence],
     wants_full_selection: bool,
+    pinned_repositories: Sequence[str] | None,
 ) -> RepoSelectionResult | None:
     """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
 
@@ -910,16 +938,25 @@ async def _resolve_report_repository(
     the report content for one linked connected repository instead — a cheap deterministic match that
     seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
     selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
-    one on its own."""
+    one on its own.
+
+    `pinned_repositories` bounds every mode: a pinned scout may only target the repositories it was
+    configured for (see `scout_repo_pins`). An explicit off-pin value is already refused by
+    `_assert_repository_within_pin` in the entrypoint. The derived modes cannot be refused the same
+    way, because the scout asked for nothing wrong. The shared selector checks repository access
+    and archive status before it selects a target, including when only one target is permitted."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
     if repository is not None:
         return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
+    if pinned_repositories is None:
+        return RepoSelectionResult(repository=None, reason="No permitted repository is available for this scout run.")
 
     if not wants_full_selection:
         connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
-        linked = _extract_linked_repository(title, summary, evidence, connected_repos)
+        candidates = repositories_within_pin(connected_repos, pinned_repositories)
+        linked = _extract_linked_repository(title, summary, evidence, candidates)
         if linked is None:
             return None
         return RepoSelectionResult(
@@ -962,13 +999,29 @@ async def _resolve_report_repository(
         tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
         allowed_domains=GITHUB_ONLY_DOMAINS,
     )
-    return await select_repository_for_team(
+    selected = await select_repository_for_team(
         team_id=team_id,
         user_id=user_id,
         request_section=_repo_request_section(title, summary, evidence),
         step_name="scout_repo_selection",
         sandbox_environment_id=sandbox_env_id,
+        # The pin is the candidate list on a pinned scout, so the selector never reasons over a repo
+        # the scout could not target anyway.
+        candidate_repos=list(pinned_repositories) or None,
     )
+    if not repository_within_pin(selected.repository, pinned_repositories):
+        # Kept as a backstop under the candidate list above: this is a tenancy-shaped boundary, and
+        # the report is what a later implementation run works from. Drop the target, not the report:
+        # the finding still surfaces, and a person can retarget it from the inbox.
+        logger.info(
+            "signals_scout: dropped a selected repository outside the scout's pin",
+            extra={"team_id": team_id, "selected": selected.repository, "pinned": list(pinned_repositories)},
+        )
+        return RepoSelectionResult(
+            repository=None,
+            reason="Selection landed outside the repositories this scout is pinned to, so the report carries no target.",
+        )
+    return selected
 
 
 async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
@@ -1533,6 +1586,9 @@ async def emit_report(
     if existing is not None:
         return await finish(_replay_result(existing))
 
+    pinned_repositories = await database_sync_to_async(run_pinned_repositories, thread_sensitive=False)(run)
+    _assert_repository_within_pin(repository, pinned_repositories)
+
     # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
     # safety judge so an unresolvable reviewer fails fast rather than after paying for the LLM call.
     reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
@@ -1565,6 +1621,7 @@ async def emit_report(
             summary=summary,
             evidence=evidence,
             wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
+            pinned_repositories=pinned_repositories,
         )
         if surfaced
         else None
@@ -1681,6 +1738,9 @@ def emit_report_sync(
     if existing is not None:
         return finish(_replay_result(existing))
 
+    pinned_repositories = run_pinned_repositories(run)
+    _assert_repository_within_pin(repository, pinned_repositories)
+
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
 
     preflight = _preflight_emit_gates(team, run)
@@ -1709,6 +1769,7 @@ def emit_report_sync(
             summary=summary,
             evidence=evidence,
             wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
+            pinned_repositories=pinned_repositories,
         )
         if surfaced
         else None
@@ -1823,6 +1884,13 @@ def _do_edit_report(
         )
         if locked_run is None or locked_run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
             raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
+        SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
+        pinned_repositories = intersect_pins(
+            run_pinned_repositories(run), report_pinned_repositories(team_id=team.id, report_id=report_id, lock=True)
+        )
+        _assert_repository_within_pin(
+            repository if repository is not None else _settled_repository(report_id), pinned_repositories
+        )
         if title is not None or summary is not None:
             # `reviewed` only when the judge saw the whole document this save re-embeds — the
             # entrypoints judged exactly the title/summary supplied. A partial edit merges with a
@@ -1954,16 +2022,25 @@ def _do_edit_report(
         # note, a second corroboration count, or a second set of evidence rows.
         if not updated_fields:
             content_revision_count = get_content_revision_count(team_id=team.id, report_id=report_id)
-    charts_set = len(charts) if charts is not None and charts_changed else None
-    metrics_set = len(metrics) if metrics is not None and metrics_changed else None
-    prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
-    evidence_appended = len(evidence_document_ids)
-    changed = (
-        bool(updated_fields or note_appended or reviewers_set or repository_set or evidence_appended or links_appended)
-        or charts_set is not None
-        or metrics_set is not None
-        or prompts_set is not None
-    )
+        charts_set = len(charts) if charts is not None and charts_changed else None
+        metrics_set = len(metrics) if metrics is not None and metrics_changed else None
+        prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
+        evidence_appended = len(evidence_document_ids)
+        changed = (
+            bool(
+                updated_fields
+                or note_appended
+                or reviewers_set
+                or repository_set
+                or evidence_appended
+                or links_appended
+            )
+            or charts_set is not None
+            or metrics_set is not None
+            or prompts_set is not None
+        )
+        if changed:
+            record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
     # Enqueue the edited report's Slack delivery as the first post-commit step — before the slower
     # side effects below (repository inference, autostart) and the tally writes further down. An
     # earlier delivery of the same report may still be building its message, and it reads the report's
@@ -2035,7 +2112,9 @@ def _do_edit_report(
     # exists to prevent. Swallow and log; a stale inferred repo is corrected by the next edit.
     if updated_fields:
         try:
-            _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
+            _refresh_inferred_repository(
+                team_id=team.id, report_id=report_id, attribution=attribution, pinned_repositories=pinned_repositories
+            )
         except Exception:
             logger.exception(
                 "signals_scout.edit_report: inferred repository refresh failed",
@@ -2073,16 +2152,7 @@ def _do_edit_report(
                 f"the repository correction did not persist: the report points at "
                 f"{settled_repository or 'no repository'}, not {repository}"
             )
-    # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
-    # title rewrite to its current value, or re-sending the charts already stored) must not claim the
-    # run touched the report, or notify its destination a second time about nothing. Ordered BEFORE
-    # the autostart hand-off below: autostart's live owner exclusion resolves the touching scouts
-    # from this tally, so a first edit recorded after the hand-off would leave the editing scout's
-    # own owners out of the exclusion. Both writes swallow their own failures, so they can't block
-    # autostart. The Slack delivery for this edit was already enqueued above, so a prior in-flight
-    # delivery sees the supersede marker rather than posting the edit a second time.
     if changed:
-        record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
@@ -2091,7 +2161,9 @@ def _do_edit_report(
     is_content_revision = bool(updated_fields)
     # Routing changes and a new replacement decision each need an autostart evaluation.
     # Run it after the commit because it spawns a task.
-    if reviewers_set or repository_set or supersede_recorded:
+    if (reviewers_set or repository_set or supersede_recorded) and repository_within_pin(
+        settled_repository, pinned_repositories
+    ):
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",
@@ -2292,6 +2364,11 @@ async def edit_report(
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
+    # A correction is a target like any other, so it is bounded by the editing scout's pin — and
+    # refused before the judge, since an off-pin correction can never be written.
+    _assert_repository_within_pin(
+        normalized_repository, await database_sync_to_async(run_pinned_repositories, thread_sensitive=False)(run)
+    )
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
@@ -2394,6 +2471,8 @@ def edit_report_sync(
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
+    # The sync twin of the pin check in `edit_report` — see there.
+    _assert_repository_within_pin(normalized_repository, run_pinned_repositories(run))
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)

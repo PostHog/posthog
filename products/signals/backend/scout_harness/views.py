@@ -1220,7 +1220,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def emit_report(self, request: Request, **kwargs) -> Response:
-        run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
+        run = self._resolve_own_in_progress_run(request, kwargs, required_tool="emit_report")
         data = request.validated_data
         evidence = _to_report_evidence(data["evidence"]) or []
         try:
@@ -1293,7 +1293,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def edit_report(self, request: Request, **kwargs) -> Response:
-        run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
+        run = self._resolve_own_in_progress_run(request, kwargs, required_tool="edit_report")
         data = request.validated_data
         try:
             result = edit_report_sync(
