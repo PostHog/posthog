@@ -53,10 +53,12 @@ The consumer replays all of them over the snapshot, including changes the snapsh
 Replaying an unbroken run in order converges on the source's state, because the merge is an upsert by primary key.
 A gap would break that, so capture empties the table's buffer when it starts a snapshot there, which drops files left from before a re-enable.
 A TRUNCATE resets the table, empties its buffer, and drops that run's pending changes for it.
+The reset also cancels the table's running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
+Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
 Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
 Without the marker, the hand-over purges the whole buffer, as legacy always did.
 A source with a mix runs hybrid, some schemas buffered and the rest unchanged, and keeps its backpressure guard for the legacy ones.
-The rollback command refuses while any table's snapshot runs in the buffer, because only the buffer holds those changes.
+The rollback command restarts any snapshot the buffer carries as a legacy snapshot, because only the buffer holds those changes and legacy's hand-over would purge them.
 
 **Buffer files are deleted at the start of the next run**, before they are read, so the run that
 proves a file consumed is never the run that deletes it. A file goes when it is strictly below the
@@ -244,7 +246,9 @@ The order matters, and the command enforces it:
 1. Pause the extraction schedule, so no new capture run starts.
 2. Wait for the in-flight extraction run to finish — pausing a schedule does not stop a running
    workflow, and a run still executing would keep writing files and advancing the slot behind the
-   drain check.
+   drain check. Then restart every snapshot the buffer carries: cancel its running sync, empty its
+   buffer, and reset it to snapshot without the marker. The new snapshot starts after capture
+   stopped, so it covers every change up to there, and legacy capture defers the rest.
 3. **Wait for the consumer to drain the buffer.** The buffer's tail holds WAL the slot has already
    advanced past — it exists nowhere else, and flipping to legacy before it is applied loses it for
    good. The command refuses to proceed (extraction left paused, consumer left running) until every
