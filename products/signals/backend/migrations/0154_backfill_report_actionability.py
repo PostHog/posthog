@@ -3,16 +3,15 @@ import json
 from django.db import migrations
 
 BATCH_SIZE = 500
-# Matches SignalReport.latest_actionability.max_length. A judgment holds whatever string the
-# author wrote, so a longer value is dropped here rather than failing the whole deploy.
-MAX_ACTIONABILITY_LENGTH = 30
 
 
-def _latest_judgment(contents: list[str]) -> tuple[str | None, bool | None] | None:
+def _latest_judgment(contents: list[str], max_actionability_length: int) -> tuple[str | None, bool | None] | None:
     """The newest parseable judgment of one report, newest content first.
 
     A row that is not a JSON object is skipped rather than ending the search, so one malformed
-    artefact cannot hide the judgment written before it. Returns None when nothing parses.
+    artefact cannot hide the judgment written before it. Returns None when nothing parses. A
+    judgment holds whatever string its author wrote, so a value too long for the column is
+    dropped here rather than failing the whole deploy.
     """
     for content in contents:
         try:
@@ -23,7 +22,7 @@ def _latest_judgment(contents: list[str]) -> tuple[str | None, bool | None] | No
             continue
         actionability = parsed.get("actionability")
         already_addressed = parsed.get("already_addressed")
-        if not isinstance(actionability, str) or len(actionability) > MAX_ACTIONABILITY_LENGTH:
+        if not isinstance(actionability, str) or len(actionability) > max_actionability_length:
             actionability = None
         return actionability, already_addressed if isinstance(already_addressed, bool) else None
     return None
@@ -35,9 +34,14 @@ def backfill_report_actionability(apps, schema_editor):
     The receivers write both columns on each judgment artefact write, so only reports whose
     newest judgment predates those receivers hold NULL. The inbox list now filters and sorts on
     the columns, so an unfilled report would drop out of the Reports tab it belongs in.
+
+    The parsing is repeated here rather than taken from `report_actionability_repair`, which
+    reads a report under its row lock through the live model. This runs against the historical
+    models, and what an applied migration did must not change when the live parser changes.
     """
     SignalReport = apps.get_model("signals", "SignalReport")
     SignalReportArtefact = apps.get_model("signals", "SignalReportArtefact")
+    max_actionability_length = SignalReport._meta.get_field("latest_actionability").max_length
     unfilled = SignalReport.objects.filter(
         latest_actionability__isnull=True, latest_already_addressed__isnull=True
     ).order_by("id")
@@ -60,7 +64,7 @@ def backfill_report_actionability(apps, schema_editor):
         # than one per report.
         ids_by_value: dict[tuple[str | None, bool | None], list[str]] = {}
         for report_id, contents in contents_by_report.items():
-            judgment = _latest_judgment(contents)
+            judgment = _latest_judgment(contents, max_actionability_length)
             if judgment is None or judgment == (None, None):
                 continue
             ids_by_value.setdefault(judgment, []).append(report_id)
