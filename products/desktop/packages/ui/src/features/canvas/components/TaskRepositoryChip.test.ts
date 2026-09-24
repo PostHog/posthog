@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  orderTaskRepositoryItems,
   resolveTaskRepositorySelection,
   taskRepositoryLabel,
 } from "./TaskRepositoryChip";
@@ -62,6 +63,29 @@ describe("TaskRepositoryChip", () => {
         getIntegrationIdForRepo,
         max,
       }),
+    ).toEqual(expected);
+  });
+
+  it.each([
+    {
+      name: "keeps a repository picked while open in its place",
+      pinned: ["acme/api"],
+      selected: ["acme/api", "acme/web"],
+      fetched: ["acme/api", "acme/docs", "acme/web"],
+      query: "",
+      expected: ["acme/api", "acme/docs", "acme/web"],
+    },
+    {
+      name: "lists a selected repository the search page misses",
+      pinned: [],
+      selected: ["acme/web"],
+      fetched: ["acme/docs"],
+      query: "acme",
+      expected: ["acme/docs", "acme/web"],
+    },
+  ])("$name", ({ pinned, selected, fetched, query, expected }) => {
+    expect(
+      orderTaskRepositoryItems({ pinned, selected, fetched, query }),
     ).toEqual(expected);
   });
 });

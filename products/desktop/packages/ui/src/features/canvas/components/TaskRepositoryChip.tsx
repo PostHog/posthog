@@ -56,6 +56,34 @@ export function resolveTaskRepositorySelection({
   return { repositories: next, integrationId: addedIntegrationId };
 }
 
+// Pins only what was selected at open, so a pick does not move the row under the pointer.
+export function orderTaskRepositoryItems({
+  pinned,
+  selected,
+  fetched,
+  query,
+}: {
+  pinned: string[];
+  selected: string[];
+  fetched: string[];
+  query: string;
+}): string[] {
+  const needle = query.trim().toLowerCase();
+  const matches = (repository: string) =>
+    repository.toLowerCase().includes(needle);
+  const leading = pinned.filter(matches);
+  const results = fetched.filter((repository) => !pinned.includes(repository));
+  // Selected repositories stay listed (and checked) even when the remote
+  // search page doesn't include them.
+  const unlisted = selected.filter(
+    (repository) =>
+      matches(repository) &&
+      !pinned.includes(repository) &&
+      !fetched.includes(repository),
+  );
+  return [...leading, ...results, ...unlisted];
+}
+
 interface TaskRepositoryChipProps {
   cloud: boolean;
   repositories: string[];
@@ -130,6 +158,7 @@ function TaskRepositoryCombobox({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [pinned, setPinned] = useState<string[]>(repositories);
   const {
     repositories: fetched,
     getIntegrationIdForRepo,
@@ -139,21 +168,19 @@ function TaskRepositoryCombobox({
     loadMore,
   } = useGithubRepositories(query, open, integrationId);
 
-  const needle = query.trim().toLowerCase();
-  // Selected repositories stay listed (and checked) even when the remote
-  // search page doesn't include them.
-  const items = [
-    ...repositories.filter((repository) =>
-      repository.toLowerCase().includes(needle),
-    ),
-    ...fetched.filter((repository) => !repositories.includes(repository)),
-  ];
+  const items = orderTaskRepositoryItems({
+    pinned,
+    selected: repositories,
+    fetched,
+    query,
+  });
   const atLimit = repositories.length >= MAX_REPOSITORIES;
   const label = taskRepositoryLabel(repositories);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next) setQuery("");
+    if (next) setPinned(repositories);
+    else setQuery("");
   };
 
   return (
