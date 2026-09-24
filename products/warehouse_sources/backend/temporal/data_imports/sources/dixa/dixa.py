@@ -1,6 +1,5 @@
 import re
 import time
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -9,6 +8,8 @@ from urllib.parse import quote, urlencode, urljoin, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -42,7 +43,7 @@ class DixaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class DixaResumeConfig:
     # Export streams persist the start of the next time window (Unix ms); main
     # API streams persist the opaque next-page URL from meta.next. A fan-out

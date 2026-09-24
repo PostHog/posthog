@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class DixaFanoutConfig:
     """Wiring for a child endpoint fetched once per row of a parent endpoint."""
 
@@ -18,7 +20,7 @@ class DixaFanoutConfig:
     child_cursor_key: Optional[str] = None
 
 
-@dataclass
+@frozen
 class DixaEndpointConfig:
     name: str
     path: str
