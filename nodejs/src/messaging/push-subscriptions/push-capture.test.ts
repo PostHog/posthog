@@ -74,6 +74,17 @@ describe('PushCaptureService', () => {
         })
     })
 
+    it("posts to the v1 path when configured with the plugin server's /capture url", async () => {
+        await new PushCaptureService(`${base}/capture`, 2000, () => Promise.resolve()).capture({
+            token: 'phc_real',
+            event: '$set',
+            distinctId: 'user-1',
+            properties: {},
+        })
+
+        expect(received[0].url).toEqual('/i/v1/analytics/events')
+    })
+
     it('authenticates with the project token, which the endpoint requires', async () => {
         await send()
 

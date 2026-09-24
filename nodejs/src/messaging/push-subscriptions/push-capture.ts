@@ -45,11 +45,17 @@ export type PushCaptureEvent = {
 }
 
 export class PushCaptureService {
+    private origin: string
+
     constructor(
-        private baseUrl: string,
+        captureUrl: string,
         private timeoutMs: number = 2000,
         private sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-    ) {}
+    ) {
+        // The plugin server's CAPTURE_INTERNAL_URL ends in the `/capture` path of the v0 endpoint, while
+        // Django's is the bare origin. The v1 path goes on the origin, so either form works.
+        this.origin = new URL(captureUrl).origin
+    }
 
     /** Resolves only when capture accepted the event. The caller answers the SDK on that basis, and
      * an SDK that is told the registration was stored never sends it again. */
@@ -102,7 +108,7 @@ export class PushCaptureService {
     private async post(token: string, body: string, attempt: number): Promise<FetchResponse> {
         for (let retry = 0; ; retry++) {
             try {
-                const response = await internalFetch(`${this.baseUrl}${CAPTURE_V1_INTERNAL_ENDPOINT}`, {
+                const response = await internalFetch(`${this.origin}${CAPTURE_V1_INTERNAL_ENDPOINT}`, {
                     method: 'POST',
                     headers: {
                         Authorization: `Bearer ${token}`,
