@@ -3124,6 +3124,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "resolved_date_range": ANY,
                     "query_status": None,
                     "query_scan": None,
+                    "warnings": None,
                     "result": None,
                     "saved": True,
                     "short_id": ANY,

@@ -4333,6 +4333,49 @@ class TestInsightQueryScan(APIBaseTest):
         self.assertNotIn("query_scan", body["query_status"])
 
 
+class TestInsightWarnings(APIBaseTest):
+    WARNING = {
+        "type": "warehouse_sync",
+        "message": "Last sync of `costs` (from DoIt) failed.",
+        "schema_name": "costs",
+        "source_id": "source-1",
+        "source_type": "DoIt",
+        "status": "Failed",
+        "table_name": "doit_costs",
+    }
+
+    @parameterized.expand([("a project member", False, [WARNING]), ("a shared link viewer", True, None)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_an_insight_carries_its_warehouse_sync_warnings(
+        self, _name: str, shared: bool, expected: list[dict] | None, mock_calculate: mock.MagicMock
+    ) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+            warnings=[self.WARNING],
+        )
+        url = f"/api/projects/{self.team.id}/insights/{insight.id}/"
+        if shared:
+            sharing_configuration = SharingConfiguration.objects.create(
+                team=self.team, insight=insight, enabled=True, access_token="xyz"
+            )
+            self.client.logout()
+            url += f"?sharing_access_token={sharing_configuration.access_token}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["warnings"], expected)
+
+
 class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_insight(self, name: str = "My insight") -> Insight:
         return Insight.objects.create(team=self.team, name=name, saved=True, created_by=self.user)
