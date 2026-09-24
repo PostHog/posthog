@@ -39,7 +39,7 @@ export const scene: SceneExport = {
 
 export function WizardRunsScene(): JSX.Element {
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
-    const runSyncEnabled = useFeatureFlag('WIZARD_RUN_SYNC', 'test')
+    const runSyncEnabled = useFeatureFlag('WIZARD_RUN_SYNC', 'wizard-run')
     const { user } = useValues(userLogic)
     const {
         environment,

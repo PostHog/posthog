@@ -69,7 +69,7 @@ It shows the newest active run by default, or the newest completed run when none
 The selector lists up to five active and five completed runs by workspace and status, with the selected run marked and the total active count shown separately.
 The Wizard page lists any others. A manual selection stays in place while that run remains in either list, including when it completes.
 Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent completed runs remain available after reloading unless dismissed.
-The `wizard-run-sync` feature flag switches the authenticated shell from the session sync widget to the run sync widget.
+The `wizard-run-sync` feature flag uses the `wizard-session` and `wizard-run` variants to select the sync widget in the authenticated shell.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
