@@ -16,6 +16,7 @@ import posthog from 'posthog-js'
 
 import { zoomDateRange } from 'lib/components/DateFilter/DateRangePicker'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
@@ -66,6 +67,28 @@ export interface LogsViewerFiltersLogicProps {
     // session-id log attributes plus the built-in conventions, in both the attribute and
     // resource-attribute maps. A filter group can't express that OR (see buildLogsSessionScope).
     sessionId?: string
+}
+
+// The viewer works in a two-level group: an outer group whose first entry is the inner group that
+// holds the chips. A filterGroup reaches the viewer from a URL param, a saved view, an alert rule or
+// a metric deep link, so a wrong shape is untrusted input rather than a bug — repair it here, before
+// any component casts the first entry to a group.
+export function normalizeFilterGroup(filterGroup: unknown): UniversalFiltersGroup {
+    const group = filterGroup as UniversalFiltersGroup | undefined
+    if (!isUniversalGroupFilterLike(group) || !Array.isArray(group.values)) {
+        return DEFAULT_UNIVERSAL_GROUP_FILTER
+    }
+    const inner = group.values[0]
+    if (inner !== undefined && isUniversalGroupFilterLike(inner) && Array.isArray(inner.values)) {
+        return group
+    }
+    // A one-level group: every entry is a filter, so move them all into the inner group.
+    return { ...group, values: [{ type: FilterLogicalOperator.And, values: group.values }] }
+}
+
+// The inner group, for the components that edit the chips.
+export function innerFilterGroup(filterGroup: UniversalFiltersGroup): UniversalFiltersGroup {
+    return normalizeFilterGroup(filterGroup).values[0] as UniversalFiltersGroup
 }
 
 // Combines the user-editable filterGroup with pinned filters (prepended to the inner
@@ -315,11 +338,10 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER as UniversalFiltersGroup,
             {
-                setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
+                setFilterGroup: (_, { filterGroup }) => normalizeFilterGroup(filterGroup),
                 setFilters: (state, { filters }) =>
                     foldLegacyColumnFilters(
-                        filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
+                        filters.filterGroup ? normalizeFilterGroup(filters.filterGroup) : state,
                         filters
                     ),
             },
@@ -411,7 +433,7 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             actions.setDateRange(newDateRange)
         },
         addFilter: ({ key, value, operator, propertyType }) => {
-            const currentGroup = values.filters.filterGroup.values[0] as UniversalFiltersGroup
+            const currentGroup = innerFilterGroup(values.filters.filterGroup)
 
             // Reconciled rather than appended, so clicking the same attribute row twice does not
             // stack a duplicate chip, and including a value cancels a standing exclusion of it.
