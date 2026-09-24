@@ -98,6 +98,41 @@ describe('projectTreeDataLogic', () => {
         }
     )
 
+    it('updates starred folder targets and labels after a move without changing their order', () => {
+        logic.actions.loadShortcutsSuccess([
+            { id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' },
+            { id: 'star-child', path: 'Notes', type: 'folder', ref: 'Users/Alex/Notes' },
+            { id: 'star-other', path: 'Alexandra', type: 'folder', ref: 'Users/Alexandra' },
+        ])
+        logic.actions.movedItem({ id: 'home', path: 'Users/Alex', type: 'folder' }, 'Users/Alex', 'Users/My work')
+        expect(logic.values.shortcutData).toEqual([
+            { id: 'star-home', path: 'My work', type: 'folder', ref: 'Users/My work' },
+            { id: 'star-child', path: 'Notes', type: 'folder', ref: 'Users/My work/Notes' },
+            { id: 'star-other', path: 'Alexandra', type: 'folder', ref: 'Users/Alexandra' },
+        ])
+    })
+
+    it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
+        const projectTree = projectTreeLogic({ key: 'navbar-files', root: 'project://' })
+        projectTree.mount()
+        await expectLogic(projectTree).toFinishAllListeners()
+        logic.actions.createSavedItem({ id: 'note', type: 'notebook', ref: 'note1', path: 'Research/Notes' })
+        logic.actions.setStarredNavigationRef({ type: 'notebook', ref: 'note1' })
+
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'notebook', ref: 'note1' }, explicit)
+        }).toFinishAllListeners()
+        expect(projectTree.values.scrollTargetId).toBe(explicit ? 'project/note' : '')
+        expect(projectTree.values.expandedFolders.includes('project://Research')).toBe(explicit)
+
+        logic.actions.setStarredNavigationRef(null)
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'notebook', ref: 'note1' }, false)
+        }).toFinishAllListeners()
+        expect(projectTree.values.scrollTargetId).toBe('project/note')
+        projectTree.unmount()
+    })
+
     it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([
             {

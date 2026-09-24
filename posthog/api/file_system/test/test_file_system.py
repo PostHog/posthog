@@ -28,6 +28,7 @@ from posthog.api.file_system.file_system import (
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -706,6 +707,25 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team, path="OldFolder/File2", type="feature_flag", created_by=self.user
         )
 
+        FileSystem.objects.create(team=self.team, path="OldFolder/Notes", type="folder", created_by=self.user)
+        other_user = User.objects.create_user(email="starred@example.com", first_name="Sam", password="test")
+        shortcuts = [
+            FileSystemShortcut.objects.create(team=self.team, user=user, path=label, type="folder", ref=ref)
+            for user in [self.user, other_user]
+            for label, ref in [("OldFolder", "OldFolder"), ("Notes", "OldFolder/Notes")]
+        ]
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        untouched = [
+            FileSystemShortcut.objects.create(
+                team=team, user=self.user, path=ref, type="folder", ref=ref, surface=surface
+            )
+            for team, ref, surface in [
+                (self.team, "OldFolderSuffix", None),
+                (self.team, "OldFolder", "desktop"),
+                (other_team, "OldFolder", None),
+            ]
+        ]
+
         # Move the folder
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system/{folder.pk}/move",
@@ -722,6 +742,15 @@ class TestFileSystemAPI(APIBaseTest):
 
         file2.refresh_from_db()
         self.assertEqual(file2.path, "NewFolder/File2")
+
+        for shortcut in shortcuts:
+            shortcut.refresh_from_db()
+            self.assertEqual(shortcut.ref, "NewFolder/Notes" if shortcut.path == "Notes" else "NewFolder")
+            self.assertIn(shortcut.path, ["NewFolder", "Notes"])
+        for shortcut in untouched:
+            old_ref = shortcut.ref
+            shortcut.refresh_from_db()
+            self.assertEqual(shortcut.ref, old_ref)
 
     def test_count_of_files(self):
         """

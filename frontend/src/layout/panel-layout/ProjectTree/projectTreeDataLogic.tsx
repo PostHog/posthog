@@ -225,6 +225,7 @@ export interface projectTreeDataLogicValues {
     shortcutEntryIdMap: Map<string, string>
     shortcutNonFolderPaths: Set<string>
     sortedItems: FileSystemEntry[]
+    starredNavigationRef: ProjectTreeRef | null
     treeItemsNew: TreeDataItem[]
     unfiledItems: boolean
     unfiledItemsLoading: boolean
@@ -525,6 +526,9 @@ export interface projectTreeDataLogicActions {
     setLastNewFolder: (folder: string | null) => {
         folder: string | null
     }
+    setStarredNavigationRef: (ref: ProjectTreeRef | null) => {
+        ref: ProjectTreeRef | null
+    }
     syncTypeAndRef: (
         type: string,
         ref: string
@@ -617,6 +621,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         actions: [panelLayoutLogic, ['setActivePanelIdentifier'], featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
+        setStarredNavigationRef: (ref: ProjectTreeRef | null) => ({ ref }),
         loadUnfiledItems: true,
 
         loadFolder: (folder: string, forceReload: boolean = false) => ({ folder, forceReload }),
@@ -1064,6 +1069,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     })),
     reducers({
+        starredNavigationRef: [null as ProjectTreeRef | null, { setStarredNavigationRef: (_, { ref }) => ref }],
         homeFolderLoaded: [false, { loadHomeFolderSuccess: () => true }],
         folders: [
             {} as Record<string, FileSystemEntry[]>,
@@ -1230,6 +1236,22 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         shortcutData: [
             [] as FileSystemEntry[],
             {
+                movedItem: (state, { item, oldPath, newPath }) =>
+                    item.type === 'folder'
+                        ? state.map((shortcut) => {
+                              const ref =
+                                  shortcut.type === 'folder' && shortcut.ref
+                                      ? reparentPath(shortcut.ref, oldPath, newPath)
+                                      : null
+                              return ref === null
+                                  ? shortcut
+                                  : {
+                                        ...shortcut,
+                                        ref,
+                                        path: joinPath([splitPath(ref).pop() ?? 'Unnamed']),
+                                    }
+                          })
+                        : state,
                 deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
                 addLoadedResults: (state, { results }) => {
                     const filesByTypeAndRef = Object.fromEntries(

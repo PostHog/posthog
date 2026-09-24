@@ -139,7 +139,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
-    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
+    const { reorderShortcutByDrag, setStarredNavigationRef } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
         fullFileSystemFiltered,
@@ -286,6 +286,11 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 onItemClicked?.(item)
 
                 if (item?.record?.href) {
+                    setStarredNavigationRef(
+                        root === 'shortcuts://' && shortcutScope === 'files' && item.record.type && item.record.ref
+                            ? { type: item.record.type, ref: item.record.ref }
+                            : null
+                    )
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
                     )
