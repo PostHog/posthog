@@ -494,7 +494,7 @@ class _PermanentEvaluationError(Exception):
             SloOutcome.FAILURE,
             False,
             LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-            id="model_provider_out_of_reach",
+            id="detector_could_not_complete_the_check",
         ),
         pytest.param(
             LLMDetectorUnavailableError("Model timed out"),
@@ -574,7 +574,7 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
         if expected_error_code is None:
             assert check.error is not None and "code" not in check.error
         else:
-            # A provider the judge cannot reach is not the owner's configuration, so the check
+            # A check the judge could not complete is not the owner's configuration, so the check
             # carries its own code and never the raw transport error.
             assert check.error == {
                 "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,

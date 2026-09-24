@@ -37526,7 +37526,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -37536,13 +37536,46 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type EvaluationOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: EvaluationOutputConfigPassingRule;
     };
 
     /**
@@ -37630,6 +37663,7 @@ export namespace Schemas {
 
     /**
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
      * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
@@ -37637,6 +37671,7 @@ export namespace Schemas {
 
     export const OutputTypeEnum = {
       Boolean: 'boolean',
+      Numeric: 'numeric',
       Sentiment: 'sentiment',
     } as const;
 
@@ -37751,12 +37786,13 @@ export namespace Schemas {
       evaluation_type: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -38063,6 +38099,49 @@ export namespace Schemas {
     }
 
     /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type EvaluationReportMetricsOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Numeric score configuration and passing rule used for both report periods.
+     */
+    export type EvaluationReportMetricsOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: EvaluationReportMetricsOutputConfigPassingRule;
+    };
+
+    /**
      * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
      */
     export type EvaluationReportMetricsResultCounts = {[key: string]: number};
@@ -38085,9 +38164,12 @@ export namespace Schemas {
     export type EvaluationReportMetricsPreviousResultRates = {[key: string]: number} | null;
 
     export interface EvaluationReportMetrics {
+      /** Numeric score configuration and passing rule used for both report periods. */
+      output_config?: EvaluationReportMetricsOutputConfig;
       /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
        *
        * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Number of evaluation results in the report period. */
@@ -38115,10 +38197,13 @@ export namespace Schemas {
          * @nullable
          */
       previous_result_rates?: EvaluationReportMetricsPreviousResultRates;
-      /** Boolean pass percentage, excluding results marked not applicable. */
-      pass_rate?: number;
       /**
-         * Boolean pass percentage for the previous period, or null when unavailable.
+         * Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.
+         * @nullable
+         */
+      pass_rate?: number | null;
+      /**
+         * Boolean or numeric pass percentage for the previous period, or null when unavailable.
          * @nullable
          */
       previous_pass_rate?: number | null;
@@ -47432,9 +47517,43 @@ export namespace Schemas {
          * @nullable
          */
       source_team_id: number | null;
+      /**
+         * Name of the project in source_team_id, so the picker can say where the installation comes from. Null for an installation no project has linked yet.
+         * @nullable
+         */
+      source_team_name: string | null;
     }
 
+    /**
+     * * `ok` - Ok
+     * * `not_connected` - Not Connected
+     * * `unavailable` - Unavailable
+     */
+    export type GitHubPersonalDiscoveryStatusEnum = typeof GitHubPersonalDiscoveryStatusEnum[keyof typeof GitHubPersonalDiscoveryStatusEnum];
+
+
+    export const GitHubPersonalDiscoveryStatusEnum = {
+      Ok: 'ok',
+      NotConnected: 'not_connected',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface GitHubAvailableInstallationsResponse {
+      /** Correlation ID for this discovery response. */
+      discovery_id: string;
+      /** Time this discovery completed. */
+      discovered_at: string;
+      /**
+         * GitHub identity of the credential used for personal discovery.
+         * @nullable
+         */
+      personal_github_login: string | null;
+      /** Whether personal discovery succeeded, has no connection, or is unavailable.
+       *
+       * * `ok` - Ok
+       * * `not_connected` - Not Connected
+       * * `unavailable` - Unavailable */
+      personal_discovery_status: GitHubPersonalDiscoveryStatusEnum;
       /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
       installations: GitHubAvailableInstallation[];
       /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
@@ -47514,12 +47633,20 @@ export namespace Schemas {
 
     export interface GitHubLinkExistingRequest {
       /**
+         * Discovery response ID for diagnostics only; grants no authority.
+         * @nullable
+         */
+      discovery_id?: string | null;
+      /**
          * Sibling team in the same organization whose GitHub installation should be reused.
          * @nullable
          */
       source_team_id?: number | null;
-      /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
-      installation_id?: string;
+      /**
+         * GitHub installation ID to link; resolved within the organization when source_team_id is omitted.
+         * @nullable
+         */
+      installation_id?: string | null;
     }
 
     export interface GitHubOAuthAuthorizeRequest {
@@ -48404,6 +48531,18 @@ export namespace Schemas {
     export const HideViewedRecordings = {
       CurrentUser: 'current-user',
       AnyUser: 'any-user',
+    } as const;
+
+    /**
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     */
+    export type HogEvaluationOutputTypeEnum = typeof HogEvaluationOutputTypeEnum[keyof typeof HogEvaluationOutputTypeEnum];
+
+
+    export const HogEvaluationOutputTypeEnum = {
+      Boolean: 'boolean',
+      Numeric: 'numeric',
     } as const;
 
     /**
@@ -71145,7 +71284,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -71155,13 +71294,46 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type PatchedEvaluationOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: PatchedEvaluationOutputConfigPassingRule;
     };
 
     /**
@@ -71227,12 +71399,13 @@ export namespace Schemas {
       evaluation_type?: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -97772,6 +97945,49 @@ export namespace Schemas {
       temperature?: number | null;
     }
 
+    /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    export type TestHogRequestOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
+
+    /**
+     * Output settings used to validate the preview, including numeric bounds and allows_na.
+     */
+    export type TestHogRequestOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+         * @nullable
+         */
+      passing_rule?: TestHogRequestOutputConfigPassingRule;
+    };
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogTargetConfig {
@@ -97790,8 +98006,15 @@ export namespace Schemas {
     }
 
     export interface TestHogRequest {
+      /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
+       *
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric */
+      output_type?: HogEvaluationOutputTypeEnum;
+      /** Output settings used to validate the preview, including numeric bounds and allows_na. */
+      output_config?: TestHogRequestOutputConfig;
       /**
-         * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -97816,6 +98039,11 @@ export namespace Schemas {
     }
 
     export interface TestHogResultItem {
+      /**
+         * Raw numeric score, or null when no numeric score was produced.
+         * @nullable
+         */
+      score?: number | null;
       /** Stable identifier for the sampled generation, trace, or session. */
       sample_id: string;
       /** Type of sampled unit: generation, trace, or session.
@@ -104414,6 +104642,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -104516,6 +104745,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -104604,6 +104834,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -104694,6 +104925,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',

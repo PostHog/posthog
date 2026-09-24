@@ -116,3 +116,11 @@ export function accessFlagForModel(modelId: string): string | undefined {
 export function labelForModel(modelId: string): string | undefined {
   return catalogModelFor(modelId)?.label;
 }
+
+export function supports1MContext(modelId: string): boolean {
+  return catalogModelFor(modelId)?.supports1MContext ?? false;
+}
+
+export function supportsFastMode(modelId: string): boolean {
+  return catalogModelFor(modelId)?.supportsFastMode ?? false;
+}
