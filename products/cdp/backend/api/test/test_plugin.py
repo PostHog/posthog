@@ -894,12 +894,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_plugin_repository_answers_empty_when_github_fails(self, _name, error, status_code, mock_get, mock_reload):
-        github_request = (
-            mock.Mock(side_effect=error)
+        answer = (
+            {"side_effect": error}
             if error is not None
-            else mock.Mock(return_value=_mock_github_response({"message": "no plugins for you"}, status_code))
+            else {"return_value": _mock_github_response({"message": "no plugins for you"}, status_code)}
         )
-        with mock.patch("products.cdp.backend.api.plugin.github_request", github_request):
+        with mock.patch("products.cdp.backend.api.plugin.github_request", **answer):
             response = self.client.get("/api/organizations/@current/plugins/repository/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])

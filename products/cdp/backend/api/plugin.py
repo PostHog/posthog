@@ -350,9 +350,9 @@ class PluginSerializer(serializers.ModelSerializer):
 
 
 def fetch_plugin_repository() -> list[Any]:
-    """The list of installable plugins, or an empty list when GitHub cannot answer. An instance with
-    restricted egress reaches GitHub for none of these reads, and a browsable catalog is optional, so
-    a failure degrades to an empty catalog instead of an error the user cannot act on."""
+    """The list of installable plugins, or an empty list when GitHub cannot answer. A browsable
+    catalog is optional, so an instance that cannot reach GitHub gets an empty one rather than an
+    error it can do nothing about."""
     try:
         response = github_request(
             "GET",
