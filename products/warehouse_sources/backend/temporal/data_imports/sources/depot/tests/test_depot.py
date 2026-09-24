@@ -138,6 +138,8 @@ class TestDepotSource:
             (_iso(WATERMARK), ["r3", "r4", "r5", "r6"], 3),
             (None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 4),
         ],
+        # The bounds derive from the wall clock, so fixed ids keep every xdist worker collecting the same tests.
+        ids=["datetime_watermark", "string_watermark", "no_watermark"],
     )
     def test_walks_terminal_runs_down_to_the_lower_bound_and_yields_them_oldest_first(
         self, created_after: dt.datetime | str | None, expected_run_ids: list[str], expected_terminal_pages: int
