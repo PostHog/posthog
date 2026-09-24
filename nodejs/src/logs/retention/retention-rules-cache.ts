@@ -139,12 +139,7 @@ export class RetentionRulesCache {
             id: string
             config: Record<string, unknown>
             version: string
-        }>(
-            PostgresUse.COMMON_READ,
-            RULES_QUERY[source],
-            [teamId],
-            'logs-retention-rules-fetch'
-        )
+        }>(PostgresUse.COMMON_READ, RULES_QUERY[source], [teamId], 'logs-retention-rules-fetch')
         return res.rows.map((r) => ({
             id: r.id,
             config: r.config ?? {},
