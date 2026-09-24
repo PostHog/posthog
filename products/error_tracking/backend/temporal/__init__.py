@@ -17,6 +17,12 @@ from products.error_tracking.backend.temporal.recommendations_refresh import (
     get_team_batches_activity,
     refresh_recommendations_batch_activity,
 )
+from products.error_tracking.backend.temporal.repo_paths import (
+    ACTIVITIES as REPO_PATHS_ACTIVITIES,
+    WORKFLOWS as REPO_PATHS_WORKFLOWS,
+    ErrorTrackingRepoPathsWorkflow,
+    store_release_file_list_activity,
+)
 from products.error_tracking.backend.temporal.spike_event_cleanup import (
     ACTIVITIES as SPIKE_EVENT_ACTIVITIES,
     WORKFLOWS as SPIKE_EVENT_WORKFLOWS,
@@ -45,6 +51,7 @@ WORKFLOWS = (
     + RECOMMENDATIONS_REFRESH_WORKFLOWS
     + WEEKLY_DIGEST_WORKFLOWS
     + ALERT_WORKFLOWS
+    + REPO_PATHS_WORKFLOWS
 )
 ACTIVITIES = (
     SYMBOL_SET_ACTIVITIES
@@ -52,6 +59,7 @@ ACTIVITIES = (
     + RECOMMENDATIONS_REFRESH_ACTIVITIES
     + WEEKLY_DIGEST_ACTIVITIES
     + ALERT_ACTIVITIES
+    + REPO_PATHS_ACTIVITIES
 )
 
 __all__ = [
@@ -64,6 +72,7 @@ __all__ = [
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",
     "ErrorTrackingRecommendationsRefreshWorkflow",
+    "ErrorTrackingRepoPathsWorkflow",
     "ErrorTrackingSpikeEventCleanupWorkflow",
     "ErrorTrackingSymbolSetCleanupWorkflow",
     "ErrorTrackingWeeklyDigestWorkflow",
@@ -73,4 +82,5 @@ __all__ = [
     "get_team_batches_activity",
     "refresh_recommendations_batch_activity",
     "send_org_digest_activity",
+    "store_release_file_list_activity",
 ]

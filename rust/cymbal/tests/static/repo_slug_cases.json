@@ -1,0 +1,22 @@
+[
+    { "remote_url": "https://github.com/acme/shop.git", "slug": "github.com/acme/shop" },
+    { "remote_url": "https://GitHub.com/acme/shop", "slug": "github.com/acme/shop" },
+    { "remote_url": "git@github.com:acme/shop.git", "slug": "github.com/acme/shop" },
+    { "remote_url": "ssh://git@github.com/acme/shop.git", "slug": "github.com/acme/shop" },
+    {
+        "remote_url": "https://user:secret@gitlab.example.com:8443/group/sub/project.git",
+        "slug": "gitlab.example.com/group/sub/project"
+    },
+    { "remote_url": "https://github.com/acme/shop/", "slug": "github.com/acme/shop" },
+    { "remote_url": "  https://github.com/acme/shop  ", "slug": "github.com/acme/shop" },
+    { "remote_url": "http://gitlab.example.com/group/project", "slug": "gitlab.example.com/group/project" },
+    { "remote_url": "https://github.com/acme", "slug": null },
+    { "remote_url": "file:///srv/git/shop.git", "slug": null },
+    { "remote_url": "https://github.com/acme/../shop", "slug": null },
+    { "remote_url": "https://github.com/acme/./shop", "slug": null },
+    { "remote_url": "https://github.com/acme//shop", "slug": null },
+    { "remote_url": "https://github.com/acme/shop?ref=main", "slug": null },
+    { "remote_url": "https://github.com/acme/shop x", "slug": null },
+    { "remote_url": "https:///acme/shop", "slug": null },
+    { "remote_url": "", "slug": null }
+]

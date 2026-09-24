@@ -86,3 +86,25 @@ def dispatch_error_tracking_alert_deliveries(team_id: int, notifications: list[d
     from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs  # noqa: PLC0415
 
     start_alert_delivery_workflows([AlertDeliveryWorkflowInputs(**notification) for notification in notifications])
+
+
+@shared_task(
+    name="products.error_tracking.backend.tasks.start_error_tracking_repo_paths_job",
+    ignore_result=True,
+    # The start is idempotent on the workflow id, so a redelivery after a worker loss is safe.
+    acks_late=True,
+    reject_on_worker_lost=True,
+    autoretry_for=(Exception,),
+    max_retries=5,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+@with_team_scope()
+def start_error_tracking_repo_paths_job(team_id: int, release_id: str) -> None:
+    """Start the workflow that stores the file list of a new release commit, for flagged teams."""
+    # Anything under the temporal package pulls in its aggregator, which loads every worker-only
+    # workflow module: keep it off this module's import path.
+    from products.error_tracking.backend.temporal.repo_paths.dispatch import start_repo_paths_workflow  # noqa: PLC0415
+
+    start_repo_paths_workflow(team_id=team_id, release_id=release_id)

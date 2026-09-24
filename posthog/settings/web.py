@@ -1176,6 +1176,17 @@ ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEE
 # "*" for all
 ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
 
+# File lists of release commits, which cymbal uses to link stack frames to repository paths.
+# A list above the path cap is not stored. The fetch caps bound one git fetch in a worker.
+ERROR_TRACKING_REPO_PATHS_MAX_PATHS = get_from_env("ERROR_TRACKING_REPO_PATHS_MAX_PATHS", 200_000, type_cast=int)
+ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO = get_from_env("ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO", 50, type_cast=int)
+ERROR_TRACKING_REPO_PATHS_MAX_FETCH_BYTES = get_from_env(
+    "ERROR_TRACKING_REPO_PATHS_MAX_FETCH_BYTES", 256 * 1024 * 1024, type_cast=int
+)
+ERROR_TRACKING_REPO_PATHS_FETCH_TIMEOUT_SECONDS = get_from_env(
+    "ERROR_TRACKING_REPO_PATHS_FETCH_TIMEOUT_SECONDS", 120, type_cast=int
+)
+
 # webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 

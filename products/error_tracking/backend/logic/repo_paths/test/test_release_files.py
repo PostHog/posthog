@@ -1,0 +1,159 @@
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.test import override_settings
+
+import zstd
+from parameterized import parameterized
+
+from posthog.models.integration import Integration
+
+from products.error_tracking.backend.logic import create_release
+from products.error_tracking.backend.logic.repo_paths.git_lister import GitFetchTarget, RepoFileList
+from products.error_tracking.backend.logic.repo_paths.release_files import store_release_file_list
+
+COMMIT = "0123456789abcdef0123456789abcdef01234567"
+OLDER_COMMITS = ["1" * 40, "2" * 40]
+PATHS = ("services/api/manage.py", "apps/web/src/index.tsx", "README.md")
+
+
+class _MemoryObjectStorage:
+    def __init__(self) -> None:
+        self.objects: dict[str, tuple[bytes, datetime]] = {}
+        self._clock = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def put(self, key: str, content: bytes) -> None:
+        self._clock += timedelta(minutes=1)
+        self.objects[key] = (content, self._clock)
+
+    def write(self, bucket: str, key: str, content: bytes, extras: dict | None = None) -> None:
+        self.put(key, content)
+
+    def head_object(self, bucket: str, file_key: str) -> dict[str, Any] | None:
+        stored = self.objects.get(file_key)
+        return {"LastModified": stored[1], "ContentLength": len(stored[0])} if stored else None
+
+    head_object_strict = head_object
+
+    def list_objects(self, bucket: str, prefix: str) -> list[str] | None:
+        return [key for key in self.objects if key.startswith(prefix)] or None
+
+    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+        for key in keys:
+            self.objects.pop(key, None)
+        return keys
+
+
+@override_settings(OBJECT_STORAGE_ENABLED=True, ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO=2)
+class TestStoreReleaseFileList(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.storage = _MemoryObjectStorage()
+        self.fetched: list[GitFetchTarget] = []
+        patches = [
+            patch("posthog.storage.object_storage.object_storage_client", return_value=self.storage),
+            patch(
+                "products.error_tracking.backend.logic.repo_paths.release_files.list_repository_files",
+                side_effect=self._list,
+            ),
+            patch(
+                "products.error_tracking.backend.logic.repo_paths.release_files.is_url_allowed",
+                return_value=(True, None),
+            ),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _list(self, target: GitFetchTarget) -> RepoFileList:
+        self.fetched.append(target)
+        return RepoFileList(commit=target.commit, paths=tuple(sorted(PATHS)), fetched_bytes=1, seconds=0.1)
+
+    def _release(self, remote_url: str) -> str:
+        metadata = {"git": {"remote_url": remote_url, "commit_id": COMMIT}}
+        with self.captureOnCommitCallbacks(execute=False):
+            release = create_release(self.team.id, version="1.0.0", project="shop", metadata=metadata)
+        return str(release.id)
+
+    def _gitlab_integration(self, hostname: str, path: str) -> None:
+        Integration.objects.create(
+            team=self.team,
+            kind="gitlab",
+            integration_id=path,
+            config={"hostname": hostname, "path_with_namespace": path, "project_id": 42},
+            sensitive_config={"access_token": "glpat-example-token"},
+        )
+
+    def _key(self, commit: str) -> str:
+        return f"repo_paths/v1/{self.team.id}/gitlab.example.com/acme/shop/{commit}.zst"
+
+    def test_writes_the_sorted_list_fetched_from_the_integration_host(self) -> None:
+        self._gitlab_integration("https://gitlab.example.com:8443", "acme/shop")
+        release_id = self._release("git@GitLab.example.com:acme/shop.git")
+
+        outcome = store_release_file_list(self.team.id, release_id)
+
+        assert outcome == "written"
+        assert [target.remote.url for target in self.fetched] == ["https://gitlab.example.com:8443/acme/shop.git"]
+        content, _ = self.storage.objects[self._key(COMMIT)]
+        assert zstd.decompress(content).decode() == "\n".join(sorted(PATHS))
+
+    @override_settings(ERROR_TRACKING_REPO_PATHS_MAX_PATHS=2)
+    def test_a_list_above_the_cap_writes_nothing(self) -> None:
+        self._gitlab_integration("https://gitlab.example.com", "acme/shop")
+        release_id = self._release("https://gitlab.example.com/acme/shop.git")
+
+        assert store_release_file_list(self.team.id, release_id) == "too_large"
+        assert self.storage.objects == {}
+
+    def test_keeps_only_the_newest_lists_of_the_repo(self) -> None:
+        self._gitlab_integration("https://gitlab.example.com", "acme/shop")
+        for commit in OLDER_COMMITS:
+            self.storage.put(self._key(commit), b"old")
+        other_repo = f"repo_paths/v1/{self.team.id}/gitlab.example.com/acme/shop-web/{'3' * 40}.zst"
+        self.storage.put(other_repo, b"other")
+        release_id = self._release("https://gitlab.example.com/acme/shop.git")
+
+        assert store_release_file_list(self.team.id, release_id) == "written"
+        assert sorted(self.storage.objects) == sorted([self._key(OLDER_COMMITS[1]), self._key(COMMIT), other_repo])
+
+    @parameterized.expand(
+        [
+            ("github_repo_without_integration", "https://github.com/acme/shop.git", "no_integration"),
+            ("gitlab_host_without_integration", "https://gitlab.other.example.com/acme/shop.git", "no_integration"),
+        ]
+    )
+    def test_fetches_nothing_without_a_matching_integration(self, _name: str, remote_url: str, expected: str) -> None:
+        self._gitlab_integration("https://gitlab.example.com", "acme/shop")
+        release_id = self._release(remote_url)
+
+        assert store_release_file_list(self.team.id, release_id) == expected
+        assert self.fetched == []
+
+
+class TestReleaseTrigger(BaseTest):
+    @parameterized.expand(
+        [
+            ("full_commit", {"git": {"remote_url": "https://github.com/acme/shop.git", "commit_id": COMMIT}}, True),
+            (
+                "short_commit",
+                {"git": {"remote_url": "https://github.com/acme/shop.git", "commit_id": "0123abc"}},
+                False,
+            ),
+            ("no_remote", {"git": {"commit_id": COMMIT}}, False),
+            ("no_git_metadata", {"version": "1.0.0"}, False),
+        ]
+    )
+    def test_queues_the_job_after_commit_only_for_a_full_commit(self, _name: str, metadata: dict, queued: bool) -> None:
+        with patch("products.error_tracking.backend.tasks.tasks.start_error_tracking_repo_paths_job.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                release = create_release(self.team.id, version="1.0.0", project="shop", metadata=metadata)
+                delay.assert_not_called()
+
+        if queued:
+            delay.assert_called_once_with(team_id=self.team.id, release_id=str(release.id))
+        else:
+            delay.assert_not_called()

@@ -7,6 +7,7 @@ from django.db.models import Count, Q, QuerySet
 
 from posthog.models.utils import UUIDT
 
+from products.error_tracking.backend.logic.repo_paths.release_repo import schedule_release_file_list
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -381,6 +382,7 @@ def create_release(
     )
     if not created:
         raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
+    schedule_release_file_list(release)
     return release
 
 
