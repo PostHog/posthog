@@ -398,6 +398,38 @@ class TestEnrichOrgPageActivity(TestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.fetch_org_regions", return_value={"uuid-1": "US"})
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_keeps_batch_counts_when_the_resend_fails(
+        self, _mock_close, mock_get_page, mock_sf_client, _mock_regions, _mock_heartbeat
+    ):
+        mock_get_page.return_value = [
+            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
+            {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
+        ]
+
+        mock_sf = MagicMock()
+        mock_sf.restful.return_value = {"fields": [{"name": "Posthog_Org_Region__c", "updateable": True}]}
+        mock_sf.query_all.return_value = {
+            "records": [{"Id": "001ABC", "Posthog_Org_ID__c": "uuid-1", "Posthog_Org_Region__c": None}]
+        }
+        mock_sf.bulk.Account.update.side_effect = [
+            [{"id": None, "success": False, "errors": ["bad value"]}, {"id": "001DEF", "success": True}],
+            Exception("Salesforce timed out"),
+        ]
+        mock_sf_client.return_value = mock_sf
+
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await enrich_org_page_activity(0, 10000, 100)
+
+        assert result.processed == 2
+        assert result.updated == 1
+        assert result.errors == []
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_raises_when_cache_is_missing(self, _mock_close, mock_get_page, _mock_heartbeat):

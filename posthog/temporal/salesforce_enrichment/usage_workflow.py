@@ -50,7 +50,7 @@ LOGGER = get_logger(__name__)
 _SPECIAL_FIELDS = frozenset({"products_activated_7d", "products_activated_30d"})
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class UsageEnrichmentState:
     """Continue-As-New state carried across workflow executions."""
 
@@ -73,7 +73,7 @@ class UsageEnrichmentInputs:
     state: UsageEnrichmentState | None = None  # Continue-As-New state
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class UsageEnrichmentResult:
     """Result of the usage enrichment workflow."""
 
@@ -261,7 +261,13 @@ async def _update_accounts(
             resend.append({field: value for field, value in record.items() if field != POSTHOG_ORG_REGION_FIELD})
 
     if resend:
-        retry_response = await asyncio.to_thread(sf.bulk.Account.update, resend)  # type: ignore[union-attr,arg-type]
+        try:
+            retry_response = await asyncio.to_thread(sf.bulk.Account.update, resend)  # type: ignore[union-attr,arg-type]
+        except Exception:
+            # The first attempt's updates are already written, so their counts must survive.
+            logger.exception("salesforce_account_resend_failed", account_count=len(resend))
+            retry_response = []
+            resend = []
         for record, result in zip(resend, retry_response, strict=True):
             if result.get("success"):
                 updated += 1
@@ -309,7 +315,7 @@ async def cache_org_mappings_activity(force_rebuild: bool = False) -> dict[str, 
     return {"success": True, "total_mappings": len(mappings)}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EnrichPageResult:
     """Result of enriching one page of org mappings."""
 
