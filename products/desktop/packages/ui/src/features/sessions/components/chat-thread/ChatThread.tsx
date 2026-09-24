@@ -210,7 +210,6 @@ function isThoughtItem(item: ConversationItem): boolean {
   );
 }
 
-/** Skips an incomplete turn so the last-renderable pick can't flip as more calls stream in. */
 function lastRenderableIdsByTurn(
   items: ConversationItem[],
 ): Map<TurnContext, string> {
@@ -226,9 +225,9 @@ function lastRenderableIdsByTurn(
 
 /**
  * An item that must render as its own row, never folded into a `ToolGroupItem`:
- * a plan awaiting approval, a show-actions handoff, or the turn's last call whose
- * result carries a UI app. The next standalone item type joins this predicate
- * instead of widening the condition at the call site.
+ * a plan awaiting approval, a show-actions handoff, or a call whose result
+ * carries a UI app. The next standalone item type joins this predicate instead
+ * of widening the condition at the call site.
  *
  * A UI-app call cannot ride in a group, and `keepMounted` on the group body is
  * not the fix. It would keep every collapsed run's body mounted thread-wide,
