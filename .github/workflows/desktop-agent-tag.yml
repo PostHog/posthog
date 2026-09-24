@@ -19,6 +19,8 @@ jobs:
     tag:
         # A manual run can start from any branch, so the ref check keeps a release tag on master.
         if: github.ref == 'refs/heads/master'
+        # The release App's key lives in this environment, which only master and a desktop-v* tag reach.
+        environment: desktop-tagging
         permissions:
             contents: write
         runs-on: depot-ubuntu-24.04

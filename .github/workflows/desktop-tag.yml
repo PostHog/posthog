@@ -12,13 +12,6 @@ on:
                 description: Skip the master Desktop Tests check, for a break-glass release.
                 type: boolean
                 default: false
-    pull_request:
-        types: [closed]
-        branches:
-            - master
-        paths:
-            - 'products/desktop/**'
-            - '.github/workflows/desktop-tag.yml'
 
 concurrency:
     group: desktop-tag
@@ -31,15 +24,13 @@ jobs:
         if: >-
             github.event_name == 'schedule' ||
             (github.event_name == 'workflow_dispatch' &&
-             (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v'))) ||
-            (github.event.pull_request.merged == true &&
-             contains(github.event.pull_request.labels.*.name, 'desktop-release'))
+             (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v')))
+        # The release App's key lives in this environment, which only master and a desktop-v* tag reach.
+        environment: desktop-tagging
         permissions:
             contents: write
             actions: write
             checks: read
-            pull-requests: write
-            issues: write
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 60
         steps:
@@ -56,44 +47,6 @@ jobs:
                   fetch-depth: 0
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
-
-            - name: Check labeler is a member of team-posthog-desktop
-              id: labeler
-              if: github.event_name == 'pull_request'
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  COMMENT_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  TEAM_SLUG: team-posthog-desktop
-              run: |
-                  skip() {
-                    echo "$1 Skipping auto-release; the next scheduled release will pick this up."
-                    echo "authorized=false" >> "$GITHUB_OUTPUT"
-                    GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" \
-                      --body "$1 Auto-release is limited to members of the ${TEAM_SLUG} GitHub team, so this will ship with the next scheduled release instead." || true
-                  }
-
-                  LABELER=$(gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/events" --paginate \
-                    --jq '.[] | select(.event == "labeled" and (.label.name | ascii_downcase) == "desktop-release") | "\(.id) \(.actor.login)"' \
-                    | sort -n | tail -1 | cut -d" " -f2)
-
-                  if [ -z "$LABELER" ]; then
-                    skip "Could not determine who added the 'desktop-release' label."
-                    exit 0
-                  fi
-
-                  if ! MEMBERS=$(gh api "orgs/${REPOSITORY%%/*}/teams/${TEAM_SLUG}/members" --paginate --jq '.[].login'); then
-                    skip "Could not verify ${TEAM_SLUG} membership (GitHub API error)."
-                    exit 0
-                  fi
-
-                  if echo "$MEMBERS" | grep -qixF "$LABELER"; then
-                    echo "'desktop-release' was added by ${LABELER}, a member of ${TEAM_SLUG}."
-                    echo "authorized=true" >> "$GITHUB_OUTPUT"
-                  else
-                    skip "'desktop-release' was added by @${LABELER}, who is not on ${TEAM_SLUG}."
-                  fi
 
             - name: Check quiet period
               id: quiet
@@ -133,7 +86,7 @@ jobs:
             # the tag job runs Desktop Tests on the tree it is about to tag and waits.
             - name: Run Desktop Tests on master
               id: master-ci-run
-              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false' && github.event.inputs.ignore_master_ci != 'true'
+              if: steps.quiet.outputs.proceed != 'false' && github.event.inputs.ignore_master_ci != 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
@@ -177,10 +130,6 @@ jobs:
                   CONCLUSION: ${{ steps.master-ci.outputs.conclusion }}
                   SHA: ${{ steps.master-ci-run.outputs.sha }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.master-ci-run.outputs.run_id }}
-                  EVENT_NAME: ${{ github.event_name }}
-                  COMMENT_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   if [ "$CONCLUSION" = "success" ]; then
                     echo "Desktop Tests passed on ${SHA}: ${RUN_URL}"
@@ -195,13 +144,9 @@ jobs:
                   fi
 
                   echo "::warning::Desktop Tests concluded '${CONCLUSION}' on ${SHA}, so the release tag is held. ${RUN_URL}"
-                  if [ "$EVENT_NAME" = "pull_request" ]; then
-                    GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" \
-                      --body "Auto-release is on hold: Desktop Tests concluded \`${CONCLUSION}\` on master (${RUN_URL}). It ships with the next scheduled release once master is green." || true
-                  fi
 
             - name: Compute version and create tag
-              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false'
+              if: steps.quiet.outputs.proceed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
