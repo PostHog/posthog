@@ -10,6 +10,8 @@ export type PlaygroundQuestionType = 'noul' | 'choice' | 'score'
 export type QuestionsView = 'form' | 'json'
 
 const QUESTION_TYPES: PlaygroundQuestionType[] = ['noul', 'choice', 'score']
+// Mirrors MAX_OPTIONS_PER_QUESTION in the backend serializer: the model answers with one letter per option, A to P.
+export const MAX_OPTIONS_PER_QUESTION = 16
 
 export interface PlaygroundOption {
     key: string

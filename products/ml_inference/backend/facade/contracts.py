@@ -8,7 +8,7 @@ from pydantic.dataclasses import dataclass
 
 from .enums import DecisionQuestionType
 
-DEFAULT_DECISION_MODEL = "posthog/posthog/decision-4b"
+DEFAULT_DECISION_MODEL = "posthog/alibiserikbay/jevk5-0.2"
 
 
 class DecisionsDisabledError(Exception):

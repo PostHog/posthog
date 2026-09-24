@@ -25,7 +25,7 @@ from products.ml_inference.backend.logic import decisions
 GATEWAY = {"AI_GATEWAY_URL": "https://gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 
 ANSWERS: dict[str, Any] = {
-    "model": "kev-latest",
+    "model": "jevk5-0.2",
     "answers": {
         "urgent": {"noul": 0.91},
         "route": {"choice": "billing", "confidence": 0.6, "probabilities": {"billing": 0.7, "bug": 0.3}},
@@ -78,7 +78,7 @@ class TestDecide:
         assert json.loads(request.headers["X-PostHog-Properties"]) == {"ai_product": "ml_inference"}
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
         body = json.loads(request.content)
-        assert body["model"] == "posthog/posthog/decision-4b"
+        assert body["model"] == "posthog/alibiserikbay/jevk5-0.2"
         assert body["state"] == "ticket text"
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
@@ -101,9 +101,9 @@ class TestDecide:
         [
             {},
             [],
-            {"model": "kev-latest", "answers": {}, "usage": {}},
-            {"model": "kev-latest", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
-            {"model": "kev-latest", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
+            {"model": "jevk5-0.2", "answers": {}, "usage": {}},
+            {"model": "jevk5-0.2", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
+            {"model": "jevk5-0.2", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
             {**ANSWERS, "answers": {**ANSWERS["answers"], "extra": {"noul": 0.5}}},
             {**ANSWERS, "answers": {k: v for k, v in ANSWERS["answers"].items() if k != "mood"}},
             {**ANSWERS, "answers": {**ANSWERS["answers"], "urgent": {"noul": 0.9, "choice": "billing"}}},
@@ -145,7 +145,7 @@ class TestDecide:
 
         with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test"):
             if allowed:
-                assert decisions.decide(_request(), transport=transport).model == "kev-latest"
+                assert decisions.decide(_request(), transport=transport).model == "jevk5-0.2"
             else:
                 with pytest.raises(GatewayNotConfiguredError):
                     decisions.decide(_request(), transport=transport)
