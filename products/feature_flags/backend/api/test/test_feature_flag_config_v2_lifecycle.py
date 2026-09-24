@@ -1,9 +1,5 @@
-"""Config version 2 lifecycle writes: create, enable, disable and archive.
-
-Both writer settings default closed. Disabling and archiving a stored v2 row must work with both
-closed; creating and enabling need the project allowlisted, and creating also needs the creation
-switch. Full-document and metadata updates are covered in test_feature_flag_config_v2_updates.
-These flags are invented test rows.
+"""Disabling and soft-deleting a stored v2 row are the pilot's incident controls, so they must
+work with both writer settings closed; creating and enabling need the project allowlisted.
 """
 
 from django.conf import settings
@@ -35,9 +31,10 @@ from products.feature_flags.backend.models import FeatureFlag
 class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
     """Disabling and archiving are the pilot's incident controls: they work with both settings closed."""
 
-    def test_disabling_needs_only_the_row_version(self) -> None:
+    @parameterized.expand(["patch", "put"])
+    def test_disabling_needs_only_the_row_version(self, method: str) -> None:
         flag = self.flag(active=True)
-        response = self.patch_flag(flag, {"version": 3, "active": False})
+        response = self.patch_flag(flag, {"key": flag.key, "version": 3, "active": False}, method=method)
         assert response.status_code == status.HTTP_200_OK, response.json()
         flag.refresh_from_db()
         assert (flag.active, flag.version) == (False, 4)

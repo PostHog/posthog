@@ -1800,6 +1800,9 @@ class FeatureFlagSerializer(
         """
         admitted = self._v2_limits is not None
         unsupported = self._unsupported_v2_fields(attrs, V2_UPDATE_FIELDS if admitted else V2_SAFETY_FIELDS)
+        assert isinstance(self.instance, FeatureFlag)
+        if attrs.get("key") == self.instance.key:
+            unsupported.discard("key")  # PUT must echo the required key; an unchanged key is not a rename
         if attrs.get("deleted") is False:
             unsupported.add("deleted")
         if attrs.get("active") is True and not admitted:
