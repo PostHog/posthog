@@ -509,10 +509,7 @@ impl ParticipationSet {
     /// The active cohorts this run cannot seed, ascending. A cohort absent from `covered` has no
     /// surviving condition; one the catalog refuses to compose would be seeded into a reconcile the
     /// processor discards.
-    pub(super) fn uncovered_from(
-        &self,
-        covered: &HashSet<CohortId>,
-    ) -> Vec<(CohortId, UncoveredReason)> {
+    fn uncovered_from(&self, covered: &HashSet<CohortId>) -> Vec<(CohortId, UncoveredReason)> {
         let mut uncovered = self
             .states
             .iter()

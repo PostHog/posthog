@@ -266,6 +266,8 @@ class TestBackfillRuns(BaseTest):
                 "bytecodeless_person_sibling",
                 [_WINDOWED_LEAF, {"type": "person", "key": "email", "conditionHash": "person0000000001"}],
             ),
+            # Every leaf is kept, so only the tree tells this cohort apart from a seedable one.
+            ("negated_root", [{**_WINDOWED_LEAF, "negation": True}]),
         ]
     )
     def test_unseedable_behavioral_cohort_is_refused(self, _name: str, leaves: list[dict]) -> None:
@@ -273,9 +275,11 @@ class TestBackfillRuns(BaseTest):
         # refused whole.
         cohort = self._unseedable_cohort(*leaves)
 
-        attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        with self.assertLogs("products.cohorts.backend.backfill.runs", level="INFO") as logs:
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
 
         self.assertEqual(attempt.reason, BackfillRefusalReason.COHORT_INELIGIBLE)
+        self.assertIn("the realtime catalog", "\n".join(logs.output))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
     def test_team_run_excludes_an_unseedable_cohort_and_refuses_it_by_id(self) -> None:
@@ -684,6 +688,7 @@ class TestPersonBackfillRuns(BaseTest):
             # The seeder fails a person run for this cohort on its first tick, so a person gate
             # admitting it would create one failed run per save.
             ("windowless_behavioral_sibling", {"filters": "windowless"}),
+            ("negated_root", {"filters": "negated_root"}),
         ]
     )
     def test_ineligible_cohort_is_refused(self, _name: str, overrides: dict[str, object]) -> None:
@@ -696,6 +701,9 @@ class TestPersonBackfillRuns(BaseTest):
             filters = self._filters(person_metadata=True)
         elif _name == "windowless_behavioral_sibling":
             filters = self._filters(windowless=True)
+        elif _name == "negated_root":
+            filters = self._filters(behavioral=False)
+            filters["properties"]["values"][0]["negation"] = True
         cohort_type = overrides.pop("cohort_type", CohortType.REALTIME)
         cohort = Cohort.objects.create(
             team=self.team,

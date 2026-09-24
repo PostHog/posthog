@@ -5,7 +5,7 @@ import structlog
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
-from products.cohorts.backend.parity.eligibility import leaf_drop_reason
+from products.cohorts.backend.parity.eligibility import is_action_key, leaf_drop_reason
 
 _INTERVAL_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
 logger = structlog.get_logger(__name__)
@@ -25,16 +25,6 @@ def derive_window_days(time_value: object, time_interval: object) -> int:
     except (TypeError, ValueError):
         return 0
     return normalized_time_value * _INTERVAL_DAYS.get(time_interval, 0)
-
-
-def _is_action(leaf: dict[str, Any]) -> bool:
-    """`classify_behavioral` reads a numeric `key` and nothing else, so the pinner must too.
-
-    Reading `event_type` here would mark a leaf the catalog keeps as action-keyed, and the seeder
-    drops an action-keyed condition — refusing a cohort the gate below admits.
-    """
-    key = leaf.get("key")
-    return isinstance(key, (int, float)) and not isinstance(key, bool)
 
 
 def leaf_unpinnable_reason(leaf: dict[str, Any]) -> str | None:
@@ -59,7 +49,9 @@ def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any
                 continue
 
             event_key = leaf.get("key")
-            is_action = _is_action(leaf)
+            # The seeder drops an action-keyed condition, so reading `event_type` here as well would
+            # drop a leaf the gate admits.
+            is_action = is_action_key(event_key)
             event_name = event_key if isinstance(event_key, str) and not is_action else None
             if event_name is not None:
                 event_names.add(event_name)

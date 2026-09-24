@@ -37,6 +37,7 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
+from products.cohorts.backend.parity.eligibility import structural_exclusion
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
 logger = structlog.get_logger(__name__)
@@ -97,14 +98,19 @@ def _contains_person_metadata_leaf(cohort: Cohort) -> bool:
 
 
 def _catalog_drop_reason(cohort: Cohort) -> str | None:
-    """The refusal for the first leaf of any type the frozen catalog drops, or ``None``.
+    """The refusal for a cohort the frozen catalog will not compose, or ``None``.
 
     The catalog excludes a cohort whole for one dropped leaf, so both run kinds screen every leaf.
+    The tree is screened too: the seeder fails a whole team run over one cohort with a negated root,
+    which has no dropped leaf.
     """
     for leaf in walk_filter_leaves((cohort.filters or {}).get("properties")):
         reason = leaf_unpinnable_reason(leaf)
         if reason is not None:
             return f"has a filter the realtime catalog drops ({reason})"
+    exclusion = structural_exclusion(cohort.filters)
+    if exclusion is not None:
+        return f"has a shape the realtime catalog will not compose ({exclusion})"
     return None
 
 

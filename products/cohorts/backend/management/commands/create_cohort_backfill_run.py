@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -98,27 +99,7 @@ class Command(BaseCommand):
 
         cohort_ids = options.get("cohort_ids")
         if options["dry_run"]:
-            # Deliberately wider than `create_team_backfill_run`, which narrows the SQL-expressible
-            # half of eligibility away before it locks. Both sides decide with the same predicate.
-            queryset = Cohort.objects.filter(team_id=team_id)
-            if cohort_ids is not None:
-                queryset = queryset.filter(id__in=cohort_ids)
-            candidates = [
-                (cohort, behavioral_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")
-            ]
-            refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
-            if cohort_ids is not None:
-                candidate_ids = {cohort.id for cohort, _ in candidates}
-                refusals.extend((cohort_id, "not found") for cohort_id in sorted(set(cohort_ids) - candidate_ids))
-            if refusals:
-                self.stdout.write(
-                    "Refused cohorts: " + ", ".join(f"{cohort_id} ({reason})" for cohort_id, reason in refusals)
-                )
-            cohorts = [cohort for cohort, reason in candidates if reason is None]
-            if cohort_ids is not None and refusals:
-                raise CommandError("One or more --cohort-ids are not eligible realtime behavioral cohorts")
-            if not cohorts:
-                raise CommandError(f"Team {team_id} has no eligible realtime behavioral cohorts")
+            cohorts = self._dry_run_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason, "behavioral")
             pinned, event_names = pin_conditions_for_cohorts(cohorts)
             self.stdout.write(
                 f"Dry run: {len(cohorts)} cohorts, {len(pinned['conditions'])} conditions, "
@@ -198,30 +179,7 @@ class Command(BaseCommand):
         cohort_ids: list[int] | None,
         boundary_at: datetime | None,
     ) -> None:
-        requested_ids = set(cohort_ids) if cohort_ids is not None else None
-        # Deliberately wider than `_person_cohorts_for_team`, which narrows the SQL-expressible half
-        # of eligibility away before it locks: the dry run's whole job is naming *why* each cohort was
-        # refused, and it takes no locks. Both sides decide with `person_backfill_ineligibility_reason`.
-        queryset = Cohort.objects.filter(team_id=team_id)
-        if requested_ids is not None:
-            queryset = queryset.filter(id__in=requested_ids)
-        candidates = [(cohort, person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
-
-        refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
-        if requested_ids is not None:
-            candidate_ids = {cohort.id for cohort, _ in candidates}
-            refusals.extend((cohort_id, "not found") for cohort_id in sorted(requested_ids - candidate_ids))
-
-        if refusals:
-            self.stdout.write(
-                "Refused cohorts: " + ", ".join(f"{cohort_id} ({reason})" for cohort_id, reason in refusals)
-            )
-        if requested_ids is not None and refusals:
-            raise CommandError("One or more --cohort-ids are not eligible realtime person-property cohorts")
-
-        cohorts = [cohort for cohort, reason in candidates if reason is None]
-        if not cohorts:
-            raise CommandError(f"Team {team_id} has no eligible realtime person-property cohorts")
+        cohorts = self._dry_run_cohorts(team_id, cohort_ids, person_backfill_ineligibility_reason, "person-property")
         try:
             pinned = pin_person_conditions_for_cohorts(
                 cohorts,
@@ -253,3 +211,35 @@ class Command(BaseCommand):
             f"{estimate.estimated_topic_bytes} estimated topic bytes, budget {estimate.budget_bytes}, "
             f"would refuse: {verdict}"
         )
+
+    def _dry_run_cohorts(
+        self,
+        team_id: int,
+        cohort_ids: list[int] | None,
+        ineligibility_reason: Callable[[Cohort], str | None],
+        kind_label: str,
+    ) -> list[Cohort]:
+        # Deliberately wider than the run creators, which narrow the SQL-expressible half of
+        # eligibility away before they lock: the dry run's whole job is naming *why* each cohort was
+        # refused, and it takes no locks. Both sides decide with the same predicate.
+        queryset = Cohort.objects.filter(team_id=team_id)
+        if cohort_ids is not None:
+            queryset = queryset.filter(id__in=cohort_ids)
+        candidates = [(cohort, ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
+
+        refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
+        if cohort_ids is not None:
+            candidate_ids = {cohort.id for cohort, _ in candidates}
+            refusals.extend((cohort_id, "not found") for cohort_id in sorted(set(cohort_ids) - candidate_ids))
+
+        if refusals:
+            self.stdout.write(
+                "Refused cohorts: " + ", ".join(f"{cohort_id} ({reason})" for cohort_id, reason in refusals)
+            )
+        if cohort_ids is not None and refusals:
+            raise CommandError(f"One or more --cohort-ids are not eligible realtime {kind_label} cohorts")
+
+        cohorts = [cohort for cohort, reason in candidates if reason is None]
+        if not cohorts:
+            raise CommandError(f"Team {team_id} has no eligible realtime {kind_label} cohorts")
+        return cohorts
