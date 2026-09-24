@@ -23,7 +23,8 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
     )
 
     const liveVersion = originalWorkflow?.version
-    // A revision records no ref, so only the live version can say which push produced it.
+    // The revision list does not return the source each revision records, so only the live version
+    // can show the ref of the push that produced it.
     const liveSource = isCodeManaged ? workflowSource(originalWorkflow) : null
 
     return (
