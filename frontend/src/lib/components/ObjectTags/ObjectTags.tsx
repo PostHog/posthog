@@ -12,7 +12,8 @@ interface ObjectTagsPropsBase {
     tags: string[]
     saving?: boolean
     style?: CSSProperties
-    /** Set on the add/edit trigger, so a `<label htmlFor>` can point at it. */
+    /** Set on whichever control is showing — the add/edit trigger, or the editor's input while
+     * editing — so a `<label htmlFor>` keeps a target in both states. */
     id?: string
     className?: string
     actionButtonSize?: ComponentProps<typeof LemonTag>['size']
@@ -132,6 +133,7 @@ export function ObjectTags({
                     }}
                     loading={saving}
                     data-attr="new-tag-input"
+                    id={id}
                     placeholder={inputPlaceholder}
                     autoFocus
                     popoverClassName="click-outside-block"

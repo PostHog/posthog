@@ -38,5 +38,7 @@ describe('<ProjectDetails />', () => {
         await userEvent.click(screen.getByText('Tags'))
 
         expect(screen.getByTestId('new-tag-input')).toBeInTheDocument()
+        // The label must follow the editor, or it goes dead again as soon as the trigger unmounts
+        expect(screen.getByLabelText('Tags')).toHaveAttribute('data-attr', 'new-tag-input')
     })
 })
