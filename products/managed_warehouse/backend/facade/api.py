@@ -47,6 +47,7 @@ __all__ = [
     "get_catalog_connection_config",
     "get_control_plane_bucket",
     "get_duckgres_query_server_config",
+    "get_managed_warehouse_trino_password",
     "get_org_id_for_team",
     "get_team_deletion_block_reason",
     "get_stored_bucket_config",
@@ -157,6 +158,10 @@ def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServe
         username=config["DUCKGRES_USERNAME"],
         password=config["DUCKGRES_PASSWORD"],
     )
+
+
+def get_managed_warehouse_trino_password(organization_id: str) -> str:
+    return common.get_trino_password_for_org(organization_id)
 
 
 def get_catalog_connection_config(organization_id: str) -> DuckLakeCatalogConnectionConfig | None:

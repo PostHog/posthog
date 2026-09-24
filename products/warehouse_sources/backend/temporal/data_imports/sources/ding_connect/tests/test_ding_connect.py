@@ -92,13 +92,27 @@ class TestRowFromSingleObject:
 
 
 class TestReferenceEndpoints:
+    @parameterized.expand(
+        [
+            ("Countries",),
+            ("Currencies",),
+            ("Regions",),
+            ("Providers",),
+            ("ProviderStatus",),
+            ("Products",),
+            ("ProductDescriptions",),
+            ("Promotions",),
+            ("ErrorCodeDescriptions",),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_list_endpoint_yields_items(self, MockSession) -> None:
+    def test_list_endpoint_yields_items(self, endpoint: str, MockSession) -> None:
         session = MockSession.return_value
-        _wire(session, [_response({"Items": [{"CountryIso": "GB"}, {"CountryIso": "US"}], "ResultCode": 1})])
+        _wire(session, [_response({"Items": [{"a": 1}, {"a": 2}], "ResultCode": 1})])
 
-        rows = _rows(_source("Countries", _make_manager()))
-        assert rows == [{"CountryIso": "GB"}, {"CountryIso": "US"}]
+        # Every bounded lookup reads its rows from the `Items` envelope, so the envelope keys never
+        # reach the table and the response is not mistaken for a single-object body like GetBalance.
+        assert _rows(_source(endpoint, _make_manager())) == [{"a": 1}, {"a": 2}]
         # A bounded catalog list comes back in exactly one request.
         assert session.send.call_count == 1
 
@@ -232,10 +246,14 @@ class TestSourceResponse:
         [
             ("Countries", ["CountryIso"], None),
             ("Currencies", ["CurrencyIso"], None),
+            ("Regions", ["CountryIso", "RegionCode"], None),
             ("Providers", ["ProviderCode"], None),
+            ("ProviderStatus", ["ProviderCode"], None),
             ("Products", ["SkuCode"], None),
+            ("ProductDescriptions", ["LocalizationKey", "LanguageCode"], None),
             ("Promotions", ["ProviderCode", "CurrencyIso", "StartUtc"], None),
             ("Balance", ["CurrencyIso"], None),
+            ("ErrorCodeDescriptions", ["Code"], None),
             ("TransferRecords", ["TransferRef"], "StartedUtc"),
         ]
     )

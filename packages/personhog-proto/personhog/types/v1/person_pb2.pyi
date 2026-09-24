@@ -445,6 +445,88 @@ class DeletePersonsResponse(_message.Message):
         tombstones: _Optional[_Iterable[_Union[TombstonedPerson, _Mapping]]] = ...,
     ) -> None: ...
 
+class GetPersonTombstonesRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GetPersonTombstonesResponse(_message.Message):
+    __slots__ = ("tombstones",)
+    TOMBSTONES_FIELD_NUMBER: _ClassVar[int]
+    tombstones: _containers.RepeatedCompositeFieldContainer[TombstonedPerson]
+    def __init__(self, tombstones: _Optional[_Iterable[_Union[TombstonedPerson, _Mapping]]] = ...) -> None: ...
+
+class AckedPersonTombstone(_message.Message):
+    __slots__ = ("person_uuid", "version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    version: int
+    def __init__(self, person_uuid: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
+
+class AckPersonTombstonesRequest(_message.Message):
+    __slots__ = ("team_id", "tombstones")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    TOMBSTONES_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    tombstones: _containers.RepeatedCompositeFieldContainer[AckedPersonTombstone]
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        tombstones: _Optional[_Iterable[_Union[AckedPersonTombstone, _Mapping]]] = ...,
+    ) -> None: ...
+
+class AckPersonTombstonesResponse(_message.Message):
+    __slots__ = ("cleared_count",)
+    CLEARED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    cleared_count: int
+    def __init__(self, cleared_count: _Optional[int] = ...) -> None: ...
+
+class ListPersonTombstoneQueueRequest(_message.Message):
+    __slots__ = ("after_team_id", "after_person_uuid", "limit", "team_id")
+    AFTER_TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    AFTER_PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    after_team_id: int
+    after_person_uuid: str
+    limit: int
+    team_id: int
+    def __init__(
+        self,
+        after_team_id: _Optional[int] = ...,
+        after_person_uuid: _Optional[str] = ...,
+        limit: _Optional[int] = ...,
+        team_id: _Optional[int] = ...,
+    ) -> None: ...
+
+class PersonTombstoneQueueEntry(_message.Message):
+    __slots__ = ("team_id", "person_uuid", "person_version", "tombstoned_at")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_VERSION_FIELD_NUMBER: _ClassVar[int]
+    TOMBSTONED_AT_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuid: str
+    person_version: int
+    tombstoned_at: int
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_uuid: _Optional[str] = ...,
+        person_version: _Optional[int] = ...,
+        tombstoned_at: _Optional[int] = ...,
+    ) -> None: ...
+
+class ListPersonTombstoneQueueResponse(_message.Message):
+    __slots__ = ("entries",)
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    entries: _containers.RepeatedCompositeFieldContainer[PersonTombstoneQueueEntry]
+    def __init__(self, entries: _Optional[_Iterable[_Union[PersonTombstoneQueueEntry, _Mapping]]] = ...) -> None: ...
+
 class DeletePersonsBatchForTeamRequest(_message.Message):
     __slots__ = ("team_id", "batch_size")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

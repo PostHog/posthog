@@ -127,26 +127,19 @@ const billingProductGet = (): ToolBase<ReturnType<typeof BillingProductGetSchema
     },
 })
 
-const BillingProductsListSchema = () => {
-    const BillingProductsListQueryParams = orvalSchemas.BillingProductsListQueryParams()
-    return BillingProductsListQueryParams.extend({
-        include_plans: BillingProductsListQueryParams.shape['include_plans'].describe(
-            'Add the plan list to each product and add-on. Most of the payload; pass true only when the question is about plans or upgrades.'
-        ),
-    })
-}
+const BillingProductsSummaryGetSchema = () => z.object({})
 
-const billingProductsList = (): ToolBase<ReturnType<typeof BillingProductsListSchema>, Schemas.BillingProducts> => ({
-    name: 'billing-products-list',
-    schema: BillingProductsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingProductsListSchema>>) => {
+const billingProductsSummaryGet = (): ToolBase<
+    ReturnType<typeof BillingProductsSummaryGetSchema>,
+    Schemas.BillingProductsSummary
+> => ({
+    name: 'billing-products-summary-get',
+    schema: BillingProductsSummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProductsSummaryGetSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.BillingProducts>({
+        const result = await context.api.request<Schemas.BillingProductsSummary>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/`,
-            query: {
-                include_plans: params.include_plans,
-            },
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/summary/`,
         })
         return result
     },
@@ -482,7 +475,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-limits-get': billingLimitsGet,
     'billing-overview-get': billingOverviewGet,
     'billing-product-get': billingProductGet,
-    'billing-products-list': billingProductsList,
+    'billing-products-summary-get': billingProductsSummaryGet,
     'billing-projects-list': billingProjectsList,
     'billing-spend-get': billingSpendGet,
     'billing-spend-summary-get': billingSpendSummaryGet,

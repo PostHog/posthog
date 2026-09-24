@@ -8,6 +8,8 @@ export interface TerminalNode {
     name: string
     parent?: TerminalNode
     children?: Map<string, TerminalNode>
+    loadChildren?: () => Promise<void>
+    lookupChild?: (name: string) => TerminalNode
     open?: (signal?: AbortSignal) => Promise<TerminalFile>
     size: number
     writable: boolean
@@ -19,8 +21,11 @@ export interface TerminalNode {
 }
 
 export class FilesystemError extends Error {
-    constructor(readonly errno: number) {
-        super(`Filesystem error ${errno}`)
+    constructor(
+        readonly errno: number,
+        message = `Filesystem error ${errno}`
+    ) {
+        super(message)
     }
 }
 
@@ -28,6 +33,7 @@ export const MAX_TERMINAL_FILE_BYTES = 4 * 1024 * 1024
 
 export class TerminalFilesystem {
     private nextId = 1
+    readonly writers = new Set<string | number>()
     readonly root: TerminalNode = this.directory('')
     readonly recovery = this.directory('recovery', this.root)
 

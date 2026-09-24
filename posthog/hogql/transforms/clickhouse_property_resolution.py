@@ -382,12 +382,46 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
         args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
         type=ast.StringType(nullable=False),
     )
-    datetime_string = ast.Call(
-        name="replaceOne",
+    # ClickHouse infers DateTime for ISO strings at ingest, and toString renders it as a wall clock in the
+    # session timezone with no zone marker. Take the wall clock from a UTC-typed cast instead, keep the
+    # fractional digits of the plain rendering (they don't depend on the zone), and mark the text 'Z'.
+    utc_wall_clock = ast.Call(
+        name="substring",
+        args=[
+            ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="accurateCastOrNull",
+                        args=[clone_expr(value), _sentinel("DateTime64(9, 'UTC')")],
+                    )
+                ],
+                type=ast.StringType(nullable=True),
+            ),
+            ast.Constant(value=1),
+            ast.Constant(value=19),
+        ],
+        type=ast.StringType(nullable=True),
+    )
+    fractional_seconds = ast.Call(
+        name="substring",
         args=[
             ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            _sentinel(" "),
-            _sentinel("T"),
+            ast.Constant(value=20),
+            ast.Constant(value=10),  # '.' plus at most nine digits
+        ],
+        type=ast.StringType(nullable=False),
+    )
+    datetime_string = ast.Call(
+        name="concat",
+        args=[
+            ast.Call(
+                name="replaceOne",
+                args=[utc_wall_clock, _sentinel(" "), _sentinel("T")],
+                type=ast.StringType(nullable=True),
+            ),
+            fractional_seconds,
+            _sentinel("Z"),
         ],
         type=ast.StringType(nullable=False),
     )
@@ -515,6 +549,13 @@ def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
     )
 
 
+def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) -> str | None:
+    resolved_field = field_type.resolve_database_field(context)
+    if not isinstance(resolved_field, DatabaseField):
+        return None
+    return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
+
+
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
     """The backing-column read for a `PropertyAccess`, or None to leave it as the JSON extract.
 
@@ -534,7 +575,8 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # JSONDropKeys strips the key, so extracting it always yields '' which scrubs to NULL — so return that constant
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
-    if first_key in restricted_property_keys_for_table_type(field_type.table_type, context):
+    source_property = _mirrored_source_property(field_type, context)
+    if (source_property or first_key) in restricted_property_keys_for_table_type(field_type.table_type, context):
         _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
@@ -896,10 +938,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
         """
-        resolved_field = field_type.resolve_database_field(self.context)
-        if not isinstance(resolved_field, DatabaseField):
-            return None
-        source_property = mirrored_property_for_column(field_type.table_type, resolved_field.name, self.context)
+        source_property = _mirrored_source_property(field_type, self.context)
         if source_property is None:
             return None
         if source_property not in restricted_property_keys_for_table_type(field_type.table_type, self.context):

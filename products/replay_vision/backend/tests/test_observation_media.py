@@ -1,7 +1,7 @@
-import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.conf import settings
@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
-from temporalio.testing import ActivityEnvironment
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.utils import uuid7
 
@@ -121,6 +121,15 @@ class TestObservationMedia(BaseTest):
         assert prepared.activity_input.video_time_s == expected_s
         assert prepared.video_start_ms == int(expected_s * 1000)
 
+    def test_a_missing_analysis_asset_fails_without_retrying(self) -> None:
+        analysis_asset_id = self.analysis_asset.id
+        self.analysis_asset.delete()
+
+        with pytest.raises(ApplicationError) as caught:
+            self._prepare(analysis_asset_id=analysis_asset_id)
+
+        assert caught.value.non_retryable is True
+
     def test_finalize_links_the_rendered_object_to_the_observation(self) -> None:
         prepared = self._prepare()
 
@@ -142,23 +151,6 @@ class TestObservationMedia(BaseTest):
         assert media.kind == ReplayObservationMedia.Kind.THUMBNAIL
         assert media.asset_id == prepared.media_asset_id
         assert (media.asset.content_location or "").startswith("replay-vision/media/")
-
-    def test_a_retry_of_the_same_render_does_not_spend_another_attempt(self) -> None:
-        # The backfill sweep gives up after three attempts, so an activity retry must not count as one.
-        self._prepare()
-        self.observation.refresh_from_db()
-        assert self.observation.media_render_attempts == 1
-        assert self.observation.media_render_attempted_at is not None
-
-        async def retry_the_same_activity() -> None:
-            environment = ActivityEnvironment()
-            environment.info = dataclasses.replace(environment.info, attempt=2)
-            await environment.run(prepare_observation_thumbnail_activity, self._inputs())
-
-        async_to_sync(retry_the_same_activity)()
-
-        self.observation.refresh_from_db()
-        assert self.observation.media_render_attempts == 1
 
     def test_an_observation_deleted_mid_render_expires_the_asset_with_its_location(self) -> None:
         prepared = self._prepare()

@@ -72,10 +72,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
-    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -167,8 +166,8 @@ from products.workflows.backend.services.audience_v2 import (
     use_audience_query_v2,
 )
 from products.workflows.backend.services.batch_audience import (
-    PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
+    audience_page_size,
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
@@ -816,6 +815,20 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
+_EVENT_TRIGGER_NEEDS_A_TARGET = "Pick at least one event or property filter, or the trigger will never fire."
+
+
+def _event_trigger_targets_something(filters: Any) -> bool:
+    # Checked on the filters the serializer hands back, after it drops the keys a source does not
+    # support, so a person-updates trigger that only named events counts as empty.
+    if not isinstance(filters, dict):
+        return False
+    entries = [*(filters.get("events") or []), *(filters.get("actions") or [])]
+    if any(isinstance(entry, dict) and entry.get("id") not in (None, "") for entry in entries):
+        return True
+    return any(isinstance(prop, dict) and prop.get("key") for prop in filters.get("properties") or [])
+
+
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
     # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
@@ -1207,6 +1220,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Type-specific config keyed by action type. "
             "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, "
             "filters?}. "
+            "An active event trigger must name at least one event, action or property filter; with "
+            "filters.source 'person-updates' that means at least one property filter. "
             "internal-event requires filters.events naming one or more allowed event ids, and runs once "
             "for each matching event on the internal-events stream. Runs are person-less, so "
             "person-dependent steps are rejected. "
@@ -1445,6 +1460,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
+                if filters is not None and not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters = filters or {}
                 # Move filter_test_accounts into filters for bytecode compilation
                 if data.get("config", {}).get("filter_test_accounts") is not None:
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
@@ -1455,7 +1473,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                             data["config"]["filters"] = serializer.validated_data
                     else:
                         serializer.is_valid(raise_exception=True)
+                        # The builder refuses this; the API and MCP paths did not. Stored without a
+                        # target the trigger has no bytecode and fails on every event, or compiles to
+                        # match-all once the serializer drops what its source does not support. A
+                        # draft is not running yet, so an agent can still build the flow up in steps.
+                        if not is_draft and not _event_trigger_targets_something(serializer.validated_data):
+                            raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
                         data["config"]["filters"] = serializer.validated_data
+                elif not is_draft:
+                    raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
                 if strict:
@@ -6047,7 +6073,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     {
                         "users_affected": users_affected,
                         "cursor": users_affected[-1] if users_affected else None,
-                        "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
+                        "has_more": len(users_affected) == audience_page_size(group_type_index),
                     }
                 ).data
             )

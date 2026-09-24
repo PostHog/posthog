@@ -349,6 +349,21 @@ class TestRunChdbQuery:
         with pytest.raises(RuntimeError, match="timed out"):
             run_chdb_query("SELECT sleep(2)", timeout=0.5)
 
+    def test_child_process_does_not_inherit_a_preloaded_allocator(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LD_PRELOAD", "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2")
+        monkeypatch.setenv("MALLOC_CONF", "background_thread:false")
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="1\n", stderr="")
+        with patch(
+            "products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed
+        ) as mock_run:
+            run_chdb_query("SELECT 1")
+
+        child_env = mock_run.call_args.kwargs["env"]
+        assert "LD_PRELOAD" not in child_env
+        assert "MALLOC_CONF" not in child_env
+        assert child_env["AWS_REGION"] == "us-east-1"
+
     @pytest.mark.parametrize(
         "stderr",
         [

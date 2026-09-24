@@ -208,6 +208,7 @@ await boot(container);
 
 - `pnpm install`: install dependencies.
 - `pnpm bootstrap:cloud-task`: link dependencies from the prebaked pnpm store without running unrelated app install hooks, then build the packages required before scoped typechecks in cloud tasks.
+- `pnpm bootstrap:cloud-task:wait`: in a cloud task, the backend already started `bootstrap:cloud-task` in the background. Run this before any other `pnpm` command here, so a second install does not race it. Exit code 2 means nothing was started, so run `pnpm bootstrap:cloud-task` yourself.
 - `pnpm dev`: run agent watch and desktop app.
 - `pnpm build`: build all packages.
 - `pnpm typecheck`: typecheck all packages.

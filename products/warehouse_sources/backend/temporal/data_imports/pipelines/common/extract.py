@@ -139,6 +139,23 @@ async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
         await database_sync_to_async_pool(source.save)()
 
 
+def _source_type_for_death_event(inputs: "ImportDataActivityInputs") -> str | None:
+    """The source type behind a dying run, so a death event is diagnosable per connector without
+    joining against the source table. Best-effort: the death event must survive a failed lookup."""
+    try:
+        from products.warehouse_sources.backend.models.external_data_source import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSource,
+        )
+
+        return (
+            ExternalDataSource.objects.filter(id=inputs.source_id, team_id=inputs.team_id)
+            .values_list("source_type", flat=True)
+            .first()
+        )
+    except Exception:
+        return None
+
+
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:
     logger.debug("Checking for heartbeat timeout reporting...")
 
@@ -213,6 +230,7 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 "workflow_run_id": info.workflow_run_id,
                 "workflow_type": info.workflow_type,
                 "attempt": info.attempt,
+                "source_type": _source_type_for_death_event(inputs),
             }
             # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
             # of death — the per-activity context this event otherwise cannot carry. Adds nothing when

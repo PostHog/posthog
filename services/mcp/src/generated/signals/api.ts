@@ -1319,7 +1319,7 @@ export const SignalsScoutConfigSyncQueryParams = () => zod.object({
 })
 
 /**
- * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they're on. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
  * @summary List project members for reviewer routing
  */
 export const SignalsScoutMembersListParams = () => zod.object({
@@ -1337,6 +1337,13 @@ export const SignalsScoutMembersListQueryParams = () => zod.object({
         .optional()
         .describe(
             "Case-insensitive substring filter over member email and first\/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member."
+        ),
+    team: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Team slug (case-insensitive, no `@org\/` prefix), for example `team-desktop`. Narrows the roster to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an owners file resolves to people you can route to. Returns an error, not an empty list, when the project has no synced team roster or the roster holds no rows for the slug.'
         ),
 })
 

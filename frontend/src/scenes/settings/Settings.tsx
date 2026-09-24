@@ -42,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+import { SettingSectionUnavailable } from './components/SettingSectionUnavailable'
 import { SearchResult, settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
 
@@ -420,6 +421,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
         selectedSection,
         selectedSectionId,
         selectedSetting,
+        unavailableSection,
     } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
     const { user } = useValues(userLogic)
@@ -467,6 +469,8 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                         <ErrorBoundary>{x.component}</ErrorBoundary>
                     </div>
                 ))
+            ) : unavailableSection ? (
+                <SettingSectionUnavailable section={unavailableSection} />
             ) : (
                 <NotFound object="setting" />
             )}

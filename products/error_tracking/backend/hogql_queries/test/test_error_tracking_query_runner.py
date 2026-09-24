@@ -1432,6 +1432,16 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         )
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
 
+    def test_similar_issues_rejects_malformed_issue_id(self):
+        with self.assertRaises(ValidationError):
+            ErrorTrackingSimilarIssuesQueryRunner(
+                team=self.team,
+                query=ErrorTrackingSimilarIssuesQuery(
+                    kind="ErrorTrackingSimilarIssuesQuery",
+                    issueId="not-a-uuid",
+                ),
+            )
+
     def test_similar_issues_ignores_another_teams_fingerprint_row(self):
         ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(description="Own team issue")
         other_team = Team.objects.create(organization=self.organization, name="Other team")
