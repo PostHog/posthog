@@ -34,8 +34,6 @@ class TestHogFlowKey(APIBaseTest):
         assert HogFlow.objects.get(id=response.json()["id"]).key == "onboarding-welcome"
 
     def test_create_without_a_key_leaves_it_null_and_never_collides(self):
-        # The column is nullable and the many existing key-less rows must stay creatable:
-        # NULLs are distinct under a Postgres unique index.
         first = self._create()
         second = self._create()
 
@@ -83,9 +81,6 @@ class TestHogFlowKey(APIBaseTest):
         assert HogFlow.objects.count() == count
 
     def test_create_translates_a_concurrent_duplicate_key_into_the_same_field_error(self):
-        # A concurrent create can slip past the unlocked pre-check, so the constraint is the last
-        # guard. Neuter the pre-check to reach it, which exercises the real write and the real
-        # constraint name rather than a mocked failure.
         HogFlow.objects.create(team=self.team, name="Taken", created_by=self.user, key="onboarding-welcome")
 
         with patch.object(HogFlowSerializer, "validate_key", lambda self, value: value):
@@ -128,7 +123,6 @@ class TestHogFlowKey(APIBaseTest):
         assert HogFlow.objects.get(id=flow_id).key == "onboarding-welcome"
 
     def test_patch_that_sets_a_key_on_a_key_less_workflow_is_refused(self):
-        # Adoption is not in v1: a PATCH must not be a back door to claiming a key.
         created = self._create()
         flow_id = created.json()["id"]
 
@@ -152,8 +146,6 @@ class TestHogFlowKey(APIBaseTest):
         assert HogFlow.objects.get(id=flow_id).key == "onboarding-welcome"
 
     def test_test_run_accepts_a_keyed_workflow_submitting_its_own_configuration(self):
-        # The builder posts the whole workflow as `configuration`, which a nested instance-less
-        # serializer validates. The workflow under test must not read its own key as taken.
         created = self._create(key="onboarding-welcome")
         flow_id = created.json()["id"]
 
