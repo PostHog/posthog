@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -550,13 +551,8 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         PreaggregationJob.objects.filter(team=self.team, id__in=original.job_ids).update(
             expires_at=timezone.now() - timedelta(hours=1)
         )
-        with patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False):
-            live, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
-            assert not used
-        with (
-            patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=True),
-            patch.object(attribution_sessions_read, "handle_stale_served") as enqueue,
-        ):
+        live, _ = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=False)
+        with patch.object(attribution_sessions_read, "handle_stale_served") as enqueue:
             stale, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
             assert used
             assert stale == live
@@ -575,10 +571,11 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             assert runner._sessions_precompute_used
             assert set(runner._sessions_precompute_jobs or []).isdisjoint(map(str, original.job_ids))
             enqueue.assert_called_once()
-        with patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False):
+        with patch.object(attribution_sessions_read, "handle_stale_served") as enqueue_after_rebuild:
             fresh, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
         assert used
         assert fresh == live
+        enqueue_after_rebuild.assert_not_called()
 
     @parameterized.expand(
         [
@@ -622,11 +619,15 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             if state != "mapping_first":
                 override(distinct_id, identified.uuid, 1)
             if state == "squashed":
-                sync_execute(
-                    "ALTER TABLE sharded_events UPDATE person_id = %(person)s "
-                    "WHERE team_id = %(team)s AND distinct_id = %(distinct)s SETTINGS mutations_sync = 2",
-                    {"person": identified.uuid, "team": self.team.pk, "distinct": distinct_id},
-                )
+                squashed_tables = ["sharded_events"]
+                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                    squashed_tables.append("sharded_events_json")
+                for table in squashed_tables:
+                    sync_execute(
+                        f"ALTER TABLE {table} UPDATE person_id = %(person)s "
+                        "WHERE team_id = %(team)s AND distinct_id = %(distinct)s SETTINGS mutations_sync = 2",
+                        {"person": identified.uuid, "team": self.team.pk, "distinct": distinct_id},
+                    )
                 override(distinct_id, identified.uuid, 2, deleted=True)
 
         query_args = {

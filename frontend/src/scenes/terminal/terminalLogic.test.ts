@@ -21,12 +21,13 @@ const mockFolderFor = jest.fn<Promise<string | null>, []>()
 jest.mock('./terminalRuntime', () => ({
     TerminalRuntime: jest.fn().mockImplementation(() => ({
         start: jest.fn(async (_server, _signal, ready) => ready()),
+        write: jest.fn(),
+        displayInput: { release: jest.fn() },
         dispose: jest.fn(),
         resize: jest.fn(),
         syncClock: jest.fn(),
         changeDirectory: jest.fn(() => true),
         read: jest.fn(() => ''),
-        write: jest.fn(),
     })),
 }))
 jest.mock('./TerminalSession', () => ({
@@ -45,6 +46,7 @@ jest.mock('./posthogFilesystem', () => ({
     })),
 }))
 jest.mock('./posthogCommands', () => ({ PosthogCommands: jest.fn() }))
+jest.mock('./terminalAI', () => ({ TerminalAI: jest.fn() }))
 
 describe('terminal lifecycle', () => {
     beforeEach(() => {
@@ -73,6 +75,26 @@ describe('terminal lifecycle', () => {
         expect(runtime.dispose).toHaveBeenCalledTimes(1)
         expect(window.posthogTerminal).toBeUndefined()
         expect(terminalLogic.values.status).toBe('idle')
+    })
+
+    it('interrupts the foreground program when closing the display but keeps the terminal running', async () => {
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        terminalLogic.actions.setDisplayOpen(true)
+        terminalDockLogic.actions.setDockOpen(false)
+        terminalLogic.actions.setDisplayError('Display error')
+        terminalLogic.actions.closeDisplay()
+        expect(terminalDockLogic.values.dockOpen).toBe(true)
+        expect(terminalLogic.values.displayError).toBeNull()
+        expect(terminalLogic.values.displayOpen).toBe(false)
+        expect(runtime.write).toHaveBeenCalledWith('\x03')
+        expect(runtime.displayInput.release).toHaveBeenCalled()
+        expect(runtime.dispose).not.toHaveBeenCalled()
+        expect(terminalLogic.values.status).toBe('ready')
+        terminalLogic.actions.setDisplayOpen(true)
+        terminalLogic.actions.stop()
+        expect(terminalLogic.values.displayOpen).toBe(false)
     })
 
     it('preserves Stop across reattachment and project changes', async () => {

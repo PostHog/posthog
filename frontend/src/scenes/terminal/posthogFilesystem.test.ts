@@ -594,21 +594,36 @@ describe('PostHog filesystem projection', () => {
         }
     )
 
-    it.each(['remove', 'json'] as const)('fails closed without a confirmation handler for %s', async (operation) => {
-        const fs = new PosthogFilesystem('42', new AbortController().signal)
-        await fs.load()
-        const node =
-            operation === 'remove'
-                ? fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
+    it.each(['remove', 'json', 'edit-json', 'markdown', 'mkdir', 'rename'] as const)(
+        'fails closed without a confirmation handler for %s',
+        async (operation) => {
+            const fs = new PosthogFilesystem('42', new AbortController().signal, undefined, true)
+            await fs.load()
+            const files = fs.root.children!.get('files')!
+            const node = ['remove', 'markdown', 'rename'].includes(operation)
+                ? files.children!.get('Research')!.children!.get('Notes.md')!
                 : fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!
-        const pending =
-            operation === 'remove'
-                ? node.remove!()
-                : (await node.open!()).save!(new TextEncoder().encode(JSON.stringify({ deleted: true })))
-        await expect(pending).rejects.toThrow('Canceled. No changes made.')
-        expect(fileSystemDestroy).not.toHaveBeenCalled()
-        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
-    })
+            const pending =
+                operation === 'remove'
+                    ? node.remove!()
+                    : operation === 'mkdir'
+                      ? files.mkdir!('New folder')
+                      : operation === 'rename'
+                        ? node.rename!(files, 'Renamed.md')
+                        : (await node.open!()).save!(
+                              new TextEncoder().encode(
+                                  operation === 'markdown'
+                                      ? '# Changed'
+                                      : JSON.stringify(operation === 'json' ? { deleted: true } : { title: 'Changed' })
+                              )
+                          )
+            await expect(pending).rejects.toThrow('Canceled. No changes made.')
+            expect(fileSystemDestroy).not.toHaveBeenCalled()
+            expect(fileSystemCreate).not.toHaveBeenCalled()
+            expect(apiMutator).not.toHaveBeenCalled()
+            expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        }
+    )
 
     it('rejects moves of implicit folders without creating records or changing their contents', async () => {
         const fs = new PosthogFilesystem('42', new AbortController().signal)
