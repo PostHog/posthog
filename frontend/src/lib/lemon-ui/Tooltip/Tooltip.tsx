@@ -7,7 +7,6 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 
 import { Link } from '../Link'
@@ -112,15 +111,16 @@ export function Tooltip({
     // "can't access dead object", which escapes to the error boundary and remounts the scene.
     const isMountedRef = useRef(true)
 
-    useOnMountEffect(() => {
-        // Re-arm on (re)mount so a prior cleanup - React Strict Mode does mount/unmount/remount
-        // in dev - does not leave the live component flagged as unmounted.
+    // A layout effect, not a passive one: its cleanup runs before React detaches the DOM, so the
+    // flag is already false by the time a node can be reclaimed. Re-arming on mount keeps React
+    // Strict Mode's mount/unmount/remount in dev from leaving a live component flagged as gone.
+    useLayoutEffect(() => {
         isMountedRef.current = true
 
         return () => {
             isMountedRef.current = false
         }
-    })
+    }, [])
 
     const open = controlledOpen ?? uncontrolledOpen
 
