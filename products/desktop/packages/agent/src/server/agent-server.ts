@@ -60,12 +60,6 @@ import {
   sleepWithBackoff,
   toAcpMcpServers,
 } from "@posthog/shared";
-import {
-  buildPosthogPropertiesHeaderLines,
-  buildPosthogPropertiesHeaderRecord,
-  buildPosthogScopedPropertyHeaderLines,
-  buildPosthogScopedPropertyHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
@@ -128,7 +122,6 @@ import type {
 import { resourceLink } from "../utils/acp-content";
 import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
-import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -139,6 +132,11 @@ import {
 } from "./cloud-prompt";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  buildGatewayEnv,
+  codexAuthFromGatewayEnv,
+  type GatewayEnvInput,
+} from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
@@ -240,6 +238,32 @@ export function buildCloudSessionSystemPrompt(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function describeFatalError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (!(error instanceof RequestError)) return error.message;
+  const data: unknown = error.data;
+  const details =
+    typeof data === "object" && data !== null && "details" in data
+      ? data.details
+      : data;
+  if (typeof details === "string") {
+    return details && details !== error.message
+      ? `${error.message}: ${details}`
+      : error.message;
+  }
+  if (
+    details == null ||
+    (typeof details === "object" && Object.keys(details).length === 0)
+  ) {
+    return error.message;
+  }
+  try {
+    return `${error.message}: ${JSON.stringify(details)}`;
+  } catch {
+    return error.message;
+  }
 }
 
 function budgetSnapshotFromUsageUpdate(
@@ -423,18 +447,6 @@ function buildMissingAttachmentNotice(count: number): string {
   );
 }
 
-/**
- * The codex session's LLM auth, from the resolved gateway env. Codex must never
- * read the raw run credential: on the Go-gateway path the bearer is the per-run
- * scoped token (see configureEnvironment).
- */
-export function codexAuthFromGatewayEnv(env: GatewayEnv): {
-  apiBaseUrl: string;
-  apiKey: string;
-} {
-  return { apiBaseUrl: env.openaiBaseUrl, apiKey: env.openaiApiKey };
-}
-
 interface PrAttribution {
   createdAt: string | null;
   author: string | null;
@@ -508,6 +520,7 @@ export class AgentServer {
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
+  private stampedRunTraceId: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
@@ -1129,6 +1142,12 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
+      // An abort during initialization leaves the root span open with no session
+      // to carry it, and the caller exits the process as soon as this returns.
+      await withTimeout(
+        this.initializingTelemetry?.shutdown() ?? Promise.resolve(),
+        5_000,
+      );
     } finally {
       this.server?.close();
       this.server = null;
@@ -1154,9 +1173,7 @@ export class AgentServer {
     const errorMessage = redactSecrets(
       error instanceof CredentialRelayError
         ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
-        : error instanceof Error
-          ? error.message
-          : String(error),
+        : describeFatalError(error),
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
@@ -1562,7 +1579,7 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          const turnTraceId = this.promptResultTraceId(result);
+          const turnTraceId = this.turnTraceId(result);
           this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
@@ -1865,9 +1882,9 @@ export class AgentServer {
           },
         },
       });
-      await telemetry?.shutdown();
       throw error;
     } finally {
+      await this.initializingTelemetry?.shutdown();
       await this.cleanupInitializingConnection();
       this.initializingConnection = null;
       this.initializingTelemetry = undefined;
@@ -1986,7 +2003,15 @@ export class AgentServer {
 
     const runtimeAdapter = this.getRuntimeAdapter();
 
+    const telemetry = this.createRunTelemetry(
+      payload,
+      deviceInfo,
+      runtimeAdapter,
+    );
+    this.initializingTelemetry = telemetry;
+
     const gatewayEnv = this.configureEnvironment({
+      runSpanContext: telemetry?.getRunSpanContext(),
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
@@ -2009,6 +2034,11 @@ export class AgentServer {
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
     });
+
+    // Only that stamped header makes the run id a trace the generations land
+    // in. Unconditional so a re-init on this instance drops a stale run's id.
+    this.stampedRunTraceId =
+      gatewayEnv.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
       // Authed so this cache-warm matches the session's own authed fetch
@@ -2088,13 +2118,6 @@ export class AgentServer {
       userAgent: `posthog/cloud.hog.dev; version: ${this.config.version ?? packageJson.version}`,
     });
 
-    const telemetry = this.createRunTelemetry(
-      payload,
-      deviceInfo,
-      runtimeAdapter,
-    );
-    this.initializingTelemetry = telemetry;
-
     const logWriter = new SessionLogWriter({
       posthogAPI,
       logger: new Logger({ debug: true, prefix: "[SessionLogWriter]" }),
@@ -2129,6 +2152,7 @@ export class AgentServer {
       eventIdSource: this.nextEventId,
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
+      stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
@@ -2948,7 +2972,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -3344,7 +3368,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -4657,142 +4681,9 @@ export class AgentServer {
     );
   }
 
-  private configureEnvironment({
-    isInternal = false,
-    originProduct,
-    signalReportId,
-    aiStage,
-    aiAgentName,
-    taskId,
-    taskRunId,
-    taskUserId,
-    taskTitle,
-    taskOriginKey,
-    repositories,
-    runtimeAdapter,
-    sandboxEnvironmentId,
-    snapshotKind,
-    prewarmed,
-    executionEnvironment,
-  }: {
-    isInternal?: boolean;
-    originProduct?: Task["origin_product"] | null;
-    signalReportId?: string | null;
-    aiStage?: string | null;
-    aiAgentName?: string | null;
-    taskId?: string | null;
-    taskRunId?: string | null;
-    taskUserId?: number | null;
-    taskTitle?: string | null;
-    taskOriginKey?: string | null;
-    repositories?: string[];
-    runtimeAdapter?: string | null;
-    sandboxEnvironmentId?: string | null;
-    snapshotKind?: string | null;
-    prewarmed?: boolean | null;
-    executionEnvironment?: "local" | "cloud";
-  } = {}): GatewayEnv {
+  private configureEnvironment(input: GatewayEnvInput = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
-    const product = resolveGatewayProduct({ isInternal, originProduct });
-    // Go-gateway runs authenticate with the per-run scoped token minted by the
-    // worker (pinned product + on-behalf-of team, per-run spend cap), not the
-    // run's per-team OAuth token, whose team has no gateway wallet. A routed
-    // product with no token therefore stays on the Python gateway. The worker's env values
-    // win, because the token is pinned to the product they name.
-    const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
-    let target = resolveGatewayTarget({
-      product,
-      aiStage,
-      posthogHost: apiUrl,
-    });
-    if (target.isAiGateway && !gatewayToken) {
-      this.logger.warn(
-        `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
-      );
-      target = resolveGatewayTarget({
-        product,
-        aiStage,
-        posthogHost: apiUrl,
-        env: { ...process.env, AI_GATEWAY_URL: undefined },
-      });
-    }
-    const {
-      baseUrl: gatewayUrl,
-      isAiGateway,
-      aiProduct,
-      aiStage: resolvedStage,
-    } = target;
-    const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
-    const openaiBaseUrl = gatewayUrl.endsWith("/v1")
-      ? gatewayUrl
-      : `${gatewayUrl}/v1`;
-    // Forward task metadata as `x-posthog-property-*` headers so the gateway
-    // lifts them onto the $ai_generation event. The Claude path routes these
-    // through the Anthropic SDK's ANTHROPIC_CUSTOM_HEADERS env var; the codex
-    // path sets them as `model_providers.posthog.http_headers` instead, so we
-    // also expose the record form below.
-    const gatewayProperties = {
-      task_origin_product: originProduct,
-      task_internal: isInternal,
-      signal_report_id: signalReportId,
-      ai_stage: resolvedStage,
-      // The team-scoped agent name; `ai_stage` stays a bounded fleet-wide tag.
-      ai_agent_name: aiAgentName,
-      task_id: taskId,
-      task_run_id: taskRunId,
-      task_user_id: taskUserId,
-      task_title: taskTitle,
-      task_origin_key: taskOriginKey,
-      task_repositories: repositories?.length
-        ? JSON.stringify(repositories)
-        : null,
-      task_runtime_adapter: runtimeAdapter,
-      task_sandbox_environment_id: sandboxEnvironmentId,
-      task_snapshot_kind: snapshotKind,
-      task_prewarmed: prewarmed,
-      task_execution_environment: executionEnvironment ?? "cloud",
-    };
-    // The Claude path appends the project scope in buildEnvironment from
-    // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
-    // carries the same scope.
-    let customHeaders: string;
-    let openaiCustomHeaders: Record<string, string>;
-    if (isAiGateway) {
-      // The Go gateway reads one X-PostHog-Properties JSON blob and ignores
-      // per-property headers, and it has no product route, so `ai_product`
-      // has to travel in the blob or the spend lands unattributed. `team_id`
-      // is included for both adapters because the Go gateway does not read
-      // the Python gateway's project-scope header.
-      const properties = {
-        ...gatewayProperties,
-        ai_product: aiProduct,
-        team_id: projectId,
-      };
-      customHeaders = buildPosthogPropertiesHeaderLines(properties);
-      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
-      // The Go gateway writes this into the OpenAI body's `service_tier`, which
-      // is the only way a Codex run reaches the flex or priority queue: Codex
-      // itself omits a tier its model catalogue does not advertise. Codex-only,
-      // so it rides the OpenAI record; the Claude path has no tier concept.
-      if (this.config.serviceTier) {
-        openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
-      }
-    } else {
-      customHeaders = buildPosthogScopedPropertyHeaderLines(
-        gatewayProperties,
-        projectId,
-      );
-      // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
-      // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
-        {
-          ...gatewayProperties,
-          team_id: projectId,
-          $ai_session_id: taskId,
-        },
-        projectId,
-      );
-    }
+    const gatewayEnv = buildGatewayEnv(this.config, input, this.logger);
 
     // Server-level constants that don't vary per task — safe to keep in
     // process.env so spawned tools (PostHog MCP, workspace-server, etc.) can
@@ -4808,15 +4699,7 @@ export class AgentServer {
     // Task-specific gateway config is returned rather than written to
     // process.env so that concurrent sessions do not clobber each other's
     // gateway URL, auth token, or custom headers.
-    return {
-      anthropicBaseUrl: gatewayUrl,
-      anthropicAuthToken: llmBearer,
-      openaiBaseUrl,
-      openaiApiKey: llmBearer,
-      anthropicCustomHeaders: customHeaders,
-      openaiCustomHeaders,
-      posthogProjectId: String(projectId),
-    };
+    return gatewayEnv;
   }
 
   private buildSlackQuestionRelayResponse(
@@ -5593,11 +5476,12 @@ export class AgentServer {
     this.broadcastEvent(event);
   }
 
-  /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
-  private promptResultTraceId(result: PromptResponse): string | null {
+  /** The turn's gateway trace id: the one the Claude adapter reports via
+   * `PromptResponse._meta`, else the run id the codex headers stamped. */
+  private turnTraceId(result: PromptResponse): string | null {
     const traceId = (result._meta as { traceId?: unknown } | undefined)
       ?.traceId;
-    return typeof traceId === "string" ? traceId : null;
+    return typeof traceId === "string" ? traceId : this.stampedRunTraceId;
   }
 
   private broadcastTurnComplete(

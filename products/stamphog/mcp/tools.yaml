@@ -63,6 +63,12 @@ tools:
             or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository,
             author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.
         feature_flag: stamphog
+    stamphog-repo-configs-add-repository:
+        operation: stamphog_repo_configs_add_repository_create
+        enabled: false
+    stamphog-repo-configs-available-repositories:
+        operation: stamphog_repo_configs_available_repositories_retrieve
+        enabled: false
     stamphog-repo-configs-create:
         operation: stamphog_repo_configs_create
         enabled: false
@@ -174,10 +180,10 @@ tools:
         title: List stamphog review runs
         description: >
             List stamphog's automated review runs for pull requests in this project, newest first. Filter by
-            `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its
-            lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the
-            reviewer ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to
-            read it.
+            `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Leave `trigger` unset
+            unless you want one trigger only: `trigger: all` does not mean every trigger. Each run reports its lifecycle
+            `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer
+            ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to read it.
         feature_flag: stamphog
         response:
             exclude:

@@ -255,17 +255,17 @@
         "scope": "project"
     },
     "broadcast": {
-        "template": "/workflows/broadcasts/{id}",
+        "template": "/broadcasts/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "broadcastNew": {
-        "template": "/workflows/broadcasts/new",
+        "template": "/broadcasts/new",
         "params": [],
         "scope": "project"
     },
     "broadcasts": {
-        "template": "/workflows/broadcasts",
+        "template": "/broadcasts",
         "params": [],
         "scope": "project"
     },
@@ -1646,6 +1646,16 @@
     },
     "tracing": {
         "template": "/tracing",
+        "params": [],
+        "scope": "project"
+    },
+    "tracingRetentionDetail": {
+        "template": "/tracing/retention-rules/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "tracingRetentionNew": {
+        "template": "/tracing/retention-rules/new",
         "params": [],
         "scope": "project"
     },

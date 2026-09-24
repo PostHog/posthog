@@ -11,6 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "@posthog/harness/extensions/benjamin";
 import { type Adapter, IDLE_RESUME_STOP_REASON } from "@posthog/shared";
 import { zipSync } from "fflate";
@@ -297,6 +299,12 @@ function getNextTestPort(): number {
   return port;
 }
 
+function circularData(): Record<string, unknown> {
+  const data: Record<string, unknown> = { reason: "loop" };
+  data.self = data;
+  return data;
+}
+
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
@@ -415,6 +423,159 @@ async function startInitialTaskMessage(
   await startup.sendInitialTaskMessage(payload, prepared);
 }
 
+it("links gateway requests to the run span exported after session shutdown", async () => {
+  const spans: { name: string; traceId: string; spanId: string }[] = [];
+  const logExport = vi
+    .spyOn(OTLPLogExporter.prototype, "export")
+    .mockImplementation((_logs, done) => done({ code: 0 }));
+  const spanExport = vi
+    .spyOn(OTLPTraceExporter.prototype, "export")
+    .mockImplementation((batch, done) => {
+      spans.push(
+        ...batch.map((span) => ({ name: span.name, ...span.spanContext() })),
+      );
+      done({ code: 0 });
+    });
+  const mswServer = setupServer(
+    ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
+    http.get("https://gateway.us.posthog.com/*", () =>
+      HttpResponse.json({ data: [] }),
+    ),
+  );
+  const directory = await mkdtemp(join(tmpdir(), "agent-telemetry-"));
+  const server = new AgentServer({
+    port: getNextTestPort(),
+    jwtPublicKey: TEST_PUBLIC_KEY,
+    repositoryPath: directory,
+    apiUrl: "http://localhost:8000",
+    apiKey: "test-api-key",
+    projectId: 1,
+    mode: "interactive",
+    taskId: "test-task-id",
+    runId: "test-run-id",
+    resolveRtkSavings: async () => null,
+    otelLogsUrl: "http://otel.example.com/v1/logs",
+    otelLogsToken: "phc_test_key",
+    otelTracesUrl: "http://otel.example.com/v1/traces",
+  });
+  mswServer.listen({ onUnhandledRequest: "error" });
+  try {
+    vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
+    for (const key of [
+      "LLM_GATEWAY_URL",
+      "AI_GATEWAY_URL",
+      "POSTHOG_API_KEY",
+      "POSTHOG_API_URL",
+      "POSTHOG_API_HOST",
+      "POSTHOG_AUTH_HEADER",
+      "POSTHOG_PROJECT_ID",
+    ]) {
+      vi.stubEnv(key, undefined);
+    }
+    mockedClaudeSdk.query.mockClear();
+    await server.start();
+
+    const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+      options: { env: Record<string, string> };
+    };
+    const headers = request.options.env.ANTHROPIC_CUSTOM_HEADERS;
+    const traceId = headers.match(
+      /^x-posthog-property-task_run_trace_id: ([0-9a-f]{32})$/m,
+    )?.[1];
+    const spanId = headers.match(
+      /^x-posthog-property-task_run_span_id: ([0-9a-f]{16})$/m,
+    )?.[1];
+    expect(traceId).toBeDefined();
+    expect(spanId).toBeDefined();
+
+    await server.stop();
+
+    expect(spans.filter((span) => span.name === "task_run")).toEqual([
+      expect.objectContaining({ traceId, spanId }),
+    ]);
+  } finally {
+    try {
+      await server.stop();
+    } finally {
+      mswServer.close();
+      logExport.mockRestore();
+      spanExport.mockRestore();
+      vi.unstubAllEnvs();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+}, 30000);
+
+it.each([false, true])(
+  "shuts down initialization telemetry (aborted: %s)",
+  async (aborted) => {
+    const append = vi.fn();
+    const shutdown = vi.fn(async () => {});
+    const testServer = new AgentServer({
+      port: 0,
+      jwtPublicKey: TEST_PUBLIC_KEY,
+      apiUrl: "http://localhost:8000",
+      apiKey: "test-api-key",
+      projectId: 1,
+      mode: "interactive",
+      taskId: "test-task-id",
+      runId: "test-run-id",
+      runtimeAdapter: "codex",
+      model: "gpt-5.2-codex",
+    }) as unknown as {
+      shutdownController: AbortController;
+      initializingTelemetry: {
+        append: typeof append;
+        shutdown: typeof shutdown;
+      };
+      _doInitializeSession(
+        payload: JwtPayload,
+        controller: null,
+      ): Promise<void>;
+      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
+    };
+    testServer._doInitializeSession = vi.fn(async () => {
+      testServer.initializingTelemetry = { append, shutdown };
+      if (aborted) testServer.shutdownController.abort();
+      throw new Error("SECRET provider response");
+    });
+    const payload = {
+      task_id: "test-task-id",
+      run_id: "test-run-id",
+      team_id: 1,
+      user_id: 1,
+      distinct_id: "test-distinct-id",
+      mode: "interactive" as const,
+    };
+
+    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
+      "SECRET provider response",
+    );
+
+    if (aborted) {
+      expect(append).not.toHaveBeenCalled();
+    } else {
+      expect(append).toHaveBeenCalledWith(
+        "test-run-id",
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
+            params: expect.objectContaining({
+              runtimeAdapter: "codex",
+              initializationPhase: "session_setup",
+              requestedModel: "gpt-5.2-codex",
+              errorType: "error",
+            }),
+          }),
+        }),
+      );
+    }
+    expect(JSON.stringify(append.mock.calls)).not.toContain("SECRET");
+    expect(shutdown).toHaveBeenCalledOnce();
+    expect(testServer.initializingTelemetry).toBeUndefined();
+  },
+);
+
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
@@ -492,58 +653,6 @@ describe("AgentServer HTTP Mode", () => {
       TEST_PRIVATE_KEY,
     );
   };
-
-  it("exports safe telemetry when session initialization fails", async () => {
-    const append = vi.fn();
-    const shutdown = vi.fn(async () => {});
-    const testServer = createServer({
-      runtimeAdapter: "codex",
-      model: "gpt-5.2-codex",
-    }) as unknown as {
-      initializingTelemetry: {
-        append: typeof append;
-        shutdown: typeof shutdown;
-      };
-      _doInitializeSession(
-        payload: JwtPayload,
-        controller: null,
-      ): Promise<void>;
-      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
-    };
-    testServer._doInitializeSession = vi.fn(async () => {
-      testServer.initializingTelemetry = { append, shutdown };
-      throw new Error("SECRET provider response");
-    });
-    const payload = {
-      task_id: "test-task-id",
-      run_id: "test-run-id",
-      team_id: 1,
-      user_id: 1,
-      distinct_id: "test-distinct-id",
-      mode: "interactive" as const,
-    };
-
-    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
-      "SECRET provider response",
-    );
-
-    expect(append).toHaveBeenCalledWith(
-      "test-run-id",
-      expect.objectContaining({
-        notification: expect.objectContaining({
-          method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
-          params: expect.objectContaining({
-            runtimeAdapter: "codex",
-            initializationPhase: "session_setup",
-            requestedModel: "gpt-5.2-codex",
-            errorType: "error",
-          }),
-        }),
-      }),
-    );
-    expect(JSON.stringify(append.mock.calls)).not.toContain("SECRET");
-    expect(shutdown).toHaveBeenCalledOnce();
-  });
 
   it("replays ACP notifications emitted before cloud session assignment", () => {
     const testServer = createServer() as unknown as {
@@ -1678,6 +1787,38 @@ describe("AgentServer HTTP Mode", () => {
       };
       return testServer;
     }
+
+    it.each([
+      [
+        "ACP internal error details",
+        RequestError.internalError({ details: "Session setup timed out" }),
+        "Agent server crashed: Internal error: Session setup timed out",
+      ],
+      [
+        "ACP internal error without details",
+        RequestError.internalError({}),
+        "Agent server crashed: Internal error",
+      ],
+      [
+        "ACP internal error with circular data",
+        RequestError.internalError(circularData()),
+        "Agent server crashed: Internal error",
+      ],
+      ["plain error", new Error("boom"), "Agent server crashed: boom"],
+    ])("reports %s on a fatal crash", async (_name, error, expected) => {
+      const testServer = createFailureTestServer() as unknown as {
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        reportFatalError(error: unknown): Promise<void>;
+      };
+
+      await testServer.reportFatalError(error);
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        expect.objectContaining({ status: "failed", error_message: expected }),
+      );
+    });
 
     const interactivePayload: JwtPayload = {
       run_id: "run-1",

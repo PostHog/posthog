@@ -1,8 +1,9 @@
 import re
+import time
 import uuid
 import datetime
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 from urllib.parse import quote, unquote, urlparse
 
 import pytest
@@ -11,6 +12,7 @@ from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
@@ -975,6 +977,80 @@ class TestUserAPI(APIBaseTest):
                 "alpha@example.com",
                 "beta@example.com",
             )
+
+    @parameterized.expand(
+        [
+            ("email", {"email": "beta@example.com", "current_password": "testpassword12345"}, 403),
+            ("password", {"password": "a_new_password", "current_password": "testpassword12345"}, 403),
+            ("taken_email", {"email": "taken@example.com"}, 403),
+            ("invalid_email", {"email": "not-an-email"}, 403),
+            ("same_email_in_other_case", {"email": "ALPHA@example.com"}, 200),
+            ("profile_field", {"first_name": "Newname"}, 200),
+            ("non_object_body", ["email", "password"], 400),
+        ]
+    )
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    def test_token_auth_cannot_change_email_or_password(
+        self, _name: str, payload: Any, expected_status: int, _mock_is_email_available, mock_send_code
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        User.objects.create_user("taken@example.com", "pwd1234*", "Other")
+        key = self.create_personal_api_key_with_scopes(["user:write"])
+        self.client.logout()
+
+        response = self.client.patch(
+            "/api/users/@me/", payload, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == expected_status, response.content
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+        assert self.user.check_password(self.CONFIG_PASSWORD)
+        mock_send_code.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("fresh_reauth", True, False, 200),
+            ("stale_reauth", True, True, 403),
+            ("passwordless_fresh_reauth", False, False, 200),
+            ("passwordless_stale_reauth", False, True, 403),
+        ]
+    )
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    def test_email_change_requires_a_fresh_reauth(
+        self,
+        _name: str,
+        has_password: bool,
+        stale: bool,
+        expected_status: int,
+        _mock_is_email_available,
+        mock_send_code,
+    ):
+        self.user.email = "alpha@example.com"
+        if not has_password:
+            self.user.set_unusable_password()
+        self.user.save()
+        self.client.force_login(self.user)
+        if stale:
+            session = self.client.session
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time() - settings.SESSION_FRESH_REAUTH_AGE - 1
+            session.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == expected_status, response.content
+        self.user.refresh_from_db()
+        if expected_status == 200:
+            assert self.user.pending_email == "beta@example.com"
+            mock_send_code.assert_called_once()
+        else:
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+            assert self.user.pending_email is None
+            mock_send_code.assert_not_called()
 
     def test_email_change_rejected_when_new_email_is_plus_addressed(self):
         self.user.email = "alpha@example.com"
@@ -2280,6 +2356,7 @@ class TestUserAPI(APIBaseTest):
                 "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
+                "ai_evaluation_disabled": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
@@ -2303,6 +2380,7 @@ class TestUserAPI(APIBaseTest):
                 "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
+                "ai_evaluation_disabled": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
@@ -2574,6 +2652,7 @@ class TestUserAPI(APIBaseTest):
                 "error_tracking_weekly_digest": True,  # Default value
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
+                "ai_evaluation_disabled": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
                 "materialized_view_sync_failed_daily": True,  # Default value
                 "materialized_view_sync_failed_immediate": False,  # Default value

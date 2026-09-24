@@ -1092,6 +1092,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
             ),
+            ("hog_flows_user_blast_radius", "hog_flows/user_blast_radius/", {}),
             ("logs_query", "logs/query/", {}),
             # hyphenated action that the shorter `count` alternative must not shadow
             ("logs_count_ranges", "logs/count-ranges/", {"query": "not-a-dict"}),
@@ -1125,6 +1126,8 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
             ),
             ("experiments_create", "experiments/"),
+            ("hog_flow_publish", "hog_flows/00000000-0000-0000-0000-000000000000/publish/"),
+            ("hog_flow_bulk_delete", "hog_flows/bulk_delete/"),
         ]
     )
     def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
@@ -2433,7 +2436,7 @@ class TestCSPMiddleware(APIBaseTest):
             region, other_region = regions
             shadow = shadows[0]
             assert "*.posthog.com" not in shadow
-            assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
+            assert "https://internal-cf.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
             assert "&v=3&" in shadow
             connect_src = next(part for part in shadow.split("; ") if part.startswith("connect-src ")).split()
             assert f"https://live.{region}.posthog.com" in connect_src
@@ -2562,16 +2565,28 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
 
 
 @pytest.mark.parametrize(
-    "path,query_string,expected_coop",
+    "path,query_string,session_next,expected_coop",
     [
-        ("/connect/vercel/link", "", "unsafe-none"),
-        ("/oauth/callback", "", "unsafe-none"),
-        ("/login", "next=/connect/vercel/link", "unsafe-none"),
-        ("/login", "next=/connect/vercel/link?session=abc", "unsafe-none"),
-        ("/login", "", "same-origin"),
-        ("/login", "next=/dashboard", "same-origin"),
-        ("/login", "next=/connect/vercel/../../admin", "same-origin"),
-        ("/some/other/path", "", "same-origin"),
+        ("/connect/vercel/link", "", None, "unsafe-none"),
+        ("/oauth/callback", "", None, "unsafe-none"),
+        ("/login", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/login", "next=/connect/vercel/link?session=abc", None, "unsafe-none"),
+        ("/login", "", None, "same-origin"),
+        ("/login", "next=/dashboard", None, "same-origin"),
+        ("/login", "next=/connect/vercel/../../admin", None, "same-origin"),
+        ("/some/other/path", "", None, "same-origin"),
+        ("/login/google-oauth2/", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/login/github/", "", None, "same-origin"),
+        ("/login/github/", "next=/dashboard", None, "same-origin"),
+        ("/complete/google-oauth2/", "code=x&state=y", "/connect/vercel/link", "unsafe-none"),
+        ("/complete/google-oauth2/", "code=x&state=y", None, "same-origin"),
+        ("/complete/google-oauth2/", "code=x&state=y", "/dashboard", "same-origin"),
+        ("/signup", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/signup", "", None, "same-origin"),
+        ("/signup", "next=/dashboard", None, "same-origin"),
+        ("/complete/github-link/", "", None, "same-origin"),
+        ("/complete/slack-link/", "", None, "same-origin"),
+        ("/login/not-a-backend/", "", None, "same-origin"),
     ],
     ids=[
         "direct-oauth-vercel",
@@ -2582,9 +2597,22 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "login-next-non-oauth",
         "login-next-path-traversal",
         "unrelated-path",
+        "social-login-start-with-next",
+        "social-login-start-plain",
+        "social-login-start-non-oauth-next",
+        "social-complete-session-oauth",
+        "social-complete-no-session",
+        "social-complete-session-non-oauth",
+        "signup-next-oauth",
+        "signup-no-next",
+        "signup-next-non-oauth",
+        "linking-complete-github",
+        "linking-complete-slack",
+        "login-unknown-backend",
     ],
 )
-def test_oauth_coop_middleware(path, query_string, expected_coop):
+def test_oauth_coop_middleware(path, query_string, session_next, expected_coop):
+    from django.contrib.sessions.backends.signed_cookies import SessionStore
     from django.http import HttpResponse
     from django.test import RequestFactory
 
@@ -2592,6 +2620,10 @@ def test_oauth_coop_middleware(path, query_string, expected_coop):
 
     factory = RequestFactory()
     request = factory.get(path + ("?" + query_string if query_string else ""))
+    if session_next is not None:
+        session = SessionStore()
+        session["next"] = session_next
+        request.session = session
 
     def get_response(req):
         resp = HttpResponse("ok")

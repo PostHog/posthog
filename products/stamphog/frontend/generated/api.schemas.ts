@@ -155,7 +155,7 @@ export interface StamphogRepoConfigApi {
     /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
     trigger_label?: string
     /**
-     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.
      * @nullable
      */
     readonly user_access_level: string | null
@@ -233,6 +233,26 @@ export interface PatchedStamphogRepoConfigWriteApi {
 }
 
 /**
+ * Request body for turning reviews on for a repository from a connected installation.
+ */
+export interface StamphogAddRepositoryApi {
+    /** Repository full name, e.g. 'PostHog/posthog'. It must be in one of the project's connected GitHub installations, as available_repositories lists them. A repository the project already has is turned back on. */
+    repository: string
+}
+
+/**
+ * Repositories from the team's connected GitHub installations that are not added to stamphog yet.
+ */
+export interface StamphogAvailableRepositoriesApi {
+    /** Repository full names the team can add, sorted by name and capped by limit. Only repositories a project member proved access to on GitHub are listed, and never one another project already holds under the same installation. */
+    readonly repositories: readonly string[]
+    /** How many repositories match the search in total, before limit applies. */
+    readonly total_count: number
+    /** Whether a project member connected a GitHub installation yet. False means GitHub must be connected before any repository can be added. True with a total_count of 0 and no search means no repository is left to add. */
+    readonly has_installation: boolean
+}
+
+/**
  * Static info the frontend needs to render the 'Connect a repository' button.
  */
 export interface StamphogInstallInfoApi {
@@ -273,13 +293,15 @@ export interface StamphogDiscoveredInstallationApi {
 }
 
 /**
- * Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped.
+ * Result of syncing an installation: the team's rows bound to it, and what the team can add now.
  */
 export interface StamphogSyncInstallationResponseApi {
-    /** Repo configs now bound to this team for the installation (created this call or already present). */
+    /** Repo configs this team already had for the installation's repositories, now bound to it. A sync creates no repo config: use add_repository to turn reviews on for a repository. */
     readonly synced: readonly StamphogRepoConfigApi[]
     /** Repository full names skipped because another team already owns them under this installation. */
     readonly skipped: readonly string[]
+    /** How many repositories this team can add after the sync, across all its connected installations. List them with available_repositories. */
+    readonly available_count: number
     /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
     readonly app_not_installed: boolean
     /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
@@ -553,6 +575,19 @@ export type StamphogRepoConfigsListParams = {
     offset?: number
 }
 
+export type StamphogRepoConfigsAvailableRepositoriesRetrieveParams = {
+    /**
+     * Maximum number of repositories to return. Defaults to 50, at most 200.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring to match against the repository full name, e.g. 'posthog'.
+     */
+    search?: string
+}
+
 export type StamphogReviewRunsListParams = {
     /**
      * Number of results to return per page.
@@ -575,7 +610,7 @@ export type StamphogReviewRunsListParams = {
      */
     status?: string
     /**
-     * Filter by what caused the run: self_driving, manual, label, or all.
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
      */
     trigger?: StamphogReviewRunsListTrigger
 }

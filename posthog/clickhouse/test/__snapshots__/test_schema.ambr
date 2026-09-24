@@ -474,6 +474,41 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_log_entries_aux]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_log_entries_aux 
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'log_entries_test', kafka_group_name = 'clickhouse_log_entries_aux', kafka_format = 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100,
+               kafka_num_consumers = 1,
+               kafka_thread_per_consumer = 1,
+               kafka_poll_timeout_ms = 10000,
+               kafka_max_block_size = 100000
+      
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_message_assets]
   '''
   
@@ -2842,6 +2877,41 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_log_entries_aux]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_log_entries_aux 
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'log_entries_test', kafka_group_name = 'clickhouse_log_entries_aux', kafka_format = 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100,
+               kafka_num_consumers = 1,
+               kafka_thread_per_consumer = 1,
+               kafka_poll_timeout_ms = 10000,
+               kafka_max_block_size = 100000
+      
+  '''
+# ---
 # name: test_create_table_query[kafka_message_assets]
   '''
   
@@ -3463,6 +3533,93 @@
   PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
   
   SETTINGS index_granularity=512
+  
+  '''
+# ---
+# name: test_create_table_query[log_entries_aux_mv]
+  '''
+  
+      CREATE MATERIALIZED VIEW IF NOT EXISTS log_entries_aux_mv
+      TO posthog_test.writable_log_entries_aux
+      AS SELECT
+      team_id,
+      log_source,
+      log_source_id,
+      instance_id,
+      timestamp,
+      level,
+      message,
+      _timestamp,
+      _offset
+      FROM posthog_test.kafka_log_entries_aux
+      WHERE toDate(timestamp) <= today()
+      
+  '''
+# ---
+# name: test_create_table_query[log_entries_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS log_entries_data 
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries_data', '{replica}-{shard}', _timestamp)
+  PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+  TTL toDate(timestamp) + INTERVAL 90 DAY DELETE
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[log_entries_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS log_entries_distributed 
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'log_entries_data')
   
   '''
 # ---
@@ -5250,9 +5407,13 @@
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `trace_flags_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+      `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
+      `timestamp_max` DateTime64(6) ALIAS arrayMax(timestamp_arr),
       INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-      INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
@@ -9898,6 +10059,18 @@
       
   '''
 # ---
+# name: test_create_table_query[web_pre_aggregated_teams]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `web_pre_aggregated_teams`  (
+      team_id UInt64,
+      enabled_by String DEFAULT 'system',
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_analytics_team_selection', '{replica}-{shard}', version)
+  ORDER BY (team_id);
+  
+  '''
+# ---
 # name: test_create_table_query[web_sessions_dimensional_preaggregated]
   '''
   
@@ -10469,6 +10642,38 @@
   , _partition UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
+  
+  '''
+# ---
+# name: test_create_table_query[writable_log_entries_aux]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_log_entries_aux 
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'log_entries_data')
   
   '''
 # ---
@@ -11695,6 +11900,41 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[log_entries_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS log_entries_data 
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries_data', '{replica}-{shard}', _timestamp)
+  PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+  TTL toDate(timestamp) + INTERVAL 90 DAY DELETE
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[logs32]
   '''
   
@@ -12499,9 +12739,13 @@
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `trace_flags_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+      `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
+      `timestamp_max` DateTime64(6) ALIAS arrayMax(timestamp_arr),
       INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-      INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
@@ -15306,6 +15550,18 @@
       mat_metadata_backend
   )
       
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_teams]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `web_pre_aggregated_teams`  (
+      team_id UInt64,
+      enabled_by String DEFAULT 'system',
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_analytics_team_selection', '{replica}-{shard}', version)
+  ORDER BY (team_id);
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[writable_session_replay_events]

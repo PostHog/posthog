@@ -2,13 +2,15 @@ import uuid
 import zlib
 import random
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
 from posthog.models.event.deletion import events_data_tables_via_sync_execute, events_read_tables_via_sync_execute
 from posthog.models.event.util import create_event
+from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -19,25 +21,59 @@ from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, up
 
 from products.mcp_analytics.backend.models import MCPSession
 
-TOOL_NAMES = [
-    "query_run",
-    "insight_get",
-    "dashboard_get",
-    "feature_flag_get",
-    "experiment_get",
-    "person_get",
-    "session_recording_get",
-    "error_tracking_issue_get",
-]
+# Weighted like real traffic, where a few tools take most calls, so the tool breakdown has a long tail.
+TOOL_WEIGHTS: dict[str, int] = {
+    "query_run": 34,
+    "insight_get": 22,
+    "dashboard_get": 14,
+    "feature_flag_get": 10,
+    "error_tracking_issue_get": 8,
+    "person_get": 6,
+    "experiment_get": 4,
+    "session_recording_get": 2,
+}
+TOOL_NAMES = list(TOOL_WEIGHTS)
+
+MISSING_CAPABILITY_TOOL_NAME = "get_more_tools"
+
+# Advertised in $mcp_tools_list but never called, so the seeded catalog holds more tools than agents use.
+UNCALLED_TOOL_NAMES = ["annotation_create", "cohort_get"]
 
 # Marks events as coming from the new MCP SDK — the tool detail page filters on this.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 MCP_SERVER_NAME = "posthog-mcp"
+MCP_SERVER_VERSION = "2.14.0"
+# The 2026-07-28 revision removed protocol sessions: no initialize handshake and no Mcp-Session-Id.
+# Each seeded session speaks one revision, so a session is either all legacy or all stateless.
+LEGACY_PROTOCOL_VERSION = "2025-11-25"
+STATELESS_PROTOCOL_VERSION = "2026-07-28"
+STATELESS_SESSION_PROBABILITY = 0.45
+SDK_LIB_NAME = "posthog-node-mcp"
 
 # Every seeded event carries this marker so --clear can target exactly what this
 # command created, never genuine SDK traffic sharing the same event names.
 SEEDED_MARKER_PROPERTY = "$mcp_seeded"
-SEEDED_EVENT_NAMES = ("$mcp_tool_call", "$mcp_missing_capability", "$exception")
+SEEDED_EVENT_NAMES = (
+    "$mcp_initialize",
+    "$mcp_tools_list",
+    "$mcp_tool_call",
+    "$mcp_missing_capability",
+    "$exception",
+)
+
+
+def _fnv1a_hex(value: str) -> str:
+    # 64-bit FNV-1a as two 32-bit halves, matching `ids.ts` in @posthog/mcp bit for bit.
+    h1, h2 = 0x84222325, 0xCBF29CE4
+    for char in value:
+        h1 = ((h1 ^ ord(char)) * 0x1B3) & 0xFFFFFFFF
+        h2 = ((h2 ^ ord(char)) * 0x193) & 0xFFFFFFFF
+    return f"{h1:08x}{h2:08x}"
+
+
+def session_id_from_conversation(conversation_id: str) -> str:
+    """The $session_id the SDK derives from a conversation id (`deriveSessionIdFromConversation`)."""
+    return f"ses_{_fnv1a_hex(conversation_id)}{_fnv1a_hex(f'{conversation_id}::salt')}"
 
 
 def stable_hash(value: str) -> int:
@@ -69,14 +105,73 @@ TOOL_DESCRIPTIONS = {
     "error_tracking_issue_get": "Fetch an error-tracking issue and its impact.",
 }
 
-# Raw $mcp_client_name values that categorizeHarness() folds into the popular, logo-backed
-# harness buckets (Claude Code, OpenAI Codex, Cursor, Claude.ai, VS Code). Weighted toward the
-# most common agents so the breakdown looks realistic.
-CLIENT_NAMES = ["claude-code", "codex", "cursor", "claude-ai", "visual studio code"]
-CLIENT_WEIGHTS = [38, 26, 22, 9, 5]
+
+@frozen
+class _ClientProfile:
+    name: str
+    version: str
+    # The x-anthropic-client header. Only Anthropic clients send it.
+    vendor_client: str | None
+    user_agent: str | None
+    models: list[str]
+    # Codex puts the model in request metadata. Other agents report it through the injected llm_model argument.
+    model_source: Literal["client_metadata", "self_reported"]
+    weight: int
+
+
+CLIENT_PROFILES: list[_ClientProfile] = [
+    _ClientProfile(
+        name="claude-code",
+        version="2.1.12",
+        vendor_client="claude-code",
+        user_agent="claude-code/2.1.12 (cli)",
+        models=["claude-opus-5-5", "claude-sonnet-5"],
+        model_source="self_reported",
+        weight=38,
+    ),
+    _ClientProfile(
+        name="codex",
+        version="0.46.0",
+        vendor_client=None,
+        user_agent="codex_cli_rs/0.46.0",
+        models=["gpt-5.6-sol", "gpt-5.2"],
+        model_source="client_metadata",
+        weight=26,
+    ),
+    _ClientProfile(
+        name="cursor",
+        version="1.7.0",
+        vendor_client=None,
+        user_agent=None,
+        models=["claude-sonnet-5", "gpt-5.2"],
+        model_source="self_reported",
+        weight=22,
+    ),
+    _ClientProfile(
+        name="claude-ai",
+        version="0.1.0",
+        vendor_client="claude-ai",
+        user_agent=None,
+        models=["claude-opus-5-5", "claude-sonnet-5"],
+        model_source="self_reported",
+        weight=9,
+    ),
+    _ClientProfile(
+        name="visual studio code",
+        version="1.105.0",
+        vendor_client=None,
+        user_agent=None,
+        models=["gpt-5.2", "claude-sonnet-5"],
+        model_source="self_reported",
+        weight=5,
+    ),
+]
+
+# Agents pass "unknown" when unsure, and the SDK then omits $mcp_llm_model. Codex metadata always carries it.
+SELF_REPORTED_MODEL_PROBABILITY = 0.85
 
 # Identified personas. About 70% of sessions are attached to one of these;
-# the rest stay anonymous with throwaway distinct_ids.
+# the rest stay anonymous, keyed by their $session_id like the SDK does.
 IDENTIFIED_PERSONAS: list[dict[str, str]] = [
     {
         "distinct_id": "alice@hedgehog.dev",
@@ -165,18 +260,36 @@ SESSION_INTENTS: list[str] = [
     "Pull the latest exception issue tied to the deploy so on-call can triage the regression.",
 ]
 
-# Paired with a fraction of failing tool calls so the tool detail "Failures" table
-# (which reads $exception events) has something to show.
-EXCEPTION_MESSAGES: list[str] = [
-    "TimeoutError: upstream query exceeded 30s deadline",
-    "ValidationError: missing required parameter 'project_id'",
-    "PermissionError: API key lacks scope for this resource",
-    "ConnectionError: ClickHouse connection reset by peer",
-    "KeyError: '$mcp_tool_name' not present in event payload",
+
+@frozen
+class _Failure:
+    error_type: str
+    message: str
+
+
+# The tool call and its paired $exception carry the same message, as the SDK copies it from the exception.
+FAILURES: list[_Failure] = [
+    _Failure(error_type="timeout", message="TimeoutError: upstream query exceeded 30s deadline"),
+    _Failure(error_type="validation", message="ValidationError: missing required parameter 'project_id'"),
+    _Failure(error_type="permission", message="PermissionError: API key lacks scope for this resource"),
+    _Failure(error_type="internal", message="ConnectionError: ClickHouse connection reset by peer"),
+    _Failure(error_type="rate_limited", message="RateLimitError: too many requests, retry after 10s"),
 ]
 
 # Fraction of failing tool calls that also emit a paired $exception event.
 EXCEPTION_PAIR_PROBABILITY = 0.6
+
+
+@frozen
+class _SeededSession:
+    conversation_id: str
+    session_id: str
+    # None for anonymous sessions: the SDK then uses each event's $session_id as its distinct id.
+    identified_distinct_id: str | None
+    person_id: str | None
+    person_properties: dict[str, Any]
+    common_properties: dict[str, Any]
+    session_end: datetime
 
 
 class Command(BaseCommand):
@@ -275,7 +388,7 @@ class Command(BaseCommand):
         rng = random.Random(seed)
         now = datetime.now(tz=UTC)
         total_events = 0
-        seeded_sessions: list[tuple[str, str, str, dict[str, Any], str, datetime]] = []
+        seeded_sessions: list[_SeededSession] = []
 
         # distinct_id -> (person_uuid, person_properties). Events carry person_id so the
         # person-on-events join (Top users table) keeps them — without a real person the
@@ -324,7 +437,40 @@ class Command(BaseCommand):
             person_cache[distinct_id] = (person_uuid, properties)
             return person_cache[distinct_id]
 
-        # Create the identified personas up front (anonymous visitors are created lazily below).
+        def emit(
+            session: _SeededSession,
+            event: str,
+            timestamp: datetime,
+            properties: dict[str, Any],
+            handshake_session_id: str | None = None,
+        ) -> None:
+            nonlocal total_events
+            # The conversation handle only rides tool arguments, so handshake events carry
+            # the transport's session instead and no $mcp_conversation_id.
+            if handshake_session_id:
+                session_properties = {"$session_id": handshake_session_id}
+            else:
+                session_properties = {
+                    "$session_id": session.session_id,
+                    "$mcp_conversation_id": session.conversation_id,
+                }
+            distinct_id = session.identified_distinct_id or session_properties["$session_id"]
+            person_id = session.person_id or str(uuidFromDistinctId(team.id, distinct_id))
+            # A None value drops a session-wide property the SDK leaves off this event.
+            merged = {SEEDED_MARKER_PROPERTY: True, **session.common_properties, **session_properties, **properties}
+            create_event(
+                event_uuid=uuid.uuid4(),
+                event=event,
+                team=team,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                person_id=uuid.UUID(person_id),
+                person_properties=session.person_properties,
+                person_mode="full" if session.identified_distinct_id else "propertyless",
+                properties={key: value for key, value in merged.items() if value is not None},
+            )
+            total_events += 1
+
         for persona in IDENTIFIED_PERSONAS:
             ensure_person(
                 persona["distinct_id"],
@@ -333,17 +479,6 @@ class Command(BaseCommand):
             )
 
         for session_idx in range(session_count):
-            # $session_id is the canonical session key — the @posthog/mcp SDK emits only
-            # this (no $mcp_session_id), so these fixtures mirror a plain SDK-instrumented
-            # server. uuid7 matches the PostHog session-id convention.
-            session_id = str(uuid7())
-            if rng.random() < IDENTIFIED_PROBABILITY:
-                persona = rng.choice(IDENTIFIED_PERSONAS)
-                distinct_id = persona["distinct_id"]
-            else:
-                distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
-            person_uuid, person_props = ensure_person(distinct_id, {}, is_identified=False)
-            client_name = rng.choices(CLIENT_NAMES, weights=CLIENT_WEIGHTS, k=1)[0]
             calls = rng.randint(min_calls, max_calls)
             # Anchor each session within the listing's default 24h window so it shows
             # up on the next request. The listing aggregates recent events on the fly,
@@ -358,6 +493,86 @@ class Command(BaseCommand):
             else:
                 session_end_offset_min = rng.randint(31, 59)
             session_start = now - timedelta(minutes=session_end_offset_min) - total_call_duration
+            session_start_ms = int(session_start.timestamp() * 1000)
+
+            # The SDK mints a uuidv7 conversation handle on the first tool call and derives
+            # $session_id from it, so every call in the conversation shares one session.
+            conversation_id = str(uuid7(session_start_ms, rng))
+            session_id = session_id_from_conversation(conversation_id)
+            is_stateless = rng.random() < STATELESS_SESSION_PROBABILITY
+
+            common_properties: dict[str, Any] = {}
+            identified_distinct_id: str | None = None
+            person_uuid: str | None = None
+            person_props: dict[str, Any] = {}
+            if rng.random() < IDENTIFIED_PROBABILITY:
+                identified_distinct_id = rng.choice(IDENTIFIED_PERSONAS)["distinct_id"]
+                person_uuid, person_props = ensure_person(identified_distinct_id, {}, is_identified=True)
+            else:
+                # Without an identified user the SDK turns off person processing,
+                # so no person row exists for these sessions.
+                common_properties["$process_person_profile"] = False
+
+            client = rng.choices(CLIENT_PROFILES, weights=[c.weight for c in CLIENT_PROFILES], k=1)[0]
+            common_properties.update(
+                {
+                    "$lib": SDK_LIB_NAME,
+                    "$mcp_source": NEW_SDK_SOURCE,
+                    "$mcp_server_name": MCP_SERVER_NAME,
+                    "$mcp_server_version": MCP_SERVER_VERSION,
+                    "$mcp_client_name": client.name,
+                    "$mcp_client_version": client.version,
+                    "$mcp_protocol_version": STATELESS_PROTOCOL_VERSION if is_stateless else LEGACY_PROTOCOL_VERSION,
+                }
+            )
+            if client.vendor_client:
+                common_properties["$mcp_vendor_client"] = client.vendor_client
+            if client.user_agent:
+                common_properties["$mcp_client_user_agent"] = client.user_agent
+            model_properties: dict[str, Any] = {}
+            if client.model_source == "client_metadata" or rng.random() < SELF_REPORTED_MODEL_PROBABILITY:
+                model_properties = {
+                    "$mcp_llm_model": rng.choice(client.models),
+                    "$mcp_llm_model_source": client.model_source,
+                }
+
+            session = _SeededSession(
+                conversation_id=conversation_id,
+                session_id=session_id,
+                identified_distinct_id=identified_distinct_id,
+                person_id=person_uuid,
+                person_properties=person_props,
+                common_properties=common_properties,
+                session_end=session_start + total_call_duration,
+            )
+
+            listed_tools = {"$mcp_listed_tool_names": [*TOOL_NAMES, *UNCALLED_TOOL_NAMES]}
+            if is_stateless:
+                # No handshake. tools/list carries no conversation handle, so the SDK falls back
+                # to the id the per-request server instance minted.
+                emit(
+                    session,
+                    "$mcp_tools_list",
+                    session_start - timedelta(seconds=1),
+                    listed_tools,
+                    handshake_session_id=f"ses_{uuid7(session_start_ms - 1000, rng)}",
+                )
+            else:
+                token_session_id = f"ses_{uuid7(session_start_ms - 2000, rng)}"
+                emit(
+                    session,
+                    "$mcp_initialize",
+                    session_start - timedelta(seconds=2),
+                    {},
+                    handshake_session_id=token_session_id,
+                )
+                emit(
+                    session,
+                    "$mcp_tools_list",
+                    session_start - timedelta(seconds=1),
+                    listed_tools,
+                    handshake_session_id=token_session_id,
+                )
 
             # One coherent intent per session so the clustering page has themes to group.
             primary_tool = rng.choice(TOOL_NAMES)
@@ -367,72 +582,52 @@ class Command(BaseCommand):
             for call_idx in range(calls):
                 cumulative_offset_s += call_intervals[call_idx]
                 timestamp = session_start + timedelta(seconds=cumulative_offset_s)
-                tool_name = rng.choice(TOOL_NAMES)
+                tool_name = rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
                 base_latency = 80 + (stable_hash(tool_name) % 400)
                 duration_ms = max(1, int(rng.gauss(base_latency, base_latency * 0.4)))
-                if is_error:
+                tool_properties: dict[str, Any] = {
+                    **model_properties,
+                    "$mcp_resource_name": tool_name,
+                    "$mcp_tool_name": tool_name,
+                    "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
+                    "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
+                    "$mcp_intent": session_intent,
+                    "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[7, 3], k=1)[0],
+                    "$mcp_is_error": is_error,
+                }
+                failure = rng.choice(FAILURES) if is_error else None
+                if failure:
                     duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
-                create_event(
-                    event_uuid=uuid.uuid4(),
-                    event="$mcp_tool_call",
-                    team=team,
-                    distinct_id=distinct_id,
-                    timestamp=timestamp,
-                    person_id=uuid.UUID(person_uuid),
-                    person_properties=person_props,
-                    properties={
-                        SEEDED_MARKER_PROPERTY: True,
-                        "$session_id": session_id,
-                        "$mcp_source": NEW_SDK_SOURCE,
-                        "$mcp_server_name": MCP_SERVER_NAME,
-                        "$mcp_tool_name": tool_name,
-                        "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
-                        "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
-                        "$mcp_intent": session_intent,
-                        "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[7, 3], k=1)[0],
-                        "$mcp_error_message": "Upstream returned 500" if is_error else "",
-                        "$mcp_client_name": client_name,
-                        "$mcp_client_version": "1.0.0",
-                        "$mcp_protocol_version": "2025-03-26",
-                        "$mcp_transport": "streamable_http",
-                        "$mcp_duration_ms": duration_ms,
-                        "$mcp_is_error": is_error,
-                    },
-                )
-                total_events += 1
+                    tool_properties["$mcp_error_type"] = failure.error_type
+                    tool_properties["$mcp_error_message"] = failure.message
+                tool_properties["$mcp_duration_ms"] = duration_ms
+                emit(session, "$mcp_tool_call", timestamp, tool_properties)
 
                 # Pair some failures with an $exception event so the tool detail
                 # "Failures" table (which reads $exception events) has data.
-                if is_error and rng.random() < EXCEPTION_PAIR_PROBABILITY:
-                    exception_message = rng.choice(EXCEPTION_MESSAGES)
-                    create_event(
-                        event_uuid=uuid.uuid4(),
-                        event="$exception",
-                        team=team,
-                        distinct_id=distinct_id,
-                        timestamp=timestamp,
-                        person_id=uuid.UUID(person_uuid),
-                        person_properties=person_props,
-                        properties={
-                            SEEDED_MARKER_PROPERTY: True,
-                            "$session_id": session_id,
+                if failure and rng.random() < EXCEPTION_PAIR_PROBABILITY:
+                    emit(
+                        session,
+                        "$exception",
+                        timestamp,
+                        {
+                            "$mcp_source": None,
+                            "$mcp_resource_name": tool_name,
                             "$mcp_tool_name": tool_name,
-                            "$mcp_client_name": client_name,
                             "$exception_types": ["MCPToolError"],
-                            "$exception_values": [exception_message],
+                            "$exception_values": [failure.message],
                             "$exception_list": [
                                 {
                                     "type": "MCPToolError",
-                                    "value": exception_message,
+                                    "value": failure.message,
                                     "mechanism": {"handled": True},
                                 }
                             ],
                         },
                     )
-                    total_events += 1
 
             # The session listing derives sessions on the fly from the events above,
             # but intent clustering reads MCPSession.intent (keyed by $session_id), so
@@ -441,33 +636,23 @@ class Command(BaseCommand):
                 MCPSession.objects.update_or_create(
                     team=team, session_id=session_id, defaults={"intent": session_intent}
                 )
-            session_end = session_start + total_call_duration
-            seeded_sessions.append((session_id, distinct_id, person_uuid, person_props, client_name, session_end))
+            seeded_sessions.append(session)
             self.stdout.write(
                 f"  session {session_idx + 1}/{session_count}: {calls} tool calls (session_id={session_id})"
             )
 
-        for session_id, distinct_id, person_uuid, person_props, client_name, session_end in rng.sample(
-            seeded_sessions, k=missing_capability_count
-        ):
-            create_event(
-                event_uuid=uuid.uuid4(),
-                event="$mcp_missing_capability",
-                team=team,
-                distinct_id=distinct_id,
-                timestamp=session_end + timedelta(seconds=rng.randint(1, 30)),
-                person_id=uuid.UUID(person_uuid),
-                person_properties=person_props,
-                properties={
-                    SEEDED_MARKER_PROPERTY: True,
-                    "$session_id": session_id,
-                    "$mcp_source": NEW_SDK_SOURCE,
-                    "$mcp_server_name": MCP_SERVER_NAME,
+        for session in rng.sample(seeded_sessions, k=missing_capability_count):
+            emit(
+                session,
+                "$mcp_missing_capability",
+                session.session_end + timedelta(seconds=rng.randint(1, 30)),
+                {
+                    "$mcp_resource_name": MISSING_CAPABILITY_TOOL_NAME,
                     "$mcp_intent": rng.choice(MISSING_CAPABILITY_INTENTS),
-                    "$mcp_client_name": client_name,
+                    "$mcp_intent_source": "context_parameter",
+                    "$mcp_is_error": False,
                 },
             )
-            total_events += 1
 
         self.stdout.write(
             self.style.SUCCESS(

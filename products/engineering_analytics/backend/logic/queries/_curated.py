@@ -179,6 +179,15 @@ class CuratedGitHubSource:
         """The selected source's ``owner/name`` identity for reads outside the warehouse."""
         return self._tables.repository
 
+    @property
+    def source_id(self) -> str:
+        """The selected source, which the resolver already filtered by the caller's access.
+
+        A read outside the warehouse that needs a GitHub credential takes it from this source, so
+        it never reads with a credential of a source the caller is not allowed to use.
+        """
+        return self._tables.source_id
+
     @classmethod
     def for_team(
         cls,

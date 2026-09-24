@@ -801,9 +801,10 @@ export class TaskCreationSaga extends Saga<
             repository: input.repository ?? null,
             repositories: input.repositories,
             branch: input.branch ?? null,
-            runtimeAdapter: input.adapter ?? null,
+            runtimeAdapter: input.adapter ?? "claude",
             model: input.model ?? null,
             reasoningEffort: input.reasoningLevel ?? null,
+            permissionMode: input.executionMode ?? null,
             sandboxEnvironmentId: input.sandboxEnvironmentId ?? null,
             customImageId: input.customImageId ?? null,
           })
@@ -909,7 +910,7 @@ export class TaskCreationSaga extends Saga<
             input.workspaceMode === "cloud" &&
             canActivateWarmRun &&
             input.runtime !== "pi"
-              ? (input.adapter ?? null)
+              ? (input.adapter ?? "claude")
               : undefined,
           model:
             input.workspaceMode === "cloud" &&
@@ -922,6 +923,13 @@ export class TaskCreationSaga extends Saga<
             canActivateWarmRun &&
             input.runtime !== "pi"
               ? (input.reasoningLevel ?? null)
+              : undefined,
+          initial_permission_mode:
+            input.workspaceMode === "cloud" &&
+            canActivateWarmRun &&
+            input.runtime !== "pi"
+              ? (input.executionMode ??
+                (input.adapter === "codex" ? "auto" : "plan"))
               : undefined,
           sandbox_environment_id:
             input.workspaceMode === "cloud" && canActivateWarmRun

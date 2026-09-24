@@ -47,6 +47,26 @@ describe('buildExportRows', () => {
     })
 
     it.each([
+        [{ columnKey: 'visitors', order: 1 }, ['Direct', 'Email', 'Organic']],
+        [{ columnKey: 'visitors', order: -1 }, ['Email', 'Direct', 'Organic']],
+        [null, ['Organic', 'Direct', 'Email']],
+        [{ columnKey: 'unavailable', order: 1 }, ['Organic', 'Direct', 'Email']],
+    ] as const)('exports the visible row order for sorting=%j without changing input rows', (sorting, expected) => {
+        const input = [rows[2], rows[1], rows[0]]
+        const exported = buildExportRows({
+            columns: [VISITORS_COLUMN],
+            rows: input,
+            breakdownLabel: 'Channel',
+            breakdownValue: (row) => row.breakdownValue,
+            compare: false,
+            sorting,
+        })
+
+        expect(exported.slice(1).map((row) => row[0])).toEqual(expected)
+        expect(input.map((row) => row.breakdownValue)).toEqual(['Organic', 'Direct', 'Email'])
+    })
+
+    it.each([
         ['Copy as CSV', 'Channel,Visitors\r\nEmail,0'],
         ['Copy for Excel', 'Channel\tVisitors\r\nEmail\t0'],
     ])('copies the latest rows through %s', (label, expected) => {

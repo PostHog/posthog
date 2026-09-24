@@ -90,6 +90,10 @@ class RunSource(StrEnum):
     AGENT = "agent"
 
 
+def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_only", "full"]:
+    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
+
+
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
 USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
 
@@ -356,6 +360,7 @@ class RunState(BaseModel, extra="allow"):
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
+    sandbox_template: str | None = None
 
     def resume_snapshot_kind(self) -> SnapshotKind:
         if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
