@@ -565,7 +565,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         # Get the "missing" (not directly accessible) parameters required for the builder
         exposure_params = get_exposure_config_params_for_builder(
-            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+            self.experiment.exposure_criteria, self.experiment.start_date
         )
 
         builder = ExperimentQueryBuilder(
@@ -939,12 +939,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             # An explicit override replaces the whole exposure definition, including any
             # stored activation event.
             exposure_config = resolve_exposure_config_for_builder(
-                self.actors_query.exposureConfig, self.team, self.experiment.start_date
+                self.actors_query.exposureConfig, self.experiment.start_date
             )
         else:
             # Same resolution as the main experiment query, so the actor list matches the counts.
             exposure_params = get_exposure_config_params_for_builder(
-                self.experiment.exposure_criteria, self.team, self.experiment.start_date
+                self.experiment.exposure_criteria, self.experiment.start_date
             )
             exposure_config = exposure_params.exposure_config
             activation_config = exposure_params.activation_config

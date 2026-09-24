@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -16,7 +15,6 @@ from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -60,7 +58,7 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
         flag_key: str,
         timestamp: datetime,
         *,
-        event: str = "$feature_flag_called",
+        event: str = EXPERIMENT_EXPOSURE_EVENT,
         variant: str | None = "test",
         extra_properties: dict | None = None,
     ) -> Person:
@@ -98,7 +96,7 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
         self._expose_person("other-flag-user", "some-other-flag", exposed_at)
         # Exposure before the experiment started doesn't count.
         self._expose_person("pre-start-user", "freeze-fetch-flag", experiment.start_date - timedelta(days=1))
-        # A $feature_flag_called that landed no variant (user outside the rollout) is not an
+        # An exposure event that landed no variant (user outside the rollout) is not an
         # enrollment — mirroring the metrics exposure definition.
         self._expose_person("no-variant-user", "freeze-fetch-flag", exposed_at, variant=None)
         flush_persons_and_events()
@@ -122,9 +120,9 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
         exposed_at = experiment.start_date + timedelta(days=1)
 
         exposed = self._expose_person("custom-exposed", "freeze-custom-flag", exposed_at, event="checkout started")
-        # With a custom exposure event configured, plain $feature_flag_called events don't count —
+        # With a custom exposure event configured, the default exposure events don't count —
         # teams configure this exactly because those events are absent or unreliable for them.
-        self._expose_person("flag-called-only", "freeze-custom-flag", exposed_at)
+        self._expose_person("default-event-only", "freeze-custom-flag", exposed_at)
         # A custom exposure event fired outside the experiment (no enrollment property) doesn't count.
         self._expose_person(
             "custom-no-variant", "freeze-custom-flag", exposed_at, event="checkout started", variant=None
@@ -137,33 +135,28 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, expected event)
-            ("after_cutoff", True, 7, EXPERIMENT_EXPOSURE_EVENT),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
-            ("before_cutoff", True, -7, "$feature_flag_called"),
+            # (name, experiment start offset from the cutoff, expected event)
+            ("after_cutoff", 7, EXPERIMENT_EXPOSURE_EVENT),
+            ("before_cutoff", -7, "$feature_flag_called"),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_fetch_exposed_person_uuids_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, start_offset_days: int, expected_event: str
     ) -> None:
         experiment = self._create_running_experiment(
-            "freeze-rollout-flag", start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days)
+            "freeze-cutoff-flag", start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days)
         )
         exposed_at = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=8)
         new_event_person = self._expose_person(
-            "new-event-user", "freeze-rollout-flag", exposed_at, event=EXPERIMENT_EXPOSURE_EVENT
+            "new-event-user", "freeze-cutoff-flag", exposed_at, event=EXPERIMENT_EXPOSURE_EVENT
         )
-        legacy_event_person = self._expose_person("legacy-event-user", "freeze-rollout-flag", exposed_at)
+        legacy_event_person = self._expose_person(
+            "legacy-event-user", "freeze-cutoff-flag", exposed_at, event="$feature_flag_called"
+        )
         flush_persons_and_events()
 
-        # Only answer for the exposure-event flag; returning True for every flag would flip
-        # unrelated flag-gated behavior on and change what's under test.
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-            uuids = self._service()._fetch_exposed_person_uuids(experiment)
+        uuids = self._service()._fetch_exposed_person_uuids(experiment)
 
         # The snapshot decides who keeps being served a variant, so it must count exposures on
         # the event the analysis resolves to: read off the other event, a post-cutoff experiment

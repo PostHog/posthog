@@ -20,7 +20,7 @@ import { Experiment } from '~/types'
  *
  * Use this only to recognize the default; for the event actually counted, use the experiment's
  * server-resolved event (`experimentLogic`'s `resolvedExposureEvent`), which accounts for the
- * `$experiment_exposure` rollout.
+ * `$experiment_exposure` cutoff.
  */
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
 export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'

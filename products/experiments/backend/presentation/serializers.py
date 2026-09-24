@@ -577,7 +577,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def get_resolved_exposure_event(self, obj: Experiment) -> str:
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
-        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+        return resolve_default_exposure_event(obj.start_date or timezone.now())
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):

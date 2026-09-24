@@ -362,7 +362,7 @@ def resolve_exposure_linkage(
             raise ValidationError(semantics.unavailable_reason + _IN_SESSION_REFUSAL_QUERY_SUFFIX)
         session_exposure = semantics.session_exposure
 
-    exposure_params = get_exposure_config_params_for_builder(experiment.exposure_criteria, team, experiment.start_date)
+    exposure_params = get_exposure_config_params_for_builder(experiment.exposure_criteria, experiment.start_date)
     date_range_query = QueryDateRange(
         date_range=experiment_window(experiment, team, as_of=experiment.end_date or datetime.now(UTC)),
         team=team,
