@@ -268,11 +268,17 @@ class TestCSPMiddleware(APIBaseTest):
             ),
         ]
     )
-    def test_only_cloud_pages_swap_the_wildcards_for_named_posthog_hosts(self, _name, overrides, regions):
-        with override_settings(TEST=False, DEBUG=False, **overrides):
+    def test_only_cloud_pages_swap_the_wildcards_for_named_posthog_hosts(
+        self, _name: str, overrides: dict[str, str | None], regions: tuple[str, str] | None
+    ) -> None:
+        # Cloud enforces the app policy for everyone, so the enforced header is the one that must be narrowed.
+        with (
+            override_settings(TEST=False, DEBUG=False, **overrides),
+            patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=True),
+        ):
             response = self.client.get("/")
 
-        policy = response["Content-Security-Policy-Report-Only"]
+        policy = response["Content-Security-Policy"]
         directives = {name: sources for name, *sources in (part.split() for part in policy.split("; "))}
         script_src, connect_src = directives["script-src"], directives["connect-src"]
         (report_uri,) = directives["report-uri"]
@@ -292,6 +298,7 @@ class TestCSPMiddleware(APIBaseTest):
         assert overrides["JS_URL"] in script_src
         assert "https://internal-cf.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in script_src
         assert f"https://live.{region}.posthog.com" in connect_src
+        assert f"https://webhooks.{region}.posthog.com" in connect_src
         assert f"https://{region}.i.posthog.com/decide/" in connect_src
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.

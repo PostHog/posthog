@@ -400,6 +400,9 @@ class CSPMiddleware:
                             *bundle,
                             POSTHOG_JS_CLOUD_HOST,
                             f"https://live.{urlsplit(settings.SITE_URL).hostname}",
+                            # publicWebhooksHostOrigin() in the frontend posts source-webhook tests and manual
+                            # workflow triggers to webhooks.<region host>.
+                            f"https://webhooks.{urlsplit(settings.SITE_URL).hostname}",
                             # The onboarding adblock check probes the region's ingestion host.
                             f"{get_api_host()}/decide/",
                             # A task run's live stream, when the server hands out the region's agent-proxy.
