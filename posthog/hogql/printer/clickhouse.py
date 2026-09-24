@@ -606,7 +606,7 @@ class ClickHousePrinter(BasePrinter):
 
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
         """
-        Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
+        Wraps a StringJSONDatabaseField in JSONDropKeysPool() to strip restricted property keys
         when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
         """
         if not self.context.restricted_properties:
@@ -637,7 +637,7 @@ class ClickHousePrinter(BasePrinter):
             return field_sql
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
+        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({field_sql}, {keys_placeholder})"
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
