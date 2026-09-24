@@ -414,6 +414,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(timestamp, self.team.timezone_info)
         return parsed if delta_mapping is None else None
 
+    @cached_property
     def _pinned_date_to(self) -> datetime | None:
         """The end of the queried window, but only when both ends of it are pinned to fixed instants.
 
@@ -431,14 +432,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return date_to
 
     def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
-        date_to = self._pinned_date_to()
+        date_to = self._pinned_date_to
         if date_to is None:
             return True
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
         return is_stale(self.team, date_to=date_to, interval=None, last_refresh=last_refresh, mode=mode)
 
     def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
-        if last_refresh is not None and self._pinned_date_to() is None:
+        if last_refresh is not None and self._pinned_date_to is None:
             return last_refresh
         return super().cache_target_age(last_refresh, lazy=lazy)
 
