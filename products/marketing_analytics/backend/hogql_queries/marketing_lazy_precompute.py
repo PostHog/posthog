@@ -28,7 +28,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.models import Team
 from posthog.token_bucket import BucketDecision, Budget, consume
 
@@ -148,6 +148,16 @@ def _scope_to_revalidation(query: Any) -> Any:
     scoped = query.model_copy(deep=True)
     scoped.compareFilter = None
     return scoped
+
+
+def is_on_demand_revalidation() -> bool:
+    """True inside the Celery revalidation task, which a user read can trigger.
+
+    It materializes userless with warehouse access control bypassed, so it must not write cost rows: the
+    precomputed costs table holds every source's spend, and a user without access to a source could then
+    read it. The Dagster warmer still builds costs.
+    """
+    return get_query_tag_value("trigger") == REVALIDATION_TRIGGER
 
 
 def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
