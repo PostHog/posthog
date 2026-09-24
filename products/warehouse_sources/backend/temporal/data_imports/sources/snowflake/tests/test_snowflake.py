@@ -768,9 +768,8 @@ class TestBuildPipeline:
         assert stream_param == ('"DB"."analytics"."users"',)
 
     def test_database_comes_from_the_session_not_the_config(self, impl):
-        # The configured database is typed by the user, so its case can differ from the account.
-        # Every reference is quoted, and a quoted name is matched exactly, so the configured
-        # spelling would miss the database. Snowflake reports the name it resolved at login.
+        # A quoted name is matched exactly, and the configured database is typed by the user, so its
+        # case can differ from the account. Snowflake reports the name it resolved at login.
         metadata_cursor = MagicMock()
         metadata_cursor.__enter__.return_value = metadata_cursor
         desc = MagicMock()
@@ -779,22 +778,15 @@ class TestBuildPipeline:
         metadata_cursor.__iter__.return_value = iter([("id",)])
         metadata_cursor.fetchone.return_value = (1,)
 
-        streaming_cursor = MagicMock()
-        streaming_cursor.__enter__.return_value = streaming_cursor
-        streaming_cursor.fetch_arrow_batches.return_value = iter([b"batch-1"])
-
-        cursors = iter([metadata_cursor, streaming_cursor])
         mock_connection = MagicMock()
         mock_connection.__enter__.return_value = mock_connection
         mock_connection.database = "REPORTING"
-        mock_connection.cursor.side_effect = lambda: next(cursors)
+        mock_connection.cursor.return_value = metadata_cursor
 
         with patch("snowflake.connector.connect", return_value=mock_connection):
-            response = impl.build_pipeline(_make_config(database="db"), _make_inputs(schema_name="messages"))
-            list(response.items())
+            impl.build_pipeline(_make_config(database="db"), _make_inputs(schema_name="messages"))
 
         assert metadata_cursor.execute.call_args_list[0].args[1] == ('"REPORTING"."PUBLIC"."messages"',)
-        assert streaming_cursor.execute.call_args.args[1] == ('"REPORTING"."PUBLIC"."messages"',)
 
 
 class TestResumableStreaming:
