@@ -171,7 +171,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         setEditingItemId,
         setSortMethod,
         setSelectMode,
-        setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
     const selectMode = selectModeOverride ?? projectTreeSelectMode
@@ -660,11 +659,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     />
                 </BindLogic>
             }
-            filterDropdown={
-                showFilterDropdown ? (
-                    <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
-                ) : null
-            }
+            filterDropdown={showFilterDropdown ? <TreeFiltersDropdownMenu logicProps={projectTreeLogicProps} /> : null}
             panelMenuItems={
                 showSortMenuItems ? <TreeSortMenuItems sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
