@@ -1,17 +1,33 @@
 import { useActions, useValues } from 'kea'
-import { useId } from 'react'
+import { useCallback, useEffect, useId } from 'react'
 
-import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonDropdownProps,
+    LemonInput,
+} from '@posthog/lemon-ui'
 
-import { tagSelectLogic } from './tagSelectLogic'
+import api, { PaginatedResponse } from 'lib/api'
+import { useScrollObserver } from 'lib/hooks/useScrollObserver'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { LoadTags, TagOption, tagSelectLogic } from './tagSelectLogic'
+
+const TAGS_PER_PAGE = 50
 
 export type TagSelectProps = {
     defaultLabel?: string
     value: string[]
     onChange: (value: string[]) => void
     children?: (selectedTags: string[]) => LemonDropdownProps['children']
-    /** Distinguishes the logic instance so multiple selects on one page keep independent open/search state. */
     logicKey?: string
+    options?: TagOption[]
+    loadTags?: LoadTags
+    borderless?: boolean
 }
 
 export function TagSelect({
@@ -20,35 +36,64 @@ export function TagSelect({
     onChange,
     children,
     logicKey,
+    options,
+    loadTags: customLoadTags,
+    borderless = false,
     ...buttonProps
-}: TagSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
+}: TagSelectProps & Pick<LemonButtonProps, 'type' | 'size' | 'aria-label'>): JSX.Element {
     const fallbackKey = useId()
     const logic = tagSelectLogic({ logicKey: logicKey ?? fallbackKey })
-    const { filteredTags, search, showPopover } = useValues(logic)
-    const { setSearch, setShowPopover } = useActions(logic)
+    const { awaitingFirstPage, hasMoreTags, search, showPopover, tagPageError, tagPageLoading, tagResults } =
+        useValues(logic)
+    const { loadTagPage, setSearch, setShowPopover } = useActions(logic)
+    const { currentTeamId } = useValues(teamLogic)
 
-    const _onChange = (newTags: string[]): void => {
-        onChange(newTags)
-    }
+    const source = useCallback<LoadTags>(
+        async (query, offset) => {
+            if (options) {
+                const matches = options.filter((option) => option.tag.toLowerCase().includes(query.toLowerCase()))
+                return {
+                    results: matches.slice(offset, offset + TAGS_PER_PAGE),
+                    hasMore: offset + TAGS_PER_PAGE < matches.length,
+                }
+            }
+            if (customLoadTags) {
+                return customLoadTags(query, offset)
+            }
+            if (currentTeamId == null) {
+                return { results: [], hasMore: false }
+            }
+            const params = new URLSearchParams({ search: query, limit: String(TAGS_PER_PAGE), offset: String(offset) })
+            const page: PaginatedResponse<string> = await api.get(`api/projects/${currentTeamId}/tags?${params}`)
+            return { results: page.results.map((tag) => ({ tag })), hasMore: page.next != null }
+        },
+        [options, customLoadTags, currentTeamId]
+    )
 
-    const handleTagToggle = (tag: string): void => {
-        const selected = new Set(value || [])
-        if (selected.has(tag)) {
-            selected.delete(tag)
-        } else {
-            selected.add(tag)
+    useEffect(() => {
+        if (showPopover) {
+            loadTagPage({ search, offset: 0, loadTags: source })
         }
-        _onChange(Array.from(selected))
+    }, [showPopover, search, source, loadTagPage])
+
+    const loadMore = (): void => {
+        if (hasMoreTags && !awaitingFirstPage && !tagPageLoading && !tagPageError) {
+            loadTagPage({ search, offset: tagResults.length, loadTags: source })
+        }
+    }
+    const scrollRef = useScrollObserver({ onScrollBottom: loadMore })
+    const displayedTags: TagOption[] = search
+        ? tagResults
+        : [
+              ...value.filter((tag) => !tagResults.some((option) => option.tag === tag)).map((tag) => ({ tag })),
+              ...tagResults,
+          ]
+
+    const handleToggle = (tag: string): void => {
+        onChange(value.includes(tag) ? value.filter((selected) => selected !== tag) : [...value, tag])
     }
 
-    const handleClear = (): void => {
-        _onChange([])
-        setShowPopover(false)
-    }
-
-    const selectedCount = value?.length || 0
-    const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
-
+    const selectedCount = value.length
     return (
         <LemonDropdown
             closeOnClickInside={false}
@@ -57,7 +102,7 @@ export function TagSelect({
             actionable
             onVisibilityChange={setShowPopover}
             overlay={
-                <div className="max-w-100 deprecated-space-y-2">
+                <div className="w-64 max-w-[min(25rem,80vw)] deprecated-space-y-2">
                     <LemonInput
                         type="search"
                         placeholder="Search tags"
@@ -65,63 +110,86 @@ export function TagSelect({
                         value={search}
                         onChange={setSearch}
                         fullWidth
-                        className="max-w-full"
                     />
-                    <ul className="deprecated-space-y-px">
-                        {filteredTags.map((tag: string) => (
-                            <li key={tag}>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    onClick={() => handleTagToggle(tag)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={value?.includes(tag) || false}
-                                                readOnly
-                                            />
-                                            <span>{tag}</span>
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            </li>
-                        ))}
-
-                        {filteredTags.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
-                                {search ? <span>No matching tags</span> : <span>No tags</span>}
-                            </div>
-                        ) : null}
-
-                        {selectedCount > 0 && (
-                            <>
-                                <div className="my-1 border-t" />
-                                <li>
+                    <div ref={scrollRef} className="max-h-80 overflow-y-auto">
+                        <ul className="deprecated-space-y-px">
+                            {displayedTags.map(({ tag, count }) => (
+                                <li key={tag}>
                                     <LemonButton
                                         fullWidth
-                                        role="menuitem"
+                                        role="checkbox"
+                                        aria-checked={value.includes(tag)}
                                         size="small"
-                                        onClick={handleClear}
-                                        type="secondary"
+                                        onClick={() => handleToggle(tag)}
                                     >
-                                        Clear selection
+                                        <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                                            <LemonCheckbox
+                                                checked={value.includes(tag)}
+                                                decorative
+                                                className="pointer-events-none"
+                                            />
+                                            <span className="min-w-0 flex-1 truncate" title={tag}>
+                                                {tag}
+                                            </span>
+                                            {count !== undefined && (
+                                                <span className="text-muted tabular-nums">{count}</span>
+                                            )}
+                                        </span>
                                     </LemonButton>
                                 </li>
-                            </>
-                        )}
-                    </ul>
+                            ))}
+                            {(tagPageLoading || awaitingFirstPage) && !tagPageError && (
+                                <li className="p-1" aria-label="Loading tags">
+                                    <LemonSkeleton.Row
+                                        className="h-8 mb-1"
+                                        repeat={displayedTags.length === 0 ? 5 : 2}
+                                        fade
+                                    />
+                                </li>
+                            )}
+                            {!tagPageLoading && !awaitingFirstPage && !tagPageError && displayedTags.length === 0 && (
+                                <li className="p-2 text-secondary italic">{search ? 'No matching tags' : 'No tags'}</li>
+                            )}
+                        </ul>
+                    </div>
+                    {tagPageError && (
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            type="secondary"
+                            onClick={() => loadTagPage({ search, offset: tagResults.length, loadTags: source })}
+                        >
+                            Couldn't load tags. Try again.
+                        </LemonButton>
+                    )}
+                    {selectedCount > 0 && (
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            type="secondary"
+                            onClick={() => {
+                                onChange([])
+                                setShowPopover(false)
+                            }}
+                        >
+                            Clear selection
+                        </LemonButton>
+                    )}
                 </div>
             }
         >
             {children ? (
                 children(value)
             ) : (
-                <LemonButton size="small" type="secondary" className={buttonClass} {...buttonProps}>
-                    {selectedCount > 0 ? `${selectedCount} selected` : defaultLabel}
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    active={selectedCount > 0}
+                    status={borderless && selectedCount === 0 ? 'alt' : 'default'}
+                    className="min-w-26 max-w-48 truncate"
+                    {...buttonProps}
+                >
+                    {selectedCount === 0 ? defaultLabel : selectedCount === 1 ? value[0] : `${selectedCount} tags`}
                 </LemonButton>
             )}
         </LemonDropdown>

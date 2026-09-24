@@ -72,18 +72,7 @@ function ScoutTagsPreview(): JSX.Element {
             </div>
             <div className="flex items-center gap-2">
                 <span className="text-xs text-muted">Tagged</span>
-                <ScoutTagsFilter
-                    options={options}
-                    selected={selected}
-                    onToggle={(tag) =>
-                        setSelected(
-                            selected.includes(tag)
-                                ? selected.filter((candidate) => candidate !== tag)
-                                : [...selected, tag]
-                        )
-                    }
-                    onClear={() => setSelected([])}
-                />
+                <ScoutTagsFilter options={options} selected={selected} onChange={setSelected} />
             </div>
         </div>
     )
@@ -100,4 +89,23 @@ type Story = StoryObj
 
 export const EditorAndFilter: Story = {
     render: () => <ScoutTagsPreview />,
+}
+
+const MANY_TAG_OPTIONS = Array.from({ length: 75 }, (_, index) => ({
+    tag: `topic-${String(index + 1).padStart(2, '0')}`,
+    count: 75 - index,
+}))
+
+function ManyTagsPreview(): JSX.Element {
+    const [selected, setSelected] = useState<string[]>(['topic-02'])
+
+    return (
+        <div className="w-64 rounded border border-primary bg-bg-light p-3">
+            <ScoutTagsFilter options={MANY_TAG_OPTIONS} selected={selected} onChange={setSelected} />
+        </div>
+    )
+}
+
+export const ManyTags: Story = {
+    render: () => <ManyTagsPreview />,
 }

@@ -3,14 +3,13 @@ import posthog from 'posthog-js'
 import { IconHeart, IconHeartFilled } from '@posthog/icons'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
+import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
-
-import { SavedInsightsTagSelect } from './SavedInsightsTagSelect'
 
 export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites'
 const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites']
@@ -58,7 +57,8 @@ export function SavedInsightsFilters({
                         />
                     )}
                     {quickFilterSet.has('tags') && (
-                        <SavedInsightsTagSelect
+                        <TagSelect
+                            defaultLabel="Tags"
                             value={tags || []}
                             borderless={borderless}
                             onChange={(tags) => {
