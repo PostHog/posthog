@@ -6,7 +6,20 @@ import { broadcastSentLogic } from './broadcastSentLogic'
 jest.mock('../Workflows/messageAssetsApi', () => ({ getMessageAssets: jest.fn() }))
 
 const sends = (prefix: string, count: number): MessageAsset[] =>
-    Array.from({ length: count }, (_, i) => ({ invocation_id: `${prefix}-${i}`, action_id: 'email' }) as MessageAsset)
+    Array.from({ length: count }, (_, i) => ({
+        invocation_id: `${prefix}-${i}`,
+        action_id: 'email',
+        function_id: 'flow-1',
+        function_name: 'Broadcast',
+        parent_run_id: 'run-1',
+        kind: 'email',
+        distinct_id: `${prefix}-${i}`,
+        person_id: `person-${prefix}-${i}`,
+        recipient: `${prefix}-${i}@example.com`,
+        subject: 'Hello',
+        status: 'sent',
+        sent_at: '2026-01-01T00:00:00Z',
+    }))
 
 describe('broadcastSentLogic', () => {
     let requests: { params: MessageAssetsParams; resolve: (rows: MessageAsset[]) => void }[]
