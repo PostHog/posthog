@@ -3391,9 +3391,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 code="invalid_key",
             )
 
-        # As a nested field (the `configuration` override on test invocations) DRF never binds
-        # `self.instance`, so fall back to the flow passed in via context. Without it a keyed
-        # workflow reads its own key as taken and every test run on it fails.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
         taken = HogFlow.objects.filter(team_id=self.context["team_id"], key=value)
         if instance is not None:
@@ -3413,8 +3410,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         try:
             return super().create(validated_data=validated_data)
         except IntegrityError as exc:
-            # A concurrent create can slip past the unlocked validate_key read, so the constraint
-            # is the authoritative guard. Translate its violation into the same field error.
             if "unique_key_for_team" in str(exc):
                 raise serializers.ValidationError(
                     {"key": [exceptions.ErrorDetail("There is already a workflow with this key.", code="unique")]}
@@ -3448,8 +3443,6 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
             and submitted_origin_product != instance.origin_product
         ):
             raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
-        # A PATCH that moves a key would be adoption by the back door, so only a repeat of the
-        # stored value passes.
         submitted_key = self.initial_data.get("key", serializers.empty)
         if instance is not None and submitted_key is not serializers.empty and submitted_key != instance.key:
             raise serializers.ValidationError({"key": "key is set on create and cannot change."})
@@ -4157,8 +4150,6 @@ class HogFlowViewSet(
             # otherwise repeat on one page and never appear on another.
             queryset = queryset.order_by("-updated_at", "-id")
 
-            # An explicit key query always means an exact identity lookup. django-filter skips empty
-            # values, so handle the impossible empty key before the filter backend can return every row.
             if "key" in self.request.GET and self.request.GET["key"] == "":
                 queryset = queryset.none()
 
