@@ -297,6 +297,47 @@ describe('getInsightWithRetry', () => {
         ).rejects.toThrow('some error')
         expect(getResponseSpy).toHaveBeenCalledTimes(expectedAttempts)
     })
+
+    it('retries a tile the backend rate limited, whatever the message says', async () => {
+        const rateLimited = {
+            status: 200,
+            json: async () => ({
+                ...insight,
+                result: null,
+                query_status: {
+                    id: 'q',
+                    error: true,
+                    error_code: 'rate_limited',
+                    error_message: 'Queries are a little too busy right now. Please try again later.',
+                },
+            }),
+        } as unknown as Response
+        const recovered = {
+            status: 200,
+            json: async () => ({ ...insight, result: [{ count: 1 }] }),
+        } as unknown as Response
+        const getResponseSpy = jest
+            .spyOn(api, 'getResponse')
+            .mockResolvedValueOnce(rateLimited)
+            .mockResolvedValueOnce(recovered)
+
+        const result = await getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'query-id',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            MAX_ATTEMPTS,
+            1
+        )
+
+        expect(getResponseSpy).toHaveBeenCalledTimes(2)
+        expect(result?.result).toEqual([{ count: 1 }])
+    })
 })
 
 describe('shouldSharedDashboardAutoForceForStaleTime', () => {

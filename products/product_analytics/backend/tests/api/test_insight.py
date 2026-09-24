@@ -52,8 +52,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -4232,6 +4233,35 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+
+    @parameterized.expand(
+        [
+            ("cluster_at_capacity", ClickHouseAtCapacity()),
+            ("org_concurrency_limit", ConcurrencyLimitExceeded("too many queries")),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_labels_every_capacity_failure_as_rate_limited(
+        self, _name: str, error: Exception, mock_calculate: mock.MagicMock
+    ) -> None:
+        mock_calculate.side_effect = error
+
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
+
+        # The dashboard retries on this code, so every transient capacity failure has to carry it.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        query_status = response.json()["query_status"]
+        self.assertTrue(query_status["error"])
+        self.assertEqual(query_status["error_code"], "rate_limited")
+        self.assertEqual(query_status["error_message"], ClickHouseAtCapacity.default_detail)
 
 
 class TestInsightQueryScan(APIBaseTest):

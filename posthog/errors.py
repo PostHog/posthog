@@ -216,6 +216,15 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     return CLICKHOUSE_ERROR_CODE_LOOKUP[code]
 
 
+# The cluster is busy, not the query: a caller that wants to retry or degrade gracefully catches these.
+# One tuple so a caller and the classifier below cannot disagree about what counts as capacity pressure.
+RATE_LIMITED_QUERY_ERRORS = (
+    ClickHouseAtCapacity,
+    ConcurrencyLimitExceeded,
+    ClickHouseClusterMemoryLimitExceeded,
+)
+
+
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
     if isinstance(e, ServerException):
@@ -223,7 +232,7 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
 
     # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
     # so it classifies with the other rate-limited capacity errors. Checked before its parent below.
-    if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, ClickHouseClusterMemoryLimitExceeded)):
+    if isinstance(e, RATE_LIMITED_QUERY_ERRORS):
         return QueryErrorCategory.RATE_LIMITED
 
     if isinstance(

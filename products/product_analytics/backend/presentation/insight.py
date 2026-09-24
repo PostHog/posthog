@@ -55,11 +55,11 @@ from posthog.auth import (
 )
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import RATE_LIMITED_QUERY_ERRORS, ExposedCHQueryError, QueryErrorCategory
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -1395,16 +1395,21 @@ class InsightSerializer(InsightBasicSerializer):
                     error_code=getattr(e, "code_name", None),
                     last_refresh=None,
                 )
-            except ConcurrencyLimitExceeded as e:
+            except RATE_LIMITED_QUERY_ERRORS as e:
                 logger.warn(
-                    "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
+                    "insight_calculation_rate_limited",
+                    exception=e,
+                    insight_id=insight.id,
+                    team_id=insight.team_id,
                 )
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
                     error=e,
-                    error_message="concurrency_limit_exceeded",
-                    error_code="concurrency_limit_exceeded",
+                    # The concurrency limiter's own message names internal keys and task ids, so every
+                    # capacity failure falls back to the one message written for a person to read.
+                    error_message=str(getattr(e, "detail", None) or ClickHouseAtCapacity.default_detail),
+                    error_code=str(QueryErrorCategory.RATE_LIMITED),
                     last_refresh=now(),
                 )
             except Exception as e:
