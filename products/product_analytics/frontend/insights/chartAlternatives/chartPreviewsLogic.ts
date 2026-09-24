@@ -282,14 +282,10 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                 const remaining = options.flatMap((group) =>
                     group.options.filter((option) => !suggestedDisplays.has(option.display))
                 )
-                const ordered = [
-                    ...alternatives,
-                    ...remaining.filter((option) => !option.disabledReason),
-                    ...remaining.filter((option) => !!option.disabledReason),
-                ]
-                return ordered.map((option) => {
+                const canDerive = !!freeResponse && !insightDataLoading
+                const previews = [...alternatives, ...remaining].map((option) => {
                     const derived =
-                        option.disabledReason || !freeResponse || insightDataLoading
+                        option.disabledReason || !canDerive
                             ? null
                             : deriveChartPreview(option.display, trendsSource, freeResponse, timeSeriesResponse)
                     return {
@@ -301,6 +297,10 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                         uniqueKey: `chart-preview-${logicKey}-${option.display}`,
                     }
                 })
+                // Until a result loads every tile is blank, so keep the catalog order rather than shuffle twice.
+                const band = (preview: ChartPreview): number =>
+                    preview.suggested ? 0 : preview.option.disabledReason ? 3 : canDerive && !preview.response ? 2 : 1
+                return previews.sort((a, b) => band(a) - band(b))
             },
         ],
     }),

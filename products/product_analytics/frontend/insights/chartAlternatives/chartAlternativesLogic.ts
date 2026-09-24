@@ -31,7 +31,7 @@ import type {
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import { applyChartDisplay, getChartDisplayOptions, hasTrendsFormula } from './chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
-import { getChartAlternatives } from './chartRecommendations'
+import { getChartAlternatives, loadedBucketCount } from './chartRecommendations'
 
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
 
@@ -54,6 +54,7 @@ export interface chartAlternativesLogicValues {
     editingDisabledReason: null // insightLogic
     isInDashboardContext: boolean // insightLogic
     display: ChartDisplayType | null | undefined // insightVizDataLogic
+    insightData: Record<string, any> // insightVizDataLogic
     insightDataLoading: boolean // insightVizDataLogic
     isSingleSeriesOutput: boolean // insightVizDataLogic
     isTrends: boolean // insightVizDataLogic
@@ -143,7 +144,11 @@ export interface chartAlternativesLogicMeta {
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
             featureFlags: FeatureFlagsSet
         ) => ChartDisplayOptionGroup[]
-        alternatives: (options: ChartDisplayOptionGroup[], trendsSource: TrendsQuery | null) => ChartDisplayOption[]
+        alternatives: (
+            options: ChartDisplayOptionGroup[],
+            trendsSource: TrendsQuery | null,
+            insightData: any
+        ) => ChartDisplayOption[]
         currentOption: (
             options: ChartDisplayOptionGroup[],
             currentDisplay: ChartDisplayType
@@ -190,7 +195,16 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             insightLogic(props),
             ['canEditInsight', 'editingDisabledReason', 'isInDashboardContext'],
             insightVizDataLogic(props),
-            ['display', 'insightDataLoading', 'isSingleSeriesOutput', 'isTrends', 'query', 'querySource', 'series'],
+            [
+                'display',
+                'insightData',
+                'insightDataLoading',
+                'isSingleSeriesOutput',
+                'isTrends',
+                'query',
+                'querySource',
+                'series',
+            ],
         ],
         actions: [insightDataLogic(props), ['setQuery'], insightVizDataLogic(props), ['updateQuerySource']],
     })),
@@ -256,9 +270,12 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 }),
         ],
         alternatives: [
-            (s) => [s.options, s.trendsSource],
-            (options: ChartDisplayOptionGroup[], trendsSource: TrendsQuery | null): ChartDisplayOption[] =>
-                getChartAlternatives(options, trendsSource),
+            (s) => [s.options, s.trendsSource, s.insightData],
+            (
+                options: ChartDisplayOptionGroup[],
+                trendsSource: TrendsQuery | null,
+                insightData: Record<string, any> | null
+            ): ChartDisplayOption[] => getChartAlternatives(options, trendsSource, loadedBucketCount(insightData)),
         ],
         currentOption: [
             (s) => [s.options, s.currentDisplay],

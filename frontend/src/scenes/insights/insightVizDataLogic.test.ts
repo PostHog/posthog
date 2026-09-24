@@ -984,6 +984,18 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({ isSingleSeriesOutput: true })
         })
 
+        it.each([
+            ['a single breakdown', { breakdown: '$browser', breakdown_type: 'event' }],
+            ['multiple breakdowns', { breakdowns: [{ property: '$browser', type: 'event' }] }],
+        ])('returns false for a single series with %s', (_, breakdownFilter) => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter,
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesOutput: false })
+        })
+
         it('returns false for multiple series without formula', () => {
             expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({

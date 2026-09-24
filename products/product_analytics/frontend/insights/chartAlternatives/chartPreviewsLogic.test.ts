@@ -85,6 +85,31 @@ describe('chartPreviewsLogic', () => {
         )
     }
 
+    it('orders tiles as suggested, previewed, blank, then disabled', () => {
+        insightVizDataLogic(insightProps).actions.updateQuerySource({
+            ...trendsQuery(ChartDisplayType.ActionsLineGraph),
+            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+        })
+        insightDataLogic(insightProps).actions.setInsightData({
+            results: [timeSeriesRow],
+            hasMore: true,
+            last_refresh: FIRST_REFRESH,
+        })
+
+        const bands = chartPreviewsLogic(logicProps).values.previews.map((preview) =>
+            preview.suggested
+                ? 'suggested'
+                : preview.option.disabledReason
+                  ? 'disabled'
+                  : preview.response
+                    ? 'previewed'
+                    : 'blank'
+        )
+        const order = ['suggested', 'previewed', 'blank', 'disabled']
+        expect(new Set(bands)).toEqual(new Set(order))
+        expect(bands).toEqual([...bands].sort((a, b) => order.indexOf(a) - order.indexOf(b)))
+    })
+
     it('reuses the time series it saw before the chart became a total value, even when the total loaded later', async () => {
         load(trendsQuery(ChartDisplayType.ActionsLineGraph), timeSeriesRow)
         load(trendsQuery(ChartDisplayType.ActionsPie), totalValueRow, SECOND_REFRESH)
