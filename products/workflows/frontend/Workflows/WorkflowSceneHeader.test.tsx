@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -55,6 +56,7 @@ const toolbar = (): string[] =>
     )
 
 const copyCodeButtons = (): Element[] => Array.from(document.querySelectorAll('[data-attr="workflow-copy-code"]'))
+const copyCodeMenuItems = (): Element[] => Array.from(document.querySelectorAll('[data-attr="workflow-copy-code-btn"]'))
 
 describe('WorkflowSceneHeader', () => {
     let logic: ReturnType<typeof workflowLogic.build>
@@ -68,6 +70,11 @@ describe('WorkflowSceneHeader', () => {
             },
         })
         initKeaTests()
+        // The "..." menu portals into the scene panel, which the scene layout registers.
+        const scenePanel = document.createElement('div')
+        document.body.appendChild(scenePanel)
+        sceneLayoutLogic.mount()
+        sceneLayoutLogic.actions.registerScenePanelElement(scenePanel)
         logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await act(async () => {
@@ -78,6 +85,7 @@ describe('WorkflowSceneHeader', () => {
     afterEach(() => {
         cleanup()
         logic?.unmount()
+        document.body.innerHTML = ''
     })
 
     it('keeps the same buttons in the same order when edits make the form dirty', () => {
@@ -99,8 +107,20 @@ describe('WorkflowSceneHeader', () => {
 
         // The pointer has not moved, so neither has the button under it.
         expect(toolbar()).toEqual(clean)
-        expect(copyCodeButtons()).toHaveLength(1)
-        expect(copyCodeButtons()[0]).toHaveClass('LemonButton--secondary')
+    })
+
+    it('offers copy code only from the "..." menu for a workflow the app owns', () => {
+        render(
+            <Provider>
+                <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
+                    <WorkflowSceneHeader id={WORKFLOW_ID} />
+                </BindLogic>
+            </Provider>
+        )
+
+        expect(copyCodeButtons()).toHaveLength(0)
+        expect(copyCodeMenuItems()).toHaveLength(1)
+        expect(copyCodeMenuItems()[0]).toHaveTextContent('Copy code')
     })
 
     it('puts copy code where save sits for a code-managed workflow, even with edits in the form', async () => {
@@ -135,6 +155,7 @@ describe('WorkflowSceneHeader', () => {
         expect(toolbar()).toEqual([])
         expect(copyCodeButtons()).toHaveLength(1)
         expect(copyCodeButtons()[0]).toHaveClass('LemonButton--primary')
+        expect(copyCodeMenuItems()).toHaveLength(0)
         expect(document.querySelector('[data-attr="workflow-code-managed-help"]')).not.toBeNull()
         expect(document.querySelector('[data-attr="workflow-managed-by-code"]')).not.toBeNull()
     })
