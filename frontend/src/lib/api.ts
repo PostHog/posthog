@@ -18,7 +18,6 @@ import {
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { startTrackedRequest } from 'lib/logic/inFlightRequestsLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -3535,20 +3534,14 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
-            let failed = false
-            const fail = (error: any): void => {
-                failed = true
-                onError(error)
-            }
             const handleConnectionError = (error: any): void => {
                 if (isAbortError(error)) {
                     return
                 }
                 apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
-                fail(error)
+                onError(error)
             }
 
-            const finishRequest = startTrackedRequest()
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
@@ -3558,7 +3551,7 @@ const api = {
 
                     if (!response.ok) {
                         const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
-                        fail(error)
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -3571,26 +3564,24 @@ const api = {
                             onComplete()
                         } else if (data.type === 'error') {
                             streamFinished = true
-                            fail(new Error(data.error || 'Streaming error'))
+                            onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
                         }
                     } catch (error) {
-                        fail(error)
+                        onError(error)
                     }
                 },
                 onerror: (error) => {
                     handleConnectionError(error)
                 },
-            })
-                .then(() => {
-                    if (!abortController.signal.aborted && !streamFinished) {
-                        handleConnectionError(
-                            new Error('Dashboard stream ended before loading finished. Refresh the page.')
-                        )
-                    }
-                }, handleConnectionError)
-                .finally(() => finishRequest(failed))
+            }).then(() => {
+                if (!abortController.signal.aborted && !streamFinished) {
+                    handleConnectionError(
+                        new Error('Dashboard stream ended before loading finished. Refresh the page.')
+                    )
+                }
+            }, handleConnectionError)
 
             return () => abortController.abort()
         },
@@ -7588,7 +7579,6 @@ async function handleFetch(
     isRetry = false
 ): Promise<Response> {
     const startTime = new Date().getTime()
-    const finishRequest = startTrackedRequest()
 
     let response
     let error
@@ -7598,7 +7588,6 @@ async function handleFetch(
         error = e
     }
 
-    finishRequest(error ? !isAbortError(error) : !response?.ok)
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {

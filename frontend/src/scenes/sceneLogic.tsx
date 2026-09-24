@@ -33,11 +33,9 @@ import {
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
-import { sceneLoadTimingLogic } from 'scenes/sceneLoadTimingLogic'
 import {
     emptySceneParams,
     forwardedRedirectQueryParams,
-    isSameScenePage,
     preloadedScenes,
     redirects,
     routes,
@@ -293,9 +291,6 @@ export interface sceneLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
-    sceneLoadStarted: (page: import('scenes/scenes').ScenePage) => {
-        page: import('scenes/scenes').ScenePage
-    } // sceneLoadTimingLogic
     loadScene: (
         sceneId: string,
         sceneKey: string | undefined,
@@ -411,14 +406,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic, teamLogic],
-        actions: [
-            router,
-            ['locationChanged'],
-            inviteLogic,
-            ['hideInviteModal'],
-            sceneLoadTimingLogic,
-            ['sceneLoadStarted'],
-        ],
+        actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
@@ -762,8 +750,19 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+            const {
+                sceneId: lastSceneId,
+                sceneKey: lastSceneKey,
+                params: lastParams,
+            } = selectors.lastSetScenePayload(previousState)
+
             // Do not trigger a new pageview event when only the hashParams change
-            if (!isSameScenePage(selectors.lastSetScenePayload(previousState), { sceneId, sceneKey, params })) {
+            if (
+                lastSceneId !== sceneId ||
+                lastSceneKey !== sceneKey ||
+                !equal(lastParams.params, params.params) ||
+                JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
+            ) {
                 const productKey = values.activeSceneProductKey
                 posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
@@ -931,7 +930,6 @@ export const sceneLogic = kea<sceneLogicType>([
             actions.loadScene(sceneId, sceneKey, params, method)
         },
         loadScene: async ({ sceneId, sceneKey, params, method }, breakpoint) => {
-            actions.sceneLoadStarted({ sceneId, sceneKey, params })
             const clickedLink = method === 'PUSH'
             if (values.sceneId === sceneId && values.exportedScenes[sceneId]) {
                 actions.setScene(sceneId, sceneKey, params, clickedLink, values.exportedScenes[sceneId])
