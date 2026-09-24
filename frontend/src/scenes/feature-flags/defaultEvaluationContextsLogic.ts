@@ -274,7 +274,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         return null
                     }
 
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsDefaultEvaluationContextsRetrieve() from '~/generated/core/api' instead.
                     const response = await api.get(`/api/projects/${teamId}/default_evaluation_contexts/`)
                     return response as DefaultEvaluationContextsResponse
                 },
@@ -286,7 +286,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsDefaultEvaluationContextsCreate() from '~/generated/core/api' instead.
                         const response = await api.create(`/api/projects/${teamId}/default_evaluation_contexts/`, {
                             context_name: contextName,
                         })
@@ -327,7 +327,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsDefaultEvaluationContextsDestroy() from '~/generated/core/api' instead.
                         await api.delete(
                             `/api/projects/${teamId}/default_evaluation_contexts/?context_name=${encodeURIComponent(contextName)}`
                         )
@@ -356,7 +356,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsEvaluationContextSuggestionsCreate() from 'products/feature_flags/frontend/generated/api' instead.
                         await api.create(`/api/projects/${teamId}/evaluation_context_suggestions/`, {
                             context_name: contextName,
                         })
@@ -384,7 +384,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsEvaluationContextSuggestionsDestroy() from 'products/feature_flags/frontend/generated/api' instead.
                         await api.delete(
                             `/api/projects/${teamId}/evaluation_context_suggestions/?context_name=${encodeURIComponent(contextName)}`
                         )

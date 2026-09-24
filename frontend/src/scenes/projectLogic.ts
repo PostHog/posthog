@@ -219,7 +219,7 @@ export const projectLogic = kea<projectLogicType>([
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsRetrieve() from '~/generated/core/api' instead.
                         return await api.get('api/projects/@current')
                     } catch {
                         return values.currentProject
@@ -230,7 +230,7 @@ export const projectLogic = kea<projectLogicType>([
                         throw new Error('Current project has not been loaded yet, so it cannot be updated!')
                     }
 
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsPartialUpdate() from '~/generated/core/api' instead.
                     const patchedProject = await api.update<ProjectType>(
                         `api/projects/${values.currentProject.id}`,
                         payload
@@ -282,12 +282,12 @@ export const projectLogic = kea<projectLogicType>([
             null as ProjectType | null,
             {
                 moveProject: async ({ project, organizationId }) => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsChangeOrganizationCreate() from '~/generated/core/api' instead.
                     const res = await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
                         organization_id: organizationId,
                     })
 
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
                     await api.update('api/users/@me/', { set_current_organization: organizationId })
 
                     return res
@@ -331,7 +331,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         deleteProject: async ({ project }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsDestroy() from '~/generated/core/api' instead.
                 await api.delete(`api/projects/${project.id}`)
                 actions.deleteProjectSuccess()
             } catch (e) {

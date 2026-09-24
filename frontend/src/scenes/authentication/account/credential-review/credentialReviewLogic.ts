@@ -36,7 +36,7 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
     listeners({
         markComplete: async () => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersCredentialsReviewCompleteCreate() from '~/generated/core/api' instead.
                 await api.create('api/users/@me/credentials_review_complete/')
             } catch {
                 lemonToast.error('Could not save your review. Try again.')

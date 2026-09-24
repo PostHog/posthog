@@ -137,7 +137,7 @@ export const cohortCalculationHistorySceneLogic = kea<cohortCalculationHistorySc
                     breakpoint()
                     try {
                         const offset = (values.page - 1) * values.limit
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCalculationHistoryRetrieve() from 'products/cohorts/frontend/generated/api' instead.
                         const response = await api.get(
                             `api/cohort/${props.cohortId}/calculation_history/?limit=${values.limit}&offset=${offset}`
                         )

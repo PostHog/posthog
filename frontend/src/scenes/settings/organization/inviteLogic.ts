@@ -264,7 +264,7 @@ export const inviteLogic = kea<inviteLogicType>([
                 loadInvites: async () => {
                     return organizationLogic.values.currentOrganization
                         ? (
-                              await api.get<PaginatedResponse<OrganizationInviteType>>( // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use invitesList() from '~/generated/core/api' instead.
+                              await api.get<PaginatedResponse<OrganizationInviteType>>( // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                   `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/`
                               )
                           ).results

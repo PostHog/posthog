@@ -70,7 +70,7 @@ export const userDangerZoneLogic = kea<userDangerZoneLogicType>({
             null,
             {
                 leaveOrganization: async (organizationId: string) => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use membersDestroy() from 'products/platform_features/frontend/generated/api' instead.
                     await api.delete(`api/organizations/${organizationId}/members/@me/`)
 
                     return null

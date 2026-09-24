@@ -139,7 +139,7 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                 const hasPassword = values.user?.has_password ?? false
 
                 try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
                     await api.update('api/users/@me/', {
                         password,
                         ...(hasPassword ? { current_password } : {}),

@@ -415,7 +415,7 @@ export const personsLogic = kea<personsLogicType>([
                             if (props.cohort) {
                                 result = {
                                     // This reads the cohorts API, whose generated client belongs to another product.
-                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPersonsRetrieve() from 'products/cohorts/frontend/generated/api' instead.
                                     ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
                                     offset: 0,
                                 }

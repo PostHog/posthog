@@ -17,7 +17,7 @@ export interface DefaultReleaseConditionsResponse {
 }
 
 export async function fetchDefaultReleaseConditions(teamId: number): Promise<DefaultReleaseConditionsResponse> {
-    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsDefaultReleaseConditionsRetrieve() from '~/generated/core/api' instead.
     return await api.get(`/api/projects/${teamId}/default_release_conditions/`)
 }
 
@@ -171,7 +171,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                         throw new Error('No team selected')
                     }
 
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsDefaultReleaseConditionsUpdate() from '~/generated/core/api' instead.
                     return (await api.put(`/api/projects/${teamId}/default_release_conditions/`, {
                         enabled: values.localEnabled,
                         default_groups: values.localGroups ?? [],

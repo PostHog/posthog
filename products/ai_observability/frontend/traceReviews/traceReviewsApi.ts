@@ -107,7 +107,7 @@ export const traceReviewsApi = {
         data: Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<TraceReview> {
-        // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
         return api
             .update<TraceReview, Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>>(
                 `${getTraceReviewsBaseUrl(teamId)}${id}/`,
@@ -117,7 +117,7 @@ export const traceReviewsApi = {
     },
 
     delete(id: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<void> {
-        // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
         return api.delete(`${getTraceReviewsBaseUrl(teamId)}${id}/`)
     },
 

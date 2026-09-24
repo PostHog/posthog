@@ -120,7 +120,7 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
             }
 
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsRetrieve() from '~/generated/core/api' instead.
                 const team = await api.get(`api/projects/${projectId}/`)
                 const token = team.live_events_token
                 if (!token) {
