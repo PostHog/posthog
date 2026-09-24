@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
     # A database that applied the first version of 1376 already lacks them, so every drop
     # carries IF EXISTS.
     dependencies = [
-        ("posthog", "1376_taggeditem_untrack_legacy_keys"),
+        ("posthog", "1377_untrack_superseded_experiment_settings"),
     ]
 
     operations = [

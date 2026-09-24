@@ -56,6 +56,7 @@ from collections.abc import Sequence
 from django.db import router, transaction
 from django.db.migrations.operations.base import Operation
 
+from posthog.dataclasses import frozen
 from posthog.migration_helpers.lock_phase import lock_tables
 
 _CONSTRAINTS_SQL = """
@@ -70,6 +71,12 @@ _CONSTRAINTS_SQL = """
       AND (%(to_table)s IS NULL OR tgt.relname = %(to_table)s)
       AND (%(columns)s::name[] IS NULL OR att.attname = ANY(%(columns)s::name[]))
 """
+
+
+@frozen
+class _ForeignKeyConstraint:
+    name: str
+    parent: str
 
 
 class DropForeignKey(Operation):
@@ -109,14 +116,14 @@ class DropForeignKey(Operation):
     def state_forwards(self, app_label, state) -> None:
         pass
 
-    def _constraints(self, schema_editor) -> list[tuple[str, str]]:
-        """(constraint name, referenced parent) for every key that matches the filter."""
+    def _constraints(self, schema_editor) -> list[_ForeignKeyConstraint]:
+        """Every key that matches the filter, sorted by constraint name."""
         with schema_editor.connection.cursor() as cursor:
             cursor.execute(
                 _CONSTRAINTS_SQL,
                 {"table": self.table, "to_table": self.to_table, "columns": self.columns or None},
             )
-            return sorted(cursor.fetchall())
+            return [_ForeignKeyConstraint(name=name, parent=parent) for name, parent in sorted(cursor.fetchall())]
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         # A product app in products/db_routing.yaml migrates on its own database. Django still
@@ -129,8 +136,8 @@ class DropForeignKey(Operation):
             return
         # A key that references its own table names the child as its parent, and the child
         # goes last in the lock list.
-        parents = sorted({parent for _, parent in constraints} - {self.table})
-        drops = ", ".join(f"DROP CONSTRAINT {schema_editor.quote_name(name)}" for name, _ in constraints)
+        parents = sorted({constraint.parent for constraint in constraints} - {self.table})
+        drops = ", ".join(f"DROP CONSTRAINT {schema_editor.quote_name(constraint.name)}" for constraint in constraints)
         # LOCK TABLE needs a transaction. Inside an atomic migration this is a savepoint.
         # Under atomic = False it is a transaction of its own, which lets go of the parents
         # as soon as the drops finish.

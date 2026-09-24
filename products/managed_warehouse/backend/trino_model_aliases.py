@@ -232,8 +232,6 @@ def reconcile_trino_model_aliases(
             control.attach(cursor)
         try:
             checkpoint()
-            cursor.execute("SET SESSION query_max_run_time = '30s'")
-            cursor.fetchall()
             publisher = ModelAliasPublisher(cursor, connection.catalog, team_id, checkpoint)
             result = publisher.reconcile(models, saved_query_ids)
             if saved_query_ids is None and not models:

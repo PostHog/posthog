@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1377_taggeditem_drop_legacy_constraints"),
+        ("posthog", "1378_taggeditem_drop_legacy_constraints"),
     ]
 
     operations = [

@@ -40,4 +40,4 @@ tasks.0120_backfill_canvas_search_documents
 posthog.1370_backfill_taggeditem_generic_pointer
 # Drops the 13 legacy tagged item foreign keys one per transaction, so each drop locks one busy parent and
 # the child instead of all 14 tables at once. Re-running is a no-op: DropForeignKey reads what is left from pg_constraint.
-posthog.1378_taggeditem_untrack_legacy_keys
+posthog.1379_taggeditem_untrack_legacy_keys
