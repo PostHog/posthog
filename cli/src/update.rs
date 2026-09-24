@@ -53,9 +53,9 @@ impl InstallMethod {
             // destination, and Windows refuses that while the file is mapped
             // into a running process. Running it from a shell works, because
             // posthog-cli is not running then.
-            InstallMethod::ScriptWindows => Some(Guidance::Command(
-                "irm https://releases.posthog.com/posthog-cli/install.ps1 | iex".into(),
-            )),
+            InstallMethod::ScriptWindows => {
+                Some(Guidance::Command(format!("irm {INSTALL_PS1_URL} | iex")))
+            }
             InstallMethod::Homebrew => Some(Guidance::Command("brew upgrade posthog-cli".into())),
             InstallMethod::Cargo => Some(Guidance::Command(
                 "cargo install posthog-cli --force".into(),
