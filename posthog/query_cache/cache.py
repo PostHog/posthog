@@ -83,9 +83,9 @@ class QueryCache:
         """Existence and last_refresh of the entry from Redis alone, without resolving S3 blobs."""
         return fetch_entry_freshness(self.cache_key, self.team_id)
 
-    def open_failure(self) -> Optional[QueryFailureRecord]:
+    def open_failure(self, *, for_warming: bool = False) -> Optional[QueryFailureRecord]:
         """The open breaker record alone, for paths that skip the result cache entirely."""
-        return QueryFailureCache(self.cache_key).get_open()
+        return QueryFailureCache(self.cache_key).get_open(for_warming=for_warming)
 
     def record_failure(
         self,

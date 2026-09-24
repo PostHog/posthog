@@ -13,6 +13,7 @@ from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     BUDGET_INTERACTIVE,
     KIND_POLICIES,
+    FailureKind,
     QueryFailureCache,
 )
 
@@ -127,6 +128,33 @@ class TestQueryFailureCache(SimpleTestCase):
             record = failure_cache.record_failure("memory_limit", "failed")
             assert record is not None
             assert record.consecutive_failures == 1
+
+    @parameterized.expand([("timeout", 3), ("too_slow", 3), ("memory_limit", 1)])
+    def test_warming_backoff_skips_hourly_retries_without_extending_foreground_backoff(
+        self, kind: FailureKind, threshold: int
+    ) -> None:
+        failure_cache = QueryFailureCache("warming_backoff")
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
+            for _ in range(threshold - 1):
+                failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
+                assert failure_cache.get_open(for_warming=True) is None
+            failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
+            frozen.shift(timedelta(hours=1))
+            assert failure_cache.get_open() is None
+            warming_failure = failure_cache.get_open(for_warming=True)
+            assert warming_failure is not None
+            assert warming_failure.open_until == datetime.now(UTC) + timedelta(hours=1)
+            frozen.shift(timedelta(hours=1))
+            assert failure_cache.get_open(for_warming=True) is None
+            for _ in range(3):
+                failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
+                frozen.shift(timedelta(hours=3))
+                assert failure_cache.get_open() is None
+                assert failure_cache.get_open(for_warming=True) is not None
+                frozen.shift(timedelta(hours=1))
+                assert failure_cache.get_open(for_warming=True) is None
+            failure_cache.clear()
+            assert failure_cache.get_open(for_warming=True) is None
 
     def test_detail_is_capped(self):
         record = QueryFailureCache("cache_key_detail").record_failure("timeout", "x" * 5000)

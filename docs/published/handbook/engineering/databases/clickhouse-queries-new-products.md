@@ -36,6 +36,10 @@ The `QueryRunner` base class gives you:
 
 - **Caching**: Built-in caching with configurable refresh intervals. Override [`_refresh_frequency()`](https://github.com/PostHog/posthog/blob/master/products/product_analytics/backend/hogql_queries/trends/trends_query_runner.py#L125-L142) to control how often results are refreshed. Cache keys are automatically derived from the query, team, modifiers, and timezone via `get_cache_key()`.
 
+  With `query-failure-caching` enabled, repeated query failures use a shared circuit breaker.
+  Cache warming uses the same failure thresholds, cache keys, and execution-budget rules, but starts its retry backoff at two hours, capped at four hours.
+  Foreground requests keep their existing backoff, and a successful calculation clears the failure history for both paths.
+
 - **Observability**: Query execution is automatically instrumented with Prometheus metrics (`QUERY_EXECUTION_TOTAL`, `QUERY_EXECUTION_DURATION`) and PostHog analytics events, giving you latency histograms and error breakdowns for free.
 
 - **Testability**: Query runners are straightforward to unit test – instantiate the runner with a team and a query schema, call `calculate()`, and assert on the response. No HTTP layer needed.
