@@ -495,17 +495,25 @@ def _compile_against_runtime(expr: ast.Expr, team: Team) -> _RuntimeCompilation:
     return _RuntimeCompilation(bytecode=bytecode, unknown_roots=unknown, context=context)
 
 
+def _own_filters_expr(filters: dict, team: Team, actions: Optional[dict[int, Action]]) -> ast.Expr:
+    """The destination's filters without the team's test account filters, with warehouse columns resolved."""
+    own = _LowerConstantMembership().visit(
+        compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
+    )
+    if filters.get("source") in DATA_WAREHOUSE_SOURCES:
+        own = _WarehouseRowFields(roots=set(_compile_against_runtime(own, team).unknown_roots)).visit(own)
+    return own
+
+
 def _resolve_warehouse_columns(filters: dict, team: Team, actions: Optional[dict[int, Action]]) -> ast.Expr:
     """
     Only the destination's own filters read the row. The team's test account filters are written
     against events, so a root they read that the runtime lacks stays an error rather than becoming
     a column.
     """
-    own = _LowerConstantMembership().visit(
-        compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
+    return _combine_expressions(
+        [*_build_test_account_filters(filters, team), _own_filters_expr(filters, team, actions)]
     )
-    own = _WarehouseRowFields(roots=set(_compile_against_runtime(own, team).unknown_roots)).visit(own)
-    return _combine_expressions([*_build_test_account_filters(filters, team), own])
 
 
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
@@ -530,9 +538,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             if from_team:
                 # Compile the destination's own filters alone rather than subtracting the team's
                 # roots: a field that both sources read drops out of the difference and goes unnamed.
-                own = _unknown_filter_globals(
-                    compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
-                )
+                own = _unknown_filter_globals(_own_filters_expr(filters, team, actions))
                 raise Exception(
                     f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
                     f"cannot read. Check the spelling, or use a field or function that real-time filters support. "
