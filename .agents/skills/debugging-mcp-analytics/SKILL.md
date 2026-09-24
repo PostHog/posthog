@@ -102,11 +102,14 @@ These are the failure modes that produce a plausible-looking answer rather than 
    only in the `instrument()` path — stable sessions, `$identify` deduplication, `_meta`-based
    client identity — has never applied to it at any version.
 6. **Know which session model produced the data.** Under the stateless spec there is no
-   transport session, so `$session_id` is only stable if the server opted into conversation
-   anchoring — `enableConversationId`, which is **off by default**. With it off, a stateless
-   client's sessions fragment (often one per request); with it on, `$session_id` is derived
-   from an agent-echoed handle and survives reconnects, restarts, and pods. Check the flag
-   before diagnosing "fragmented sessions" as an ingestion problem. See
+   transport session, so `$session_id` is only stable if the server does conversation
+   anchoring — `enableConversationId`, which is **on by default since TS 0.17.0 / Python
+   7.56.0, and was off by default before that** (ADR-0013). With it off, a stateless client's
+   sessions fragment (often one per request); with it on, `$session_id` is derived
+   from an agent-echoed handle and survives reconnects, restarts, and pods. So check the SDK
+   version as well as the flag before diagnosing "fragmented sessions" as an ingestion
+   problem: one server can produce fragmented rows before its upgrade and anchored rows
+   after. The `PostHogMCP` custom-dispatcher path never mints a handle at any version. See
    [references/stateless-and-sessions.md](references/stateless-and-sessions.md).
 7. **There are no SQL template files.** Every dashboard and tool-quality query is a typed
    query runner behind the generic `/query/` endpoint. A `backend/templates/*.sql` referenced
@@ -304,8 +307,8 @@ The wizard install flow, the skill-distribution channels, and the in-app onboard
 
 ## Current state
 
-Verified against `master`, `@posthog/mcp` 0.11.7, `posthog` 7.44.0, and MCP spec `2026-07-28`
-on 2026-08-25. Treat versions and open threads as perishable: re-check
+Verified against `master`, `@posthog/mcp` 0.17.0, `posthog` 7.58.0, and MCP spec `2026-07-28`
+on 2026-09-21. Treat versions and open threads as perishable: re-check
 `packages/mcp/CHANGELOG.md`, the pinned alias in `services/mcp/package.json`, and
 [mega-issue 64016](https://github.com/PostHog/posthog/issues/64016) rather than trusting this
 section.
@@ -313,7 +316,7 @@ section.
 **Both SDKs now speak the stateless spec and the v2 MCP SDKs.** `services/mcp` speaks both
 dialects at the protocol layer (`src/lib/stateless-protocol.ts` — per-request dialect
 detection, `server/discover`, no session minting for modern clients). The TypeScript SDK's
-0.10.9-0.11.7 run instruments MCP TypeScript SDK v2 servers (structural detection in
+0.10.9-0.11.7 run instrumented MCP TypeScript SDK v2 servers (structural detection in
 `detect.ts`, both `@modelcontextprotocol` peers optional), resolves client identity and
 protocol version through a per-request fallback chain, gates `Mcp-Session-Id` minting on the
 revision each request declares, and captures `$mcp_client_user_agent` / `$mcp_vendor_client`.
@@ -326,16 +329,29 @@ superseded** — don't cite them as the source of what landed.
 [references/stateless-and-sessions.md](references/stateless-and-sessions.md) is the reference
 for all of it.
 
+**The 0.12.0-0.17.0 run added model, resource, and feedback capture, and flipped two
+defaults.** `$mcp_llm_model` / `$mcp_llm_model_source` record the model the agent runs as
+(0.12.0-0.14.0, Python 7.48.0). Resource discovery and reads are captured, and URL credentials
+are redacted from every captured string (0.15.0, Python 7.51.0). The `send_feedback` virtual
+tool emits `$mcp_feedback` with the `$mcp_feedback_*` properties (0.16.0, Python 7.52.0).
+Then 0.17.0 (Python 7.56.0) turned `captureModel` and `enableConversationId` **on by default**
+— see ADR-0013 in `packages/mcp/docs/adr/` and Hard rule 6, because that changes what a
+session means for every server that upgrades without touching its code.
+
 Also shipped: structured intent themes, first-party notification destinations and recurring
 reports, `mcp_analytics` access control, the shared `ProductEmptyState` adoption,
 failure-occurrence drill-down with "create fix task", the migration of every chart to typed
 query runners, the demo seeder, and exec-mode inner-tool breakout (Hard rule 1).
 
-What still lags, all checkable in this repo: the `services/mcp` alias pin is `0.10.2` against a
-0.11.7 SDK (Hard rule 5 — no 0.11.x SDK-side fix or SDK-emitted property reaches dogfood data,
-though the server independently stamps `$mcp_client_user_agent` and the legacy non-`$`
-`mcp_vendor_client` regardless of the pin; harness resolution reads the SDK-emitted
-`$mcp_vendor_client` first and coalesces the legacy name for those rows);
-the exec-property emitter is still absent from
+The `services/mcp` alias pin is current at `0.17.0`, so it no longer holds dogfood data back.
+Hard rule 5 still applies for a different reason: the server runs the `PostHogMCP`
+custom-dispatcher path, which never mints a conversation handle. Dogfood
+`$mcp_conversation_id` therefore still comes from the `mcp-conversation-id` HTTP header, and
+dogfood `$session_id` is not derived from it, whatever the SDK default is. The server also
+stamps `$mcp_client_user_agent` and the legacy non-`$` `mcp_vendor_client` itself; harness
+resolution reads the SDK-emitted `$mcp_vendor_client` first and coalesces the legacy name for
+those rows.
+
+What still lags, all checkable in this repo: the exec-property emitter is still absent from
 master (Hard rule 1); the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`;
 and the product remains behind the `mcp-analytics` flag, so a project without it sees nothing.
