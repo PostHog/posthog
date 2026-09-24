@@ -389,6 +389,9 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                // Updating talks to the release bucket, never to PostHog, so
+                // requiring credentials would lock out anyone without a token.
+                | Commands::Update
                 | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)

@@ -159,7 +159,7 @@ fn latest_version() -> Result<String> {
         .context("The release manifest carries no version")
 }
 
-fn run_installer() -> Result<()> {
+fn run_installer(prefix: &Path) -> Result<()> {
     let body = reqwest::blocking::Client::new()
         .get(if cfg!(windows) {
             INSTALL_PS1_URL
@@ -181,26 +181,31 @@ fn run_installer() -> Result<()> {
     });
     std::fs::write(&script, body).context("Failed to write the installer")?;
 
-    let status = if cfg!(windows) {
-        std::process::Command::new("powershell")
-            .args(["-ExecutionPolicy", "Bypass", "-File"])
-            .arg(&script)
-            .status()
+    // Without this the installer writes to its own default, so an install in a
+    // custom directory would be left untouched while a second copy appeared in
+    // ~/.posthog and the command reported success.
+    let mut command = if cfg!(windows) {
+        let mut c = std::process::Command::new("powershell");
+        c.args(["-ExecutionPolicy", "Bypass", "-File"]).arg(&script);
+        c
     } else {
-        std::process::Command::new("sh").arg(&script).status()
-    }
-    .context("Failed to run the installer")?;
+        let mut c = std::process::Command::new("sh");
+        c.arg(&script);
+        c
+    };
+    let status = command
+        .env("POSTHOG_CLI_INSTALL_DIR", prefix)
+        .status()
+        .context("Failed to run the installer")?;
 
     anyhow::ensure!(status.success(), "The installer exited with {status}");
     Ok(())
 }
 
-/// Delete the standalone updater the install script used to place next to the
-/// binary.
+/// Delete a `posthog-cli-update` binary sitting next to the CLI.
 ///
-/// It resolved versions through the GitHub releases API and never worked in
-/// this monorepo, and `install-updater = false` only stops new installs getting
-/// one. Leaving it on disk leaves a broken `posthog-cli-update` on PATH that
+/// That binary resolves versions through the GitHub releases API, which cannot
+/// reach a CLI release in this monorepo, so it is non-functional. On PATH it
 /// still looks like the way to update.
 ///
 /// Bounded deliberately: one exact filename, only inside the prefix the receipt
@@ -243,11 +248,12 @@ pub fn update() -> Result<()> {
         return Ok(());
     }
 
+    let prefix = receipt_install_prefix()
+        .context("The install receipt names no install_prefix, so there is nowhere to install")?;
+
     safe_println!("Updating posthog-cli {current} to {latest}.");
-    run_installer()?;
-    if let Some(prefix) = receipt_install_prefix() {
-        remove_stale_standalone_updater(&prefix);
-    }
+    run_installer(&prefix)?;
+    remove_stale_standalone_updater(&prefix);
     safe_println!("posthog-cli is now {latest}.");
     Ok(())
 }
