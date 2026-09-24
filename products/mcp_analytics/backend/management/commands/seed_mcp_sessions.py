@@ -444,9 +444,8 @@ MISSING_CAPABILITY_THEMES: list[_MissingCapabilityTheme] = [
 FAILURE_ISSUES: dict[str, _FeedbackText] = {
     "timeout": _FeedbackText(
         summary="{tool} timed out on a long date range.",
-        details="The call returned '{error}' for a 90-day range. The same call with a 14-day range succeeded.",
-        friction_points="- Retried the same 90-day range twice before narrowing it.\n"
-        "- The error did not say which part of the request was slow.",
+        details="The call returned '{error}' for a 90-day range.",
+        friction_points="- The error did not say which part of the request was slow.",
         suggested_improvement="Suggest a narrower date range in the timeout error, or return partial results.",
     ),
     "validation": _FeedbackText(
@@ -463,7 +462,7 @@ FAILURE_ISSUES: dict[str, _FeedbackText] = {
     ),
     "internal": _FeedbackText(
         summary="{tool} failed with a dropped database connection.",
-        details="The error was '{error}'. A retry a few seconds later worked.",
+        details="The error was '{error}'.",
         friction_points="- Nothing in the error said whether a retry was safe.",
         suggested_improvement="Mark transient errors as retryable in the tool result.",
     ),
@@ -637,9 +636,18 @@ def build_feedback(rng: random.Random, calls: list[_SeededCall]) -> _SeededFeedb
         tool_name = anchor.tool_name
         error = failure.message
         template = FAILURE_ISSUES[failure.error_type]
-        recovered = failure.error_type not in TASK_BLOCKING_ERROR_TYPES and any(
-            call.tool_name == tool_name and call.failure is None and call.timestamp > anchor.timestamp for call in calls
+        recovery = next(
+            (
+                call
+                for call in calls
+                if call.tool_name == tool_name and call.failure is None and call.timestamp > anchor.timestamp
+            ),
+            None,
         )
+        recovered = recovery is not None and failure.error_type not in TASK_BLOCKING_ERROR_TYPES
+        # Report after the retry that recovered, so task_completed never precedes it.
+        if recovered and recovery is not None:
+            anchor = recovery
         completed_rate = 1.0 if recovered else 0.0
         sentiment_weights = {"mixed": 70, "negative": 30} if recovered else {"negative": 80, "mixed": 20}
     elif feedback_type == "issue":
