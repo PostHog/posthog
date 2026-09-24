@@ -21,7 +21,7 @@ from products.streamlit_apps.backend.logic.app_runtime import (
     _get_sandbox_callback_url,
 )
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
-from products.tasks.backend.facade.sandbox import SandboxExecutionError, SandboxTimeoutError
+from products.tasks.backend.facade.sandbox import SandboxExecutionError, SandboxNotRunningError, SandboxTimeoutError
 
 
 def _make_zip_bytes(files: dict[str, str]) -> bytes:
@@ -299,6 +299,27 @@ class TestAppRuntimeHealthProbes(BaseTest):
 
         assert record.status == StreamlitAppSandbox.Status.RUNNING
         assert len(probes_seen) == 2
+
+    def test_a_dead_sandbox_fails_the_start_without_waiting_out_the_deadline(self, mock_get_sandbox_class, _mock_sleep):
+        """A probe against a sandbox that is gone can never pass, and holding the
+        worker for the rest of the deadline helps nobody."""
+        probes_seen = []
+
+        def execute(command, timeout_seconds=None):
+            if "_stcore/health" not in command:
+                return MagicMock(exit_code=0, stdout="200", stderr="")
+            probes_seen.append(command)
+            raise SandboxNotRunningError("Sandbox not in running state.", {}, None, capture=False)
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.execute.side_effect = execute
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app = self._create_started_app()
+        with self.assertRaises(SandboxNotRunningError):
+            AppRuntimeService().start_app(app, zip_content=_make_zip_bytes({"app.py": "import streamlit as st"}))
+
+        assert len(probes_seen) == 1
 
 
 @patch("products.streamlit_apps.backend.logic.app_runtime.get_sandbox_class")

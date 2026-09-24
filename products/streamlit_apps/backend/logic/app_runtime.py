@@ -37,6 +37,7 @@ from products.tasks.backend.facade.sandbox import (
     SandboxBase,
     SandboxConfig,
     SandboxExecutionError,
+    SandboxNotRunningError,
     SandboxTemplate,
     SandboxTimeoutError,
     get_sandbox_class,
@@ -62,10 +63,6 @@ RESTART_COUNT_STABILITY_SECONDS = 5 * 60
 # 24h TTL). The auto-restart task keys off this exact string to distinguish
 # crashes from user/idle stops.
 TTL_TIMEOUT_LAST_ERROR = "Sandbox terminated (TTL timeout)"
-
-
-def _setup_command_timeout_seconds() -> int:
-    return settings.STREAMLIT_SANDBOX_SETUP_COMMAND_TIMEOUT_SECONDS
 
 
 @contextmanager
@@ -205,7 +202,9 @@ def _write_bridge_token(sandbox: SandboxBase, token: str) -> None:
     on boot, so a later write would race the unlink.
     """
     sandbox.write_file(BRIDGE_TOKEN_PATH, token.encode("utf-8"))
-    result = sandbox.execute(f"chmod 600 {BRIDGE_TOKEN_PATH}", timeout_seconds=_setup_command_timeout_seconds())
+    result = sandbox.execute(
+        f"chmod 600 {BRIDGE_TOKEN_PATH}", timeout_seconds=settings.STREAMLIT_SANDBOX_SETUP_COMMAND_TIMEOUT_SECONDS
+    )
     if result.exit_code != 0:
         raise AppRuntimeError(f"Failed to chmod bridge token file: {result.stderr}")
 
@@ -215,7 +214,7 @@ def _start_auth_proxy(sandbox: SandboxBase) -> None:
     # so the real liveness check is _wait_for_health below.
     result = sandbox.execute(
         "setsid -f sh -c 'python /usr/local/bin/streamlit_auth_proxy.py >/tmp/auth_proxy.log 2>&1'",
-        timeout_seconds=_setup_command_timeout_seconds(),
+        timeout_seconds=settings.STREAMLIT_SANDBOX_SETUP_COMMAND_TIMEOUT_SECONDS,
     )
     if result.exit_code != 0:
         raise AppRuntimeError(f"Failed to start auth proxy: {result.stderr}")
@@ -229,7 +228,7 @@ def _start_streamlit_process(sandbox: SandboxBase) -> None:
     """
     chown_result = sandbox.execute(
         f"chown -R streamlit:streamlit {STREAMLIT_APP_PATH}",
-        timeout_seconds=_setup_command_timeout_seconds(),
+        timeout_seconds=settings.STREAMLIT_SANDBOX_SETUP_COMMAND_TIMEOUT_SECONDS,
     )
     if chown_result.exit_code != 0:
         raise AppRuntimeError(f"Failed to chown {STREAMLIT_APP_PATH} to streamlit user: {chown_result.stderr}")
@@ -242,7 +241,7 @@ def _start_streamlit_process(sandbox: SandboxBase) -> None:
         f"--server.port {STREAMLIT_PORT} "
         f"--server.headless true "
         f">/tmp/streamlit.log 2>&1'",
-        timeout_seconds=_setup_command_timeout_seconds(),
+        timeout_seconds=settings.STREAMLIT_SANDBOX_SETUP_COMMAND_TIMEOUT_SECONDS,
     )
     if result.exit_code != 0:
         raise AppRuntimeError(f"Failed to start Streamlit: {result.stderr}")
@@ -268,6 +267,10 @@ def _wait_for_health(
         attempt += 1
         try:
             result = sandbox.execute(health_cmd, timeout_seconds=HEALTH_PROBE_EXEC_TIMEOUT_SECONDS)
+        except SandboxNotRunningError:
+            # The sandbox is gone. No later probe can pass, so fail now rather
+            # than hold the worker for the rest of the deadline.
+            raise
         except (SandboxTimeoutError, SandboxExecutionError) as error:
             logger.warning(
                 "streamlit_health_probe_failed",
