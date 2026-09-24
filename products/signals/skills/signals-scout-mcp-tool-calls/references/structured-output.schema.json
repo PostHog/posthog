@@ -37,8 +37,8 @@
         "mcp_sessions": { "type": "integer", "minimum": 0, "description": "Distinct sessions that called the category's tools." },
         "mcp_users": { "type": "integer", "minimum": 0, "description": "Distinct users that called the category's tools." },
         "mcp_error_rate_pct": { "type": "number", "minimum": 0, "maximum": 100, "description": "Errors as a percentage of calls." },
-        "mcp_struggle_session_pct": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percentage of the category's sessions with hammering or fail-then-retry (query 2). Null when the lens did not run this tick." },
-        "mcp_p95_duration_ms": { "type": ["number", "null"], "minimum": 0, "description": "p95 call duration in milliseconds (query 4). Null when the lens did not run this tick." },
+        "mcp_struggle_session_pct": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percentage of the category's sessions with hammering or fail-then-retry (query 11). Null when none of the category's calls carry a session id." },
+        "mcp_p95_duration_ms": { "type": ["number", "null"], "minimum": 0, "description": "p95 call duration in milliseconds (query 11). Null when none of the category's calls carry a duration." },
         "mcp_problem_tools": { "type": "integer", "minimum": 0, "description": "Tools in the category that cleared the per-tool bar this run." },
         "mcp_share_of_project_calls_pct": { "type": "number", "minimum": 0, "maximum": 100, "description": "The category's share of all $mcp_tool_call volume in the window." },
         "mcp_report_action": { "enum": ["authored", "edited", "skipped_live_report", "below_bar", "none"], "description": "What the scout did with this category this run." }

@@ -465,3 +465,97 @@ Read it:
   a share over a handful of sessions is one developer.
 - The top 20 rows per source are what the scout records as `tool_session_share`; take the limit per
   source when one source dominates the global ordering.
+
+## 11. Category metrics — the `category_rollup` record
+
+The source for every measured field of a `category_rollup` record: one row per category with any
+traffic, healthy ones included, plus the project-wide `all` row. The per-tool queries cannot stand
+in for it. Summing per-tool `users` or `sessions` counts a user once per tool they called, and a
+per-tool p95 or struggle share does not average into a category value. Their volume floors also
+drop tools, so they do not cover the whole category.
+
+Every metric comes from raw rows at category grain. `tool_category` applies the header's
+derivation rule, and joining it back to the raw rows keeps exec-routed calls that lack the property
+in their tool's category. `arrayJoin` counts each row twice, once in its category and once in `all`,
+so the baseline row is measured the same way in the same scan. Struggle uses query 2's session
+definition: a session struggled in a category when any of its tools there was called three or more
+times, or failed and was called again.
+
+```sql
+WITH calls AS (
+    SELECT
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        properties.$mcp_tool_category AS raw_category,
+        $session_id AS session,
+        distinct_id,
+        toBool(properties.$mcp_is_error) AS is_error,
+        toFloat(properties.$mcp_duration_ms) AS duration_ms
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND properties.$mcp_source = 'posthog_mcp_analytics'
+        AND timestamp >= now() - INTERVAL 7 DAY
+),
+tool_category AS (
+    SELECT
+        tool,
+        coalesce(nullIf(nullIf(toString(any(raw_category)), ''), 'None'), 'Uncategorized') AS category_bucket
+    FROM calls
+    GROUP BY tool
+),
+struggle AS (
+    SELECT
+        category,
+        count() AS measured_sessions,
+        countIf(session_struggled) AS struggle_sessions
+    FROM (
+        SELECT
+            arrayJoin([c.category_bucket, 'all']) AS category,
+            s.session AS session,
+            max(s.session_calls >= 3 OR (s.session_errors > 0 AND s.session_calls > s.session_errors)) AS session_struggled
+        FROM (
+            SELECT session, tool, count() AS session_calls, countIf(is_error) AS session_errors
+            FROM calls
+            WHERE session != ''
+            GROUP BY session, tool
+        ) AS s
+        JOIN tool_category AS c ON c.tool = s.tool
+        GROUP BY category, session
+    )
+    GROUP BY category
+),
+volume AS (
+    SELECT
+        arrayJoin([c.category_bucket, 'all']) AS category,
+        count() AS category_calls,
+        countIf(k.is_error) AS category_errors,
+        uniqIf(k.session, k.session != '') AS category_sessions,
+        uniq(k.distinct_id) AS category_users,
+        quantile(0.95)(k.duration_ms) AS category_p95_ms
+    FROM calls AS k
+    JOIN tool_category AS c ON c.tool = k.tool
+    GROUP BY category
+)
+SELECT
+    v.category AS category,
+    v.category_calls AS calls,
+    v.category_errors AS errors,
+    v.category_sessions AS sessions,
+    v.category_users AS users,
+    round(v.category_errors * 100.0 / v.category_calls, 1) AS error_rate_pct,
+    round(s.struggle_sessions * 100.0 / nullIf(s.measured_sessions, 0), 1) AS struggle_session_pct,
+    round(v.category_p95_ms) AS p95_duration_ms,
+    round(v.category_calls * 100.0 / max(v.category_calls) OVER (), 1) AS share_of_project_calls_pct
+FROM volume AS v
+LEFT JOIN struggle AS s ON s.category = v.category
+ORDER BY calls DESC
+```
+
+Read it:
+
+- Each column maps to the `mcp_`-prefixed record field of the same name. `mcp_problem_tools` and
+  `mcp_report_action` are the scout's own judgment, so they do not come from here.
+- `share_of_project_calls_pct` divides by the largest row, which is always `all`.
+- `struggle_session_pct` is null for a category whose calls carry no `$session_id`, and
+  `p95_duration_ms` is null when no call carries a duration. Record them as null, not zero.
+- The numbers change only when the data does. Do not re-derive them from other queries on a run
+  that skips this one, because a change of method shows on the chart as a step in the metric.

@@ -38,8 +38,8 @@ GROUP BY day, category
 ORDER BY day DESC, calls DESC
 ```
 
-`struggle_session_pct` is null on a run that rotated the struggle lens out, and `avg` skips nulls,
-so the series has gaps rather than false zeroes. `calls` rides along as the weight: a category's
+`struggle_session_pct` is null for a category whose calls carry no session id, and `avg` skips
+nulls, so those points are gaps rather than false zeroes. `calls` rides along as the weight: a category's
 rate on a hundred calls is not comparable to one on fifty thousand. Filter `category = 'all'` for
 the project-wide baseline on its own.
 
