@@ -6,7 +6,16 @@ The writer excludes sessions longer than its scan budget. The reader also replac
 
 The writer query change invalidates existing job hashes. Deploy both writer and reader before warming the new jobs; keep the reader flag off until the controlled rollout validates coverage and query cost.
 
-`MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` covers display days. The proposed warmer adds the team's attribution lookback and one reachback day: default 90 + 90 + 1 = 181 trailing days, previously 90. This approximately doubles initial daily chunks and retained job coverage; actual scan/storage cost depends on session volume and duration. The allowlist and environment values are unchanged. Evaluate this cost before rollout. Query overrides beyond the total warmed span remain ineligible.
+`MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` covers calendar display days in the project timezone.
+The warmer starts at local midnight that many days before the run's local date, then subtracts the team's attribution lookback and one reachback day in UTC.
+The reader uses the same calendar boundary to check its maximum range.
+This includes the complete starting day for relative ranges such as `-90d`, even across daylight saving changes.
+Query overrides that extend before that boundary remain ineligible.
+
+Calendar alignment does not change the writer query or existing job hashes.
+Run the updated warmer to populate any missing oldest daily windows before testing the full display range.
+Existing ready jobs remain reusable, and missing coverage still falls back to live calculation.
+The allowlist, daily chunk size, and query execution limits are unchanged.
 
 With the existing serve-stale flag, readers may use jobs expired within six hours and enqueue debounced revalidation. Only that task runs reader-initiated inserts; it takes no stale grace. Scheduled writers also require fresh jobs. Classifier expression changes and the explicit dictionary version change the shared job hash, requiring fresh materialization.
 
