@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -76,6 +81,11 @@ export const IntegrationsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -85,6 +95,11 @@ export const IntegrationsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -94,6 +109,11 @@ export const IntegrationsDestroyParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsChannelsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -129,6 +149,11 @@ export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
         .describe('Optional case-insensitive channel name or ID search query.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsGithubReposRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -164,6 +189,11 @@ export const IntegrationsGithubReposRetrieveQueryParams = () => zod.object({
         .describe('Optional case-insensitive repository name search query.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsJiraProjectsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -173,6 +203,11 @@ export const IntegrationsJiraProjectsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -182,6 +217,11 @@ export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const IntegrationsUsersRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod

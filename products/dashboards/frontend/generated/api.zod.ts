@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardSavedViewsCreateBodyNameMax = 200
 
 export const dashboardSavedViewsCreateBodyFiltersOneSearchMax = 200
@@ -55,6 +60,11 @@ export const DashboardSavedViewsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardSavedViewsUpdateBodyNameMax = 200
 
 export const dashboardSavedViewsUpdateBodyFiltersOneSearchMax = 200
@@ -101,6 +111,11 @@ export const DashboardSavedViewsUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardSavedViewsPartialUpdateBodyNameMax = 200
 
 export const dashboardSavedViewsPartialUpdateBodyFiltersOneSearchMax = 200
@@ -149,6 +164,11 @@ export const DashboardSavedViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardTemplatesCreateBodyTemplateNameMax = 400
 
 export const dashboardTemplatesCreateBodyDashboardDescriptionMax = 400
@@ -185,6 +205,11 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardTemplatesUpdateBodyTemplateNameMax = 400
 
 export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
@@ -221,6 +246,11 @@ export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardTemplatesPartialUpdateBodyTemplateNameMax = 400
 
 export const dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax = 400
@@ -269,6 +299,11 @@ export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ z
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
@@ -363,6 +398,11 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(21), zod.literal(37)])
@@ -372,6 +412,11 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
     user_uuid: zod.uuid(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
@@ -466,6 +511,11 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
@@ -1520,6 +1570,11 @@ export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const DashboardsMoveTileCreateBody = /* @__PURE__ */ zod.object({
     to_dashboard: zod.number().describe('Destination dashboard ID.'),
     tile: zod
@@ -1529,6 +1584,11 @@ export const DashboardsMoveTileCreateBody = /* @__PURE__ */ zod.object({
         .describe('Tile to move, identified by its dashboard tile ID.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
     to_dashboard: zod.number().optional().describe('Destination dashboard ID.'),
     tile: zod
@@ -1538,6 +1598,12 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Tile to move, identified by its dashboard tile ID.'),
 })
+
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 
 export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
 
@@ -3830,6 +3896,11 @@ export const DashboardsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dashboardsCreateFromTemplateJsonCreateBodyNameMax = 400
 
 export const dashboardsCreateFromTemplateJsonCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
@@ -4027,6 +4098,11 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dataColorThemesCreateBodyNameMax = 100
 
 export const DataColorThemesCreateBody = /* @__PURE__ */ zod.object({
@@ -4034,6 +4110,11 @@ export const DataColorThemesCreateBody = /* @__PURE__ */ zod.object({
     colors: zod.unknown().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dataColorThemesUpdateBodyNameMax = 100
 
 export const DataColorThemesUpdateBody = /* @__PURE__ */ zod.object({
@@ -4041,6 +4122,11 @@ export const DataColorThemesUpdateBody = /* @__PURE__ */ zod.object({
     colors: zod.unknown().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const dataColorThemesPartialUpdateBodyNameMax = 100
 
 export const DataColorThemesPartialUpdateBody = /* @__PURE__ */ zod.object({

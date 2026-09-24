@@ -240,6 +240,11 @@ export const getDesktopBetaTermsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/desktop_beta_terms/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const desktopBetaTermsList = async (
     projectId: string,
     options?: RequestInit
@@ -254,6 +259,11 @@ export const getDesktopBetaTermsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/desktop_beta_terms/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const desktopBetaTermsCreate = async (
     projectId: string,
     options?: RequestInit
@@ -913,6 +923,9 @@ export const getTaskChannelsRetrieveUrl = (projectId: string, id: string) => {
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Get a channel
  */
 export const taskChannelsRetrieve = async (
@@ -931,6 +944,9 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Update a channel
  */
 export const taskChannelsPartialUpdate = async (
@@ -952,6 +968,9 @@ export const getTaskChannelsDestroyUrl = (projectId: string, id: string) => {
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Delete a channel
  */
 export const taskChannelsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -966,6 +985,9 @@ export const getTaskChannelsContextGenerationRetrieveUrl = (projectId: string, i
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Get the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationRetrieve = async (
@@ -984,6 +1006,9 @@ export const getTaskChannelsContextGenerationUpdateUrl = (projectId: string, id:
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Set or clear the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationUpdate = async (
@@ -1068,6 +1093,9 @@ export const getTaskChannelsInstructionsDestroyUrl = (projectId: string, id: str
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Delete channel instructions
  */
 export const taskChannelsInstructionsDestroy = async (
@@ -1086,6 +1114,9 @@ export const getTaskChannelsInstructionsVersionsRetrieveUrl = (projectId: string
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary List channel instruction versions
  */
 export const taskChannelsInstructionsVersionsRetrieve = async (
@@ -1170,6 +1201,9 @@ export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Star or unstar a channel for the requesting user
  */
 export const taskChannelsStarCreate = async (

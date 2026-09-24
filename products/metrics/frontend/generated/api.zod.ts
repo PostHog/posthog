@@ -213,6 +213,11 @@ export const MetricsExplainCreateBody = /* @__PURE__ */ zod.object({
         .describe('The chart point to take apart.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
 export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`

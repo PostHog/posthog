@@ -220,6 +220,11 @@ export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/has_metrics/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const metricsHasMetricsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -282,6 +287,11 @@ export const getMetricsQueryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/query/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const metricsQueryCreate = async (
     projectId: string,
     _metricQueryRequestApi: _MetricQueryRequestApi,

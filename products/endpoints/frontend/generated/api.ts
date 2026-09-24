@@ -186,6 +186,11 @@ export const getEndpointsLogsRetrieveUrl = (projectId: string, name: string, par
         : `/api/projects/${projectId}/endpoints/${name}/logs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const endpointsLogsRetrieve = async (
     projectId: string,
     name: string,

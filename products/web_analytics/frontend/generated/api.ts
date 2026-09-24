@@ -87,6 +87,11 @@ export const getHeatmapCapturePagesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_capture/pages/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const heatmapCapturePagesRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -101,6 +106,11 @@ export const getHeatmapCaptureSettingsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_capture/settings/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const heatmapCaptureSettingsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -115,6 +125,11 @@ export const getHeatmapCaptureSettingsUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_capture/settings/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const heatmapCaptureSettingsUpdate = async (
     projectId: string,
     patchedHeatmapCaptureSettingsRequestApi?: PatchedHeatmapCaptureSettingsRequestApi,
@@ -132,6 +147,11 @@ export const getHeatmapScreenshotSettingsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_screenshot/settings/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const heatmapScreenshotSettingsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -146,6 +166,11 @@ export const getHeatmapScreenshotSettingsUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_screenshot/settings/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const heatmapScreenshotSettingsUpdate = async (
     projectId: string,
     patchedHeatmapScreenshotSettingsRequestApi?: PatchedHeatmapScreenshotSettingsRequestApi,
@@ -739,6 +764,11 @@ export const getWebAnalyticsContentAutopilotProfilesListUrl = (
         : `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProfilesList = async (
     projectId: string,
     params?: WebAnalyticsContentAutopilotProfilesListParams,
@@ -757,6 +787,11 @@ export const getWebAnalyticsContentAutopilotProfilesCreateUrl = (projectId: stri
     return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProfilesCreate = async (
     projectId: string,
     contentAutopilotSiteProfileApi: NonReadonly<ContentAutopilotSiteProfileApi>,
@@ -774,6 +809,11 @@ export const getWebAnalyticsContentAutopilotProfilesRetrieveUrl = (projectId: st
     return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProfilesRetrieve = async (
     projectId: string,
     id: string,
@@ -792,6 +832,11 @@ export const getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl = (projectI
     return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProfilesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -813,6 +858,11 @@ export const getWebAnalyticsContentAutopilotProfilesDestroyUrl = (projectId: str
     return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProfilesDestroy = async (
     projectId: string,
     id: string,
@@ -867,6 +917,11 @@ export const getWebAnalyticsContentAutopilotProposalsListUrl = (
         : `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProposalsList = async (
     projectId: string,
     params?: WebAnalyticsContentAutopilotProposalsListParams,
@@ -885,6 +940,11 @@ export const getWebAnalyticsContentAutopilotProposalsRetrieveUrl = (projectId: s
     return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProposalsRetrieve = async (
     projectId: string,
     id: string,
@@ -1000,6 +1060,11 @@ export const getWebAnalyticsContentAutopilotRunsListUrl = (
         : `/api/projects/${projectId}/web_analytics_content_autopilot_runs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotRunsList = async (
     projectId: string,
     params?: WebAnalyticsContentAutopilotRunsListParams,
@@ -1018,6 +1083,11 @@ export const getWebAnalyticsContentAutopilotRunsRetrieveUrl = (projectId: string
     return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotRunsRetrieve = async (
     projectId: string,
     id: string,
@@ -1088,6 +1158,11 @@ export const getWebAnalyticsFilterPresetsListUrl = (
         : `/api/projects/${projectId}/web_analytics_filter_presets/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsList = async (
     projectId: string,
     params?: WebAnalyticsFilterPresetsListParams,
@@ -1106,6 +1181,11 @@ export const getWebAnalyticsFilterPresetsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/web_analytics_filter_presets/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsCreate = async (
     projectId: string,
     webAnalyticsFilterPresetApi: NonReadonly<WebAnalyticsFilterPresetApi>,
@@ -1123,6 +1203,11 @@ export const getWebAnalyticsFilterPresetsRetrieveUrl = (projectId: string, short
     return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsRetrieve = async (
     projectId: string,
     shortId: string,
@@ -1138,6 +1223,11 @@ export const getWebAnalyticsFilterPresetsUpdateUrl = (projectId: string, shortId
     return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsUpdate = async (
     projectId: string,
     shortId: string,
@@ -1156,6 +1246,11 @@ export const getWebAnalyticsFilterPresetsPartialUpdateUrl = (projectId: string, 
     return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsPartialUpdate = async (
     projectId: string,
     shortId: string,

@@ -108,6 +108,11 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
@@ -138,6 +143,11 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Whether to also copy missing feature flags that this flag depends on'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax = 50
 
 export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = /* @__PURE__ */ zod.object({

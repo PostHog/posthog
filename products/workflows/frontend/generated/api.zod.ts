@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201
@@ -137,6 +142,11 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
     )
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesUpdateBodyNameMax = 400
 
 export const hogFlowTemplatesUpdateBodyImageUrlMax = 8201
@@ -265,6 +275,11 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
     )
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesPartialUpdateBodyNameMax = 400
 
 export const hogFlowTemplatesPartialUpdateBodyImageUrlMax = 8201
@@ -400,6 +415,11 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
     )
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
@@ -807,6 +827,11 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsUpdateBodyNameMax = 400
 
 export const hogFlowsUpdateBodyDescriptionDefault = ``
@@ -1205,6 +1230,11 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsPartialUpdateBodyNameMax = 400
 
 export const hogFlowsPartialUpdateBodyDescriptionDefault = ``
@@ -1611,6 +1641,11 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
@@ -1685,6 +1720,11 @@ export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed'])
@@ -1699,6 +1739,11 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
     variables: zod.unknown().optional().describe('Variable value overrides applied to this run.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
@@ -1790,6 +1835,11 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
@@ -2417,6 +2467,11 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
     })
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
 export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
@@ -2513,6 +2568,11 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
 
 export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
@@ -2549,6 +2609,11 @@ export const HogFlowsRunCreateBody = /* @__PURE__ */ zod.object({
         .describe("Variable value overrides, merged with the workflow's own variable defaults for this run only."),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
@@ -2569,6 +2634,11 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsSchedulesPartialUpdateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -2590,6 +2660,11 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
@@ -3004,6 +3079,11 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
 
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({

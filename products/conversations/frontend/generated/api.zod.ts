@@ -63,6 +63,11 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Fields accepted when updating a ticket.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         status: zod
@@ -322,6 +327,11 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsViewsCreateBodyNameMax = 400
 
 export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
@@ -467,6 +477,11 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsViewsPartialUpdateBodyNameMax = 400
 
 export const conversationsViewsPartialUpdateBodyFiltersOneSearchMax = 200
@@ -613,6 +628,11 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsZendeskImportsCreateBodySubdomainMax = 255
 
 export const conversationsZendeskImportsCreateBodyApiTokenMax = 500

@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ConversationsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +26,11 @@ export const ConversationsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ConversationsRetrieveParams = () => zod.object({
     conversation: zod.string().describe('A UUID string identifying this conversation.'),
     project_id: zod

@@ -66,6 +66,11 @@ export const getBatchExportsListUrl = (projectId: string, params?: BatchExportsL
         : `/api/projects/${projectId}/batch_exports/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsList = async (
     projectId: string,
     params?: BatchExportsListParams,
@@ -81,6 +86,11 @@ export const getBatchExportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsCreate = async (
     projectId: string,
     batchExportRequestApi: BatchExportRequestApi,
@@ -218,6 +228,11 @@ export const getBatchExportsRunsListUrl = (
         : `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsRunsList = async (
     projectId: string,
     batchExportId: string,
@@ -234,6 +249,11 @@ export const getBatchExportsRunsRetrieveUrl = (projectId: string, batchExportId:
     return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsRunsRetrieve = async (
     projectId: string,
     batchExportId: string,
@@ -289,6 +309,11 @@ export const getBatchExportsRunsLogsRetrieveUrl = (
         : `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsRunsLogsRetrieve = async (
     projectId: string,
     batchExportId: string,
@@ -331,6 +356,11 @@ export const getBatchExportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsRetrieve = async (
     projectId: string,
     id: string,
@@ -346,6 +376,11 @@ export const getBatchExportsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsUpdate = async (
     projectId: string,
     id: string,
@@ -364,6 +399,11 @@ export const getBatchExportsPartialUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -382,6 +422,11 @@ export const getBatchExportsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBatchExportsDestroyUrl(projectId, id), {
         ...options,
@@ -409,6 +454,11 @@ export const getBatchExportsLogsRetrieveUrl = (
         : `/api/projects/${projectId}/batch_exports/${id}/logs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsLogsRetrieve = async (
     projectId: string,
     id: string,
@@ -446,6 +496,11 @@ export const getBatchExportsRunTestStepCreateUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/batch_exports/${id}/run_test_step/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsRunTestStepCreate = async (
     projectId: string,
     id: string,
@@ -485,6 +540,11 @@ export const getBatchExportsRunTestStepNewCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/run_test_step_new/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsRunTestStepNewCreate = async (
     projectId: string,
     batchExportApi: NonReadonly<BatchExportApi>,
@@ -502,6 +562,11 @@ export const getBatchExportsTestRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/test/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const batchExportsTestRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBatchExportsTestRetrieveUrl(projectId), {
         ...options,
@@ -525,6 +590,11 @@ export const getFileDownloadBatchExportsListUrl = (projectId: string, params?: F
         : `/api/projects/${projectId}/file_download_batch_exports/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileDownloadBatchExportsList = async (
     projectId: string,
     params?: FileDownloadBatchExportsListParams,
@@ -645,6 +715,11 @@ export const getFileDownloadBatchExportsLogsRetrieveUrl = (
         : `/api/projects/${projectId}/file_download_batch_exports/${id}/logs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileDownloadBatchExportsLogsRetrieve = async (
     projectId: string,
     id: string,

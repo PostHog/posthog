@@ -92,6 +92,11 @@ export const getReusableWidgetsListUrl = (projectId: string, params?: ReusableWi
         : `/api/projects/${projectId}/notebook_widgets/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsList = async (
     projectId: string,
     params?: ReusableWidgetsListParams,
@@ -107,6 +112,11 @@ export const getReusableWidgetsRetrieveUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/notebook_widgets/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsRetrieve = async (
     projectId: string,
     id: string,
@@ -122,6 +132,11 @@ export const getReusableWidgetsUpdateDemoDataUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/notebook_widgets/${id}/demo-data/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsUpdateDemoData = async (
     projectId: string,
     id: string,
@@ -140,6 +155,11 @@ export const getReusableWidgetsDiscardVersionUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/notebook_widgets/${id}/discard-version/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsDiscardVersion = async (
     projectId: string,
     id: string,
@@ -175,6 +195,11 @@ export const getReusableWidgetsDemoFrameUrl = (
         : `/api/projects/${projectId}/notebook_widgets/${id}/frames/${frameName}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsDemoFrame = async (
     projectId: string,
     id: string,
@@ -192,6 +217,11 @@ export const getReusableWidgetsGenerateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/notebook_widgets/${id}/generate/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsGenerate = async (
     projectId: string,
     id: string,
@@ -210,6 +240,11 @@ export const getReusableWidgetsRestoreUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/notebook_widgets/${id}/restore/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsRestore = async (
     projectId: string,
     id: string,
@@ -228,6 +263,11 @@ export const getReusableWidgetsSaveVersionUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/notebook_widgets/${id}/save-version/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsSaveVersion = async (
     projectId: string,
     id: string,
@@ -258,6 +298,11 @@ export const getReusableWidgetsSourceUrl = (projectId: string, id: string, param
         : `/api/projects/${projectId}/notebook_widgets/${id}/source/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsSource = async (
     projectId: string,
     id: string,
@@ -274,6 +319,11 @@ export const getReusableWidgetsStatusUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/notebook_widgets/${id}/status/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsStatus = async (
     projectId: string,
     id: string,
@@ -305,6 +355,11 @@ export const getReusableWidgetsVersionsUrl = (
         : `/api/projects/${projectId}/notebook_widgets/${id}/versions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const reusableWidgetsVersions = async (
     projectId: string,
     id: string,

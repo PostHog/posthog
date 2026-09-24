@@ -58,6 +58,11 @@ export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParam
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightVariablesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -93,6 +98,11 @@ export const InsightVariablesCreateBody = () => zod.object({
         .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightVariablesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this insight variable.'),
     project_id: zod
@@ -134,6 +144,11 @@ export const InsightVariablesPartialUpdateBody = () => zod.object({
         .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightVariablesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this insight variable.'),
     project_id: zod

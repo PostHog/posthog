@@ -42,6 +42,11 @@ export const ExternalDataDestinationsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExternalDataSchemasListParams = () => zod.object({
     project_id: zod
         .string()
@@ -56,6 +61,11 @@ export const ExternalDataSchemasListQueryParams = () => zod.object({
     search: zod.string().optional().describe('A search term.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExternalDataSchemasRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -65,6 +75,11 @@ export const ExternalDataSchemasRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExternalDataSchemasPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -175,6 +190,11 @@ export const ExternalDataSchemasPartialUpdateBody = () => zod
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExternalDataSchemasCancelCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -184,6 +204,11 @@ export const ExternalDataSchemasCancelCreateParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExternalDataSchemasDeleteDataDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -207,6 +232,11 @@ export const ExternalDataSchemasDestinationsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExternalDataSchemasIncrementalFieldsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod

@@ -51,6 +51,11 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
@@ -173,6 +178,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsAlertsUpdateBodyNameMax = 255
 
 export const logsAlertsUpdateBodyEnabledDefault = true
@@ -295,6 +305,11 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsAlertsPartialUpdateBodyNameMax = 255
 
 export const logsAlertsPartialUpdateBodyEnabledDefault = true
@@ -583,6 +598,11 @@ export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -669,6 +689,11 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
         .describe('The count query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsCountRangesCreateBodyQueryOneTargetBucketsDefault = 10
 export const logsCountRangesCreateBodyQueryOneTargetBucketsMax = 100
 
@@ -790,6 +815,11 @@ export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
         .describe('Force regenerate explanation, bypassing cache'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -920,6 +950,11 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The facet values query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsGroupByCreateBodyQueryOneGroupBySourceDefault = `log`
 export const logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault = `log`
 export const logsGroupByCreateBodyQueryOneGroupBysMax = 4
@@ -1075,6 +1110,11 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
         .describe('The group-by query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LogsImpactCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1161,6 +1201,11 @@ export const LogsImpactCreateBody = /* @__PURE__ */ zod.object({
         .describe('The impact query to execute. Takes the same filters as the count query.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsMetricRulesCreateBodyNameMax = 255
 
 export const logsMetricRulesCreateBodyMetricNameMax = 200
@@ -1214,6 +1259,11 @@ export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsMetricRulesUpdateBodyNameMax = 255
 
 export const logsMetricRulesUpdateBodyMetricNameMax = 200
@@ -1267,6 +1317,11 @@ export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsMetricRulesPartialUpdateBodyNameMax = 255
 
 export const logsMetricRulesPartialUpdateBodyMetricNameMax = 200
@@ -1325,6 +1380,11 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1423,6 +1483,11 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
         .describe('The patterns query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1540,6 +1605,11 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
 export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
@@ -1787,6 +1857,11 @@ export const LogsRetentionRulesSuggestNameCreateBody = /* @__PURE__ */ zod.objec
     filter_group: zod.unknown().describe('PropertyGroupFilter tree the rule would match on.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsSamplingRulesCreateBodyNameMax = 255
 
 export const logsSamplingRulesCreateBodyEnabledDefault = false
@@ -1840,6 +1915,11 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsSamplingRulesUpdateBodyNameMax = 255
 
 export const logsSamplingRulesUpdateBodyEnabledDefault = false
@@ -1893,6 +1973,11 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsSamplingRulesPartialUpdateBodyNameMax = 255
 
 export const logsSamplingRulesPartialUpdateBodyEnabledDefault = false
@@ -1963,6 +2048,11 @@ export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
 
 export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
@@ -2061,6 +2151,11 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The services aggregation query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsSparklineCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsSparklineCreateBodyQueryOneServiceNamesDefault = []
 export const logsSparklineCreateBodyQueryOneFilterGroupDefault = []
@@ -2180,6 +2275,11 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
         .describe('The sparkline query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsViewsCreateBodyNameMax = 400
 
 export const logsViewsCreateBodyColumnsItemWidthMax = 2000
@@ -2248,6 +2348,11 @@ export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
     pinned: zod.boolean().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsViewsUpdateBodyNameMax = 400
 
 export const logsViewsUpdateBodyColumnsItemWidthMax = 2000
@@ -2316,6 +2421,11 @@ export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
     pinned: zod.boolean().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const logsViewsPartialUpdateBodyNameMax = 400
 
 export const logsViewsPartialUpdateBodyColumnsItemWidthMax = 2000

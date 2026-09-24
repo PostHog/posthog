@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingAssignmentRulesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +26,11 @@ export const ErrorTrackingAssignmentRulesListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingAssignmentRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -1613,6 +1623,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingBypassRulesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -1626,6 +1641,11 @@ export const ErrorTrackingBypassRulesListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingBypassRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -3200,6 +3220,11 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingBypassRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -4776,6 +4801,11 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingExternalReferencesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -4800,6 +4830,11 @@ export const ErrorTrackingExternalReferencesCreateBody = () => zod
     })
     .describe('Payload for creating a new provider issue and linking it to an error tracking issue.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingGroupingRulesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -4808,6 +4843,11 @@ export const ErrorTrackingGroupingRulesListParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingGroupingRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -6401,6 +6441,11 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
         .describe('Optional human-readable description of what this grouping rule is for.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingGroupingRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -7999,6 +8044,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingIssuesPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -8024,6 +8074,11 @@ export const ErrorTrackingIssuesPartialUpdateBody = () => zod.object({
     description: zod.string().nullish().describe('Optional issue description.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingIssuesAssignPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -8049,6 +8104,11 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = () => zod.object({
         .describe('Assignment target. Set to null or omit to remove the current assignment.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingIssuesMergeCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -8062,6 +8122,11 @@ export const ErrorTrackingIssuesMergeCreateBody = () => zod.object({
     ids: zod.array(zod.string()).describe('IDs of the issues to merge into the current issue.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingIssuesSplitCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -8568,6 +8633,11 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
         .describe('Search stack-frame source\/file path text.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingRecommendationsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -8582,6 +8652,11 @@ export const ErrorTrackingRecommendationsListQueryParams = () => zod.object({
     poll: zod.boolean().optional().describe('True reads the current state without scheduling a refresh.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
@@ -8590,6 +8665,11 @@ export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = () => zod.obj
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
@@ -8625,6 +8705,11 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.ob
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSeverityRulesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -8633,6 +8718,11 @@ export const ErrorTrackingSeverityRulesListParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSeverityRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -10216,6 +10306,11 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
         .describe('Evaluation priority. Lower values run first. Defaults to 0.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSeverityRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -11797,6 +11892,11 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSuppressionRulesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -11810,6 +11910,11 @@ export const ErrorTrackingSuppressionRulesListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSuppressionRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -13396,6 +13501,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSuppressionRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
@@ -14982,6 +15092,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSymbolSetsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -15018,6 +15133,11 @@ export const ErrorTrackingSymbolSetsListQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ErrorTrackingSymbolSetsRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod

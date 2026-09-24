@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MessagingTemplatesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +26,11 @@ export const MessagingTemplatesListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MessagingTemplatesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -112,6 +122,11 @@ export const MessagingTemplatesCreateBody = () => zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MessagingTemplatesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod
@@ -121,6 +136,11 @@ export const MessagingTemplatesRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MessagingTemplatesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod
@@ -214,6 +234,11 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod

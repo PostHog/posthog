@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SignalsReportsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -141,6 +146,11 @@ export const SignalsReportsListQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SignalsReportsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this signal report.'),
     project_id: zod
@@ -2841,6 +2851,11 @@ export const SignalsScoutScratchpadForgetBody = () => zod
     })
     .describe('Request body for `forget`.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SignalsSourceConfigsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -2854,6 +2869,11 @@ export const SignalsSourceConfigsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SignalsSourceConfigsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -2954,6 +2974,11 @@ export const SignalsSourceConfigsCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SignalsSourceConfigsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this signal source config.'),
     project_id: zod
@@ -2963,6 +2988,11 @@ export const SignalsSourceConfigsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SignalsSourceConfigsUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this signal source config.'),
     project_id: zod
@@ -3064,6 +3094,11 @@ export const SignalsSourceConfigsUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SignalsSourceConfigsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this signal source config.'),
     project_id: zod

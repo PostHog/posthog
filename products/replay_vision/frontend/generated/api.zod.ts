@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const visionAlertsCreateBodyNameDefault = `Untitled alert`
 export const visionAlertsCreateBodyNameMax = 255
 
@@ -150,6 +155,11 @@ export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const visionAlertsUpdateBodyNameDefault = `Untitled alert`
 export const visionAlertsUpdateBodyNameMax = 255
 
@@ -291,6 +301,11 @@ export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const visionAlertsPartialUpdateBodyNameDefault = `Untitled alert`
 export const visionAlertsPartialUpdateBodyNameMax = 255
 

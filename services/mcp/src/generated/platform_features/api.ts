@@ -8,15 +8,30 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const RetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const PartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
@@ -69,6 +84,11 @@ export const PartialUpdateBody = () => zod.object({
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MembersListParams = () => zod.object({
     organization_id: zod
         .string()
@@ -103,6 +123,11 @@ export const MembersListQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MembersGithubLoginRetrieveParams = () => zod.object({
     organization_id: zod
         .string()
@@ -160,6 +185,11 @@ export const RolesRoleMembershipsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const AdvancedActivityLogsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -279,6 +309,11 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
         .describe('When set, filters rows where the actor was impersonating another user.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const AdvancedActivityLogsAvailableFiltersRetrieveParams = () => zod.object({
     project_id: zod
         .string()
@@ -287,6 +322,11 @@ export const AdvancedActivityLogsAvailableFiltersRetrieveParams = () => zod.obje
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ApprovalPoliciesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -300,6 +340,11 @@ export const ApprovalPoliciesListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ApprovalPoliciesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this approval policy.'),
     project_id: zod
@@ -309,6 +354,11 @@ export const ApprovalPoliciesRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ChangeRequestsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -327,6 +377,11 @@ export const ChangeRequestsListQueryParams = () => zod.object({
     state: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ChangeRequestsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
@@ -373,6 +428,11 @@ export const ChangeRequestsRejectCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const CommentsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -453,6 +513,11 @@ export const CommentsCreateBody = () => zod.object({
     source_comment: zod.string().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const CommentsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this comment.'),
     project_id: zod
@@ -462,6 +527,11 @@ export const CommentsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const CommentsThreadRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this comment.'),
     project_id: zod
@@ -471,6 +541,11 @@ export const CommentsThreadRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const CommentsCountRetrieveParams = () => zod.object({
     project_id: zod
         .string()

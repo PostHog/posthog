@@ -216,6 +216,11 @@ export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Dataset revision to export. Defaults to the latest revision when the export is created.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationDirectoriesCreateBodyNameMax = 400
 
 export const EvaluationDirectoriesCreateBody = /* @__PURE__ */ zod.object({
@@ -225,6 +230,11 @@ export const EvaluationDirectoriesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Directory name shown in the online evals list.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationDirectoriesPartialUpdateBodyNameMax = 400
 
 export const EvaluationDirectoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -256,6 +266,11 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod.string().nullish().describe('Distinct ID of the event (optional, improves lookup performance).'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
@@ -582,6 +597,11 @@ export const EvaluationsBackfillsEstimateCreateBody = /* @__PURE__ */ zod.object
         .describe('Evaluate units again even when this evaluation already has a result for them.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsUpdateBodyNameMax = 400
 
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
@@ -810,6 +830,11 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
@@ -1572,6 +1597,11 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
     experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),
     date_from: zod
@@ -1584,6 +1614,11 @@ export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PUR
         .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
 
 export const llmAnalyticsParserRecipesCreateBodySourceMax = 100000
@@ -1601,6 +1636,11 @@ export const LlmAnalyticsParserRecipesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsParserRecipesPartialUpdateBodyNameMax = 255
 
 export const llmAnalyticsParserRecipesPartialUpdateBodySourceMax = 100000
@@ -1620,6 +1660,11 @@ export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.ob
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
@@ -1653,6 +1698,11 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysCreateBodySetAsActiveDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysUpdateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysUpdateBodyApiVersionMax = 20
@@ -1686,6 +1736,11 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysPartialUpdateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax = 20
@@ -1720,6 +1775,11 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
@@ -1753,6 +1813,11 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueueItemsCreateBodyTraceIdMax = 255
 
 export const LlmAnalyticsReviewQueueItemsCreateBody = /* @__PURE__ */ zod.object({
@@ -1763,16 +1828,31 @@ export const LlmAnalyticsReviewQueueItemsCreateBody = /* @__PURE__ */ zod.object
         .describe('Trace ID to add to the selected review queue.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueueItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
     queue_id: zod.uuid().optional().describe('Review queue ID that should own this pending trace.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueuesCreateBodyNameMax = 255
 
 export const LlmAnalyticsReviewQueuesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(llmAnalyticsReviewQueuesCreateBodyNameMax).describe('Human-readable queue name.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueuesPartialUpdateBodyNameMax = 255
 
 export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1783,6 +1863,11 @@ export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('Human-readable queue name.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault = false
@@ -1860,6 +1945,11 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .describe('Initial immutable scorer configuration.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1872,6 +1962,11 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
@@ -2125,6 +2220,11 @@ export const LlmAnalyticsTextReprCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional configuration for text generation'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsTraceReviewsCreateBodyTraceIdMax = 255
 
 export const llmAnalyticsTraceReviewsCreateBodyScoresItemCategoricalValuesItemMax = 128
@@ -2167,6 +2267,11 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsTraceReviewsPartialUpdateBodyTraceIdMax = 255
 
 export const llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemCategoricalValuesItemMax = 128
@@ -2231,6 +2336,11 @@ export const LlmAnalyticsTranslateCreateBody = /* @__PURE__ */ zod.object({
         .describe("Target language code (default: 'en' for English)"),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsCreateBodyNameMax = 255
 
 export const llmPromptsCreateBodyVersionDescriptionMax = 400
@@ -2253,6 +2363,12 @@ export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Optional note describing what changed in this version. Set when the version is published.'),
 })
+
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 
 export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
 
@@ -2290,6 +2406,11 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameDuplicateCreateBodyNewNameMax = 255
 
 export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
@@ -2301,6 +2422,12 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
+
 export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
     version: zod
         .number()
@@ -2310,6 +2437,11 @@ export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersCreateBodyNameMax = 400
 
 export const taggersCreateBodyTaggerTypeDefault = `llm`
@@ -2449,6 +2581,11 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersUpdateBodyNameMax = 400
 
 export const taggersUpdateBodyTaggerTypeDefault = `llm`
@@ -2589,6 +2726,11 @@ export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersPartialUpdateBodyNameMax = 400
 
 export const taggersPartialUpdateBodyTaggerTypeDefault = `llm`

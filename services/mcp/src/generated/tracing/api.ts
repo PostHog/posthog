@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansAggregateCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -136,6 +141,11 @@ export const TracingSpansAggregateCreateBody = () => zod.object({
         .describe('The span aggregation query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansAttributeBreakdownCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -271,6 +281,11 @@ export const TracingSpansAttributeBreakdownCreateBody = () => zod.object({
         .describe('The attribute breakdown query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansAttributesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
@@ -312,6 +327,11 @@ export const TracingSpansAttributesRetrieveQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansCountCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -464,6 +484,11 @@ export const TracingSpansCountCreateBody = () => zod.object({
         .describe('The span count query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansDurationHistogramCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -559,6 +584,11 @@ export const TracingSpansDurationHistogramCreateBody = () => zod.object({
         .describe('The duration-histogram query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansLatencyHeatmapCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -654,6 +684,11 @@ export const TracingSpansLatencyHeatmapCreateBody = () => zod.object({
         .describe('The latency-heatmap query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansQueryCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -793,6 +828,11 @@ export const TracingSpansQueryCreateBody = () => zod.object({
         .describe('The tracing spans query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansServiceNamesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
@@ -806,6 +846,11 @@ export const TracingSpansServiceNamesRetrieveQueryParams = () => zod.object({
     search: zod.string().min(1).optional().describe('Search filter for service names.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansSparklineCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -901,6 +946,11 @@ export const TracingSpansSparklineCreateBody = () => zod.object({
         .describe('The sparkline query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const tracingSpansTraceCreatePathTraceIdRegExp = new RegExp('^[a-zA-Z0-9]+$')
 
 export const TracingSpansTraceCreateParams = () => zod.object({
@@ -946,6 +996,11 @@ export const TracingSpansTraceCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansTreeCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -1058,6 +1113,11 @@ export const TracingSpansTreeCreateBody = () => zod.object({
         .describe('The span call-tree aggregation query to execute.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TracingSpansValuesRetrieveParams = () => zod.object({
     project_id: zod
         .string()

@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const sessionRecordingPlaylistsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsCreateBodyDerivedNameMax = 400
@@ -41,6 +46,11 @@ export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
     _create_in_folder: zod.string().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const sessionRecordingPlaylistsUpdateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsUpdateBodyDerivedNameMax = 400
@@ -73,6 +83,11 @@ export const SessionRecordingPlaylistsUpdateBody = /* @__PURE__ */ zod.object({
     _create_in_folder: zod.string().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const sessionRecordingPlaylistsPartialUpdateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsPartialUpdateBodyDerivedNameMax = 400
@@ -105,6 +120,11 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
     _create_in_folder: zod.string().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const sessionRecordingPlaylistsRecordingsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsRecordingsCreateBodyDerivedNameMax = 400
@@ -137,6 +157,11 @@ export const SessionRecordingPlaylistsRecordingsCreateBody = /* @__PURE__ */ zod
     _create_in_folder: zod.string().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingsUpdateBody = /* @__PURE__ */ zod.object({
     person: zod
         .object({
@@ -157,6 +182,11 @@ export const SessionRecordingsUpdateBody = /* @__PURE__ */ zod.object({
         .optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     person: zod
         .object({

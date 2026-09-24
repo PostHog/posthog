@@ -56,6 +56,11 @@ export const ElementsStatsRetrieveQueryParams = () => zod.object({
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -162,6 +167,11 @@ export const InsightsListQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -208,6 +218,11 @@ export const InsightsCreateBody = () => zod
     })
     .describe('Simplified serializer to speed response times when loading large amounts of objects.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsRetrieveParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
@@ -263,6 +278,11 @@ export const InsightsRetrieveQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsPartialUpdateParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])

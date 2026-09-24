@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const McpServerInstallationsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +26,11 @@ export const McpServerInstallationsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const McpServerInstallationsToolsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this mcp server installation.'),
     project_id: zod

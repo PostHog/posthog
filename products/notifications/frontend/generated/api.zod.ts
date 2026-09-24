@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const notificationsArchiveBulkCreateBodyNotificationIdsMax = 500
 
 export const NotificationsArchiveBulkCreateBody = /* @__PURE__ */ zod.object({
@@ -20,6 +25,11 @@ export const NotificationsArchiveBulkCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const notificationsMarkReadBulkCreateBodyNotificationIdsMax = 500
 
 export const NotificationsMarkReadBulkCreateBody = /* @__PURE__ */ zod.object({
@@ -31,6 +41,11 @@ export const NotificationsMarkReadBulkCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const notificationsMarkUnreadBulkCreateBodyNotificationIdsMax = 500
 
 export const NotificationsMarkUnreadBulkCreateBody = /* @__PURE__ */ zod.object({

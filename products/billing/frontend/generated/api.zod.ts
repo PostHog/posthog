@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingActivateCreateBodyPlanMax = 100
 
 export const BillingActivateCreateBody = /* @__PURE__ */ zod.object({
@@ -16,6 +21,11 @@ export const BillingActivateCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingActivateAuthorizeCreateBodyPlanMax = 100
 
 export const BillingActivateAuthorizeCreateBody = /* @__PURE__ */ zod.object({
@@ -23,6 +33,11 @@ export const BillingActivateAuthorizeCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingActivateAuthorizeStatusCreateBodyPlanMax = 100
 
 export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.object({
@@ -30,6 +45,11 @@ export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.obje
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingCouponsClaimCreateBodyPlanMax = 100
 
 export const BillingCouponsClaimCreateBody = /* @__PURE__ */ zod.object({
@@ -37,6 +57,11 @@ export const BillingCouponsClaimCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingCreditsPurchaseCreateBodyPlanMax = 100
 
 export const BillingCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
@@ -44,6 +69,11 @@ export const BillingCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingDeactivateCreateBodyPlanMax = 100
 
 export const BillingDeactivateCreateBody = /* @__PURE__ */ zod.object({
@@ -51,6 +81,11 @@ export const BillingDeactivateCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingLicensePartialUpdateBodyPlanMax = 100
 
 export const BillingLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -58,6 +93,11 @@ export const BillingLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingStartupsApplyCreateBodyPlanMax = 100
 
 export const BillingStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
@@ -65,6 +105,11 @@ export const BillingStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingSubscriptionSwitchPlanCreateBodyPlanMax = 100
 
 export const BillingSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.object({
@@ -72,6 +117,11 @@ export const BillingSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.objec
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingTrialsActivateCreateBodyPlanMax = 100
 
 export const BillingTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
@@ -79,6 +129,11 @@ export const BillingTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingTrialsCancelCreateBodyPlanMax = 100
 
 export const BillingTrialsCancelCreateBody = /* @__PURE__ */ zod.object({
@@ -86,6 +141,11 @@ export const BillingTrialsCancelCreateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsCreateBodyNameMax = 160
 
 export const billingAlertsCreateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
@@ -190,6 +250,11 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsUpdateBodyNameMax = 160
 
 export const billingAlertsUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
@@ -294,6 +359,11 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsPartialUpdateBodyNameMax = 160
 
 export const billingAlertsPartialUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')

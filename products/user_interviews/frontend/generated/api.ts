@@ -541,6 +541,11 @@ export const getUserInterviewsListUrl = (projectId: string, params?: UserIntervi
         : `/api/projects/${projectId}/user_interviews/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const userInterviewsList = async (
     projectId: string,
     params?: UserInterviewsListParams,
@@ -556,6 +561,11 @@ export const getUserInterviewsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/user_interviews/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const userInterviewsCreate = async (
     projectId: string,
     userInterviewApi: NonReadonly<UserInterviewApi>,
@@ -584,6 +594,11 @@ export const getUserInterviewsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const userInterviewsRetrieve = async (
     projectId: string,
     id: string,
@@ -599,6 +614,11 @@ export const getUserInterviewsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const userInterviewsUpdate = async (
     projectId: string,
     id: string,
@@ -628,6 +648,11 @@ export const getUserInterviewsPartialUpdateUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const userInterviewsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -659,6 +684,11 @@ export const getUserInterviewsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const userInterviewsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUserInterviewsDestroyUrl(projectId, id), {
         ...options,

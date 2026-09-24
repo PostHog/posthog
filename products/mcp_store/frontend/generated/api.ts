@@ -786,6 +786,11 @@ export const getMcpServerInstallationsListUrl = (projectId: string, params?: Mcp
         : `/api/projects/${projectId}/mcp_server_installations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsList = async (
     projectId: string,
     params?: McpServerInstallationsListParams,
@@ -801,6 +806,11 @@ export const getMcpServerInstallationsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/mcp_server_installations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsCreate = async (
     projectId: string,
     mCPServerInstallationApi?: NonReadonly<MCPServerInstallationApi>,
@@ -818,6 +828,11 @@ export const getMcpServerInstallationsRetrieveUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/mcp_server_installations/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsRetrieve = async (
     projectId: string,
     id: string,
@@ -833,6 +848,11 @@ export const getMcpServerInstallationsUpdateUrl = (projectId: string, id: string
     return `/api/projects/${projectId}/mcp_server_installations/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsUpdate = async (
     projectId: string,
     id: string,
@@ -851,6 +871,11 @@ export const getMcpServerInstallationsPartialUpdateUrl = (projectId: string, id:
     return `/api/projects/${projectId}/mcp_server_installations/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -869,6 +894,11 @@ export const getMcpServerInstallationsDestroyUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/mcp_server_installations/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsDestroy = async (
     projectId: string,
     id: string,
@@ -909,6 +939,11 @@ export const getMcpServerInstallationsProxyCreateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/mcp_server_installations/${id}/proxy/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsProxyCreate = async (
     projectId: string,
     id: string,
@@ -949,6 +984,11 @@ export const getMcpServerInstallationsToolsRetrieveUrl = (projectId: string, id:
     return `/api/projects/${projectId}/mcp_server_installations/${id}/tools/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsToolsRetrieve = async (
     projectId: string,
     id: string,
@@ -967,6 +1007,11 @@ export const getMcpServerInstallationsToolsPartialUpdateUrl = (projectId: string
     return `/api/projects/${projectId}/mcp_server_installations/${id}/tools/${toolName}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsToolsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -989,6 +1034,11 @@ export const getMcpServerInstallationsToolsRefreshCreateUrl = (projectId: string
     return `/api/projects/${projectId}/mcp_server_installations/${id}/tools/refresh/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsToolsRefreshCreate = async (
     projectId: string,
     id: string,
@@ -1093,6 +1143,11 @@ export const getMcpServerInstallationsInstallCustomCreateUrl = (projectId: strin
     return `/api/projects/${projectId}/mcp_server_installations/install_custom/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsInstallCustomCreate = async (
     projectId: string,
     installCustomApi: InstallCustomApi,
@@ -1113,6 +1168,11 @@ export const getMcpServerInstallationsInstallTemplateCreateUrl = (projectId: str
     return `/api/projects/${projectId}/mcp_server_installations/install_template/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const mcpServerInstallationsInstallTemplateCreate = async (
     projectId: string,
     installTemplateApi: InstallTemplateApi,

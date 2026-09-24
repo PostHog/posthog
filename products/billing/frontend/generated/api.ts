@@ -70,6 +70,11 @@ export const getBillingListUrl = () => {
     return `/api/billing/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingList = async (options?: RequestInit): Promise<BillingOverviewResponseApi> => {
     return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(), {
         ...options,
@@ -81,6 +86,11 @@ export const getBillingActivateCreateUrl = () => {
     return `/api/billing/activate/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingActivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingActivateCreateUrl(), {
         ...options,
@@ -94,6 +104,11 @@ export const getBillingActivateAuthorizeCreateUrl = () => {
     return `/api/billing/activate/authorize/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingActivateAuthorizeCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingActivateAuthorizeCreateUrl(), {
         ...options,
@@ -107,6 +122,11 @@ export const getBillingActivateAuthorizeStatusCreateUrl = () => {
     return `/api/billing/activate/authorize/status/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingActivateAuthorizeStatusCreate = async (
     billingApi: BillingApi,
     options?: RequestInit
@@ -123,6 +143,11 @@ export const getBillingCouponsClaimCreateUrl = () => {
     return `/api/billing/coupons/claim/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingCouponsClaimCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingCouponsClaimCreateUrl(), {
         ...options,
@@ -136,6 +161,11 @@ export const getBillingCouponsOverviewRetrieveUrl = () => {
     return `/api/billing/coupons/overview/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingCouponsOverviewRetrieve = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingCouponsOverviewRetrieveUrl(), {
         ...options,
@@ -147,6 +177,11 @@ export const getBillingCreditsOverviewRetrieveUrl = () => {
     return `/api/billing/credits/overview/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingCreditsOverviewRetrieve = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingCreditsOverviewRetrieveUrl(), {
         ...options,
@@ -158,6 +193,11 @@ export const getBillingCreditsPurchaseCreateUrl = () => {
     return `/api/billing/credits/purchase/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingCreditsPurchaseCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingCreditsPurchaseCreateUrl(), {
         ...options,
@@ -171,6 +211,11 @@ export const getBillingDeactivateCreateUrl = () => {
     return `/api/billing/deactivate/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingDeactivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingDeactivateCreateUrl(), {
         ...options,
@@ -184,6 +229,11 @@ export const getBillingGetInvoicesRetrieveUrl = () => {
     return `/api/billing/get_invoices/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingGetInvoicesRetrieve = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingGetInvoicesRetrieveUrl(), {
         ...options,
@@ -195,6 +245,11 @@ export const getBillingLicensePartialUpdateUrl = () => {
     return `/api/billing/license/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingLicensePartialUpdate = async (
     patchedBillingApi?: PatchedBillingApi,
     options?: RequestInit
@@ -212,6 +267,9 @@ export const getBillingPeriodRetrieveUrl = () => {
 }
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Get the current organization billing period
  */
 export const billingPeriodRetrieve = async (options?: RequestInit): Promise<BillingPeriodResponseApi> => {
@@ -225,6 +283,11 @@ export const getBillingPortalRetrieveUrl = () => {
     return `/api/billing/portal/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingPortalRetrieve = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingPortalRetrieveUrl(), {
         ...options,
@@ -292,6 +355,11 @@ export const getBillingStartupsApplyCreateUrl = () => {
     return `/api/billing/startups/apply/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingStartupsApplyCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingStartupsApplyCreateUrl(), {
         ...options,
@@ -305,6 +373,11 @@ export const getBillingSubscriptionSwitchPlanCreateUrl = () => {
     return `/api/billing/subscription/switch-plan/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingSubscriptionSwitchPlanCreate = async (
     billingApi: BillingApi,
     options?: RequestInit
@@ -321,6 +394,11 @@ export const getBillingTrialsActivateCreateUrl = () => {
     return `/api/billing/trials/activate/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingTrialsActivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingTrialsActivateCreateUrl(), {
         ...options,
@@ -334,6 +412,11 @@ export const getBillingTrialsCancelCreateUrl = () => {
     return `/api/billing/trials/cancel/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingTrialsCancelCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingTrialsCancelCreateUrl(), {
         ...options,
@@ -357,6 +440,11 @@ export const getBillingUsageRetrieveUrl = (params?: BillingUsageRetrieveParams) 
     return stringifiedParams.length > 0 ? `/api/billing/usage/?${stringifiedParams}` : `/api/billing/usage/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingUsageRetrieve = async (
     params?: BillingUsageRetrieveParams,
     options?: RequestInit
@@ -431,6 +519,11 @@ export const getBillingAlertsListUrl = (organizationId: string, params?: Billing
         : `/api/organizations/${organizationId}/billing/alerts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsList = async (
     organizationId: string,
     params?: BillingAlertsListParams,
@@ -446,6 +539,11 @@ export const getBillingAlertsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/alerts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsCreate = async (
     organizationId: string,
     billingAlertConfigurationApi: NonReadonly<BillingAlertConfigurationApi>,
@@ -463,6 +561,11 @@ export const getBillingAlertsRetrieveUrl = (organizationId: string, id: string) 
     return `/api/organizations/${organizationId}/billing/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsRetrieve = async (
     organizationId: string,
     id: string,
@@ -478,6 +581,11 @@ export const getBillingAlertsUpdateUrl = (organizationId: string, id: string) =>
     return `/api/organizations/${organizationId}/billing/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsUpdate = async (
     organizationId: string,
     id: string,
@@ -496,6 +604,11 @@ export const getBillingAlertsPartialUpdateUrl = (organizationId: string, id: str
     return `/api/organizations/${organizationId}/billing/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsPartialUpdate = async (
     organizationId: string,
     id: string,
@@ -514,6 +627,11 @@ export const getBillingAlertsDestroyUrl = (organizationId: string, id: string) =
     return `/api/organizations/${organizationId}/billing/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const billingAlertsDestroy = async (
     organizationId: string,
     id: string,

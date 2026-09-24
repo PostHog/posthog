@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const columnConfigurationsCreateBodyContextKeyMax = 255
 
 export const columnConfigurationsCreateBodyNameMax = 255
@@ -36,6 +41,11 @@ export const ColumnConfigurationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const columnConfigurationsUpdateBodyContextKeyMax = 255
 
 export const columnConfigurationsUpdateBodyNameMax = 255
@@ -63,6 +73,11 @@ export const ColumnConfigurationsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const columnConfigurationsPartialUpdateBodyContextKeyMax = 255
 
 export const columnConfigurationsPartialUpdateBodyNameMax = 255
@@ -90,6 +105,11 @@ export const ColumnConfigurationsPartialUpdateBody = /* @__PURE__ */ zod.object(
         .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const elementsCreateBodyTextMax = 10000
 
 export const elementsCreateBodyTagNameMax = 1000
@@ -121,6 +141,11 @@ export const ElementsCreateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsCreateBodyOrderMin).max(elementsCreateBodyOrderMax).nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const elementsUpdateBodyTextMax = 10000
 
 export const elementsUpdateBodyTagNameMax = 1000
@@ -152,6 +177,11 @@ export const ElementsUpdateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsUpdateBodyOrderMin).max(elementsUpdateBodyOrderMax).nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const elementsPartialUpdateBodyTextMax = 10000
 
 export const elementsPartialUpdateBodyTagNameMax = 1000
@@ -191,14 +221,29 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsPartialUpdateBodyOrderMin).max(elementsPartialUpdateBodyOrderMax).nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
@@ -282,6 +327,11 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsCancelCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')

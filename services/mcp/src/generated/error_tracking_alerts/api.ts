@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const HogFunctionsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -27,6 +32,11 @@ export const HogFunctionsListQueryParams = () => zod.object({
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const HogFunctionsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -281,6 +291,11 @@ export const HogFunctionsCreateBody = () => zod.object({
         .describe('Execution priority for transformations. Lower values run first.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const HogFunctionsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod

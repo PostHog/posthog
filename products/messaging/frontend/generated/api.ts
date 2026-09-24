@@ -68,6 +68,11 @@ export const getMessagingCategoriesListUrl = (projectId: string, params?: Messag
         : `/api/projects/${projectId}/messaging_categories/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesList = async (
     projectId: string,
     params?: MessagingCategoriesListParams,
@@ -83,6 +88,11 @@ export const getMessagingCategoriesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_categories/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
@@ -100,6 +110,11 @@ export const getMessagingCategoriesRetrieveUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/messaging_categories/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesRetrieve = async (
     projectId: string,
     id: string,
@@ -115,6 +130,11 @@ export const getMessagingCategoriesUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/messaging_categories/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesUpdate = async (
     projectId: string,
     id: string,
@@ -133,6 +153,11 @@ export const getMessagingCategoriesPartialUpdateUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/messaging_categories/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -607,6 +632,11 @@ export const getMessagingTemplatesListUrl = (projectId: string, params?: Messagi
         : `/api/projects/${projectId}/messaging_templates/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesList = async (
     projectId: string,
     params?: MessagingTemplatesListParams,
@@ -622,6 +652,11 @@ export const getMessagingTemplatesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_templates/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesCreate = async (
     projectId: string,
     messageTemplateApi: NonReadonly<MessageTemplateApi>,
@@ -639,6 +674,11 @@ export const getMessagingTemplatesRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesRetrieve = async (
     projectId: string,
     id: string,
@@ -654,6 +694,11 @@ export const getMessagingTemplatesUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesUpdate = async (
     projectId: string,
     id: string,
@@ -672,6 +717,11 @@ export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -708,6 +758,11 @@ export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/messaging_templates/${id}/design/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesDesignPartialUpdate = async (
     projectId: string,
     id: string,

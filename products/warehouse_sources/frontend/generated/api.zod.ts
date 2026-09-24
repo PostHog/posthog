@@ -116,6 +116,11 @@ export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.obj
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
@@ -217,6 +222,11 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
@@ -332,6 +342,11 @@ export const ExternalDataSchemasDestinationsPartialUpdateBody = /* @__PURE__ */ 
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 

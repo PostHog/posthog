@@ -49,6 +49,11 @@ export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const insightVariablesCreateBodyNameMax = 400
 
 export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
@@ -76,6 +81,11 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const insightVariablesUpdateBodyNameMax = 400
 
 export const InsightVariablesUpdateBody = /* @__PURE__ */ zod.object({
@@ -103,6 +113,11 @@ export const InsightVariablesUpdateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const insightVariablesPartialUpdateBodyNameMax = 400
 
 export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1078,6 +1093,11 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
     })
     .describe('Body of the `resume_schedules` action.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const warehouseSavedQueryDraftsCreateBodyEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsCreateBody = /* @__PURE__ */ zod.object({
@@ -1091,6 +1111,11 @@ export const WarehouseSavedQueryDraftsCreateBody = /* @__PURE__ */ zod.object({
         .describe('view history id that the draft branched from'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const warehouseSavedQueryDraftsUpdateBodyEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsUpdateBody = /* @__PURE__ */ zod.object({
@@ -1104,6 +1129,11 @@ export const WarehouseSavedQueryDraftsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('view history id that the draft branched from'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const warehouseSavedQueryDraftsPartialUpdateBodyEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1117,6 +1147,11 @@ export const WarehouseSavedQueryDraftsPartialUpdateBody = /* @__PURE__ */ zod.ob
         .describe('view history id that the draft branched from'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const warehouseSavedQueryFoldersCreateBodyNameMax = 128
 
 export const WarehouseSavedQueryFoldersCreateBody = /* @__PURE__ */ zod
@@ -1128,6 +1163,11 @@ export const WarehouseSavedQueryFoldersCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const warehouseSavedQueryFoldersPartialUpdateBodyNameMax = 128
 
 export const WarehouseSavedQueryFoldersPartialUpdateBody = /* @__PURE__ */ zod

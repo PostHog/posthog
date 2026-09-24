@@ -408,6 +408,11 @@ export const UserInterviewTopicsIntervieweesBulkCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const UserInterviewsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -428,6 +433,11 @@ export const UserInterviewsListQueryParams = () => zod.object({
     topic: zod.string().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const UserInterviewsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview.'),
     project_id: zod
@@ -437,6 +447,11 @@ export const UserInterviewsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const UserInterviewsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this user interview.'),
     project_id: zod

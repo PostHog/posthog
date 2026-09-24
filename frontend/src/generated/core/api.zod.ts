@@ -78,6 +78,11 @@ export const CimdVerificationTokensPartialUpdateBody = /* @__PURE__ */ zod
         'Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever\nperforms a null -> value transition: `validate` rejects any instance whose `cimd_url`\nis already set, so an existing binding can never be re-pointed through this endpoint.'
     )
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const domainsCreateBodyDomainMax = 128
 
 export const domainsCreateBodySsoEnforcementMax = 28
@@ -88,6 +93,11 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const domainsUpdateBodyDomainMax = 128
 
 export const domainsUpdateBodySsoEnforcementMax = 28
@@ -98,6 +108,11 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const domainsPartialUpdateBodyDomainMax = 128
 
 export const domainsPartialUpdateBodySsoEnforcementMax = 28
@@ -108,6 +123,11 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const domainsVerifyCreateBodyDomainMax = 128
 
 export const domainsVerifyCreateBodySsoEnforcementMax = 28
@@ -118,6 +138,11 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const identityProviderConfigsCreateBodyNameMax = 255
 
 export const identityProviderConfigsCreateBodyOidcIssuerUrlOneMax = 512
@@ -222,6 +247,11 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const identityProviderConfigsUpdateBodyNameMax = 255
 
 export const identityProviderConfigsUpdateBodyOidcIssuerUrlOneMax = 512
@@ -326,6 +356,11 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const identityProviderConfigsPartialUpdateBodyNameMax = 255
 
 export const identityProviderConfigsPartialUpdateBodyOidcIssuerUrlOneMax = 512
@@ -430,6 +465,11 @@ export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.obje
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const invitesCreateBodyTargetEmailMax = 254
 
 export const invitesCreateBodyFirstNameMax = 30
@@ -453,6 +493,11 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
     combine_pending_invites: zod.boolean().default(invitesCreateBodyCombinePendingInvitesDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const invitesBulkCreateBodyTargetEmailMax = 254
 
 export const invitesBulkCreateBodyFirstNameMax = 30
@@ -654,6 +699,11 @@ export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .object({
         enabled: zod.boolean().optional(),
@@ -662,6 +712,11 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),
@@ -687,6 +742,11 @@ export const ExportsCreateBody = /* @__PURE__ */ zod
     })
     .describe("Standard ExportedAsset serializer that doesn't return content.")
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemCreateBodyTypeMax = 100
 
 export const fileSystemCreateBodyRefMax = 100
@@ -700,6 +760,11 @@ export const FileSystemCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemUpdateBodyTypeMax = 100
 
 export const fileSystemUpdateBodyRefMax = 100
@@ -713,6 +778,11 @@ export const FileSystemUpdateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemPartialUpdateBodyTypeMax = 100
 
 export const fileSystemPartialUpdateBodyRefMax = 100
@@ -742,6 +812,11 @@ export const FileSystemCountCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemLinkCreateBodyTypeMax = 100
 
 export const fileSystemLinkCreateBodyRefMax = 100
@@ -755,6 +830,11 @@ export const FileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemMoveCreateBodyTypeMax = 100
 
 export const fileSystemMoveCreateBodyRefMax = 100
@@ -784,6 +864,11 @@ export const FileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemLogViewCreateBodyTypeMax = 100
 
 export const fileSystemLogViewCreateBodyRefMax = 100
@@ -797,6 +882,11 @@ export const FileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemUndoDeleteCreateBodyTypeMax = 100
 
 export const fileSystemUndoDeleteCreateBodyRefMax = 100
@@ -810,6 +900,11 @@ export const FileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemShortcutCreateBodyTypeMax = 100
 
 export const fileSystemShortcutCreateBodyRefMax = 4000
@@ -841,6 +936,11 @@ export const FileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
         .describe("Display order within the user's shortcut list, ascending."),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemShortcutUpdateBodyTypeMax = 100
 
 export const fileSystemShortcutUpdateBodyRefMax = 4000
@@ -872,6 +972,11 @@ export const FileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
         .describe("Display order within the user's shortcut list, ascending."),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const fileSystemShortcutPartialUpdateBodyTypeMax = 100
 
 export const fileSystemShortcutPartialUpdateBodyRefMax = 4000
@@ -921,6 +1026,11 @@ export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .object({
         enabled: zod.boolean().optional(),
@@ -940,6 +1050,11 @@ export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod
     .object({
         enabled: zod.boolean().optional(),
@@ -947,6 +1062,12 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod
         password_required: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 
 export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
     products: zod
@@ -961,6 +1082,11 @@ export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
         .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const projectSecretApiKeysCreateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysCreateBody = /* @__PURE__ */ zod.object({
@@ -972,6 +1098,11 @@ export const ProjectSecretApiKeysCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const projectSecretApiKeysUpdateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysUpdateBody = /* @__PURE__ */ zod.object({
@@ -983,6 +1114,11 @@ export const ProjectSecretApiKeysUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const projectSecretApiKeysPartialUpdateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -995,6 +1131,11 @@ export const ProjectSecretApiKeysPartialUpdateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().nullish(),
@@ -1015,6 +1156,11 @@ export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().nullish(),
@@ -1088,6 +1234,11 @@ export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .object({
         enabled: zod.boolean().optional(),

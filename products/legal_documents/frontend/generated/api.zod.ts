@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const legalDocumentsCreateBodyCompanyNameMax = 255
 
 export const legalDocumentsCreateBodyCompanyAddressMax = 512

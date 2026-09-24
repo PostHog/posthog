@@ -49,6 +49,11 @@ export const getEarlyAccessFeatureListUrl = (projectId: string, params?: EarlyAc
         : `/api/projects/${projectId}/early_access_feature/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const earlyAccessFeatureList = async (
     projectId: string,
     params?: EarlyAccessFeatureListParams,
@@ -64,6 +69,11 @@ export const getEarlyAccessFeatureCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/early_access_feature/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const earlyAccessFeatureCreate = async (
     projectId: string,
     earlyAccessFeatureSerializerCreateOnlyApi: NonReadonly<EarlyAccessFeatureSerializerCreateOnlyApi>,
@@ -81,6 +91,11 @@ export const getEarlyAccessFeatureRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/early_access_feature/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const earlyAccessFeatureRetrieve = async (
     projectId: string,
     id: string,
@@ -96,6 +111,11 @@ export const getEarlyAccessFeatureUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/early_access_feature/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const earlyAccessFeatureUpdate = async (
     projectId: string,
     id: string,
@@ -114,6 +134,11 @@ export const getEarlyAccessFeaturePartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/early_access_feature/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const earlyAccessFeaturePartialUpdate = async (
     projectId: string,
     id: string,
@@ -132,6 +157,11 @@ export const getEarlyAccessFeatureDestroyUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/early_access_feature/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const earlyAccessFeatureDestroy = async (
     projectId: string,
     id: string,

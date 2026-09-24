@@ -243,6 +243,11 @@ export const getExternalDataSchemasListUrl = (projectId: string, params?: Extern
         : `/api/projects/${projectId}/external_data_schemas/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasList = async (
     projectId: string,
     params?: ExternalDataSchemasListParams,
@@ -258,6 +263,11 @@ export const getExternalDataSchemasRetrieveUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/external_data_schemas/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasRetrieve = async (
     projectId: string,
     id: string,
@@ -273,6 +283,11 @@ export const getExternalDataSchemasUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/external_data_schemas/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasUpdate = async (
     projectId: string,
     id: string,
@@ -291,6 +306,11 @@ export const getExternalDataSchemasPartialUpdateUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/external_data_schemas/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasPartialUpdate = async (
     projectId: string,
     id: string,
@@ -309,6 +329,11 @@ export const getExternalDataSchemasDestroyUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/external_data_schemas/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasDestroy = async (
     projectId: string,
     id: string,
@@ -324,6 +349,11 @@ export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/external_data_schemas/${id}/cancel/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
@@ -339,6 +369,11 @@ export const getExternalDataSchemasDeleteDataDestroyUrl = (projectId: string, id
     return `/api/projects/${projectId}/external_data_schemas/${id}/delete_data/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasDeleteDataDestroy = async (
     projectId: string,
     id: string,
@@ -397,6 +432,11 @@ export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: stri
     return `/api/projects/${projectId}/external_data_schemas/${id}/incremental_fields/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasIncrementalFieldsCreate = async (
     projectId: string,
     id: string,
@@ -431,6 +471,11 @@ export const getExternalDataSchemasLogsRetrieveUrl = (
         : `/api/projects/${projectId}/external_data_schemas/${id}/logs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const externalDataSchemasLogsRetrieve = async (
     projectId: string,
     id: string,

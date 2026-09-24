@@ -31,6 +31,11 @@ export const CohortsStaffRecalculateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Cohort ids to force-recalculate (max 10 per request).'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const cohortsCreateBodyNameMax = 400
 
 export const cohortsCreateBodyDescriptionMax = 1000
@@ -73,6 +78,11 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
     _create_static_person_ids: zod.array(zod.string()).default(cohortsCreateBodyCreateStaticPersonIdsDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const cohortsUpdateBodyNameMax = 400
 
 export const cohortsUpdateBodyDescriptionMax = 1000
@@ -115,6 +125,11 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
     _create_static_person_ids: zod.array(zod.string()).default(cohortsUpdateBodyCreateStaticPersonIdsDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const cohortsPartialUpdateBodyNameMax = 400
 
 export const cohortsPartialUpdateBodyDescriptionMax = 1000
@@ -157,10 +172,20 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
     _create_static_person_ids: zod.array(zod.string()).default(cohortsPartialUpdateBodyCreateStaticPersonIdsDefault),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const CohortsAddPersonsToStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
     person_ids: zod.array(zod.uuid()).optional().describe('List of person UUIDs to add to the cohort'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
     person_id: zod.uuid().optional().describe('Person UUID to remove from the cohort'),
 })

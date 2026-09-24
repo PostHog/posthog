@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const FeatureFlagsCopyFlagsCreateParams = () => zod.object({
     organization_id: zod
         .string()
@@ -46,6 +51,11 @@ export const FeatureFlagsCopyFlagsCreateBody = () => zod.object({
         .describe('Whether to also copy missing feature flags that this flag depends on'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const FeatureFlagsCopyFlagsDependencyRequirementsCreateParams = () => zod.object({
     organization_id: zod
         .string()

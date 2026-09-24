@@ -429,6 +429,11 @@ export const DatasetsRevisionsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationDirectoriesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -437,6 +442,11 @@ export const EvaluationDirectoriesListParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationDirectoriesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -454,6 +464,11 @@ export const EvaluationDirectoriesCreateBody = () => zod.object({
         .describe('Directory name shown in the online evals list.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationDirectoriesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation directory.'),
     project_id: zod
@@ -463,6 +478,11 @@ export const EvaluationDirectoriesRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationDirectoriesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation directory.'),
     project_id: zod
@@ -482,6 +502,11 @@ export const EvaluationDirectoriesPartialUpdateBody = () => zod.object({
         .describe('Directory name shown in the online evals list.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationDirectoriesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation directory.'),
     project_id: zod
@@ -520,6 +545,11 @@ export const EvaluationRunsCreateBody = () => zod.object({
     distinct_id: zod.string().nullish().describe('Distinct ID of the event (optional, improves lookup performance).'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -550,6 +580,11 @@ export const EvaluationsListQueryParams = () => zod.object({
     search: zod.string().optional().describe('Search in name or description'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -786,6 +821,11 @@ export const EvaluationsCreateBody = () => zod
     })
     .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
@@ -795,6 +835,11 @@ export const EvaluationsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EvaluationsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
@@ -1572,6 +1617,11 @@ export const LlmAnalyticsModelsRetrieveQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsProviderKeysListParams = () => zod.object({
     project_id: zod
         .string()
@@ -1585,6 +1635,11 @@ export const LlmAnalyticsProviderKeysListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsProviderKeysRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this llm provider key.'),
     project_id: zod
@@ -1594,6 +1649,11 @@ export const LlmAnalyticsProviderKeysRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueueItemsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -1612,6 +1672,11 @@ export const LlmAnalyticsReviewQueueItemsListQueryParams = () => zod.object({
     trace_id__in: zod.string().optional().describe('Filter by multiple trace IDs separated by commas.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueueItemsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -1630,6 +1695,11 @@ export const LlmAnalyticsReviewQueueItemsCreateBody = () => zod.object({
         .describe('Trace ID to add to the selected review queue.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueueItemsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
@@ -1639,6 +1709,11 @@ export const LlmAnalyticsReviewQueueItemsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueueItemsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
@@ -1652,6 +1727,11 @@ export const LlmAnalyticsReviewQueueItemsPartialUpdateBody = () => zod.object({
     queue_id: zod.string().optional().describe('Review queue ID that should own this pending trace.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueueItemsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
@@ -1661,6 +1741,11 @@ export const LlmAnalyticsReviewQueueItemsDestroyParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueuesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -1677,6 +1762,11 @@ export const LlmAnalyticsReviewQueuesListQueryParams = () => zod.object({
     search: zod.string().optional().describe('Search review queue names.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueuesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -1691,6 +1781,11 @@ export const LlmAnalyticsReviewQueuesCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsReviewQueuesCreateBodyNameMax).describe('Human-readable queue name.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueuesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
@@ -1700,6 +1795,11 @@ export const LlmAnalyticsReviewQueuesRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueuesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
@@ -1719,6 +1819,11 @@ export const LlmAnalyticsReviewQueuesPartialUpdateBody = () => zod.object({
         .describe('Human-readable queue name.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsReviewQueuesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
@@ -1728,6 +1833,11 @@ export const LlmAnalyticsReviewQueuesDestroyParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsScoreDefinitionsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -1745,6 +1855,11 @@ export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     search: zod.string().optional().describe('Search scorers by name or description.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsScoreDefinitionsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -1830,6 +1945,11 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
         .describe('Initial immutable scorer configuration.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsScoreDefinitionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
@@ -1839,6 +1959,11 @@ export const LlmAnalyticsScoreDefinitionsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
@@ -1860,6 +1985,11 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
@@ -2018,6 +2148,11 @@ export const LlmAnalyticsSummarizationCreateBody = () => zod.object({
     date_to: zod.string().nullish().describe('End of date range for ID-based lookup. Defaults to now.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsTraceReviewsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -2040,6 +2175,11 @@ export const LlmAnalyticsTraceReviewsListQueryParams = () => zod.object({
     trace_id__in: zod.string().optional().describe('Filter by multiple trace IDs separated by commas.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsTraceReviewsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -2090,6 +2230,11 @@ export const LlmAnalyticsTraceReviewsCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsTraceReviewsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
@@ -2099,6 +2244,11 @@ export const LlmAnalyticsTraceReviewsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsTraceReviewsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
@@ -2155,6 +2305,11 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmAnalyticsTraceReviewsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
@@ -2164,6 +2319,11 @@ export const LlmAnalyticsTraceReviewsDestroyParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmPromptsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -2213,6 +2373,11 @@ export const LlmPromptsListQueryParams = () => zod.object({
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const LlmPromptsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -2244,6 +2409,11 @@ export const LlmPromptsCreateBody = () => zod.object({
         .describe('Optional note describing what changed in this version. Set when the version is published.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmPromptsNameRetrieveParams = () => zod.object({
@@ -2288,6 +2458,11 @@ export const LlmPromptsNameRetrieveQueryParams = () => zod.object({
         .describe('Specific prompt version to fetch. If omitted, the latest version is returned.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNamePartialUpdatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmPromptsNamePartialUpdateParams = () => zod.object({
@@ -2335,6 +2510,11 @@ export const LlmPromptsNamePartialUpdateBody = () => zod.object({
         .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameDuplicateCreatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmPromptsNameDuplicateCreateParams = () => zod.object({
@@ -2357,6 +2537,11 @@ export const LlmPromptsNameDuplicateCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameLabelsUpdatePathLabelNameRegExp = new RegExp('^[^\/]+$')
 export const llmPromptsNameLabelsUpdatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
@@ -2379,6 +2564,11 @@ export const LlmPromptsNameLabelsUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameLabelsDestroyPathLabelNameRegExp = new RegExp('^[^\/]+$')
 export const llmPromptsNameLabelsDestroyPathPromptNameRegExp = new RegExp('^[^\/]+$')
 
@@ -2392,6 +2582,11 @@ export const LlmPromptsNameLabelsDestroyParams = () => zod.object({
     prompt_name: zod.string().regex(llmPromptsNameLabelsDestroyPathPromptNameRegExp),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TaggersListParams = () => zod.object({
     project_id: zod
         .string()
@@ -2414,6 +2609,11 @@ export const TaggersListQueryParams = () => zod.object({
     search: zod.string().optional().describe('Search in name or description'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const TaggersCreateParams = () => zod.object({
     project_id: zod
         .string()

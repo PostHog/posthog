@@ -153,6 +153,11 @@ export const getErrorTrackingAlertsListUrl = (projectId: string, params?: ErrorT
         : `/api/projects/${projectId}/error_tracking/alerts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAlertsList = async (
     projectId: string,
     params?: ErrorTrackingAlertsListParams,
@@ -168,6 +173,11 @@ export const getErrorTrackingAlertsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/alerts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAlertsCreate = async (
     projectId: string,
     errorTrackingAlertCreateRequestApi: NonReadonly<ErrorTrackingAlertCreateRequestApi>,
@@ -185,6 +195,11 @@ export const getErrorTrackingAlertsRetrieveUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAlertsRetrieve = async (
     projectId: string,
     id: string,
@@ -200,6 +215,11 @@ export const getErrorTrackingAlertsUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAlertsUpdate = async (
     projectId: string,
     id: string,
@@ -218,6 +238,11 @@ export const getErrorTrackingAlertsPartialUpdateUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAlertsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -236,6 +261,11 @@ export const getErrorTrackingAlertsDestroyUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAlertsDestroy = async (
     projectId: string,
     id: string,
@@ -266,6 +296,11 @@ export const getErrorTrackingAssignmentRulesListUrl = (
         : `/api/projects/${projectId}/error_tracking/assignment_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAssignmentRulesList = async (
     projectId: string,
     params?: ErrorTrackingAssignmentRulesListParams,
@@ -284,6 +319,11 @@ export const getErrorTrackingAssignmentRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/assignment_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAssignmentRulesCreate = async (
     projectId: string,
     errorTrackingAssignmentRuleCreateRequestApi: ErrorTrackingAssignmentRuleCreateRequestApi,
@@ -301,6 +341,11 @@ export const getErrorTrackingAssignmentRulesRetrieveUrl = (projectId: string, id
     return `/api/projects/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAssignmentRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -316,6 +361,11 @@ export const getErrorTrackingAssignmentRulesUpdateUrl = (projectId: string, id: 
     return `/api/projects/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAssignmentRulesUpdate = async (
     projectId: string,
     id: string,
@@ -334,6 +384,11 @@ export const getErrorTrackingAssignmentRulesPartialUpdateUrl = (projectId: strin
     return `/api/projects/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAssignmentRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -352,6 +407,11 @@ export const getErrorTrackingAssignmentRulesDestroyUrl = (projectId: string, id:
     return `/api/projects/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAssignmentRulesDestroy = async (
     projectId: string,
     id: string,
@@ -367,6 +427,11 @@ export const getErrorTrackingAssignmentRulesReorderPartialUpdateUrl = (projectId
     return `/api/projects/${projectId}/error_tracking/assignment_rules/reorder/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingAssignmentRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingAssignmentRuleReorderRequestApi?: PatchedErrorTrackingAssignmentRuleReorderRequestApi,
@@ -396,6 +461,11 @@ export const getErrorTrackingBypassRulesListUrl = (projectId: string, params?: E
         : `/api/projects/${projectId}/error_tracking/bypass_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingBypassRulesList = async (
     projectId: string,
     params?: ErrorTrackingBypassRulesListParams,
@@ -411,6 +481,11 @@ export const getErrorTrackingBypassRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/bypass_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingBypassRulesCreate = async (
     projectId: string,
     errorTrackingBypassRuleCreateRequestApi: ErrorTrackingBypassRuleCreateRequestApi,
@@ -428,6 +503,11 @@ export const getErrorTrackingBypassRulesRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingBypassRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -443,6 +523,11 @@ export const getErrorTrackingBypassRulesUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingBypassRulesUpdate = async (
     projectId: string,
     id: string,
@@ -461,6 +546,11 @@ export const getErrorTrackingBypassRulesPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingBypassRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -479,6 +569,11 @@ export const getErrorTrackingBypassRulesDestroyUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingBypassRulesDestroy = async (
     projectId: string,
     id: string,
@@ -494,6 +589,11 @@ export const getErrorTrackingBypassRulesReorderPartialUpdateUrl = (projectId: st
     return `/api/projects/${projectId}/error_tracking/bypass_rules/reorder/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingBypassRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingBypassRuleReorderRequestApi?: PatchedErrorTrackingBypassRuleReorderRequestApi,
@@ -526,6 +626,11 @@ export const getErrorTrackingExternalReferencesListUrl = (
         : `/api/projects/${projectId}/error_tracking/external_references/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingExternalReferencesList = async (
     projectId: string,
     params?: ErrorTrackingExternalReferencesListParams,
@@ -544,6 +649,11 @@ export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) =
     return `/api/projects/${projectId}/error_tracking/external_references/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingExternalReferencesCreate = async (
     projectId: string,
     errorTrackingExternalReferenceCreateApi: NonReadonly<ErrorTrackingExternalReferenceCreateApi>,
@@ -561,6 +671,11 @@ export const getErrorTrackingExternalReferencesRetrieveUrl = (projectId: string,
     return `/api/projects/${projectId}/error_tracking/external_references/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingExternalReferencesRetrieve = async (
     projectId: string,
     id: string,
@@ -671,6 +786,11 @@ export const getErrorTrackingFingerprintsListUrl = (
         : `/api/projects/${projectId}/error_tracking/fingerprints/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingFingerprintsList = async (
     projectId: string,
     params?: ErrorTrackingFingerprintsListParams,
@@ -689,6 +809,11 @@ export const getErrorTrackingFingerprintsRetrieveUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/error_tracking/fingerprints/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingFingerprintsRetrieve = async (
     projectId: string,
     id: string,
@@ -737,6 +862,11 @@ export const getErrorTrackingFingerprintsResolveRetrieveUrl = (
         : `/api/projects/${projectId}/error_tracking/fingerprints/resolve/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingFingerprintsResolveRetrieve = async (
     projectId: string,
     params: ErrorTrackingFingerprintsResolveRetrieveParams,
@@ -767,6 +897,11 @@ export const getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (
         : `/api/projects/${projectId}/error_tracking/git-provider-file-links/resolve_github/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGitProviderFileLinksResolveGithubRetrieve = async (
     projectId: string,
     params: ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams,
@@ -800,6 +935,11 @@ export const getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (
         : `/api/projects/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
     projectId: string,
     params: ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams,
@@ -818,6 +958,11 @@ export const getErrorTrackingGroupingRulesListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/grouping_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGroupingRulesList = async (
     projectId: string,
     options?: RequestInit
@@ -832,6 +977,11 @@ export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/grouping_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGroupingRulesCreate = async (
     projectId: string,
     errorTrackingGroupingRuleCreateRequestApi: ErrorTrackingGroupingRuleCreateRequestApi,
@@ -849,6 +999,11 @@ export const getErrorTrackingGroupingRulesRetrieveUrl = (projectId: string, id: 
     return `/api/projects/${projectId}/error_tracking/grouping_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGroupingRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -864,6 +1019,11 @@ export const getErrorTrackingGroupingRulesUpdateUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/error_tracking/grouping_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGroupingRulesUpdate = async (
     projectId: string,
     id: string,
@@ -882,6 +1042,11 @@ export const getErrorTrackingGroupingRulesPartialUpdateUrl = (projectId: string,
     return `/api/projects/${projectId}/error_tracking/grouping_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGroupingRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -900,6 +1065,11 @@ export const getErrorTrackingGroupingRulesDestroyUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/error_tracking/grouping_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGroupingRulesDestroy = async (
     projectId: string,
     id: string,
@@ -915,6 +1085,11 @@ export const getErrorTrackingGroupingRulesReorderPartialUpdateUrl = (projectId: 
     return `/api/projects/${projectId}/error_tracking/grouping_rules/reorder/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingGroupingRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingGroupingRuleReorderRequestApi?: PatchedErrorTrackingGroupingRuleReorderRequestApi,
@@ -944,6 +1119,11 @@ export const getErrorTrackingIssuesListUrl = (projectId: string, params?: ErrorT
         : `/api/projects/${projectId}/error_tracking/issues/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesList = async (
     projectId: string,
     params?: ErrorTrackingIssuesListParams,
@@ -975,6 +1155,11 @@ export const getErrorTrackingIssuesRetrieveUrl = (
         : `/api/projects/${projectId}/error_tracking/issues/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesRetrieve = async (
     projectId: string,
     id: string,
@@ -991,6 +1176,11 @@ export const getErrorTrackingIssuesUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/error_tracking/issues/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesUpdate = async (
     projectId: string,
     id: string,
@@ -1009,6 +1199,11 @@ export const getErrorTrackingIssuesPartialUpdateUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/error_tracking/issues/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1045,6 +1240,11 @@ export const getErrorTrackingIssuesActivityRetrieveUrl = (projectId: string, id:
     return `/api/projects/${projectId}/error_tracking/issues/${id}/activity/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesActivityRetrieve = async (
     projectId: string,
     id: string,
@@ -1060,6 +1260,11 @@ export const getErrorTrackingIssuesAssignPartialUpdateUrl = (projectId: string, 
     return `/api/projects/${projectId}/error_tracking/issues/${id}/assign/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesAssignPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1081,6 +1286,11 @@ export const getErrorTrackingIssuesCohortUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/error_tracking/issues/${id}/cohort/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesCohortUpdate = async (
     projectId: string,
     id: string,
@@ -1099,6 +1309,11 @@ export const getErrorTrackingIssuesMergeCreateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/error_tracking/issues/${id}/merge/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesMergeCreate = async (
     projectId: string,
     id: string,
@@ -1117,6 +1332,11 @@ export const getErrorTrackingIssuesSplitCreateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/error_tracking/issues/${id}/split/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesSplitCreate = async (
     projectId: string,
     id: string,
@@ -1135,6 +1355,11 @@ export const getErrorTrackingIssuesAllActivityRetrieveUrl = (projectId: string) 
     return `/api/projects/${projectId}/error_tracking/issues/activity/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesAllActivityRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -1149,6 +1374,11 @@ export const getErrorTrackingIssuesBulkCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/issues/bulk/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesBulkCreate = async (
     projectId: string,
     errorTrackingIssueBulkRequestApi: ErrorTrackingIssueBulkRequestApi,
@@ -1166,6 +1396,11 @@ export const getErrorTrackingIssuesExistsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/issues/exists/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesExistsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -1195,6 +1430,11 @@ export const getErrorTrackingIssuesValuesRetrieveUrl = (
         : `/api/projects/${projectId}/error_tracking/issues/values/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingIssuesValuesRetrieve = async (
     projectId: string,
     params: ErrorTrackingIssuesValuesRetrieveParams,
@@ -1288,6 +1528,11 @@ export const getErrorTrackingRecommendationsListUrl = (
         : `/api/projects/${projectId}/error_tracking/recommendations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingRecommendationsList = async (
     projectId: string,
     params?: ErrorTrackingRecommendationsListParams,
@@ -1306,6 +1551,11 @@ export const getErrorTrackingRecommendationsDismissCreateUrl = (projectId: strin
     return `/api/projects/${projectId}/error_tracking/recommendations/${id}/dismiss/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingRecommendationsDismissCreate = async (
     projectId: string,
     id: string,
@@ -1337,6 +1587,11 @@ export const getErrorTrackingRecommendationsRefreshCreateUrl = (
         : `/api/projects/${projectId}/error_tracking/recommendations/${id}/refresh/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingRecommendationsRefreshCreate = async (
     projectId: string,
     id: string,
@@ -1356,6 +1611,11 @@ export const getErrorTrackingRecommendationsRestoreCreateUrl = (projectId: strin
     return `/api/projects/${projectId}/error_tracking/recommendations/${id}/restore/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingRecommendationsRestoreCreate = async (
     projectId: string,
     id: string,
@@ -1383,6 +1643,11 @@ export const getErrorTrackingReleasesListUrl = (projectId: string, params?: Erro
         : `/api/projects/${projectId}/error_tracking/releases/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingReleasesList = async (
     projectId: string,
     params?: ErrorTrackingReleasesListParams,
@@ -1398,6 +1663,11 @@ export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/releases/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingReleasesCreate = async (
     projectId: string,
     errorTrackingReleaseCreateRequestApi: ErrorTrackingReleaseCreateRequestApi,
@@ -1415,6 +1685,11 @@ export const getErrorTrackingReleasesRetrieveUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingReleasesRetrieve = async (
     projectId: string,
     id: string,
@@ -1430,6 +1705,11 @@ export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingReleasesUpdate = async (
     projectId: string,
     id: string,
@@ -1448,6 +1728,11 @@ export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: 
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingReleasesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1466,6 +1751,11 @@ export const getErrorTrackingReleasesDestroyUrl = (projectId: string, id: string
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingReleasesDestroy = async (
     projectId: string,
     id: string,
@@ -1481,6 +1771,11 @@ export const getErrorTrackingReleasesHashRetrieveUrl = (projectId: string, hashI
     return `/api/projects/${projectId}/error_tracking/releases/hash/${hashId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingReleasesHashRetrieve = async (
     projectId: string,
     hashId: string,
@@ -1496,6 +1791,11 @@ export const getErrorTrackingSettingsRetrieveSettingsRetrieveUrl = (projectId: s
     return `/api/projects/${projectId}/error_tracking/settings/retrieve_settings/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSettingsRetrieveSettingsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -1510,6 +1810,11 @@ export const getErrorTrackingSettingsUpdateSettingsPartialUpdateUrl = (projectId
     return `/api/projects/${projectId}/error_tracking/settings/update_settings/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSettingsUpdateSettingsPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingSettingsApi?: PatchedErrorTrackingSettingsApi,
@@ -1527,6 +1832,11 @@ export const getErrorTrackingSeverityRulesListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/severity_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSeverityRulesList = async (
     projectId: string,
     options?: RequestInit
@@ -1541,6 +1851,11 @@ export const getErrorTrackingSeverityRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/severity_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSeverityRulesCreate = async (
     projectId: string,
     errorTrackingSeverityRuleCreateRequestApi: ErrorTrackingSeverityRuleCreateRequestApi,
@@ -1558,6 +1873,11 @@ export const getErrorTrackingSeverityRulesRetrieveUrl = (projectId: string, id: 
     return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSeverityRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -1573,6 +1893,11 @@ export const getErrorTrackingSeverityRulesUpdateUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSeverityRulesUpdate = async (
     projectId: string,
     id: string,
@@ -1591,6 +1916,11 @@ export const getErrorTrackingSeverityRulesPartialUpdateUrl = (projectId: string,
     return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSeverityRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1609,6 +1939,11 @@ export const getErrorTrackingSeverityRulesDestroyUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSeverityRulesDestroy = async (
     projectId: string,
     id: string,
@@ -1624,6 +1959,11 @@ export const getErrorTrackingSeverityRulesReorderPartialUpdateUrl = (projectId: 
     return `/api/projects/${projectId}/error_tracking/severity_rules/reorder/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSeverityRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingSeverityRuleReorderRequestApi?: PatchedErrorTrackingSeverityRuleReorderRequestApi,
@@ -1641,6 +1981,11 @@ export const getErrorTrackingSpikeDetectionConfigListUrl = (projectId: string) =
     return `/api/projects/${projectId}/error_tracking/spike_detection_config/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSpikeDetectionConfigList = async (
     projectId: string,
     options?: RequestInit
@@ -1655,6 +2000,11 @@ export const getErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateUrl = 
     return `/api/projects/${projectId}/error_tracking/spike_detection_config/update_config/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingSpikeDetectionConfigApi?: PatchedErrorTrackingSpikeDetectionConfigApi,
@@ -1687,6 +2037,11 @@ export const getErrorTrackingSpikeEventsListUrl = (projectId: string, params?: E
         : `/api/projects/${projectId}/error_tracking/spike_events/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSpikeEventsList = async (
     projectId: string,
     params?: ErrorTrackingSpikeEventsListParams,
@@ -1714,6 +2069,11 @@ export const getErrorTrackingStackFramesListUrl = (projectId: string, params?: E
         : `/api/projects/${projectId}/error_tracking/stack_frames/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingStackFramesList = async (
     projectId: string,
     params?: ErrorTrackingStackFramesListParams,
@@ -1729,6 +2089,11 @@ export const getErrorTrackingStackFramesRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/error_tracking/stack_frames/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingStackFramesRetrieve = async (
     projectId: string,
     id: string,
@@ -1762,6 +2127,11 @@ export const getErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) 
     return `/api/projects/${projectId}/error_tracking/stack_frames/batch_get/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingStackFramesBatchGetCreate = async (
     projectId: string,
     errorTrackingStackFrameBatchGetRequestApi: ErrorTrackingStackFrameBatchGetRequestApi,
@@ -1797,6 +2167,11 @@ export const getErrorTrackingSuppressionRulesListUrl = (
         : `/api/projects/${projectId}/error_tracking/suppression_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSuppressionRulesList = async (
     projectId: string,
     params?: ErrorTrackingSuppressionRulesListParams,
@@ -1815,6 +2190,11 @@ export const getErrorTrackingSuppressionRulesCreateUrl = (projectId: string) => 
     return `/api/projects/${projectId}/error_tracking/suppression_rules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSuppressionRulesCreate = async (
     projectId: string,
     errorTrackingSuppressionRuleCreateRequestApi?: ErrorTrackingSuppressionRuleCreateRequestApi,
@@ -1832,6 +2212,11 @@ export const getErrorTrackingSuppressionRulesRetrieveUrl = (projectId: string, i
     return `/api/projects/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSuppressionRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -1847,6 +2232,11 @@ export const getErrorTrackingSuppressionRulesUpdateUrl = (projectId: string, id:
     return `/api/projects/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSuppressionRulesUpdate = async (
     projectId: string,
     id: string,
@@ -1865,6 +2255,11 @@ export const getErrorTrackingSuppressionRulesPartialUpdateUrl = (projectId: stri
     return `/api/projects/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSuppressionRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1883,6 +2278,11 @@ export const getErrorTrackingSuppressionRulesDestroyUrl = (projectId: string, id
     return `/api/projects/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSuppressionRulesDestroy = async (
     projectId: string,
     id: string,
@@ -1898,6 +2298,11 @@ export const getErrorTrackingSuppressionRulesReorderPartialUpdateUrl = (projectI
     return `/api/projects/${projectId}/error_tracking/suppression_rules/reorder/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSuppressionRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingSuppressionRuleReorderRequestApi?: PatchedErrorTrackingSuppressionRuleReorderRequestApi,
@@ -1927,6 +2332,11 @@ export const getErrorTrackingSymbolSetsListUrl = (projectId: string, params?: Er
         : `/api/projects/${projectId}/error_tracking/symbol_sets/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSymbolSetsList = async (
     projectId: string,
     params?: ErrorTrackingSymbolSetsListParams,
@@ -1942,6 +2352,11 @@ export const getErrorTrackingSymbolSetsRetrieveUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSymbolSetsRetrieve = async (
     projectId: string,
     id: string,
@@ -1957,6 +2372,11 @@ export const getErrorTrackingSymbolSetsDestroyUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSymbolSetsDestroy = async (
     projectId: string,
     id: string,
@@ -1990,6 +2410,11 @@ export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: strin
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/finish_upload/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSymbolSetsFinishUploadUpdate = async (
     projectId: string,
     id: string,
@@ -2031,6 +2456,11 @@ export const getErrorTrackingSymbolSetsBulkDeleteCreateUrl = (projectId: string)
     return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_delete/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSymbolSetsBulkDeleteCreate = async (
     projectId: string,
     errorTrackingSymbolSetBulkDeleteApi: ErrorTrackingSymbolSetBulkDeleteApi,
@@ -2048,6 +2478,11 @@ export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: s
     return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_finish_upload/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSymbolSetsBulkFinishUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetBulkFinishUploadApi: ErrorTrackingSymbolSetBulkFinishUploadApi,
@@ -2065,6 +2500,11 @@ export const getErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: st
     return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_start_upload/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetBulkStartUploadApi?: ErrorTrackingSymbolSetBulkStartUploadApi,

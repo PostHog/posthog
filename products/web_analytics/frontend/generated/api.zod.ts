@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100
@@ -28,6 +33,11 @@ export const HeatmapCaptureSettingsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Full http(s) URLs that may send heatmap data. Use \* to match any characters.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesItemMax = 253
 
 export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesMax = 100
@@ -353,6 +363,11 @@ export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The conditions of this rule. Each one reads a single event property.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProfilesCreateBodyNameMax = 255
 
 export const webAnalyticsContentAutopilotProfilesCreateBodyDomainMax = 2048
@@ -375,6 +390,11 @@ export const WebAnalyticsContentAutopilotProfilesCreateBody = /* @__PURE__ */ zo
     search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax = 255
 
 export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax = 2048
@@ -454,6 +474,11 @@ export const WebAnalyticsContentAutopilotRunsStartBody = /* @__PURE__ */ zod.obj
     profile_id: zod.uuid().describe('Site profile to research.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsCreateBodyNameMax = 400
 
 export const WebAnalyticsFilterPresetsCreateBody = /* @__PURE__ */ zod.object({
@@ -464,6 +489,11 @@ export const WebAnalyticsFilterPresetsCreateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsUpdateBodyNameMax = 400
 
 export const WebAnalyticsFilterPresetsUpdateBody = /* @__PURE__ */ zod.object({
@@ -474,6 +504,11 @@ export const WebAnalyticsFilterPresetsUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const webAnalyticsFilterPresetsPartialUpdateBodyNameMax = 400
 
 export const WebAnalyticsFilterPresetsPartialUpdateBody = /* @__PURE__ */ zod.object({

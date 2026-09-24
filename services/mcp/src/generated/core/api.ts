@@ -5351,6 +5351,11 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
         "A project and its settings, including the settings that live on its passthrough Team.\n\nThis shape is a superset of TeamSerializer's, so a request rewritten from \/api\/environments\/\nonto \/api\/projects\/ never loses a field."
     )
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ProductEnablementCreateParams = () => zod.object({
     project_id: zod
         .string()

@@ -32,6 +32,11 @@ export const SessionRecordingPlaylistsListQueryParams = () => zod.object({
     short_id: zod.string().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingPlaylistsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -71,6 +76,11 @@ export const SessionRecordingPlaylistsCreateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingPlaylistsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
@@ -80,6 +90,11 @@ export const SessionRecordingPlaylistsRetrieveParams = () => zod.object({
     short_id: zod.string(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingPlaylistsPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
@@ -111,6 +126,11 @@ export const SessionRecordingPlaylistsPartialUpdateBody = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this session recording.'),
     project_id: zod
@@ -120,6 +140,11 @@ export const SessionRecordingsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SessionRecordingsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this session recording.'),
     project_id: zod

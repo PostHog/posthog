@@ -53,6 +53,11 @@ export const getSubscriptionsListUrl = (projectId: string, params?: Subscription
         : `/api/projects/${projectId}/subscriptions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsList = async (
     projectId: string,
     params?: SubscriptionsListParams,
@@ -68,6 +73,11 @@ export const getSubscriptionsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/subscriptions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsCreate = async (
     projectId: string,
     subscriptionWriteApi: NonReadonly<SubscriptionWriteApi>,
@@ -85,6 +95,11 @@ export const getSubscriptionsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsRetrieve = async (
     projectId: string,
     id: number,
@@ -100,6 +115,11 @@ export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsUpdate = async (
     projectId: string,
     id: number,
@@ -118,6 +138,11 @@ export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) 
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsPartialUpdate = async (
     projectId: string,
     id: number,
@@ -150,6 +175,11 @@ export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: num
     return `/api/projects/${projectId}/subscriptions/${id}/test-delivery/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsTestDeliveryCreate = async (
     projectId: string,
     id: number,
@@ -224,6 +254,11 @@ export const getSubscriptionsSummaryQuotaRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/subscriptions/summary_quota/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsSummaryQuotaRetrieve = async (
     projectId: string,
     options?: RequestInit

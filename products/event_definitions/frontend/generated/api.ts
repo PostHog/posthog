@@ -56,6 +56,11 @@ export const getEventDefinitionsListUrl = (projectId: string, params?: EventDefi
         : `/api/projects/${projectId}/event_definitions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsList = async (
     projectId: string,
     params?: EventDefinitionsListParams,
@@ -71,6 +76,11 @@ export const getEventDefinitionsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsCreate = async (
     projectId: string,
     enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
@@ -88,6 +98,11 @@ export const getEventDefinitionsRetrieveUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/event_definitions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsRetrieve = async (
     projectId: string,
     id: string,
@@ -103,6 +118,11 @@ export const getEventDefinitionsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/event_definitions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsUpdate = async (
     projectId: string,
     id: string,
@@ -121,6 +141,11 @@ export const getEventDefinitionsPartialUpdateUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/event_definitions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -139,6 +164,11 @@ export const getEventDefinitionsDestroyUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/event_definitions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getEventDefinitionsDestroyUrl(projectId, id), {
         ...options,
@@ -150,6 +180,11 @@ export const getEventDefinitionsMetricsRetrieveUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/event_definitions/${id}/metrics/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsMetricsRetrieve = async (
     projectId: string,
     id: string,
@@ -261,6 +296,11 @@ export const getEventDefinitionsGolangRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/golang/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsGolangRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getEventDefinitionsGolangRetrieveUrl(projectId), {
         ...options,
@@ -312,6 +352,11 @@ export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/python/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsPythonRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getEventDefinitionsPythonRetrieveUrl(projectId), {
         ...options,
@@ -323,6 +368,11 @@ export const getEventDefinitionsTypescriptRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/typescript/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const eventDefinitionsTypescriptRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getEventDefinitionsTypescriptRetrieveUrl(projectId), {
         ...options,

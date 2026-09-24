@@ -847,6 +847,11 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const experimentSavedMetricsCreateBodyNameMax = 400
 
 export const experimentSavedMetricsCreateBodyDescriptionMax = 400
@@ -871,6 +876,11 @@ export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const experimentSavedMetricsUpdateBodyNameMax = 400
 
 export const experimentSavedMetricsUpdateBodyDescriptionMax = 400
@@ -895,6 +905,11 @@ export const ExperimentSavedMetricsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const experimentSavedMetricsPartialUpdateBodyNameMax = 400
 
 export const experimentSavedMetricsPartialUpdateBodyDescriptionMax = 400

@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 
@@ -245,6 +250,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Subscription serializer.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 
@@ -481,6 +491,11 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Subscription serializer.')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 

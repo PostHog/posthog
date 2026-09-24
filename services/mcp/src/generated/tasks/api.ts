@@ -802,6 +802,9 @@ export const TaskChannelsCreateBody = () => zod.object({
 })
 
 /**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Get a channel
  */
 export const TaskChannelsRetrieveParams = () => zod.object({

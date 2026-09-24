@@ -212,6 +212,11 @@ export const VisionObservationsSearchRetrieveQueryParams = () => zod.object({
         .describe('Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const EnvironmentVisionQuotaRetrieveParams = () => zod.object({
     project_id: zod
         .string()

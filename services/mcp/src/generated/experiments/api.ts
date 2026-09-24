@@ -624,6 +624,11 @@ export const ExperimentHoldoutsDestroyParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExperimentSavedMetricsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -644,6 +649,11 @@ export const ExperimentSavedMetricsListQueryParams = () => zod.object({
     search: zod.string().optional().describe('A search term.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExperimentSavedMetricsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -676,6 +686,11 @@ export const ExperimentSavedMetricsCreateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExperimentSavedMetricsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
     project_id: zod
@@ -685,6 +700,11 @@ export const ExperimentSavedMetricsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExperimentSavedMetricsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
     project_id: zod
@@ -720,6 +740,11 @@ export const ExperimentSavedMetricsPartialUpdateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const ExperimentSavedMetricsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
     project_id: zod

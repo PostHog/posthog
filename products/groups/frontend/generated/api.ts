@@ -61,6 +61,11 @@ export const getGroupsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/groups/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const groupsCreate = async (
     projectId: string,
     createGroupApi: CreateGroupApi,
@@ -90,6 +95,11 @@ export const getGroupsActivityRetrieveUrl = (projectId: string, params: GroupsAc
         : `/api/projects/${projectId}/groups/activity/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const groupsActivityRetrieve = async (
     projectId: string,
     params: GroupsActivityRetrieveParams,
@@ -117,6 +127,11 @@ export const getGroupsDeletePropertyCreateUrl = (projectId: string, params: Grou
         : `/api/projects/${projectId}/groups/delete_property/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const groupsDeletePropertyCreate = async (
     projectId: string,
     groupDeletePropertyApi: GroupDeletePropertyApi,
@@ -147,6 +162,11 @@ export const getGroupsFindRetrieveUrl = (projectId: string, params: GroupsFindRe
         : `/api/projects/${projectId}/groups/find/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const groupsFindRetrieve = async (
     projectId: string,
     params: GroupsFindRetrieveParams,
@@ -162,6 +182,11 @@ export const getGroupsPropertyValuesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/groups/property_values/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const groupsPropertyValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getGroupsPropertyValuesRetrieveUrl(projectId), {
         ...options,
@@ -185,6 +210,11 @@ export const getGroupsRelatedListUrl = (projectId: string, params: GroupsRelated
         : `/api/projects/${projectId}/groups/related/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const groupsRelatedList = async (
     projectId: string,
     params: GroupsRelatedListParams,
@@ -212,6 +242,11 @@ export const getGroupsUpdatePropertyCreateUrl = (projectId: string, params: Grou
         : `/api/projects/${projectId}/groups/update_property/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const groupsUpdatePropertyCreate = async (
     projectId: string,
     groupUpdatePropertyRequestApi: GroupUpdatePropertyRequestApi,

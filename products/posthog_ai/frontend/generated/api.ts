@@ -63,6 +63,11 @@ export const getConversationsListUrl = (projectId: string, params?: Conversation
         : `/api/projects/${projectId}/conversations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsList = async (
     projectId: string,
     params?: ConversationsListParams,
@@ -101,6 +106,11 @@ export const getConversationsRetrieveUrl = (projectId: string, conversation: str
     return `/api/projects/${projectId}/conversations/${conversation}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsRetrieve = async (
     projectId: string,
     conversation: string,
@@ -199,6 +209,11 @@ export const getConversationsQueueRetrieveUrl = (projectId: string, conversation
     return `/api/projects/${projectId}/conversations/${conversation}/queue/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsQueueRetrieve = async (
     projectId: string,
     conversation: string,
@@ -214,6 +229,11 @@ export const getConversationsQueueCreateUrl = (projectId: string, conversation: 
     return `/api/projects/${projectId}/conversations/${conversation}/queue/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsQueueCreate = async (
     projectId: string,
     conversation: string,
@@ -232,6 +252,11 @@ export const getConversationsQueuePartialUpdateUrl = (projectId: string, convers
     return `/api/projects/${projectId}/conversations/${conversation}/queue/${queueId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsQueuePartialUpdate = async (
     projectId: string,
     conversation: string,
@@ -251,6 +276,11 @@ export const getConversationsQueueDestroyUrl = (projectId: string, conversation:
     return `/api/projects/${projectId}/conversations/${conversation}/queue/${queueId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsQueueDestroy = async (
     projectId: string,
     conversation: string,
@@ -267,6 +297,11 @@ export const getConversationsQueueClearCreateUrl = (projectId: string, conversat
     return `/api/projects/${projectId}/conversations/${conversation}/queue/clear/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const conversationsQueueClearCreate = async (
     projectId: string,
     conversation: string,
@@ -297,6 +332,11 @@ export const getCoreMemoryListUrl = (projectId: string, params?: CoreMemoryListP
         : `/api/projects/${projectId}/core_memory/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const coreMemoryList = async (
     projectId: string,
     params?: CoreMemoryListParams,
@@ -312,6 +352,11 @@ export const getCoreMemoryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/core_memory/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const coreMemoryCreate = async (
     projectId: string,
     maxCoreMemoryApi: NonReadonly<MaxCoreMemoryApi>,
@@ -329,6 +374,11 @@ export const getCoreMemoryRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/core_memory/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const coreMemoryRetrieve = async (
     projectId: string,
     id: string,
@@ -344,6 +394,11 @@ export const getCoreMemoryUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/core_memory/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const coreMemoryUpdate = async (
     projectId: string,
     id: string,
@@ -362,6 +417,11 @@ export const getCoreMemoryPartialUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/core_memory/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const coreMemoryPartialUpdate = async (
     projectId: string,
     id: string,

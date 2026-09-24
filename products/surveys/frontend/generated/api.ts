@@ -134,6 +134,11 @@ export const getSurveysListUrl = (projectId: string, params?: SurveysListParams)
         : `/api/projects/${projectId}/surveys/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysList = async (
     projectId: string,
     params?: SurveysListParams,
@@ -149,6 +154,11 @@ export const getSurveysCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysCreate = async (
     projectId: string,
     surveySerializerCreateUpdateOnlySchemaApi: NonReadonly<SurveySerializerCreateUpdateOnlySchemaApi>,
@@ -166,6 +176,11 @@ export const getSurveysRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<SurveyApi> => {
     return apiMutator<SurveyApi>(getSurveysRetrieveUrl(projectId, id), {
         ...options,
@@ -177,6 +192,11 @@ export const getSurveysUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysUpdate = async (
     projectId: string,
     id: string,
@@ -195,6 +215,11 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
@@ -213,6 +238,11 @@ export const getSurveysDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysDestroyUrl(projectId, id), {
         ...options,
@@ -224,6 +254,11 @@ export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
         ...options,
@@ -280,6 +315,11 @@ export const getSurveysGenerateTranslationsCreateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/surveys/${id}/generate_translations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysGenerateTranslationsCreate = async (
     projectId: string,
     id: string,
@@ -479,6 +519,11 @@ export const getSurveysSummaryHeadlineCreateUrl = (projectId: string, id: string
     return `/api/projects/${projectId}/surveys/${id}/summary_headline/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysSummaryHeadlineCreate = async (
     projectId: string,
     id: string,
@@ -497,6 +542,11 @@ export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/activity/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
         ...options,

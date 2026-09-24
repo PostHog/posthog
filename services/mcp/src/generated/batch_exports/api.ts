@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const BatchExportsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +26,11 @@ export const BatchExportsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const BatchExportsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -484,6 +494,11 @@ export const BatchExportsCreateBody = () => zod
         'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const BatchExportsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
@@ -493,6 +508,11 @@ export const BatchExportsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const BatchExportsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
@@ -963,6 +983,11 @@ export const BatchExportsPartialUpdateBody = () => zod
         'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const BatchExportsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod

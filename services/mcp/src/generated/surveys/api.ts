@@ -8,6 +8,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SurveysListParams = () => zod.object({
     project_id: zod
         .string()
@@ -42,6 +47,11 @@ export const SurveysListQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SurveysCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -909,6 +919,11 @@ export const SurveysCreateBody = () => zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SurveysRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -918,6 +933,11 @@ export const SurveysRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SurveysPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -1788,6 +1808,11 @@ export const SurveysPartialUpdateBody = () => zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const SurveysDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod

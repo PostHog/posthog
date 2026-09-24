@@ -659,6 +659,11 @@ export const getEvaluationDirectoriesListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/evaluation_directories/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationDirectoriesList = async (
     projectId: string,
     options?: RequestInit
@@ -673,6 +678,11 @@ export const getEvaluationDirectoriesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/evaluation_directories/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationDirectoriesCreate = async (
     projectId: string,
     evaluationDirectoryApi: NonReadonly<EvaluationDirectoryApi>,
@@ -690,6 +700,11 @@ export const getEvaluationDirectoriesRetrieveUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/evaluation_directories/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationDirectoriesRetrieve = async (
     projectId: string,
     id: string,
@@ -705,6 +720,11 @@ export const getEvaluationDirectoriesPartialUpdateUrl = (projectId: string, id: 
     return `/api/projects/${projectId}/evaluation_directories/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationDirectoriesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -723,6 +743,11 @@ export const getEvaluationDirectoriesDestroyUrl = (projectId: string, id: string
     return `/api/projects/${projectId}/evaluation_directories/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationDirectoriesDestroy = async (
     projectId: string,
     id: string,
@@ -773,6 +798,11 @@ export const getEvaluationsListUrl = (projectId: string, params?: EvaluationsLis
         : `/api/projects/${projectId}/evaluations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsList = async (
     projectId: string,
     params?: EvaluationsListParams,
@@ -788,6 +818,11 @@ export const getEvaluationsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/evaluations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsCreate = async (
     projectId: string,
     evaluationApi: NonReadonly<EvaluationApi>,
@@ -926,6 +961,11 @@ export const getEvaluationsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/evaluations/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsRetrieve = async (
     projectId: string,
     id: string,
@@ -941,6 +981,11 @@ export const getEvaluationsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/evaluations/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsUpdate = async (
     projectId: string,
     id: string,
@@ -959,6 +1004,11 @@ export const getEvaluationsPartialUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/evaluations/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const evaluationsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1456,6 +1506,11 @@ export const getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl = (projec
     return `/api/projects/${projectId}/llm_analytics/offline_evaluations/experiment_items/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsOfflineEvaluationsExperimentItemsCreate = async (
     projectId: string,
     offlineExperimentItemsRequestApi: OfflineExperimentItemsRequestApi,
@@ -1491,6 +1546,11 @@ export const getLlmAnalyticsParserRecipesListUrl = (
         : `/api/projects/${projectId}/llm_analytics/parser_recipes/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsParserRecipesList = async (
     projectId: string,
     params?: LlmAnalyticsParserRecipesListParams,
@@ -1506,6 +1566,11 @@ export const getLlmAnalyticsParserRecipesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/parser_recipes/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsParserRecipesCreate = async (
     projectId: string,
     parserRecipeApi: NonReadonly<ParserRecipeApi>,
@@ -1523,6 +1588,11 @@ export const getLlmAnalyticsParserRecipesRetrieveUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/llm_analytics/parser_recipes/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsParserRecipesRetrieve = async (
     projectId: string,
     id: string,
@@ -1538,6 +1608,11 @@ export const getLlmAnalyticsParserRecipesPartialUpdateUrl = (projectId: string, 
     return `/api/projects/${projectId}/llm_analytics/parser_recipes/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsParserRecipesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1556,6 +1631,11 @@ export const getLlmAnalyticsParserRecipesDestroyUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/llm_analytics/parser_recipes/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsParserRecipesDestroy = async (
     projectId: string,
     id: string,
@@ -1603,6 +1683,11 @@ export const getLlmAnalyticsProviderKeysListUrl = (projectId: string, params?: L
         : `/api/projects/${projectId}/llm_analytics/provider_keys/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysList = async (
     projectId: string,
     params?: LlmAnalyticsProviderKeysListParams,
@@ -1618,6 +1703,11 @@ export const getLlmAnalyticsProviderKeysCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/provider_keys/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysCreate = async (
     projectId: string,
     lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
@@ -1635,6 +1725,11 @@ export const getLlmAnalyticsProviderKeysRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysRetrieve = async (
     projectId: string,
     id: string,
@@ -1650,6 +1745,11 @@ export const getLlmAnalyticsProviderKeysUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysUpdate = async (
     projectId: string,
     id: string,
@@ -1668,6 +1768,11 @@ export const getLlmAnalyticsProviderKeysPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1686,6 +1791,11 @@ export const getLlmAnalyticsProviderKeysDestroyUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysDestroy = async (
     projectId: string,
     id: string,
@@ -1719,6 +1829,11 @@ export const getLlmAnalyticsProviderKeysValidateCreateUrl = (projectId: string, 
     return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/validate/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsProviderKeysValidateCreate = async (
     projectId: string,
     id: string,
@@ -1752,6 +1867,11 @@ export const getLlmAnalyticsReviewQueueItemsListUrl = (
         : `/api/projects/${projectId}/llm_analytics/review_queue_items/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueueItemsList = async (
     projectId: string,
     params?: LlmAnalyticsReviewQueueItemsListParams,
@@ -1767,6 +1887,11 @@ export const getLlmAnalyticsReviewQueueItemsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/review_queue_items/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueueItemsCreate = async (
     projectId: string,
     reviewQueueItemCreateApi: ReviewQueueItemCreateApi,
@@ -1784,6 +1909,11 @@ export const getLlmAnalyticsReviewQueueItemsRetrieveUrl = (projectId: string, id
     return `/api/projects/${projectId}/llm_analytics/review_queue_items/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueueItemsRetrieve = async (
     projectId: string,
     id: string,
@@ -1799,6 +1929,11 @@ export const getLlmAnalyticsReviewQueueItemsPartialUpdateUrl = (projectId: strin
     return `/api/projects/${projectId}/llm_analytics/review_queue_items/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueueItemsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1817,6 +1952,11 @@ export const getLlmAnalyticsReviewQueueItemsDestroyUrl = (projectId: string, id:
     return `/api/projects/${projectId}/llm_analytics/review_queue_items/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueueItemsDestroy = async (
     projectId: string,
     id: string,
@@ -1844,6 +1984,11 @@ export const getLlmAnalyticsReviewQueuesListUrl = (projectId: string, params?: L
         : `/api/projects/${projectId}/llm_analytics/review_queues/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueuesList = async (
     projectId: string,
     params?: LlmAnalyticsReviewQueuesListParams,
@@ -1859,6 +2004,11 @@ export const getLlmAnalyticsReviewQueuesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/review_queues/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueuesCreate = async (
     projectId: string,
     reviewQueueCreateApi: ReviewQueueCreateApi,
@@ -1876,6 +2026,11 @@ export const getLlmAnalyticsReviewQueuesRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/llm_analytics/review_queues/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueuesRetrieve = async (
     projectId: string,
     id: string,
@@ -1891,6 +2046,11 @@ export const getLlmAnalyticsReviewQueuesPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/llm_analytics/review_queues/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueuesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1909,6 +2069,11 @@ export const getLlmAnalyticsReviewQueuesDestroyUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/llm_analytics/review_queues/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsReviewQueuesDestroy = async (
     projectId: string,
     id: string,
@@ -1939,6 +2104,11 @@ export const getLlmAnalyticsScoreDefinitionsListUrl = (
         : `/api/projects/${projectId}/llm_analytics/score_definitions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsList = async (
     projectId: string,
     params?: LlmAnalyticsScoreDefinitionsListParams,
@@ -1954,6 +2124,11 @@ export const getLlmAnalyticsScoreDefinitionsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/score_definitions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsCreate = async (
     projectId: string,
     scoreDefinitionCreateApi: ScoreDefinitionCreateApi,
@@ -1971,6 +2146,11 @@ export const getLlmAnalyticsScoreDefinitionsRetrieveUrl = (projectId: string, id
     return `/api/projects/${projectId}/llm_analytics/score_definitions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsRetrieve = async (
     projectId: string,
     id: string,
@@ -1986,6 +2166,11 @@ export const getLlmAnalyticsScoreDefinitionsPartialUpdateUrl = (projectId: strin
     return `/api/projects/${projectId}/llm_analytics/score_definitions/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -2004,6 +2189,11 @@ export const getLlmAnalyticsScoreDefinitionsNewVersionCreateUrl = (projectId: st
     return `/api/projects/${projectId}/llm_analytics/score_definitions/${id}/new_version/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsScoreDefinitionsNewVersionCreate = async (
     projectId: string,
     id: string,
@@ -2159,6 +2349,11 @@ export const getLlmAnalyticsTraceReviewsListUrl = (projectId: string, params?: L
         : `/api/projects/${projectId}/llm_analytics/trace_reviews/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsTraceReviewsList = async (
     projectId: string,
     params?: LlmAnalyticsTraceReviewsListParams,
@@ -2174,6 +2369,11 @@ export const getLlmAnalyticsTraceReviewsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/trace_reviews/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsTraceReviewsCreate = async (
     projectId: string,
     traceReviewCreateApi: TraceReviewCreateApi,
@@ -2191,6 +2391,11 @@ export const getLlmAnalyticsTraceReviewsRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/llm_analytics/trace_reviews/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsTraceReviewsRetrieve = async (
     projectId: string,
     id: string,
@@ -2206,6 +2411,11 @@ export const getLlmAnalyticsTraceReviewsPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/llm_analytics/trace_reviews/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsTraceReviewsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -2224,6 +2434,11 @@ export const getLlmAnalyticsTraceReviewsDestroyUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/llm_analytics/trace_reviews/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmAnalyticsTraceReviewsDestroy = async (
     projectId: string,
     id: string,
@@ -2271,6 +2486,11 @@ export const getLlmPromptsListUrl = (projectId: string, params?: LlmPromptsListP
         : `/api/projects/${projectId}/llm_prompts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsList = async (
     projectId: string,
     params?: LlmPromptsListParams,
@@ -2286,6 +2506,11 @@ export const getLlmPromptsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_prompts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsCreate = async (
     projectId: string,
     lLMPromptApi: NonReadonly<LLMPromptApi>,
@@ -2319,6 +2544,11 @@ export const getLlmPromptsNameRetrieveUrl = (
         : `/api/projects/${projectId}/llm_prompts/name/${promptName}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameRetrieve = async (
     projectId: string,
     promptName: string,
@@ -2335,6 +2565,11 @@ export const getLlmPromptsNamePartialUpdateUrl = (projectId: string, promptName:
     return `/api/projects/${projectId}/llm_prompts/name/${promptName}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNamePartialUpdate = async (
     projectId: string,
     promptName: string,
@@ -2353,6 +2588,11 @@ export const getLlmPromptsNameArchiveCreateUrl = (projectId: string, promptName:
     return `/api/projects/${projectId}/llm_prompts/name/${promptName}/archive/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameArchiveCreate = async (
     projectId: string,
     promptName: string,
@@ -2368,6 +2608,11 @@ export const getLlmPromptsNameDuplicateCreateUrl = (projectId: string, promptNam
     return `/api/projects/${projectId}/llm_prompts/name/${promptName}/duplicate/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameDuplicateCreate = async (
     projectId: string,
     promptName: string,
@@ -2386,6 +2631,11 @@ export const getLlmPromptsNameLabelsUpdateUrl = (projectId: string, promptName: 
     return `/api/projects/${projectId}/llm_prompts/name/${promptName}/labels/${labelName}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameLabelsUpdate = async (
     projectId: string,
     promptName: string,
@@ -2405,6 +2655,11 @@ export const getLlmPromptsNameLabelsDestroyUrl = (projectId: string, promptName:
     return `/api/projects/${projectId}/llm_prompts/name/${promptName}/labels/${labelName}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsNameLabelsDestroy = async (
     projectId: string,
     promptName: string,
@@ -2437,6 +2692,11 @@ export const getLlmPromptsResolveNameRetrieveUrl = (
         : `/api/projects/${projectId}/llm_prompts/resolve/name/${promptName}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const llmPromptsResolveNameRetrieve = async (
     projectId: string,
     promptName: string,
@@ -2465,6 +2725,11 @@ export const getTaggersListUrl = (projectId: string, params?: TaggersListParams)
         : `/api/projects/${projectId}/taggers/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersList = async (
     projectId: string,
     params?: TaggersListParams,
@@ -2480,6 +2745,11 @@ export const getTaggersCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/taggers/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersCreate = async (
     projectId: string,
     taggerCreateApi: TaggerCreateApi,
@@ -2497,6 +2767,11 @@ export const getTaggersRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/taggers/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaggerApi> => {
     return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
         ...options,
@@ -2508,6 +2783,11 @@ export const getTaggersUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/taggers/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersUpdate = async (
     projectId: string,
     id: string,
@@ -2526,6 +2806,11 @@ export const getTaggersPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/taggers/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const taggersPartialUpdate = async (
     projectId: string,
     id: string,

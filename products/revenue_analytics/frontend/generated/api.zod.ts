@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const RevenueAnalyticsJoinsCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().describe('True creates the person join for the project, false removes it.'),
 })

@@ -31,6 +31,11 @@ export const getLegalDocumentsListUrl = (organizationId: string, params?: LegalD
         : `/api/organizations/${organizationId}/legal_documents/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const legalDocumentsList = async (
     organizationId: string,
     params?: LegalDocumentsListParams,
@@ -46,6 +51,11 @@ export const getLegalDocumentsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/legal_documents/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const legalDocumentsCreate = async (
     organizationId: string,
     createLegalDocumentApi: CreateLegalDocumentApi,
@@ -63,6 +73,11 @@ export const getLegalDocumentsRetrieveUrl = (organizationId: string, id: string)
     return `/api/organizations/${organizationId}/legal_documents/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const legalDocumentsRetrieve = async (
     organizationId: string,
     id: string,

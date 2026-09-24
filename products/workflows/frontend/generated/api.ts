@@ -127,6 +127,11 @@ export const getHogFlowTemplatesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flow_templates/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesCreate = async (
     projectId: string,
     hogFlowTemplateApi: NonReadonly<HogFlowTemplateApi>,
@@ -163,6 +168,11 @@ export const getHogFlowTemplatesUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesUpdate = async (
     projectId: string,
     id: string,
@@ -181,6 +191,11 @@ export const getHogFlowTemplatesPartialUpdateUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -199,6 +214,11 @@ export const getHogFlowTemplatesDestroyUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getHogFlowTemplatesDestroyUrl(projectId, id), {
         ...options,
@@ -226,6 +246,11 @@ export const getHogFlowTemplatesLogsRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowTemplatesLogsRetrieve = async (
     projectId: string,
     id: string,
@@ -254,6 +279,11 @@ export const getHogFlowsListUrl = (projectId: string, params?: HogFlowsListParam
         : `/api/projects/${projectId}/hog_flows/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsList = async (
     projectId: string,
     params?: HogFlowsListParams,
@@ -269,6 +299,11 @@ export const getHogFlowsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsCreate = async (
     projectId: string,
     hogFlowApi: NonReadonly<HogFlowApi>,
@@ -286,6 +321,11 @@ export const getHogFlowsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsRetrieveUrl(projectId, id), {
         ...options,
@@ -297,6 +337,11 @@ export const getHogFlowsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsUpdate = async (
     projectId: string,
     id: string,
@@ -315,6 +360,11 @@ export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -333,6 +383,11 @@ export const getHogFlowsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getHogFlowsDestroyUrl(projectId, id), {
         ...options,
@@ -344,6 +399,11 @@ export const getHogFlowsActionsEmailPartialUpdateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/hog_flows/${id}/actions/${actionId}/email/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsActionsEmailPartialUpdate = async (
     projectId: string,
     id: string,
@@ -375,6 +435,11 @@ export const getHogFlowsAssetsRetrieveUrl = (projectId: string, id: string, para
         : `/api/projects/${projectId}/hog_flows/${id}/assets/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsAssetsRetrieve = async (
     projectId: string,
     id: string,
@@ -407,6 +472,11 @@ export const getHogFlowsAssetContentRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/assets/content/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsAssetContentRetrieve = async (
     projectId: string,
     id: string,
@@ -423,6 +493,11 @@ export const getHogFlowsBatchJobsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsBatchJobsList = async (
     projectId: string,
     id: string,
@@ -438,6 +513,11 @@ export const getHogFlowsBatchJobsCreateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsBatchJobsCreate = async (
     projectId: string,
     id: string,
@@ -483,6 +563,11 @@ export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/hog_flows/${id}/discard_draft/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsDiscardDraftCreate = async (
     projectId: string,
     id: string,
@@ -498,6 +583,11 @@ export const getHogFlowsGraphPartialUpdateUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/hog_flows/${id}/graph/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsGraphPartialUpdate = async (
     projectId: string,
     id: string,
@@ -532,6 +622,11 @@ export const getHogFlowsInvocationResultsRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/invocation_results/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsInvocationResultsRetrieve = async (
     projectId: string,
     id: string,
@@ -548,6 +643,11 @@ export const getHogFlowsInvocationResultRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsInvocationResultRetrieve = async (
     projectId: string,
     id: string,
@@ -606,6 +706,11 @@ export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/hog_flows/${id}/invocations/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsInvocationsCreate = async (
     projectId: string,
     id: string,
@@ -662,6 +767,11 @@ export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string, params
         : `/api/projects/${projectId}/hog_flows/${id}/logs/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsLogsRetrieve = async (
     projectId: string,
     id: string,
@@ -694,6 +804,11 @@ export const getHogFlowsMetricsRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/metrics/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsMetricsRetrieve = async (
     projectId: string,
     id: string,
@@ -726,6 +841,11 @@ export const getHogFlowsMetricsTotalsRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsMetricsTotalsRetrieve = async (
     projectId: string,
     id: string,
@@ -742,6 +862,11 @@ export const getHogFlowsPublishCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/publish/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsPublishCreate = async (
     projectId: string,
     id: string,
@@ -823,6 +948,11 @@ export const getHogFlowsRevisionsListUrl = (projectId: string, id: string, param
         : `/api/projects/${projectId}/hog_flows/${id}/revisions/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsRevisionsList = async (
     projectId: string,
     id: string,
@@ -839,6 +969,11 @@ export const getHogFlowsRevisionsRetrieveUrl = (projectId: string, id: string, v
     return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsRevisionsRetrieve = async (
     projectId: string,
     id: string,
@@ -855,6 +990,11 @@ export const getHogFlowsRevisionsRestoreCreateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/restore/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsRevisionsRestoreCreate = async (
     projectId: string,
     id: string,
@@ -904,6 +1044,11 @@ export const getHogFlowsSchedulesListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsSchedulesList = async (
     projectId: string,
     id: string,
@@ -919,6 +1064,11 @@ export const getHogFlowsSchedulesCreateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsSchedulesCreate = async (
     projectId: string,
     id: string,
@@ -937,6 +1087,11 @@ export const getHogFlowsSchedulesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsSchedulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -956,6 +1111,11 @@ export const getHogFlowsSchedulesDestroyUrl = (projectId: string, id: string, sc
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsSchedulesDestroy = async (
     projectId: string,
     id: string,
@@ -972,6 +1132,11 @@ export const getHogFlowsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/bulk_delete/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsBulkDeleteCreate = async (
     projectId: string,
     hogFlowApi: NonReadonly<HogFlowApi>,
@@ -1023,6 +1188,11 @@ export const getHogFlowsMetricsGlobalRetrieveUrl = (
         : `/api/projects/${projectId}/hog_flows/metrics/global/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsMetricsGlobalRetrieve = async (
     projectId: string,
     params?: HogFlowsMetricsGlobalRetrieveParams,
@@ -1071,6 +1241,11 @@ export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/user_blast_radius/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const hogFlowsUserBlastRadiusCreate = async (
     projectId: string,
     blastRadiusRequestApi: BlastRadiusRequestApi,

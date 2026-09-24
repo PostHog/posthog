@@ -58,6 +58,11 @@ export const getAlertsListUrl = (projectId: string, params?: AlertsListParams) =
         : `/api/projects/${projectId}/alerts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const alertsList = async (
     projectId: string,
     params?: AlertsListParams,
@@ -73,6 +78,11 @@ export const getAlertsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/alerts/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const alertsCreate = async (
     projectId: string,
     alertApi: NonReadonly<AlertApi>,
@@ -102,6 +112,11 @@ export const getAlertsRetrieveUrl = (projectId: string, id: string, params?: Ale
         : `/api/projects/${projectId}/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const alertsRetrieve = async (
     projectId: string,
     id: string,
@@ -118,6 +133,11 @@ export const getAlertsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const alertsUpdate = async (
     projectId: string,
     id: string,
@@ -136,6 +156,11 @@ export const getAlertsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const alertsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -154,6 +179,11 @@ export const getAlertsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/alerts/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const alertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getAlertsDestroyUrl(projectId, id), {
         ...options,
@@ -261,6 +291,11 @@ export const getInsightsThresholdsListUrl = (
         : `/api/projects/${projectId}/insights/${insightId}/thresholds/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const insightsThresholdsList = async (
     projectId: string,
     insightId: number,
@@ -277,6 +312,11 @@ export const getInsightsThresholdsRetrieveUrl = (projectId: string, insightId: n
     return `/api/projects/${projectId}/insights/${insightId}/thresholds/${id}/`
 }
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const insightsThresholdsRetrieve = async (
     projectId: string,
     insightId: number,

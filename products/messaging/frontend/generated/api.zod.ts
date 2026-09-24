@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128
@@ -25,6 +30,11 @@ export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesUpdateBodyKeyMax = 64
 
 export const messagingCategoriesUpdateBodyNameMax = 128
@@ -41,6 +51,11 @@ export const MessagingCategoriesUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional(),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingCategoriesPartialUpdateBodyKeyMax = 64
 
 export const messagingCategoriesPartialUpdateBodyNameMax = 128
@@ -251,6 +266,11 @@ export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ 
         .describe('The email address to suppress. Will not receive any messages until removed.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesCreateBodyNameMax = 400
 
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
@@ -340,6 +360,11 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesUpdateBodyNameMax = 400
 
 export const messagingTemplatesUpdateBodyContentOneTemplatingDefault = `liquid`
@@ -429,6 +454,11 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const messagingTemplatesPartialUpdateBodyNameMax = 400
 
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
@@ -519,6 +549,11 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * Add the primary key as a final ordering term to each queryset that the viewset pages.
+ *
+ * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+ */
 export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.object({
     operations: zod
         .array(
