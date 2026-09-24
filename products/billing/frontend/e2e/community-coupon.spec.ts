@@ -5,10 +5,11 @@ import { expect, test } from '@playwright-utils/workspace-test-base'
  * Redeeming a community code on /coupons/community through a running PostHog with a billing
  * service behind it.
  *
- * Billing grants the credit only to an organization with an active subscription and a card on
- * file. A fresh workspace has neither, so this logs in as LOGIN_USERNAME / LOGIN_PASSWORD, who must
- * be an admin or owner of their current organization, and that organization needs both. Billing
- * also refuses claims while the community campaign is a draft, so the campaign must be active.
+ * Billing grants the credit only to an organization with an active subscription, a card on file,
+ * and at least one paid invoice with a non-zero total. A fresh workspace has none of these, so this
+ * logs in as LOGIN_USERNAME / LOGIN_PASSWORD, who must be an admin or owner of their current
+ * organization, and that organization needs all three. Billing also refuses claims while the
+ * community campaign is a draft, so the campaign must be active.
  *
  * CI has no billing behind the dev stack, so the suite only runs when asked:
  *

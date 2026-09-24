@@ -17,6 +17,7 @@ export const communityCampaign: CampaignConfig = {
         'A valid code from the PostHog community store',
         'Organization admin or owner in PostHog',
         'An active PostHog subscription with a payment method on file',
+        'At least one paid invoice. If you just added a card, you can redeem after your first invoice is paid.',
         'Up to three community codes per organization each month',
     ],
     allowsRepeatClaims: true,
