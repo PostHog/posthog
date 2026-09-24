@@ -13,6 +13,7 @@ from django.urls import path
 
 import structlog
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -150,6 +151,122 @@ class TestCommandExecAuditPatching(TestCase):
 
     def _find(self, logs: Sequence[Mapping[str, Any]], sink: str) -> Mapping[str, Any] | None:
         return next((log for log in logs if log.get("event") == "command_execution" and log.get("sink") == sink), None)
+
+    @staticmethod
+    def _counter(name: str, **labels: str) -> float:
+        return REGISTRY.get_sample_value(name, labels) or 0.0
+
+    def _audit_count(self, sink: str, **flags: str) -> float:
+        labels = dict.fromkeys(
+            ("shell", "has_shell_operators", "has_encoded_blob", "replaces_process", "multiprocessing", "suppressed"),
+            "false",
+        )
+        labels.update(flags)
+        return self._counter("posthog_command_exec_audit_total", sink=sink, **labels)
+
+    @parameterized.expand(
+        [
+            ("plain_argv", ["true"], False, None, {}),
+            ("shell_operators", "true | cat", True, None, {"shell": "true", "has_shell_operators": "true"}),
+            (
+                "encoded_blob",
+                ["python3", "-c", "x='" + "A" * 80 + "'"],
+                False,
+                None,
+                {"has_encoded_blob": "true"},
+            ),
+            ("replaces_process", ["/bin/true"], False, {"replaces_process": True}, {"replaces_process": "true"}),
+            (
+                "multiprocessing_spawn",
+                [
+                    "/usr/bin/python3.13",
+                    "-c",
+                    "from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=5, pipe_handle=7)",
+                    "--multiprocessing-fork",
+                ],
+                False,
+                None,
+                {"multiprocessing": "true"},
+            ),
+            (
+                "multiprocessing_resource_tracker_with_interpreter_flags",
+                ["python", "-X", "faulthandler", "-c", "from multiprocessing.resource_tracker import main;main(5)"],
+                False,
+                None,
+                {"multiprocessing": "true"},
+            ),
+            (
+                "multiprocessing_forkserver",
+                [
+                    "python",
+                    "-c",
+                    "import sys; from multiprocessing.forkserver import main; "
+                    "main(5, 6, ['__main__'], sys_argv=sys.argv[1:], **{'sys_path': ['/app']})",
+                    "manage.py",
+                    "start_temporal_worker",
+                ],
+                False,
+                None,
+                {"multiprocessing": "true"},
+            ),
+            # The label hides an execution from alerts, so a marker string in an arbitrary argument,
+            # a non-python binary, or extra code appended to the bootstrap program must not earn it.
+            ("spoof_flag_in_argument", ["/bin/evil", "--multiprocessing-fork"], False, None, {}),
+            (
+                "spoof_non_python_binary",
+                ["/bin/evil", "-c", "from multiprocessing.resource_tracker import main;main(5)"],
+                False,
+                None,
+                {},
+            ),
+            (
+                "spoof_code_appended_to_bootstrap",
+                ["python", "-c", "from multiprocessing.resource_tracker import main;main(5); import evil"],
+                False,
+                None,
+                {},
+            ),
+            (
+                "spoof_replaces_process",
+                [
+                    "python",
+                    "-c",
+                    "import evil",
+                    "from multiprocessing.spawn import spawn_main; spawn_main(pipe_handle=1)",
+                ],
+                False,
+                {"replaces_process": True},
+                {"replaces_process": "true"},
+            ),
+            ("volume_suppressed", ["uname", "-rs"], False, None, {"suppressed": "true"}),
+            (
+                "volume_suppressed_exec_keeps_flags",
+                ["uname", "-rs"],
+                False,
+                {"replaces_process": True},
+                {"suppressed": "true", "replaces_process": "true"},
+            ),
+        ]
+    )
+    def test_execution_is_counted_with_bounded_labels(
+        self,
+        _name: str,
+        command: list[str] | str,
+        shell: bool,
+        extra: dict[str, Any] | None,
+        flags: dict[str, str],
+    ) -> None:
+        before = self._audit_count("os.spawn", **flags)
+        with structlog.testing.capture_logs() as logs:
+            command_exec_audit._emit(component="os", sink="os.spawn", command=command, shell=shell, extra=extra)
+        self.assertEqual(self._audit_count("os.spawn", **flags), before + 1)
+        entry = self._find(logs, "os.spawn")
+        if flags.get("suppressed") == "true":
+            self.assertIsNone(entry)
+            return
+        assert entry is not None
+        self.assertEqual(entry.get("multiprocessing", False), flags.get("multiprocessing") == "true")
+        self.assertNotIn("suppressed", entry)
 
     def test_subprocess_run_is_logged(self) -> None:
         with structlog.testing.capture_logs() as logs:
@@ -291,9 +408,25 @@ class TestCommandExecAuditPatching(TestCase):
 
     def test_audit_failure_never_breaks_the_command(self) -> None:
         # If the audit path raises, the wrapped command must still run and return normally.
+        before = self._counter(
+            "posthog_command_exec_audit_failures_total", kind="emit", sink="subprocess.Popen", target=""
+        )
         with mock.patch.object(command_exec_audit, "_context", side_effect=RuntimeError("boom")):
             result = subprocess.run(["true"], check=False)
         self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            self._counter("posthog_command_exec_audit_failures_total", kind="emit", sink="subprocess.Popen", target=""),
+            before + 1,
+        )
+
+    def test_wrap_failure_is_counted(self) -> None:
+        before = self._counter("posthog_command_exec_audit_failures_total", kind="wrap", sink="", target="getpid")
+        with mock.patch("wrapt.wrap_function_wrapper", side_effect=RuntimeError("boom")):
+            command_exec_audit._wrap(os, "getpid", lambda *a: None)
+        self.assertEqual(
+            self._counter("posthog_command_exec_audit_failures_total", kind="wrap", sink="", target="getpid"),
+            before + 1,
+        )
 
     def test_reentrancy_guard_suppresses_nested_audit(self) -> None:
         # While an audit is in progress, a nested exec (e.g. the git shell-out in query
