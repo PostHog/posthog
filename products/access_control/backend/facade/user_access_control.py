@@ -1672,6 +1672,27 @@ class UserAccessControl:
             )
         return access.access_level if access else None
 
+    def _resolved_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
+        """The enforced access to `obj`, as `get_user_access_level` decides it, with the rule
+        that supplied it kept so a display can attribute the level."""
+        resource = model_to_resource(obj)
+        if not resource:
+            return None
+
+        if self._is_most_specific_access_control_enabled:
+            return self.resolve_most_specific_object_access(obj)
+
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+        if resolved:
+            return access
+
+        object_access_controls = self._get_access_controls(
+            self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        )
+        return self._object_access_level_from_rows(
+            resource, object_access_controls, fallback_parent_id=self._fallback_parent_id(obj, resource)
+        )
+
     def bulk_object_access_levels(
         self,
         resource: APIScopeObject,

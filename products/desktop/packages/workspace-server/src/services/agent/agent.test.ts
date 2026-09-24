@@ -145,9 +145,9 @@ vi.mock("@posthog/agent/gateway-models", () => ({
   getClaudeModelRecency: vi.fn(() => 0),
   getProviderName: vi.fn(),
   isAnthropicModel: vi.fn((model) => model.owned_by === "anthropic"),
-  isBlockedModelId: vi.fn().mockReturnValue(false),
   isCloudflareModel: vi.fn((model) => model.owned_by === "cloudflare"),
   isModalModel: vi.fn((model) => model.owned_by === "modal"),
+  isOfferedModel: vi.fn().mockReturnValue(true),
   isOpenAIModel: vi.fn((model) => model.owned_by === "openai"),
   pickAllowedModel: vi.fn((_models, preferredModelId) => preferredModelId),
 }));
