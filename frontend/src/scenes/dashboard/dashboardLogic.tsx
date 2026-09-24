@@ -55,6 +55,7 @@ import {
     chunkTileIds,
     fetchRunWidgets,
     findNewlyAddedWidgetTiles,
+    isWidgetStale,
     WIDGET_CLIENT_TTL_MS,
 } from 'scenes/dashboard/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
@@ -284,6 +285,7 @@ export interface dashboardLogicValues {
         interval: number
     }
     blockRefresh: boolean
+    nextWidgetStaleAt: number | null
     breadcrumbs: Breadcrumb[]
     breakdownValuesIncomplete: boolean
     buttonTileId: DashboardTileIdOrNew
@@ -401,6 +403,7 @@ export interface dashboardLogicValues {
     } | null
     urlVariables: Record<string, HogQLVariable>
     variablesDirty: boolean
+    widgetFreshnessTick: number
     widgetRefreshStatus: Record<
         number,
         {
@@ -978,6 +981,9 @@ export interface dashboardLogicActions {
     toggleTileDescription: (tileId: number) => {
         tileId: number
     }
+    recheckWidgetFreshness: () => {
+        value: true
+    }
     triggerDashboardRefresh: () => {
         value: true
     }
@@ -1207,8 +1213,17 @@ export interface dashboardLogicMeta {
         oldestRefreshed: (sortedDates: Dayjs[], pageVisibility: boolean) => Dayjs | null
         effectiveLastRefresh: (lastDashboardRefresh: Dayjs | null, oldestRefreshed: Dayjs | null) => Dayjs | null
         nextAllowedDashboardRefresh: (lastDashboardRefresh: Dayjs | null) => Dayjs | null
+        nextWidgetStaleAt: (
+            widgetTiles: DashboardTile[],
+            widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
+            dashboardWidgetsEnabled: boolean
+        ) => number | null
         blockRefresh: (
             nextAllowedDashboardRefresh: Dayjs | null,
+            widgetTiles: DashboardTile[],
+            widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
+            widgetFreshnessTick: number,
+            dashboardWidgetsEnabled: boolean,
             placement: DashboardPlacement,
             pageVisibility: boolean
         ) => boolean
@@ -1439,6 +1454,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveLayout: true,
         resetUrlFilters: () => true,
         resetUrlVariables: true,
+        recheckWidgetFreshness: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
@@ -2565,20 +2581,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tileIds.map((tileId) => [
                             tileId,
                             loading
-                                ? { loading: true, error: null }
-                                : { loading: false, error: error ?? null, fetchedAt: Date.now() },
+                                ? { ...state[tileId], loading: true, error: null }
+                                : {
+                                      ...state[tileId],
+                                      loading: false,
+                                      error: error ?? null,
+                                      fetchedAt: error ? state[tileId]?.fetchedAt : Date.now(),
+                                  },
                         ])
                     ),
                 }),
                 setWidgetRunResults: (state, { results }) => {
                     const next = { ...state }
                     for (const tileId of Object.keys(results).map(Number)) {
-                        next[tileId] = { ...next[tileId], loading: false, fetchedAt: Date.now() }
+                        next[tileId] = {
+                            ...next[tileId],
+                            loading: false,
+                            fetchedAt: results[tileId].error ? next[tileId]?.fetchedAt : Date.now(),
+                        }
                     }
                     return next
                 },
             },
         ],
+        widgetFreshnessTick: [0, { recheckWidgetFreshness: (state) => state + 1 }],
         addWidgetTileLoading: [
             false,
             {
@@ -3078,15 +3104,51 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return lastDashboardRefresh.add(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
             },
         ],
+        nextWidgetStaleAt: [
+            (s) => [s.widgetTiles, s.widgetRefreshStatus, s.dashboardWidgetsEnabled],
+            (widgetTiles, widgetRefreshStatus, dashboardWidgetsEnabled): number | null => {
+                if (!dashboardWidgetsEnabled) {
+                    return null
+                }
+                const deadlines = widgetTiles
+                    .map((tile) => {
+                        const status = widgetRefreshStatus[tile.id]
+                        return status?.fetchedAt && !status.error && !status.loading
+                            ? status.fetchedAt + WIDGET_CLIENT_TTL_MS
+                            : null
+                    })
+                    .filter((deadline): deadline is number => deadline !== null && deadline > Date.now())
+                return deadlines.length ? Math.min(...deadlines) : null
+            },
+        ],
         blockRefresh: [
             // page visibility is only here to trigger a recompute when the page is hidden/shown
-            (s) => [s.nextAllowedDashboardRefresh, s.placement, s.pageVisibility],
-            (nextAllowedDashboardRefresh: Dayjs, placement: DashboardPlacement) => {
+            (s) => [
+                s.nextAllowedDashboardRefresh,
+                s.widgetTiles,
+                s.widgetRefreshStatus,
+                s.widgetFreshnessTick,
+                s.dashboardWidgetsEnabled,
+                s.placement,
+                s.pageVisibility,
+            ],
+            (
+                nextAllowedDashboardRefresh: Dayjs,
+                widgetTiles: DashboardTile[],
+                widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
+                _widgetFreshnessTick: number,
+                dashboardWidgetsEnabled: boolean,
+                placement: DashboardPlacement
+            ) => {
                 return (
                     !(placement === DashboardPlacement.FeatureFlag) &&
                     !(placement === DashboardPlacement.Group) &&
                     !!nextAllowedDashboardRefresh &&
-                    nextAllowedDashboardRefresh?.isAfter(now())
+                    nextAllowedDashboardRefresh?.isAfter(now()) &&
+                    !(
+                        dashboardWidgetsEnabled &&
+                        widgetTiles.some((tile) => isWidgetStale(widgetRefreshStatus[tile.id]))
+                    )
                 )
             },
         ],
@@ -4254,7 +4316,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return true
                 }
                 const fetchedAt = values.widgetRefreshStatus[tileId]?.fetchedAt
-                return !fetchedAt || Date.now() - fetchedAt > WIDGET_CLIENT_TTL_MS
+                return (
+                    !!values.widgetRefreshStatus[tileId]?.error ||
+                    !fetchedAt ||
+                    Date.now() - fetchedAt >= WIDGET_CLIENT_TTL_MS
+                )
             })
 
             if (staleTileIds.length === 0) {

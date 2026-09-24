@@ -4049,6 +4049,55 @@ describe('dashboardLogic', () => {
             fetchRunWidgetsMock.mockRestore()
         })
 
+        it('a stale widget releases the shared refresh block', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const currentTime = Date.now()
+            const clockSpy = jest.spyOn(Date, 'now')
+            try {
+                clockSpy.mockReturnValue(currentTime - 4 * 60_000)
+                logic.actions.setWidgetRefreshStatuses([WIDGET_TILE.id], false)
+                clockSpy.mockReturnValue(currentTime)
+                logic.actions.updateDashboardLastRefresh(dayjs())
+                expect(logic.values.blockRefresh).toBe(true)
+
+                expect(logic.values.nextWidgetStaleAt).toBe(currentTime + 60_000)
+                clockSpy.mockReturnValue(currentTime + 60_000)
+                logic.actions.recheckWidgetFreshness()
+                expect(logic.values.blockRefresh).toBe(false)
+            } finally {
+                clockSpy.mockRestore()
+            }
+        })
+
+        it('uses the five-minute widget TTL for non-forced refreshes', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const fetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
+            expect(fetchedAt).not.toBeUndefined()
+            const initialCalls = fetchRunWidgetsMock.mock.calls.length
+            const clockSpy = jest.spyOn(Date, 'now')
+            try {
+                clockSpy.mockReturnValue(fetchedAt! + 4 * 60_000)
+                await expectLogic(logic, () => {
+                    logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: false })
+                }).toFinishAllListeners()
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(initialCalls)
+
+                clockSpy.mockReturnValue(fetchedAt! + 5 * 60_000)
+                await expectLogic(logic, () => {
+                    logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: false })
+                }).toFinishAllListeners()
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(initialCalls + 1)
+            } finally {
+                clockSpy.mockRestore()
+            }
+        })
+
         it('refreshDashboardWidgets fetches run_widgets for widget tiles', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
@@ -4111,6 +4160,7 @@ describe('dashboardLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
+            const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
             fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
 
             await expectLogic(logic, () => {
@@ -4118,6 +4168,7 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt).toBe(previousFetchedAt)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets returns per-tile error', async () => {
@@ -4125,6 +4176,7 @@ describe('dashboardLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
+            const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
             fetchRunWidgetsMock.mockResolvedValueOnce([
                 {
                     tile_id: WIDGET_TILE.id,
@@ -4140,6 +4192,7 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
             expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.error).toBe('Query timeout')
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt).toBe(previousFetchedAt)
         })
 
         it('refreshDashboardWidgets only marks failed tiles when a chunk has mixed results', async () => {

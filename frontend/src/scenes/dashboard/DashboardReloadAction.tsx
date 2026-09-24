@@ -66,9 +66,15 @@ const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
 }))
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } = useValues(dashboardLogic)
-    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
-        useActions(dashboardLogic)
+    const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh, nextWidgetStaleAt } =
+        useValues(dashboardLogic)
+    const {
+        triggerDashboardRefresh,
+        setAutoRefresh,
+        setPageVisibility,
+        cancelDashboardRefresh,
+        recheckWidgetFreshness,
+    } = useActions(dashboardLogic)
 
     usePageVisibilityCb(setPageVisibility)
 
@@ -92,6 +98,16 @@ export function DashboardReloadAction(): JSX.Element {
             }
         }
     }, [nextAllowedDashboardRefresh])
+
+    useEffect(() => {
+        if (nextWidgetStaleAt) {
+            const delay = nextWidgetStaleAt - Date.now()
+            if (delay > 0) {
+                const timeoutId = setTimeout(recheckWidgetFreshness, delay + 100)
+                return () => clearTimeout(timeoutId)
+            }
+        }
+    }, [nextWidgetStaleAt, recheckWidgetFreshness])
 
     const options = INTERVAL_OPTIONS.map((option) => {
         return {

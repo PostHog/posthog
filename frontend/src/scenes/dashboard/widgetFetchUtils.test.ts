@@ -1,8 +1,22 @@
 import type { DashboardTile } from '~/types'
 
-import { chunkTileIds, findNewlyAddedWidgetTiles } from './widgetFetchUtils'
+import { chunkTileIds, findNewlyAddedWidgetTiles, isWidgetStale, WIDGET_CLIENT_TTL_MS } from './widgetFetchUtils'
 
 describe('widgetFetchUtils', () => {
+    it.each([
+        { ageMinutes: 4, expected: false },
+        { ageMinutes: 5, expected: true },
+    ])('marks a successful widget fetch stale after $ageMinutes minutes', ({ ageMinutes, expected }) => {
+        const currentTime = 1_000_000
+        expect(isWidgetStale({ fetchedAt: currentTime - ageMinutes * 60_000 }, currentTime)).toBe(expected)
+        expect(WIDGET_CLIENT_TTL_MS).toBe(5 * 60_000)
+    })
+
+    it('does not treat a failed widget fetch as fresh', () => {
+        expect(isWidgetStale({ error: 'Query failed', fetchedAt: 1_000_000 }, 1_000_000)).toBe(true)
+        expect(isWidgetStale({ loading: true, fetchedAt: 1_000_000 }, 1_000_000)).toBe(false)
+    })
+
     const widgetTile = (id: number): DashboardTile => ({
         id,
         widget: { id: String(id), widget_type: 'error_tracking_list', config: {} },
