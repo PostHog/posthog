@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -11,20 +11,15 @@ import { GoogleAdsCustomerIdPicker, normalizeCustomerIdValue } from './GoogleAds
 
 const INTEGRATION = { id: 1, kind: 'google-ads' } as IntegrationType
 
-const renderPicker = async (): Promise<void> => {
+const renderPicker = (): void => {
     render(
         <Provider>
             <GoogleAdsCustomerIdPicker integration={INTEGRATION} />
         </Provider>
     )
-    await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
 }
 
 describe('GoogleAdsCustomerIdPicker', () => {
-    afterEach(() => {
-        cleanup()
-    })
-
     // The destination reads the stored value as `<customer id>/<login customer id>`, so a typed value
     // without the second half sends an empty login-customer-id header and every upload fails.
     test.each([
@@ -49,9 +44,9 @@ describe('GoogleAdsCustomerIdPicker', () => {
         })
         initKeaTests()
 
-        await renderPicker()
+        renderPicker()
 
-        expect(screen.getByText(/did not return all of the accounts/)).toBeInTheDocument()
+        expect(await screen.findByText(/did not return all of the accounts/)).toBeInTheDocument()
         expect(screen.getByText(/type the 10-digit customer ID/)).toBeInTheDocument()
     })
 })

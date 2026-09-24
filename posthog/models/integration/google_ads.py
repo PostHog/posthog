@@ -21,6 +21,10 @@ logger = structlog.get_logger(__name__)
 GOOGLE_ADS_DEAD_STATUSES = frozenset({"CANCELED", "CLOSED"})
 
 
+# The walk stopped part-way, so the account list would be short. Both pickers read from one string.
+GOOGLE_ADS_WALK_FAILED_ERROR = "Google Ads did not return all of the accounts you can use. Please try again."
+
+
 class GoogleAdsAccountWalkError(ValidationError):
     """Google returned an error part-way through the account hierarchy walk, so the account list is
     incomplete. Raised rather than returned, because a short list looks like a complete one."""
@@ -165,9 +169,7 @@ class GoogleAdsIntegration:
                 capture_exception(
                     Exception(f"GoogleAdsIntegration: Failed to walk the account hierarchy: {response.text}")
                 )
-                raise GoogleAdsAccountWalkError(
-                    "Google Ads did not return all of the accounts you can use. Please try again."
-                )
+                raise GoogleAdsAccountWalkError(GOOGLE_ADS_WALK_FAILED_ERROR)
 
             # searchStream's REST body is an array of response objects, one per streamed batch.
             data = response.json()

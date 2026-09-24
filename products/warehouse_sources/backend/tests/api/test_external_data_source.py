@@ -9368,6 +9368,7 @@ class TestCreateWebhook(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
+
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_initial"})
@@ -13653,7 +13654,6 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
                 "value": "555-555-5555",
                 "display_name": "Client Test",
                 "is_primary": False,
-                # A test account takes no real traffic, so it must be distinguishable from a production one.
                 "badges": ["Test"],
                 "group": "Acme Corp",
                 "secondary_text": None,

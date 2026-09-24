@@ -6081,7 +6081,6 @@ const api = {
                 name: string
                 level: string
                 parent_id: string
-                manager?: boolean
                 test_account?: boolean
             }[]
         }> {

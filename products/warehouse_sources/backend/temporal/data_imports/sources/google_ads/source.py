@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
+    GOOGLE_ADS_WALK_FAILED_ERROR,
     GoogleAdsAccountWalkError,
     GoogleAdsIntegration,
     Integration,
@@ -388,8 +389,7 @@ class GoogleAdsSource(
         except GoogleAdsAccountWalkError as e:
             # Google failed on one of the manager accounts, so the list would be short without saying so.
             raise IntegrationAccountListingError(
-                "Google Ads did not return all of the accounts you can use. Please try again, or type the "
-                "customer ID of the account you want."
+                f"{GOOGLE_ADS_WALK_FAILED_ERROR} You can also type the customer ID of the account you want."
             ) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account

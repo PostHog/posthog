@@ -194,8 +194,7 @@ class TestGoogleAdsIntegrationModel(BaseTest):
     @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
     @patch("posthog.models.integration.google_ads.requests.request")
     def test_accessible_accounts_labels_a_test_account(self, mock_request):
-        # Without this flag a test account looks the same as a production one, so nobody can tell which
-        # account is safe to validate a destination against.
+        # Without this flag a test account looks the same as a production one.
         accessible = MagicMock(status_code=200)
         accessible.json.return_value = {"resourceNames": ["customers/6501924158"]}
         stream = MagicMock(status_code=200)

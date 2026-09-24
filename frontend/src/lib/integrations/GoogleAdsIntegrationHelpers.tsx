@@ -18,16 +18,19 @@ export const normalizeCustomerIdValue = (value: string): string | null => {
 
 const getGoogleAdsAccountOptions = (googleAdsAccounts?: GoogleAdsAccount[] | null): LemonInputSelectOption[] | null => {
     return googleAdsAccounts
-        ? googleAdsAccounts.map((customer) => ({
-              key: `${customer.id}/${customer.parent_id}`,
-              labelComponent: (
-                  <span className="flex items-center gap-1">
-                      {customer.name} ({formatCustomerId(customer.id)})
-                      {customer.test_account && <LemonTag type="highlight">Test</LemonTag>}
-                  </span>
-              ),
-              label: `${customer.name} (${formatCustomerId(customer.id)})${customer.test_account ? ' test' : ''}`,
-          }))
+        ? googleAdsAccounts.map((customer) => {
+              const formattedId = formatCustomerId(customer.id)
+              return {
+                  key: `${customer.id}/${customer.parent_id}`,
+                  labelComponent: (
+                      <span className="flex items-center gap-1">
+                          {customer.name} ({formattedId})
+                          {customer.test_account && <LemonTag type="highlight">Test</LemonTag>}
+                      </span>
+                  ),
+                  label: `${customer.name} (${formattedId})${customer.test_account ? ' test' : ''}`,
+              }
+          })
         : null
 }
 
@@ -134,7 +137,7 @@ export function GoogleAdsCustomerIdPicker({
     return (
         <div className="flex flex-col gap-1">
             <LemonInputSelect
-                onChange={(val) => onChange?.(val[0] ? normalizeCustomerIdValue(val[0]) : null)}
+                onChange={(val) => onChange?.(normalizeCustomerIdValue(val[0] ?? ''))}
                 value={value ? [value] : []}
                 onFocus={() =>
                     !googleAdsAccessibleAccounts &&

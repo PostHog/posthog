@@ -10,7 +10,6 @@ export interface GoogleAdsAccount {
     level: string
     name: string
     parent_id: string
-    manager?: boolean
     test_account?: boolean
 }
 
@@ -134,9 +133,12 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
             null as string | null,
             {
                 loadGoogleAdsAccessibleAccounts: () => null,
-                loadGoogleAdsAccessibleAccountsSuccess: () => null,
+                // A DRF 400 lands its message under `data.detail` on some paths and `detail` on others.
                 loadGoogleAdsAccessibleAccountsFailure: (_, { error, errorObject }) =>
-                    errorObject?.detail ?? error ?? 'Could not load your Google Ads accounts.',
+                    errorObject?.data?.detail ??
+                    errorObject?.detail ??
+                    error ??
+                    'Could not load your Google Ads accounts.',
             },
         ],
     }),
