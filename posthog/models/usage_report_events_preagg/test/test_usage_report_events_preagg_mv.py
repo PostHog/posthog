@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import ClickhouseTestMixin
 
 from django.test import SimpleTestCase
@@ -37,6 +38,14 @@ TEST_EVENT_TIMESTAMP = datetime(2026, 5, 5, 12, 34, 56)
 # Plain source table with the Kafka engine table's exact columns. The projection reads
 # from here instead of Kafka, so aggregation is verified without a broker in the loop.
 SOURCE_USAGE_REPORT_EVENTS_PREAGG_TABLE = "test_source_usage_report_events_preagg"
+
+
+# A SimpleTestCase never asks for a database, so nothing here triggers django_db_setup
+# (posthog/conftest.py), which is what creates the ClickHouse test database. Module scope
+# runs it before setUpClass, which already queries ClickHouse.
+@pytest.fixture(scope="module", autouse=True)
+def _clickhouse_test_database(django_db_setup):
+    pass
 
 
 def _make_event_row(distinct_id: str, event: str, lib: str, team_id: int) -> dict:

@@ -14,6 +14,10 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_WS_MV_SQL,
 )
 
+# django_db_setup (posthog/conftest.py) creates the ClickHouse test database; without this
+# marker the file never triggers it when sharded onto a runner alone.
+pytestmark = pytest.mark.django_db
+
 
 @pytest.mark.parametrize("mv_sql", [SESSION_REPLAY_EVENTS_TABLE_MV_SQL, SESSION_REPLAY_EVENTS_WS_MV_SQL])
 def test_replay_metadata_reads_old_parts_and_classified_blocks(mv_sql: Callable[..., str]) -> None:

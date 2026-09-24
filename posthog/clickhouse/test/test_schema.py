@@ -78,6 +78,10 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert "accurateCastOrNull(if(isValidJSON(source.person_properties)" in mv_query
 
 
+# django_db_setup (posthog/conftest.py) creates the ClickHouse test database, so a query
+# here only runs when something already triggered it. Marked so a shard of pure unit tests
+# still gets one.
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "properties,expected",
     [
@@ -115,6 +119,10 @@ def test_person_property_mutation_projection(properties: dict[str, object], expe
     assert [json.loads(row[2]) for row in rows] == ([] if expected is None else [expected])
 
 
+# django_db_setup (posthog/conftest.py) creates the ClickHouse test database, so a query
+# here only runs when something already triggered it. Marked so a shard of pure unit tests
+# still gets one.
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "timestamp_offset,observed_delay,retentions,expected_days",
     [
