@@ -254,6 +254,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             height={height}
                                             width={width}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
+                                            // Every branch above leads with the substantive group.
                                             defaultGroupType={taxonomicGroupTypes[0]}
                                             value={undefined}
                                             onChange={(group, value) => {
