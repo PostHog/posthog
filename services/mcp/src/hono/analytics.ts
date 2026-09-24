@@ -89,6 +89,18 @@ function buildBaseProperties(
     return { properties, groups }
 }
 
+/**
+ * The identity fields of an SDK capture envelope, omitted rather than set to `undefined`:
+ * the SDK applies caller properties last, so an explicit `undefined` erases its own mapping.
+ */
+async function buildEventIdentity(state: ResolvedState): Promise<{ sessionId?: string; conversationId?: string }> {
+    const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+    return {
+        ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+        ...(state.requestContext.mcpConversationId ? { conversationId: state.requestContext.mcpConversationId } : {}),
+    }
+}
+
 export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
@@ -96,7 +108,6 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
             : undefined
-        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -106,8 +117,7 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             distinctId: state.distinctId,
             groups,
             durationMs: initDurationMs ?? 0,
-            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
+            ...(await buildEventIdentity(state)),
             properties: {
                 ...properties,
                 $mcp_is_error: false,
@@ -161,8 +171,6 @@ export async function trackToolCall(
 ): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
-        const requestContext = state.requestContext
-        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -195,8 +203,7 @@ export async function trackToolCall(
             isError,
             distinctId: state.distinctId,
             groups,
-            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
+            ...(await buildEventIdentity(state)),
             ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
             ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
@@ -515,8 +522,6 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
 export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
-        const requestContext = state.requestContext
-        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -526,8 +531,7 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             toolNames,
             distinctId: state.distinctId,
             groups,
-            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
+            ...(await buildEventIdentity(state)),
             properties: {
                 ...properties,
                 tool_count: toolNames.length,

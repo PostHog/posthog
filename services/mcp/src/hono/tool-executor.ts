@@ -50,7 +50,7 @@ import {
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { getEffectiveMCPClientContext } from './mcp-context'
+import { getEffectiveMCPClientContext, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
@@ -116,15 +116,6 @@ function stateCarryingIntent(state: ResolvedState, intent: string | undefined): 
     } catch {
         return state
     }
-}
-
-// Copied rather than written for the same reason as the intent above, and every event this
-// call emits reads its session from here.
-function stateCarryingConversation(state: ResolvedState, conversationId: string | undefined): ResolvedState {
-    if (!conversationId) {
-        return state
-    }
-    return { ...state, requestContext: { ...state.requestContext, mcpConversationId: conversationId } }
 }
 
 export class ToolExecutor {
@@ -216,10 +207,14 @@ export class ToolExecutor {
             requestMeta,
             state.requestContext
         )
-        const callState = stateCarryingConversation(
-            stateCarryingIntent(state, analyticsMeta.intent),
-            preparedCall?.conversationId
-        )
+        // In place, not copied: `RequestStateResolver` gives this one object to both the state
+        // and `RequestContext`, so events emitted through `RequestContext.trackEvent` resolve the
+        // same session. A batch never reaches here holding a handle, because the dispatcher
+        // refuses a batch containing a modern message and a legacy client carries a session.
+        if (preparedCall?.conversationId) {
+            state.requestContext.mcpConversationId = preparedCall.conversationId
+        }
+        const callState = stateCarryingIntent(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
@@ -313,10 +308,8 @@ export class ToolExecutor {
                 originalTool,
                 requestMeta,
                 // The SDK mints a handle only when nothing was carried, so a client that already
-                // has a session keeps it and never sees the prompt-back. Same order as
-                // `getEffectiveSessionUuid`, so a wrapper app that sends the conversation header
-                // keeps its own handle instead of having a minted one replace it per call.
-                sessionId: requestContext.mcpConversationId ?? requestContext.sessionId ?? requestContext.mcpSessionId,
+                // has a session keeps it and never sees the prompt-back.
+                sessionId: resolveSessionKey(requestContext),
             })
             return {
                 analyticsMeta: {

@@ -23,6 +23,7 @@ import {
     buildMCPSessionAnalyticsProperties,
     getEffectiveMCPClientContext,
     getEffectiveMCPClientIdentity,
+    resolveSessionKey,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -38,6 +39,7 @@ export class RequestContext {
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
     private distinctIdPromise: Promise<string> | undefined
+    private readonly sessionUuidPromises = new Map<string, Promise<string>>()
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
@@ -148,11 +150,19 @@ export class RequestContext {
         return this.sessionManagerInstance
     }
 
+    // Memoized per key because a tool call emits several events and each producer resolved
+    // the same id, and because concurrent producers otherwise race to write the same mapping.
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
         if (!sessionId) {
             return undefined
         }
-        return this.sessionManager.getSessionUuid(sessionId)
+        const cached = this.sessionUuidPromises.get(sessionId)
+        if (cached) {
+            return cached
+        }
+        const pending = this.sessionManager.getSessionUuid(sessionId)
+        this.sessionUuidPromises.set(sessionId, pending)
+        return pending
     }
 
     /**
@@ -164,9 +174,7 @@ export class RequestContext {
      * server minted instead of emitting it.
      */
     async getEffectiveSessionUuid(requestContext: MCPRequestContext): Promise<string | undefined> {
-        return this.getSessionUuid(
-            requestContext.mcpConversationId ?? requestContext.sessionId ?? requestContext.mcpSessionId
-        )
+        return this.getSessionUuid(resolveSessionKey(requestContext))
     }
 
     getDistinctId(): Promise<string> {

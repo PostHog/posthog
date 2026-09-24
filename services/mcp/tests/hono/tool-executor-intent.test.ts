@@ -349,6 +349,8 @@ describe('ToolExecutor analytics capture', () => {
 
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(2))
         expect(captureSpy.mock.calls[1]![0].conversationId).toBe(handle)
+        // `RequestContext` holds this same object; a copy would leave its events sessionless.
+        expect(state.requestContext.mcpConversationId).toBe(handle)
         // Repeating it would spend tokens telling the agent what it just told us.
         expect(readConversationHandle(second)).toBeUndefined()
         expect((second as { isError?: boolean }).isError).toBeFalsy()
