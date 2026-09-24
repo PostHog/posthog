@@ -35,6 +35,9 @@ export interface authorFrictionLogicActions {
         sourceId: string | null
         scopeRepo: string | null
     } // engineeringAnalyticsLogic
+    refresh: () => {
+        value: true
+    } // engineeringAnalyticsLogic
     setGithubTeam: (githubTeam: string | null) => {
         githubTeam: string | null
     }
@@ -76,7 +79,7 @@ export const authorFrictionLogic = kea<authorFrictionLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'authorFrictionLogic']),
     connect(() => ({
         values: [engineeringAnalyticsLogic, ['sourceId', 'scopeRepo']],
-        actions: [engineeringAnalyticsLogic, ['setSourceId', 'setScope']],
+        actions: [engineeringAnalyticsLogic, ['setSourceId', 'setScope', 'refresh']],
     })),
     actions({
         setGithubTeam: (githubTeam: string | null) => ({ githubTeam }),
@@ -128,8 +131,8 @@ export const authorFrictionLogic = kea<authorFrictionLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setSourceId: () => actions.loadFriction(),
-        setScope: () => actions.loadFriction(),
+        // engineeringAnalyticsLogic refreshes on every source or repo change, so this covers a new scope too.
+        refresh: () => actions.loadFriction(),
     })),
     afterMount(({ actions }) => {
         actions.loadFriction()

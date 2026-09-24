@@ -93,7 +93,7 @@ describe('authorFrictionLogic', () => {
 
     afterEach(() => logic?.unmount())
 
-    it('keeps repository ranks under a team filter and reloads for a new scope', async () => {
+    it('keeps repository ranks under a team filter and reloads for a new scope or a refresh', async () => {
         logic = authorFrictionLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadFrictionSuccess'])
@@ -109,5 +109,9 @@ describe('authorFrictionLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadFrictionSuccess'])
         expect(mockFriction).toHaveBeenLastCalledWith('1', { source_id: 'source-2', repo: 'PostHog/posthog-js' })
         expect(logic.values.githubTeam).toBeNull()
+
+        logic.actions.refresh()
+        await expectLogic(logic).toDispatchActions(['loadFrictionSuccess'])
+        expect(mockFriction).toHaveBeenCalledTimes(3)
     })
 })

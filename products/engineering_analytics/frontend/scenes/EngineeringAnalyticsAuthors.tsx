@@ -9,7 +9,8 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
 import { FrictionGroupBar } from '../components/FrictionGroupBar'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
+import { SourceScopeChip } from '../components/ScopeBar'
+import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import type { AuthorFrictionApi } from '../generated/api.schemas'
 import { timesTypical } from '../lib/format'
@@ -109,7 +110,6 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
             width: 110,
             align: 'right',
             tooltip: `Merged in the ${windowLabel}. An author needs 3 to get a score.`,
-            sorter: (a, b) => a.pr_count - b.pr_count,
             render: (_, row) => <CountCell value={row.pr_count} />,
         },
     ]
@@ -145,36 +145,37 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
-            <Section id="author-friction" title="Friction by author" note={legend} right={teamFilter}>
-                {frictionFailed ? (
-                    <CIAnalyticsLoadError onRetry={loadFriction} loading={frictionLoading} />
-                ) : friction && !friction.available ? (
-                    <div className="text-sm text-secondary" data-attr="engineering-analytics-friction-not-ready">
-                        Friction is not ready for this project yet. It needs a GitHub source with workflow runs,
-                        workflow jobs and pull requests synced, and it refreshes every 12 hours.
-                    </div>
-                ) : (
-                    <LemonTable
-                        data-attr="engineering-analytics-friction-table"
-                        size="small"
-                        columns={columns}
-                        dataSource={authors}
-                        rowKey={(row) => row.author}
-                        rowClassName="cursor-pointer"
-                        onRow={(row) => rowNavigationProps(authorUrl(row.author, sourceId))}
-                        loading={frictionLoading}
-                        pagination={{ pageSize: 50 }}
-                        useURLForSorting={false}
-                        emptyState={
-                            githubTeam
-                                ? 'No one on this team has 3 merged pull requests in the window yet.'
-                                : 'No author has 3 merged pull requests in the window yet.'
-                        }
-                        nouns={['author', 'authors']}
-                    />
-                )}
-            </Section>
+            <ScopePanel busy={frictionLoading && !!friction} controls={<SourceScopeChip pickerOnly />}>
+                <Section id="author-friction" title="Friction by author" note={legend} right={teamFilter}>
+                    {frictionFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadFriction} loading={frictionLoading} />
+                    ) : friction && !friction.available ? (
+                        <div className="text-sm text-secondary" data-attr="engineering-analytics-friction-not-ready">
+                            Friction is not ready for this project yet. It needs a GitHub source with workflow runs,
+                            workflow jobs and pull requests synced, and it refreshes every 12 hours.
+                        </div>
+                    ) : (
+                        <LemonTable
+                            data-attr="engineering-analytics-friction-table"
+                            size="small"
+                            columns={columns}
+                            dataSource={authors}
+                            rowKey={(row) => row.author}
+                            rowClassName="cursor-pointer"
+                            onRow={(row) => rowNavigationProps(authorUrl(row.author, sourceId))}
+                            loading={frictionLoading}
+                            pagination={{ pageSize: 50 }}
+                            useURLForSorting={false}
+                            emptyState={
+                                githubTeam
+                                    ? 'No one on this team has 3 merged pull requests in the window yet.'
+                                    : 'No author has 3 merged pull requests in the window yet.'
+                            }
+                            nouns={['author', 'authors']}
+                        />
+                    )}
+                </Section>
+            </ScopePanel>
         </div>
     )
 }
