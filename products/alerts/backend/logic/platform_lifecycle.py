@@ -168,7 +168,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
     """
-    _, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
+    configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
         legacy_configuration_id=upsert.legacy_configuration_id,
         defaults={
             "team_id": upsert.team_id,
@@ -187,4 +187,6 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             "next_check_at": upsert.next_check_at,
         },
     )
+    alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
+    PlatformAlert.objects.for_team(upsert.team_id).filter(id=alert.id).update(snooze_until=upsert.snooze_until)
     return created
