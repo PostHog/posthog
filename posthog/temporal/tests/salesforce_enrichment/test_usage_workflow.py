@@ -135,10 +135,10 @@ class TestDecideOrgRegion(SimpleTestCase):
                 OrgRegionOutcome.MATCHES,
             ),
             (
-                "never_overwrites_a_different_region",
+                "replaces_a_different_region",
                 "US",
                 SalesforceAccountRegion(posthog_org_id="org-a", region="EU"),
-                OrgRegionOutcome.DISAGREES,
+                OrgRegionOutcome.REPLACE,
             ),
             (
                 "skips_account_restamped_since_cache",
@@ -300,10 +300,10 @@ class TestEnrichOrgPageActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("fills_empty_region_only", None, "US", 1, 1),
-            ("field_not_writable_yet", "field_not_writable", NOT_SENT, 0, 0),
-            ("billing_lookup_fails", "billing_lookup", NOT_SENT, 0, 0),
-            ("account_reread_fails", "account_reread", NOT_SENT, 0, 0),
+            ("fills_empty_and_replaces_different", None, "US", "EU", 1, 1),
+            ("field_not_writable_yet", "field_not_writable", NOT_SENT, NOT_SENT, 0, 0),
+            ("billing_lookup_fails", "billing_lookup", NOT_SENT, NOT_SENT, 0, 0),
+            ("account_reread_fails", "account_reread", NOT_SENT, NOT_SENT, 0, 0),
         ]
     )
     @pytest.mark.asyncio
@@ -312,13 +312,14 @@ class TestEnrichOrgPageActivity(TestCase):
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_fills_only_empty_regions_and_never_blocks_usage(
+    async def test_writes_billing_region_and_never_blocks_usage(
         self,
         _name,
         failure,
-        expected_region,
+        expected_empty_region,
+        expected_different_region,
         expected_filled,
-        expected_disagreements,
+        expected_replaced,
         _mock_close,
         mock_get_page,
         mock_sf_client,
@@ -356,12 +357,12 @@ class TestEnrichOrgPageActivity(TestCase):
             result = await enrich_org_page_activity(0, 10000, 100)
 
         sent = {record["Id"]: record for record in mock_sf.bulk.Account.update.call_args[0][0]}
-        assert sent["001ABC"].get("Posthog_Org_Region__c", NOT_SENT) == expected_region
-        assert "Posthog_Org_Region__c" not in sent["001DEF"]
+        assert sent["001ABC"].get("Posthog_Org_Region__c", NOT_SENT) == expected_empty_region
+        assert sent["001DEF"].get("Posthog_Org_Region__c", NOT_SENT) == expected_different_region
         assert "Posthog_Org_Region__c" not in sent["001GHI"]
         assert result.updated == 3
         assert result.regions_filled == expected_filled
-        assert result.region_disagreements == expected_disagreements
+        assert result.regions_replaced == expected_replaced
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
@@ -515,14 +516,14 @@ class TestProductionModeContinueAsNew(TestCase):
     async def test_returns_result_on_last_page(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
             return_value=EnrichPageResult(
-                page_size=5000, processed=5000, updated=4800, errors=[], regions_filled=40, region_disagreements=1
+                page_size=5000, processed=5000, updated=4800, errors=[], regions_filled=40, regions_replaced=1
             ),
         )
         mock_workflow.continue_as_new = MagicMock()
 
         wf = SalesforceUsageEnrichmentWorkflow()
         state = UsageEnrichmentState(
-            page_offset=10000, total_processed=10000, total_updated=9500, regions_filled=60, region_disagreements=2
+            page_offset=10000, total_processed=10000, total_updated=9500, regions_filled=60, regions_replaced=2
         )
         inputs = UsageEnrichmentInputs(batch_size=100, state=state)
         result = await wf._run_production_mode(inputs)
@@ -531,7 +532,7 @@ class TestProductionModeContinueAsNew(TestCase):
         assert result["total_orgs_processed"] == 15000
         assert result["total_orgs_updated"] == 14300
         assert result["regions_filled"] == 100
-        assert result["region_disagreements"] == 3
+        assert result["regions_replaced"] == 3
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")

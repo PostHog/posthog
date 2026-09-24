@@ -60,7 +60,7 @@ class UsageEnrichmentState:
     error_count: int = 0
     errors: list[str] = dataclasses.field(default_factory=list)
     regions_filled: int = 0
-    region_disagreements: int = 0
+    regions_replaced: int = 0
 
 
 @dataclasses.dataclass
@@ -82,7 +82,7 @@ class UsageEnrichmentResult:
     error_count: int
     errors: list[str]
     regions_filled: int
-    region_disagreements: int
+    regions_replaced: int
 
 
 def prepare_salesforce_update_record(salesforce_account_id: str, signals: UsageSignals) -> dict[str, Any]:
@@ -107,7 +107,7 @@ def prepare_salesforce_update_record(salesforce_account_id: str, signals: UsageS
 class OrgRegionOutcome(enum.StrEnum):
     FILL = "fill"
     MATCHES = "matches"
-    DISAGREES = "disagrees"
+    REPLACE = "replace"
     RESTAMPED = "restamped"
 
 
@@ -123,10 +123,11 @@ def decide_org_region(org_id: str, billing_region: str, current: SalesforceAccou
     """Decide whether billing's region may be written onto the Account mapped to ``org_id``.
 
     ``current`` is read just before the write, because the cached mapping can be hours old.
-    Only an empty region on an Account that still carries ``org_id`` is filled. The read and
-    the Bulk API write are separate calls with no conditional update between them, so a
-    restamp or a region write that lands in that gap is not detected until the next run
-    reports it as a disagreement.
+    Billing's license is the authoritative source, so it fills an empty region and replaces
+    a different one, such as an interim value copied from Vitally. It writes only onto an
+    Account that still carries ``org_id``. The read and the Bulk API write are separate calls
+    with no conditional update between them, so a restamp that lands in that gap can take
+    the old organization's region until the next run replaces it.
     """
     if current is None or normalize_org_id(current.posthog_org_id) != normalize_org_id(org_id):
         return OrgRegionOutcome.RESTAMPED
@@ -134,7 +135,7 @@ def decide_org_region(org_id: str, billing_region: str, current: SalesforceAccou
         return OrgRegionOutcome.FILL
     if current.region == billing_region:
         return OrgRegionOutcome.MATCHES
-    return OrgRegionOutcome.DISAGREES
+    return OrgRegionOutcome.REPLACE
 
 
 def org_region_field_is_writable(sf: "Salesforce") -> bool:
@@ -168,8 +169,8 @@ def read_account_regions(sf: "Salesforce", account_ids: list[str]) -> dict[str, 
         f"SELECT Id, {POSTHOG_ORG_ID_FIELD}, {POSTHOG_ORG_REGION_FIELD} FROM Account WHERE Id IN {{}}",
         account_ids,
     )
-    # Index instead of .get(): if a key is missing, the read fails and the batch skips
-    # regions, instead of treating every Account as empty and filling over its value.
+    # Index instead of .get(): a missing key means the query and the field disagree, so
+    # the read fails and the batch skips regions instead of deciding on a guessed value.
     return {
         record["Id"]: SalesforceAccountRegion(
             posthog_org_id=record[POSTHOG_ORG_ID_FIELD], region=record[POSTHOG_ORG_REGION_FIELD]
@@ -210,14 +211,14 @@ async def _add_org_regions(
         current = current_by_account_id.get(account_id)
         outcome = decide_org_region(org_id, billing_region, current)
         outcomes[account_id] = outcome
-        if outcome is OrgRegionOutcome.FILL:
+        if outcome in (OrgRegionOutcome.FILL, OrgRegionOutcome.REPLACE):
             record[POSTHOG_ORG_REGION_FIELD] = billing_region
-        elif outcome is OrgRegionOutcome.DISAGREES:
-            logger.warning(
-                "salesforce_org_region_disagreement",
+        if outcome is OrgRegionOutcome.REPLACE:
+            logger.info(
+                "salesforce_org_region_replaced",
                 account_id=account_id,
                 org_id=org_id,
-                salesforce_region=current.region if current else None,
+                previous_region=current.region if current else None,
                 billing_region=billing_region,
             )
     return outcomes
@@ -227,6 +228,7 @@ async def _add_org_regions(
 class _AccountUpdateCounts:
     updated: int
     regions_filled: int
+    regions_replaced: int
 
 
 async def _update_accounts(
@@ -241,14 +243,18 @@ async def _update_accounts(
     logger = LOGGER.bind()
     updated = 0
     regions_filled = 0
+    regions_replaced = 0
     resend: list[dict[str, Any]] = []
     response = await asyncio.to_thread(sf.bulk.Account.update, records)  # type: ignore[union-attr,arg-type]
     # Bulk API results come back in input order, and a failed result can have no id.
     for record, result in zip(records, response, strict=True):
         if result.get("success"):
             updated += 1
-            if region_outcomes.get(record["Id"]) is OrgRegionOutcome.FILL:
+            outcome = region_outcomes.get(record["Id"])
+            if outcome is OrgRegionOutcome.FILL:
                 regions_filled += 1
+            elif outcome is OrgRegionOutcome.REPLACE:
+                regions_replaced += 1
             continue
         logger.warning("salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors"))
         if POSTHOG_ORG_REGION_FIELD in record:
@@ -261,7 +267,7 @@ async def _update_accounts(
                 updated += 1
             else:
                 logger.warning("salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors"))
-    return _AccountUpdateCounts(updated=updated, regions_filled=regions_filled)
+    return _AccountUpdateCounts(updated=updated, regions_filled=regions_filled, regions_replaced=regions_replaced)
 
 
 @activity.defn
@@ -312,7 +318,7 @@ class EnrichPageResult:
     updated: int
     errors: list[str]
     regions_filled: int = 0
-    region_disagreements: int = 0
+    regions_replaced: int = 0
 
 
 @activity.defn
@@ -363,6 +369,7 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
         total_processed = 0
         total_updated = 0
         regions_filled = 0
+        regions_replaced = 0
         region_outcome_counts: Counter[OrgRegionOutcome] = Counter()
         errors: list[str] = []
         sf = get_salesforce_client()
@@ -389,6 +396,7 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
                         counts = await _update_accounts(sf, batch_records, region_outcomes)
                         total_updated += counts.updated
                         regions_filled += counts.regions_filled
+                        regions_replaced += counts.regions_replaced
 
                 total_processed += len(batch_org_ids)
                 heartbeater.details = (total_processed, total_orgs, total_updated)
@@ -407,6 +415,7 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
             billing_regions=len(billing_regions),
             region_outcomes=dict(region_outcome_counts),
             regions_filled=regions_filled,
+            regions_replaced=regions_replaced,
             error_count=len(errors),
         )
 
@@ -416,7 +425,7 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
             updated=total_updated,
             errors=errors,
             regions_filled=regions_filled,
-            region_disagreements=region_outcome_counts[OrgRegionOutcome.DISAGREES],
+            regions_replaced=regions_replaced,
         )
 
 
@@ -519,7 +528,7 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         state.total_processed += page_result.processed
         state.total_updated += page_result.updated
         state.regions_filled += page_result.regions_filled
-        state.region_disagreements += page_result.region_disagreements
+        state.regions_replaced += page_result.regions_replaced
         state.error_count += len(page_result.errors)
         # Cap stored errors to avoid unbounded growth across Continue-As-New executions
         if len(state.errors) < 10:
@@ -572,6 +581,6 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
                 error_count=state.error_count,
                 errors=state.errors[:10],
                 regions_filled=state.regions_filled,
-                region_disagreements=state.region_disagreements,
+                regions_replaced=state.regions_replaced,
             )
         )
