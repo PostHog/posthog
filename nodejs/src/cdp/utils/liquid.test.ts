@@ -107,6 +107,17 @@ describe('LiquidRenderer', () => {
             expect(result).toMatchInlineSnapshot(`"&lt;div&gt;Hello &amp; World&lt;/div&gt;"`)
         })
 
+        // The editor writes a bracketed merge tag for any property name that is not a bare identifier,
+        // and the entity form of the quote depends on which serializer wrote the template.
+        it.each(['&#x27;', '&#39;', '&quot;', '&#34;', '&#x22;'])(
+            'resolves a bracketed merge tag quoted with %s',
+            (entity) => {
+                globals.person.properties['first name'] = 'Ada'
+                const template = `{{ person.properties[${entity}first name${entity}] }}`
+                expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe('Ada')
+            }
+        )
+
         it('renders liquid elements that have been encoded', () => {
             const template = '{% if 1 &lt; 2 %}hello!{% endif %}'
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)

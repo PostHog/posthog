@@ -1,4 +1,5 @@
 import { Liquid } from 'liquidjs'
+import { Counter } from 'prom-client'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 
@@ -43,12 +44,28 @@ export class LiquidRenderBudget {
     }
 }
 
+// An entity the decoder does not know survives into the expression, so the tag resolves to nothing and
+// the recipient reads a blank where a name should be. Nothing throws, so this counter is the only signal.
+const counterLiquidUndecodedEntity = new Counter({
+    name: 'cdp_liquid_undecoded_entity',
+    help: 'A liquid tag held an HTML entity the decoder does not know, so the tag renders as an empty string',
+})
+
+const KNOWN_ENTITIES_REGEX = /&(?:lt|gt|quot|#34|#x22|#x27|#39|amp);/g
+const ANY_ENTITY_REGEX = /&#?[0-9a-z]+;/i
+
 const decodeEntities = (tag: string): string => {
+    if (ANY_ENTITY_REGEX.test(tag.replace(KNOWN_ENTITIES_REGEX, ''))) {
+        counterLiquidUndecodedEntity.inc()
+    }
     return tag
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
+        .replace(/&#34;/g, '"')
+        .replace(/&#x22;/g, '"')
         .replace(/&#x27;/g, "'")
+        .replace(/&#39;/g, "'")
         .replace(/&amp;/g, '&') // NOTE: This should always be last
 }
 
