@@ -1039,7 +1039,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_legacy_order_field_is_deprecated_but_writable(self):
         field = InsightSerializer().fields["order"]
 
-        assert "DEPRECATED" in field.help_text
+        assert "@deprecated" in str(field.help_text)
         assert not field.read_only
         assert field.run_validation(3) == 3
 

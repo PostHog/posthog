@@ -9471,7 +9471,7 @@ export namespace Schemas {
       derived_name?: string | null;
       query?: _InsightQuerySchema | null;
       /**
-         * DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.
+         * @deprecated Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.
          * @minimum -2147483648
          * @maximum 2147483647
          * @nullable
@@ -72986,7 +72986,7 @@ export namespace Schemas {
       derived_name?: string | null;
       query?: _InsightQuerySchema | null;
       /**
-         * DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.
+         * @deprecated Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.
          * @minimum -2147483648
          * @maximum 2147483647
          * @nullable

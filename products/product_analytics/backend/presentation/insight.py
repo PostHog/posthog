@@ -646,7 +646,7 @@ class InsightSerializer(InsightBasicSerializer):
         )
         extra_kwargs = {
             "order": {
-                "help_text": "DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order."
+                "help_text": "@deprecated Legacy insight ordering field. It does not control dashboard tile order or the default insight list order."
             }
         }
 

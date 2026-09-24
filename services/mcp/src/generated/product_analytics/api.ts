@@ -199,7 +199,7 @@ export const InsightsCreateBody = () => zod
             .max(insightsCreateBodyOrderMax)
             .nullish()
             .describe(
-                'DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.'
+                '@deprecated Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.'
             ),
         deleted: zod.boolean().optional(),
         dashboards: zod
@@ -310,7 +310,7 @@ export const InsightsPartialUpdateBody = () => zod
             .max(insightsPartialUpdateBodyOrderMax)
             .nullish()
             .describe(
-                'DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.'
+                '@deprecated Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.'
             ),
         deleted: zod.boolean().optional(),
         dashboards: zod
