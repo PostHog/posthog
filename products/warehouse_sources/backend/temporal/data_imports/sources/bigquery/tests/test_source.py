@@ -2429,8 +2429,7 @@ _COMPLETE_KEY_FILE = {
         # The credential the user did not pick must not satisfy the one they did.
         ({"selection": "service_account", "key_file": _COMPLETE_KEY_FILE}, False),
         ({"selection": "key_file", "google_cloud_service_account_integration_id": 7}, False),
-        # ...nor block it: the form sends the unpicked option's empty key file alongside the one
-        # the user did fill in.
+        # The form also sends the unpicked option's empty key file, which must not block the save.
         ({"selection": "service_account", "google_cloud_service_account_integration_id": 7, "key_file": {}}, True),
         # A JSON file that is not a service account key, or one that lost fields.
         ({"selection": "key_file", "key_file": {"type": "authorized_user"}}, False),

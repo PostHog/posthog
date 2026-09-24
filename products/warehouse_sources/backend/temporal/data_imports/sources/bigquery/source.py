@@ -60,8 +60,8 @@ _KEY_FILE_FIELD_ERRORS = frozenset(
 )
 _MISSING_KEY_FILE_ERROR = "Upload a Google Cloud service account JSON key file."
 _INCOMPLETE_KEY_FILE_ERROR = (
-    "That file is not a complete Google Cloud service account key. Upload the unedited JSON key "
-    "file you downloaded from Google Cloud, then try again."
+    "That file is not a complete Google Cloud service account key. Upload the JSON key file "
+    "exactly as you downloaded it, then try again."
 )
 
 
