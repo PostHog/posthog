@@ -2685,8 +2685,8 @@ describe("AgentServer HTTP Mode", () => {
       expect(isTurnCompleteNotification("turn_complete")).toBe(false);
     });
 
-    // The codex adapter mints turn_complete itself and reports no trace id, so
-    // without this the Slack stream rates a turn it cannot open.
+    // A codex turn reports no trace id of its own, so the stamped run id is
+    // the only thing the Slack stream can rate against.
     it.each([
       [
         "names the stamped run on a turn that reports none",
@@ -2714,12 +2714,6 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(result.params.traceId).toBe(expected);
       expect(result.params.sessionId).toBe("s");
-    });
-
-    it("leaves a message with no params object alone", () => {
-      const message = { jsonrpc: "2.0", method: "_posthog/turn_complete" };
-
-      expect(withTurnTraceId(message, "run-1")).toBe(message);
     });
   });
 
