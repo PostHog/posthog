@@ -243,7 +243,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         producer = MagicMock()
         if delivered:
             producer.flush.side_effect = lambda timeout: pending.set_result(None, None)
-        waits_before = _sample("posthog_person_tombstone_delivery_wait_seconds_count")
+        waits_before = _sample("posthog_person_tombstone_delivery_wait_seconds_count", source="delete")
         with (
             patch("posthog.models.person.util.publish_person_tombstone", return_value=[pending]),
             patch("posthog.models.person.util.get_producer", return_value=producer),
@@ -253,7 +253,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         # Both person topics resolve to this one producer, so it is flushed once, inside the delivery timeout.
         producer.flush.assert_called_once()
         assert 0 < producer.flush.call_args.args[0] <= TOMBSTONE_DELIVERY_TIMEOUT_SECONDS
-        assert _sample("posthog_person_tombstone_delivery_wait_seconds_count") == waits_before + 1
+        assert _sample("posthog_person_tombstone_delivery_wait_seconds_count", source="delete") == waits_before + 1
         assert result.deleted_count == 1
         if delivered:
             assert result.failures == []

@@ -254,17 +254,17 @@ def publish_queue_gauges(result: QueueResolution, completed_at: float) -> None:
         ).set(result.listed)
         Gauge(
             "posthog_person_tombstone_queue_dropped_rows",
-            "Queued persons acked because the persons DB no longer holds their tombstone: revived or hard-deleted",
+            "Queued persons acked because the persons DB no longer holds their tombstone: revived or hard-deleted. Counts team passes that completed",
             registry=registry,
         ).set(result.dropped)
         Gauge(
             "posthog_person_tombstone_queue_confirmed_rows",
-            "Queued persons acked because ClickHouse shows their tombstone, before or after a republish",
+            "Queued persons acked because ClickHouse shows their tombstone, before or after a republish. Counts team passes that completed; a failed team's rows are in unresolved_rows",
             registry=registry,
         ).set(result.confirmed)
         Gauge(
             "posthog_person_tombstone_queue_republished_rows",
-            "Queued persons whose tombstone the weekly repair produced again at the stored versions; confirmed_rows says how many then showed in ClickHouse",
+            "Queued persons whose tombstone the weekly repair produced again at the stored versions, in team passes that completed; confirmed_rows says how many then showed in ClickHouse",
             registry=registry,
         ).set(result.republished)
         Gauge(
