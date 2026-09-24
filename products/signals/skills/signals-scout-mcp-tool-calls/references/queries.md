@@ -442,7 +442,8 @@ SELECT
     any(d.sessions_total) AS sessions_total,
     round(uniqIf(t.session, t.is_current) * 100.0 / nullIf(any(d.sessions_total), 0), 1) AS session_share_pct,
     round(avgIf(t.calls, t.is_current), 2) AS calls_per_session,
-    round(uniqIf(t.session, NOT t.is_current) * 100.0 / nullIf(any(d.prior_sessions_total), 0), 1) AS share_pct_prior_window
+    any(d.prior_sessions_total) AS prior_sessions_total,
+    if(any(d.prior_sessions_total) >= 20, round(uniqIf(t.session, NOT t.is_current) * 100.0 / any(d.prior_sessions_total), 1), NULL) AS share_pct_prior_window
 FROM per_session AS t
 JOIN totals AS d ON d.source_bucket = t.source_bucket
 WHERE t.tool != 'exec'
@@ -458,6 +459,11 @@ Read it:
   job. A tool whose share jumped between `share_pct_prior_window` and `session_share_pct`, across
   many sessions, is being advertised too eagerly — the fix hypothesis points at prompt or
   tool-description wording, not the handler.
+- `share_pct_prior_window` is null when the source had fewer than 20 sessions in the prior window,
+  the same floor as the current reach. A share over a few prior sessions reads as 0% or 100% by
+  chance, so a surface a team is only starting to use would look like a jump on every tool. A null
+  prior share is no baseline, so the row is not a step-change candidate. `prior_sessions_total` is
+  the prior denominator to cite as evidence.
 - Keep the source split. A tool called in most sessions of one surface and almost none of another
   localizes the cause to that surface's prompt.
 - `calls_per_session` separates "reached for once, everywhere" from "hammered" — the latter is
@@ -469,7 +475,7 @@ Read it:
 - `LIMIT 20 BY source` returns the top 20 tools of each source, so one busy source cannot crowd
   another out. These rows are what the scout records as `tool_session_share`.
 - For detection, rank by the change instead of the level. Run it again with
-  `ORDER BY source, session_share_pct - coalesce(share_pct_prior_window, 0) DESC`, so a tool that
+  `ORDER BY source, session_share_pct - share_pct_prior_window DESC NULLS LAST`, so a tool that
   rose from a low share is not cut behind tools that sit high and flat.
 
 ## 11. Category metrics — the `category_rollup` record

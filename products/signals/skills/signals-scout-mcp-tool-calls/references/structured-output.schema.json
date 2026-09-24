@@ -71,7 +71,7 @@
         "mcp_sessions_total": { "type": "integer", "minimum": 0, "description": "All MCP sessions for that source in the window." },
         "mcp_session_share_pct": { "type": "number", "minimum": 0, "maximum": 100, "description": "Sessions with a call as a percentage of all sessions for the source." },
         "mcp_calls_per_session": { "type": "number", "minimum": 0, "description": "Mean calls per session that used the tool." },
-        "mcp_share_pct_prior_window": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "The same share over the preceding window, for a step-change read. Null when the prior window has no traffic." }
+        "mcp_share_pct_prior_window": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "The same share over the preceding window, for a step-change read. Null when the source had fewer than 20 sessions in the prior window." }
       }
     }
   ]
