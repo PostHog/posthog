@@ -103,6 +103,9 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
     }
 
     // Only proxy-registered clients have the proxy callback in their registered redirect_uris.
+    // `nonce` is the single marker of an intercepted flow: set here with the record the
+    // callback forwards from, and read below to swap in the proxy callback. Deciding those
+    // two apart lets the proxy claim a callback it has nothing to answer with.
     let nonce: string | null = null
     if (mapping?.redirect_uris && originalRedirectUri) {
         // A proxy nonce keys the record so knowing the client's state cannot overwrite it.
@@ -121,7 +124,6 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
 
     // Replace redirect_uri with proxy's own callback so the client always
     // talks back to the proxy (not directly to the regional server).
-    // Only for proxy-registered clients where the proxy callback is a registered URI.
     const proxyCallbackUrl = `${url.protocol}//${url.host}/oauth/callback/`
 
     // Copy all params except our internal _region param
@@ -135,8 +137,6 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         if (key === 'client_id' && regionalClientId) {
             regionalUrl.searchParams.set(key, regionalClientId)
         } else if (key === 'redirect_uri' && nonce) {
-            // Gated on the nonce, not on the mapping: taking over the callback without a
-            // record to forward from strands the authorization code at the proxy.
             regionalUrl.searchParams.set(key, proxyCallbackUrl)
         } else {
             regionalUrl.searchParams.set(key, value)

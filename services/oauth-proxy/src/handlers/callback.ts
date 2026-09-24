@@ -34,11 +34,9 @@ export async function handleCallback(request: Request, kv: KVNamespace): Promise
         return flowNotFound()
     }
 
-    // The record is left to expire on its TTL rather than consumed on read. Deleting it here
-    // made the forward single-use, so a reload, a duplicate navigation or a client retry hit
-    // an empty record and dropped an authorization code the person had already granted.
-    // Replaying the forward is inert: the code itself is single-use at the regional server,
-    // and PKCE binds it to the client that requested it.
+    // Left to expire on its TTL rather than consumed on read: deleting it made the forward
+    // single-use, so a reload or a client retry dropped a code the person had already granted.
+    // Replaying is inert, because the regional server redeems a code once and PKCE binds it.
     const record = await getPendingCallback(kv, state)
     if (!record) {
         return flowNotFound()
