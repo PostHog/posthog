@@ -82,6 +82,7 @@ import {
 } from "../adapters/claude/session/jsonl-hydration";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
+import type { ChatgptAuthTokens } from "../adapters/codex-app-server/spawn";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
@@ -96,7 +97,7 @@ import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
-import { PostHogAPIClient } from "../posthog-api";
+import { CodexSubscriptionTokenError, PostHogAPIClient } from "../posthog-api";
 import {
   findPrUrls,
   type OwnedBranch,
@@ -130,6 +131,10 @@ import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
+import {
+  CodexSubscriptionTokenClient,
+  codexSubscriptionRefreshFailureMessage,
+} from "./codex-subscription-token";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import {
@@ -335,6 +340,21 @@ export interface PreparedInitialTaskMessage {
   taskRun: TaskRun;
   action: "wait" | "idle" | "resume" | "initial";
 }
+
+export const CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
+  "This run could not get a ChatGPT token. Open Desktop, go to Settings > Harness, and connect your ChatGPT account again. Then start the task again.";
+
+/** How a run that cannot get its plan credential reports the failure, per adapter. */
+const SUBSCRIPTION_TOKEN_FAILURE = {
+  claude: {
+    phase: "credential_relay",
+    message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+  },
+  codex: {
+    phase: "subscription_token",
+    message: CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+  },
+} as const;
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -593,6 +613,7 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private codexTokenClient: CodexSubscriptionTokenClient | null = null;
   private readonly credentialRelay = new CredentialRelay({
     emitEvent: (event) => this.broadcastEvent(event),
   });
@@ -1171,8 +1192,9 @@ export class AgentServer {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
     const errorMessage = redactSecrets(
-      error instanceof CredentialRelayError
-        ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
+      error instanceof CredentialRelayError ||
+        error instanceof CodexSubscriptionTokenError
+        ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
         : describeFatalError(error),
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
@@ -1231,11 +1253,48 @@ export class AgentServer {
     }
   }
 
-  private async reportClaudeSubscriptionTokenMissing(
+  private subscriptionAdapter(): "claude" | "codex" {
+    return this.getRuntimeAdapter() === "codex" ? "codex" : "claude";
+  }
+
+  private async refreshCodexSubscriptionTokens(): Promise<ChatgptAuthTokens> {
+    try {
+      return await this.codexSubscriptionTokens().refresh();
+    } catch (error) {
+      const code =
+        error instanceof CodexSubscriptionTokenError ? error.code : "unknown";
+      this.logger.warn("ChatGPT token refresh failed", { code });
+      throw new Error(codexSubscriptionRefreshFailureMessage(error));
+    }
+  }
+
+  private codexSubscriptionTokens(): CodexSubscriptionTokenClient {
+    if (!this.codexTokenClient) {
+      if (!this.config.codexRunToken) {
+        throw new CodexSubscriptionTokenError(
+          "forbidden",
+          0,
+          "This run has no ChatGPT run token.",
+        );
+      }
+      this.codexTokenClient = new CodexSubscriptionTokenClient({
+        posthogAPI: this.posthogAPI,
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        runToken: this.config.codexRunToken,
+        logger: this.logger.child("CodexSubscriptionToken"),
+      });
+    }
+    return this.codexTokenClient;
+  }
+
+  private async reportSubscriptionTokenMissing(
+    adapter: "claude" | "codex",
     reason: string,
   ): Promise<void> {
-    this.initializationFailureCode = "claude_credential_unavailable";
-    this.logger.warn("claude_credential_unavailable");
+    const failure = SUBSCRIPTION_TOKEN_FAILURE[adapter];
+    this.initializationFailureCode = `${adapter}_credential_unavailable`;
+    this.logger.warn(this.initializationFailureCode);
     try {
       this.broadcastEvent({
         type: "notification",
@@ -1245,9 +1304,9 @@ export class AgentServer {
           method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
           params: {
             runtimeAdapter: this.getRuntimeAdapter(),
-            initializationPhase: "credential_relay",
+            initializationPhase: failure.phase,
             reason,
-            message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+            message: failure.message,
           },
         },
       });
@@ -1857,8 +1916,11 @@ export class AgentServer {
     } catch (error) {
       if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
-      if (error instanceof CredentialRelayError) {
-        this.initializationFailureCode = "claude_credential_unavailable";
+      if (
+        error instanceof CredentialRelayError ||
+        error instanceof CodexSubscriptionTokenError
+      ) {
+        this.initializationFailureCode = `${this.subscriptionAdapter()}_credential_unavailable`;
       }
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
@@ -2137,7 +2199,28 @@ export class AgentServer {
         if (this.shutdownController.signal.aborted) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn("Claude subscription token relay failed", { reason });
-        await this.reportClaudeSubscriptionTokenMissing(reason);
+        await this.reportSubscriptionTokenMissing("claude", reason);
+        throw error;
+      }
+    }
+
+    let codexSubscriptionTokens: ChatgptAuthTokens | null = null;
+    if (
+      this.config.codexModelAccess === "own-subscription" &&
+      runtimeAdapter === "codex"
+    ) {
+      try {
+        codexSubscriptionTokens = await this.codexSubscriptionTokens().get();
+      } catch (error) {
+        if (this.shutdownController.signal.aborted) throw error;
+        const reason =
+          error instanceof CodexSubscriptionTokenError
+            ? error.code
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        this.logger.warn("ChatGPT token request failed", { reason });
+        await this.reportSubscriptionTokenMissing("codex", reason);
         throw error;
       }
     }
@@ -2166,7 +2249,10 @@ export class AgentServer {
         runtimeAdapter === "codex"
           ? {
               cwd: this.config.repositoryPath ?? "/tmp/workspace",
-              ...codexAuthFromGatewayEnv(gatewayEnv),
+              // Routing a plan run through the gateway would bill us as well.
+              ...(codexSubscriptionTokens
+                ? {}
+                : codexAuthFromGatewayEnv(gatewayEnv)),
               // Bundled-binary hint for the native codex CLI: the codex
               // binary itself, or any file in its directory. Set in the
               // sandbox image (POSTHOG_CODEX_BINARY_PATH); when unset the
@@ -2185,7 +2271,13 @@ export class AgentServer {
                   : undefined,
               serviceTier: this.config.serviceTier,
               developerInstructions: codexInstructions,
-              httpHeaders: gatewayEnv.openaiCustomHeaders,
+              httpHeaders: codexSubscriptionTokens
+                ? undefined
+                : gatewayEnv.openaiCustomHeaders,
+              chatgptAuthTokens: codexSubscriptionTokens ?? undefined,
+              refreshChatgptAuthTokens: codexSubscriptionTokens
+                ? () => this.refreshCodexSubscriptionTokens()
+                : undefined,
             }
           : undefined,
       onStructuredOutput: async (output) => {

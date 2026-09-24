@@ -19935,18 +19935,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription
-     */
-    export type ClaudeModelAccessEnum = typeof ClaudeModelAccessEnum[keyof typeof ClaudeModelAccessEnum];
-
-
-    export const ClaudeModelAccessEnum = {
-      PosthogGateway: 'posthog-gateway',
-      OwnSubscription: 'own-subscription',
-    } as const;
-
-    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -19994,6 +19982,18 @@ export namespace Schemas {
       /** @maxLength 64 */
       name: string;
     }
+
+    /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ModelAccessEnum = typeof ModelAccessEnum[keyof typeof ModelAccessEnum];
+
+
+    export const ModelAccessEnum = {
+      PosthogGateway: 'posthog-gateway',
+      OwnSubscription: 'own-subscription',
+    } as const;
 
     /**
      * * `interactive` - interactive
@@ -20111,7 +20111,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
       /**
          * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
          * @nullable
@@ -20480,6 +20485,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected
+     */
+    export type CodexIntegrationStatusEnum = typeof CodexIntegrationStatusEnum[keyof typeof CodexIntegrationStatusEnum];
+
+
+    export const CodexIntegrationStatusEnum = {
+      Connected: 'connected',
+      ReauthRequired: 'reauth_required',
+      NotConnected: 'not_connected',
+    } as const;
+
+    /**
      * * `codex` - codex
      */
     export type CodexRuntimeAdapterEnum = typeof CodexRuntimeAdapterEnum[keyof typeof CodexRuntimeAdapterEnum];
@@ -20533,7 +20552,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
       /**
          * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
          * @nullable
@@ -46705,7 +46729,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
@@ -72426,7 +72450,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
@@ -96641,7 +96665,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
        *
        * * `local` - local
@@ -97353,6 +97382,29 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+    }
+
+    export interface TaskRunSubscriptionTokenRequest {
+      /**
+         * SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this names its current token; otherwise it returns the newer token it already holds.
+         * @nullable
+         * @pattern ^[0-9a-f]{64}$
+         */
+      rejected_access_token_sha256?: string | null;
+    }
+
+    export interface TaskRunSubscriptionTokenResponse {
+      /** ChatGPT access token for the Codex app-server. It can stay valid for several days. */
+      access_token: string;
+      /** ChatGPT account the access token belongs to */
+      account_id: string;
+      /**
+         * ChatGPT plan of the account, when known
+         * @nullable
+         */
+      plan_type: string | null;
+      /** When the access token expires. Request a new one before this time. */
+      expires_at: string;
     }
 
     /**
@@ -98957,6 +99009,47 @@ export namespace Schemas {
       affected: number;
       /** Total number of entities of this type in the project */
       total: number;
+    }
+
+    export interface UserCodexAuthTokens {
+      /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+      access_token: string;
+      /** The single-use ChatGPT refresh token from the same `tokens` object. */
+      refresh_token: string;
+      /**
+         * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+         * @nullable
+         */
+      id_token?: string | null;
+    }
+
+    export interface UserCodexConnectRequest {
+      /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+      tokens: UserCodexAuthTokens;
+    }
+
+    export interface UserCodexIntegration {
+      /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+       *
+       * * `connected` - Connected
+       * * `reauth_required` - Reauth Required
+       * * `not_connected` - Not Connected */
+      status: CodexIntegrationStatusEnum;
+      /**
+         * The ChatGPT plan type OpenAI reports for the account.
+         * @nullable
+         */
+      plan_type?: string | null;
+      /**
+         * The email of the connected ChatGPT account.
+         * @nullable
+         */
+      email?: string | null;
+      /**
+         * When the account was connected.
+         * @nullable
+         */
+      connected_at?: string | null;
     }
 
     export interface UserCustomerAnalyticsConfig {

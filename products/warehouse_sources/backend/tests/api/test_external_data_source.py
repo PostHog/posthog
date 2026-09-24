@@ -11695,6 +11695,30 @@ class TestRepairCDC(APIBaseTest):
         mock_trigger.assert_not_called()
         mock_unpause_extraction.assert_not_called()
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        side_effect=psycopg.errors.InsufficientPrivilege("must be owner of table orders"),
+    )
+    def test_repair_cdc_table_ownership_failure_is_not_captured(self, _mock_recreate, mock_capture) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config={"cdc_mode": "streaming", "cdc_broken": BROKEN_MARKER},
+        )
+
+        response = self._repair(source)
+        assert response.status_code == 400
+        message = response.json()["message"]
+        assert "must be owner of table orders" in message
+        assert "Incremental sync" in message
+        # A missing grant on the customer's database is not a PostHog exception.
+        mock_capture.assert_not_called()
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
     )
