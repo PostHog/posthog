@@ -39,6 +39,20 @@ const retentionRulesDroppedCounters: Record<RetentionRuleSource, Counter<'team_i
     spans: tracesRetentionRulesDroppedCounter,
 }
 
+// Each source has its own table: log rules in `LogsRetentionRule`, span rules in `TracesRetentionRule`.
+const RULES_QUERY: Record<RetentionRuleSource, string> = {
+    logs: `SELECT id::text AS id, config, version
+           FROM logs_logsretentionrule
+           WHERE team_id = $1 AND enabled = true
+           ORDER BY priority ASC, created_at ASC
+           LIMIT ${MAX_ENABLED_RETENTION_RULES}`,
+    spans: `SELECT id::text AS id, config, version
+            FROM tracing_tracesretentionrule
+            WHERE team_id = $1 AND enabled = true
+            ORDER BY priority ASC, created_at ASC
+            LIMIT ${MAX_ENABLED_RETENTION_RULES}`,
+}
+
 const retentionCacheInstrumentOpts = { measureTime: false, sendException: false } as const
 
 type CacheEntry = {
@@ -127,14 +141,8 @@ export class RetentionRulesCache {
             version: string
         }>(
             PostgresUse.COMMON_READ,
-            // Filter by source in SQL, not after the fetch: the LIMIT below would otherwise let a
-            // team's log rules crowd out its span rules entirely.
-            `SELECT id::text AS id, config, version
-             FROM logs_logsretentionrule
-             WHERE team_id = $1 AND source = $2 AND enabled = true
-             ORDER BY priority ASC, created_at ASC
-             LIMIT ${MAX_ENABLED_RETENTION_RULES}`,
-            [teamId, source],
+            RULES_QUERY[source],
+            [teamId],
             'logs-retention-rules-fetch'
         )
         return res.rows.map((r) => ({

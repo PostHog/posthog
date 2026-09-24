@@ -11,7 +11,7 @@ import { type CompiledRetentionRule, type CompiledRetentionRuleSet, isValidReten
  */
 export const MAX_ENABLED_RETENTION_RULES = 100
 
-/** Record kind a retention rule applies to — matches `LogsRetentionRule.RecordSource` in Django. */
+/** Record kind a retention rule applies to. Log rules and span rules live in separate Django models. */
 export type RetentionRuleSource = 'logs' | 'spans'
 
 export type RetentionRuleRow = {

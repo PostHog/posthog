@@ -12,7 +12,7 @@ from posthog.models import OrganizationMembership, Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS, reset_revoked_logs_retention
 
-from products.logs.backend.models import LogsRetentionRule
+from products.tracing.backend.facade.retention import TracesRetentionRule
 from products.tracing.backend.facade.team_extension import (
     DEFAULT_TRACES_RETENTION_DAYS,
     DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS,
@@ -290,10 +290,9 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         config = get_or_create_team_extension(self.team, TeamTracingConfig)
         config.retention_days = 30
         config.save()
-        span_rule = LogsRetentionRule.objects.create(
+        span_rule = TracesRetentionRule.objects.for_team(self.team.id).create(
             team=self.team,
             name="span rule",
-            source=LogsRetentionRule.RecordSource.SPANS,
             config={"retention_days": 30, "filter_group": {"type": "AND", "values": []}},
         )
 

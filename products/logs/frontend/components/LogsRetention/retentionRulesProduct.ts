@@ -29,7 +29,7 @@ type SuggestNameBody = Parameters<typeof logsRetentionRulesSuggestNameCreate>[1]
  * components and logics.
  */
 export interface RetentionRulesProduct {
-    /** Record source, matching `LogsRetentionRule.RecordSource`. Also the kea logic key. */
+    /** Record kind: `logs` for `LogsRetentionRule`, `spans` for `TracesRetentionRule`. Also the kea logic key. */
     source: 'logs' | 'spans'
     /** Noun for user-visible copy, e.g. "log" / "span". */
     recordNoun: string

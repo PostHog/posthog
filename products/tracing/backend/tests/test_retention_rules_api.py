@@ -6,13 +6,14 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 
 from products.logs.backend.models import LogsRetentionRule
+from products.tracing.backend.models import TracesRetentionRule
 
 VALID_FILTER_GROUP = {"type": "AND", "values": [{"type": "AND", "values": []}]}
 
 
 class TestTracingRetentionRulesAPI(APIBaseTest):
-    """Span retention rules share the logs implementation, so these cover what the route pins:
-    the record source, and the isolation between the two products' rules."""
+    """Span retention rules share the logs implementation over their own model, so these cover
+    that every path of the shared viewset reaches the span model and never the log one."""
 
     def setUp(self):
         super().setUp()
@@ -35,16 +36,10 @@ class TestTracingRetentionRulesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
 
-    def test_create_stamps_the_span_source(self):
+    def test_create_stores_a_span_rule(self):
         body = self._create_span_rule()
-        assert body["source"] == "spans"
-        assert LogsRetentionRule.objects.get(id=body["id"]).source == LogsRetentionRule.RecordSource.SPANS
-
-    def test_payload_cannot_choose_the_source(self):
-        # The route decides the source, so a client that asks for `logs` still gets a span rule.
-        response = self.client.post(self.spans_url, self._payload(source="logs"), format="json")
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["source"] == "spans"
+        assert TracesRetentionRule.objects.for_team(self.team.pk).filter(id=body["id"]).exists()
+        assert not LogsRetentionRule.objects.filter(id=body["id"]).exists()
 
     def test_each_source_only_lists_its_own_rules(self):
         span_rule = self._create_span_rule()

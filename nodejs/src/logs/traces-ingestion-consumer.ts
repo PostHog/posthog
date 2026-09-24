@@ -18,7 +18,7 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override appSource = 'traces'
     // Traces records are spans, so this consumer tallies the `spans` metric rules.
     protected override metricRuleSource: MetricRuleSource = 'spans'
-    // Span retention rules are stored alongside log rules and separated by this source.
+    // Span retention rules live in their own table, which this source selects.
     protected override retentionRuleSource: RetentionRuleSource = 'spans'
     private tracingConfigCache?: TracingConfigCache
 

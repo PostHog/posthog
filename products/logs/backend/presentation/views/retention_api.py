@@ -24,6 +24,7 @@ from posthog.models.team.logs_retention import (
     required_logs_retention_feature,
 )
 from posthog.models.user import User
+from posthog.models.utils import UUIDModel
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.scopes import APIScopeObjectOrNotSupported
@@ -110,16 +111,11 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
     version = serializers.IntegerField(
         read_only=True, help_text="Incremented on each update for worker cache coherency."
     )
-    # `source` collides with DRF's Field.source typing (the attribute lookup), hence the ignore.
-    source: serializers.ChoiceField = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=LogsRetentionRule.RecordSource.choices,
-        read_only=True,
-        help_text="Record kind the rule applies to. Set by the route the rule was created through.",
-    )
     created_by: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
 
     class Meta:
-        model = LogsRetentionRule
+        # Annotated with the shared base so the span-rule serializer can point at its own model.
+        model: type[UUIDModel] = LogsRetentionRule
         fields = [
             "id",
             "name",
@@ -127,12 +123,14 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
             "priority",
             "config",
             "version",
-            "source",
             "created_by",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "version", "source", "created_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "version", "created_by", "created_at", "updated_at"]
+
+    # Names the setting in the entitlement error. The span-rule serializer overrides it.
+    retention_label = "Logs retention"
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
@@ -174,13 +172,9 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
             organization = get_organization() if callable(get_organization) else None
             if organization is None or not organization.is_feature_available(required_feature):
                 raise PermissionDenied(
-                    f"This organization does not have permission to set {self._retention_label()} "
+                    f"This organization does not have permission to set {self.retention_label} "
                     f"to {retention_days} days."
                 )
-
-    def _retention_label(self) -> str:
-        source = self.context.get("rule_source", LogsRetentionRule.RecordSource.LOGS)
-        return "span retention" if source == LogsRetentionRule.RecordSource.SPANS else "Logs retention"
 
     def _validate_filter_group(self, filter_group: Any) -> None:
         message = retention_filter_group_error(filter_group)
@@ -222,30 +216,34 @@ class LogsRetentionRuleNameSuggestionSerializer(serializers.Serializer):
 
 
 class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """Retention rules for one record source.
+    """Retention rules for one record kind.
 
-    The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
-    never move a rule between sources and `reorder` keeps its "every rule exactly once"
-    contract. Priorities are therefore ordered per source, not per team — a single-route API
-    with a `source` query parameter would break that contract silently.
+    `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+    swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+    `team_rules` rather than naming a model.
     """
 
     # Annotated (not inferred as Literal["logs"]) so the tracing subclass can pin its own scope.
     scope_object: APIScopeObjectOrNotSupported = "logs"
-    queryset = LogsRetentionRule.objects.all().order_by("priority", "created_at")
+    # Annotated with the shared base so the span-rule viewset can use its own model.
+    queryset: QuerySet[UUIDModel] = LogsRetentionRule.objects.all().order_by("priority", "created_at")
     serializer_class = LogsRetentionRuleSerializer
     lookup_field = "id"
     posthog_feature_flag = "logs-settings-retention-rules"
     permission_classes = [PostHogFeatureFlagPermission]
-    rule_source: str = LogsRetentionRule.RecordSource.LOGS
+    # Record kind for analytics and the name-suggestion prompt.
+    rule_source: str = "logs"
+
+    def team_rules(self) -> QuerySet:
+        """Every rule of this route's kind in the current environment."""
+        return LogsRetentionRule.objects.filter(team_id=self.team_id)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id, source=self.rule_source)
+        return self.team_rules().order_by("priority", "created_at")
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["custom_retention_enabled"] = self._custom_retention_enabled
-        context["rule_source"] = self.rule_source
         return context
 
     def _custom_retention_enabled(self) -> bool:
@@ -261,9 +259,7 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         s = cast(LogsRetentionRuleSerializer, serializer)
         user = cast(User, self.request.user)
         # `or -1` would misfire when the current max is 0 (0 is falsy), so check for None explicitly.
-        max_priority = LogsRetentionRule.objects.filter(team_id=self.team_id, source=self.rule_source).aggregate(
-            m=Max("priority")
-        )["m"]
+        max_priority = self.team_rules().aggregate(m=Max("priority"))["m"]
         raw_priority = s.validated_data.pop("priority", None)
         priority = int(raw_priority) if raw_priority is not None else (0 if max_priority is None else max_priority + 1)
         instance = s.save(
@@ -271,7 +267,6 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=user if user.is_authenticated else None,
             priority=priority,
             version=1,
-            source=self.rule_source,
         )
         report_user_action(
             user,
@@ -288,8 +283,8 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # non-nullable column and raise a 500. Drop it so the stored value is preserved.
         if s.validated_data.get("priority") is None:
             s.validated_data.pop("priority", None)
-        instance = cast(LogsRetentionRule, s.save())
-        LogsRetentionRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
+        instance = cast(UUIDModel, s.save())
+        self.team_rules().filter(pk=instance.pk).update(version=F("version") + 1)
         instance.refresh_from_db(fields=["version", "updated_at"])
         report_user_action(
             user,
@@ -299,7 +294,7 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=self.request,
         )
 
-    def perform_destroy(self, instance: LogsRetentionRule) -> None:
+    def perform_destroy(self, instance: UUIDModel) -> None:
         user = cast(User, self.request.user)
         report_user_action(
             user,
@@ -323,20 +318,13 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             # Validate inside the transaction (and lock the rows) so a concurrent create/delete
             # can't invalidate the check between validation and the priority writes (TOCTOU).
-            team_rule_ids = set(
-                LogsRetentionRule.objects.select_for_update()
-                .filter(team_id=self.team_id, source=self.rule_source)
-                .values_list("id", flat=True)
-            )
+            team_rule_ids = set(self.team_rules().select_for_update().values_list("id", flat=True))
             if set(ordered_ids) != team_rule_ids or len(ordered_ids) != len(team_rule_ids):
                 raise ValidationError("ordered_ids must list every retention rule for this team exactly once.")
             for index, rid in enumerate(ordered_ids):
-                LogsRetentionRule.objects.filter(id=rid, team_id=self.team_id, source=self.rule_source).update(
-                    priority=index,
-                    version=F("version") + 1,
-                )
-        qs = self.safely_get_queryset(LogsRetentionRule.objects.all()).order_by("priority", "created_at")
-        return Response(LogsRetentionRuleSerializer(qs, many=True).data, status=status.HTTP_200_OK)
+                self.team_rules().filter(id=rid).update(priority=index, version=F("version") + 1)
+        qs = self.team_rules().order_by("priority", "created_at")
+        return Response(self.get_serializer(qs, many=True).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=LogsRetentionRuleSuggestNameSerializer,

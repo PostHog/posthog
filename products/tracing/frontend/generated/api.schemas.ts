@@ -45,18 +45,7 @@ export interface PatchedTeamTracingConfigApi {
     readonly retention_last_updated?: string | null
 }
 
-/**
- * * `logs` - Logs
- * * `spans` - Spans
- */
-export type LogsRecordSourceEnumApi = (typeof LogsRecordSourceEnumApi)[keyof typeof LogsRecordSourceEnumApi]
-
-export const LogsRecordSourceEnumApi = {
-    Logs: 'logs',
-    Spans: 'spans',
-} as const
-
-export interface LogsRetentionRuleApi {
+export interface TracesRetentionRuleApi {
     /** Unique identifier for this retention rule. */
     readonly id: string
     /**
@@ -76,27 +65,22 @@ export interface LogsRetentionRuleApi {
     config: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
-    /** Record kind the rule applies to. Set by the route the rule was created through.
-     *
-     * * `logs` - Logs
-     * * `spans` - Spans */
-    readonly source: LogsRecordSourceEnumApi
     readonly created_by: number
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
 }
 
-export interface PaginatedLogsRetentionRuleListApi {
+export interface PaginatedTracesRetentionRuleListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: LogsRetentionRuleApi[]
+    results: TracesRetentionRuleApi[]
 }
 
-export interface PatchedLogsRetentionRuleApi {
+export interface PatchedTracesRetentionRuleApi {
     /** Unique identifier for this retention rule. */
     readonly id?: string
     /**
@@ -116,11 +100,6 @@ export interface PatchedLogsRetentionRuleApi {
     config?: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
-    /** Record kind the rule applies to. Set by the route the rule was created through.
-     *
-     * * `logs` - Logs
-     * * `spans` - Spans */
-    readonly source?: LogsRecordSourceEnumApi
     readonly created_by?: number
     readonly created_at?: string
     /** @nullable */

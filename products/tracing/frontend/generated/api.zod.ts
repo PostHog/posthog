@@ -53,9 +53,8 @@ export const OrganizationsProjectsTracingConfigPartialUpdateBody = /* @__PURE__ 
 /**
  * Span retention rules.
  *
- * Shares the logs implementation — only the record source, the access-control scope and the
- * feature flag differ. The source is pinned here rather than taken from the payload, so a
- * client can never move a rule between logs and spans.
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
  */
 export const tracingRetentionRulesCreateBodyNameMax = 255
 
@@ -85,9 +84,8 @@ export const TracingRetentionRulesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Span retention rules.
  *
- * Shares the logs implementation — only the record source, the access-control scope and the
- * feature flag differ. The source is pinned here rather than taken from the payload, so a
- * client can never move a rule between logs and spans.
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
  */
 export const tracingRetentionRulesUpdateBodyNameMax = 255
 
@@ -117,9 +115,8 @@ export const TracingRetentionRulesUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Span retention rules.
  *
- * Shares the logs implementation — only the record source, the access-control scope and the
- * feature flag differ. The source is pinned here rather than taken from the payload, so a
- * client can never move a rule between logs and spans.
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
  */
 export const tracingRetentionRulesPartialUpdateBodyNameMax = 255
 
