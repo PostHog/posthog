@@ -25,6 +25,20 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 # sentinel back to "false", and the flag API refuses it as a variant key.
 FEATURE_FLAG_FALSE_VARIANT_SENTINEL = "$false"
 
+FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
+
+
+def is_virtual_feature_flag_property(name: str, *, uses_new_events_schema: bool) -> bool:
+    """Whether an events property is rebuilt from the stored flags instead of read from a key with that name.
+
+    The native table moves `$feature/<key>` values into the `$feature_flags` map and drops `$active_feature_flags`, so
+    reads rebuild both from the map. The legacy table stores both keys as sent and only builds `$feature_flags`.
+    """
+    if uses_new_events_schema:
+        return name in ("$active_feature_flags", "$feature_flags") or name.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+    return name == "$feature_flags"
+
+
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports

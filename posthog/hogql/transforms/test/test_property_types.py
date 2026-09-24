@@ -1588,7 +1588,51 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             event="schema-parity",
             properties={"$active_feature_flags": ["secret"], "$feature_flags": {"secret": "false"}},
         )
+        sdk_uuid = _create_event(
+            team=self.team,
+            distinct_id="sdk-flags",
+            event="schema-parity",
+            properties={
+                "$feature/checkout": True,
+                "$feature/disabled": False,
+                "$feature/variant": "control",
+                "$feature/named-false": "false",
+                "$active_feature_flags": ["checkout", "variant", "named-false"],
+            },
+        )
         flush_persons_and_events()
+
+        def json_function_reads(use_new_events_schema: bool) -> tuple[list[Any] | None, list[Any] | None]:
+            context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+            )
+            reads = execute_hogql_query(
+                "SELECT arraySort(JSONExtractArrayRaw(properties, '$active_feature_flags')), "
+                "JSONLength(properties, '$active_feature_flags'), JSONType(properties, '$active_feature_flags'), "
+                "JSONExtractBool(properties, '$feature/checkout'), JSONExtractBool(properties, '$feature/disabled'), "
+                "JSONExtractBool(properties, '$feature/named-false'), JSONType(properties, '$feature/named-false'), "
+                "JSONType(properties, '$feature/checkout'), JSONExtractRaw(properties, '$feature/disabled'), "
+                "JSONExtractString(toString(properties), '$feature/variant'), "
+                "arraySort(JSONExtractArrayRaw(toString(properties), '$active_feature_flags')) "
+                f"FROM events WHERE uuid = '{sdk_uuid}'",
+                team=self.team,
+                context=context,
+            )
+            exploded = execute_hogql_query(
+                "SELECT arrayJoin(JSONExtractArrayRaw(properties, '$active_feature_flags')) AS flag "
+                f"FROM events WHERE uuid = '{sdk_uuid}' ORDER BY flag",
+                team=self.team,
+                context=context,
+            )
+            return reads.results, exploded.results
+
+        active_flags = ['"checkout"', '"named-false"', '"variant"']
+        native_json_reads = json_function_reads(use_new_events_schema=True)
+        assert native_json_reads == json_function_reads(use_new_events_schema=False)
+        assert native_json_reads == (
+            [(active_flags, 3, "Array", 1, 0, 0, "String", "Bool", "false", "control", active_flags)],
+            [(flag,) for flag in active_flags],
+        )
 
         legacy = execute_hogql_query(
             "SELECT properties.$feature_flags, properties.$feature_flags.checkout "

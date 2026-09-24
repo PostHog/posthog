@@ -80,6 +80,13 @@ Native-event queries derive `$active_feature_flags` from the `$feature_flags` ma
 Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
 becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
 
+HogQL `JSONExtract*` calls with `$feature_flags` as their first property key use the same restricted-property-aware map as dotted `$feature_flags` access on both event schemas.
+On native events, every JSON function whose first key is `$feature/<key>`, `$active_feature_flags` or `$feature_flags` parses the rebuilt value instead of the stored document, also when the document is `toString(properties)`.
+The original function still determines the return type, the missing-value default and any deeper keys.
+A `$feature/<key>` value parses as the SDK sent it: a boolean flag as JSON `true` or `false`, and a variant as a JSON string, so `$false` parses as `"false"`.
+A variant named `true` parses as boolean `true`, because the map cannot tell it apart from an enabled boolean flag.
+These reads do not see the rebuilt flags: key listings of the whole document such as `JSONExtractKeys(properties)`, JSON functions with a computed key, and JSON functions over `properties` selected through a subquery.
+
 ### Benchmarking the cleaner
 
 `BenchmarkProcessFixture` measures cleaning with a reused processor and output buffer.
@@ -171,10 +178,6 @@ Regression tests cover malformed discarded values, duplicate handling in wide ob
 The buffer-reuse test alternates dotted-object widths and verifies exact output, cleared references, the cache bound, and release after a small row.
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
-
-HogQL `JSONExtract*` calls with `$feature_flags` as their first property key use the same
-restricted-property-aware map as dotted `$feature_flags` access on both event schemas.
-The original extractor still determines the return type and missing-value default.
 
 ### `decompress(data, codec)`
 
