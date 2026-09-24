@@ -495,6 +495,19 @@ def _compile_against_runtime(expr: ast.Expr, team: Team) -> _RuntimeCompilation:
     return _RuntimeCompilation(bytecode=bytecode, unknown_roots=unknown, context=context)
 
 
+def _resolve_warehouse_columns(filters: dict, team: Team, actions: Optional[dict[int, Action]]) -> ast.Expr:
+    """
+    Only the destination's own filters read the row. The team's test account filters are written
+    against events, so a root they read that the runtime lacks stays an error rather than becoming
+    a column.
+    """
+    own = _LowerConstantMembership().visit(
+        compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
+    )
+    own = _WarehouseRowFields(roots=set(_compile_against_runtime(own, team).unknown_roots)).visit(own)
+    return _combine_expressions([*_build_test_account_filters(filters, team), own])
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -505,8 +518,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         expr = _LowerConstantMembership().visit(expr)
         compiled = _compile_against_runtime(expr, team)
         if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
-            expr = _WarehouseRowFields(roots=set(compiled.unknown_roots)).visit(expr)
-            compiled = _compile_against_runtime(expr, team)
+            compiled = _compile_against_runtime(_resolve_warehouse_columns(filters, team, actions), team)
         filters["bytecode"] = compiled.bytecode
         unknown = compiled.unknown_roots
         context = compiled.context

@@ -246,6 +246,23 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert "bytecode_error" not in response, response
         assert execute_bytecode(response["bytecode"], {"properties": {"organization": "globex"}}).result is True
 
+    def test_warehouse_filters_leave_the_team_test_account_filters_under_the_guard(self):
+        # The rewrite is for the row the destination filters on. The team's filters are written
+        # against events, so an unknown root there is still the team's mistake to fix.
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "filter_test_accounts": True,
+                "properties": [{"type": "hogql", "key": "organization = 'acme'"}],
+            },
+            team=self.team,
+        )
+        assert response["bytecode"] is None
+        assert "internal/test user filters read $virt_is_bot" in response["bytecode_error"]
+        assert "organization" not in response["bytecode_error"]
+
     def test_event_filters_still_reject_a_bare_unknown_column(self):
         # Only a warehouse row lives under properties; an event filter naming an unknown root is a typo.
         response = compile_filters_bytecode(

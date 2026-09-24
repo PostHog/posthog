@@ -1061,12 +1061,16 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
 
         if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            # A row filter is compiled against its entry's table name, so without one it matches nothing.
+            # Checked before the placeholder is dropped, or a filter on the placeholder would vanish silently.
+            if any(
+                entry.get("properties") and (not entry.get("table_name") or entry.get("name") == "Select a table")
+                for entry in data["data_warehouse"]
+            ):
+                raise serializers.ValidationError({"data_warehouse": "Pick a table for each row filter."})
             data["data_warehouse"] = [
                 entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
             ]
-            # A row filter is compiled against its entry's table name, so without one it matches nothing.
-            if any(entry.get("properties") and not entry.get("table_name") for entry in data["data_warehouse"]):
-                raise serializers.ValidationError({"data_warehouse": "Pick a table for each row filter."})
 
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:

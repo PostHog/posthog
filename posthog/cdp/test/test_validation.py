@@ -1021,6 +1021,17 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             serializer.is_valid(raise_exception=True)
         assert "Pick a table" in str(ctx.exception)
 
+        # The picker's placeholder entry is dropped on save; a filter on it must not vanish with it.
+        serializer = HogFunctionFiltersSerializer(
+            data={
+                "source": "data-warehouse-table",
+                "data_warehouse": [{"name": "Select a table", "table_name": "", "properties": row_filter}],
+            },
+            context=self.filters_context,
+        )
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
+
         serializer = HogFunctionFiltersSerializer(
             data={
                 "source": "data-warehouse-table",
