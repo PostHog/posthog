@@ -795,6 +795,14 @@ describe('fetchOpenRouterCosts()', () => {
                 json: () => Promise.resolve(url.includes('/endpoints') ? endpointsPayload : listPayload),
             })) as never)
 
+    it('asks for decision models as well as text models', async () => {
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+        const fetchSpy = mockFetch()
+        await fetchOpenRouterCosts()
+        const listUrl = new URL(fetchSpy.mock.calls[0][0])
+        expect(listUrl.searchParams.get('output_modalities')).toBe('text,decisions')
+    })
+
     it('reads per-endpoint pricing, not just the list payload', async () => {
         // Pins that production hands the loop the real reader, not a fake.
         jest.spyOn(console, 'log').mockImplementation(() => {})

@@ -447,8 +447,9 @@ export const readEndpointsFromOpenRouter: EndpointFetcher = async (modelId) => {
 }
 
 export const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
+    // Unfiltered, OpenRouter lists text-output models only, leaving out decision models such as TypeSafe's Jev.
     // eslint-disable-next-line no-restricted-globals
-    const res = await fetch('https://openrouter.ai/api/v1/models', {})
+    const res = await fetch('https://openrouter.ai/api/v1/models?output_modalities=text,decisions', {})
     if (!res.ok) {
         throw new Error(`Failed to fetch OpenRouter models: ${res.status} ${res.statusText}`)
     }
