@@ -364,3 +364,22 @@ class TestDigitalOceanResourceFanouts:
         )
 
         assert _rows(endpoint) == [expected]
+
+    def test_a_cluster_without_backups_does_not_fail_the_table(self, requests_mock: Any) -> None:
+        # Caching and Valkey clusters support no backups, and the fan-out visits every cluster
+        # on the account. Without the 404 action, one such cluster fails the whole sync for a
+        # team whose other clusters back up fine.
+        valkey_uuid = "0b1f8d3a-1c2e-4f5a-9b7c-2d3e4f5a6b7c"
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/databases",
+            json={"databases": [{"id": valkey_uuid, "engine": "valkey"}, {"id": DATABASE_UUID, "engine": "pg"}]},
+        )
+        requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/databases/{valkey_uuid}/backups", status_code=404, json={})
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/databases/{DATABASE_UUID}/backups",
+            json={"backups": [{"created_at": "2019-01-11T18:42:27Z", "size_gigabytes": 0.03}]},
+        )
+
+        assert _rows("database_backups") == [
+            {"created_at": "2019-01-11T18:42:27Z", "size_gigabytes": 0.03, "database_cluster_uuid": DATABASE_UUID}
+        ]

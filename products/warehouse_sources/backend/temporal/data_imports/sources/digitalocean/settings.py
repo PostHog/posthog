@@ -299,8 +299,8 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         ),
     ),
     # Backup inventory per managed database cluster, so retention and backup size can be read
-    # alongside the cluster metadata. Caching and Valkey clusters have no backups and return an
-    # empty list. The endpoint takes no page params and returns the whole list in one response.
+    # alongside the cluster metadata. The endpoint takes no page params and returns the whole
+    # list in one response.
     "database_backups": DigitalOceanEndpointConfig(
         name="database_backups",
         path="/v2/databases/{database_cluster_uuid}/backups",
@@ -318,6 +318,10 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "database_cluster_uuid"},
             parent_params={"per_page": PAGE_SIZE},
+            # Caching and Valkey clusters do not support backups, and the fan-out visits every
+            # cluster the account has. Treating the endpoint's documented not-found response as
+            # an empty page keeps one such cluster from failing the whole table.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
     # Cluster event history (create, update, maintenance, failover, power cycles) — the
