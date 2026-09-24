@@ -191,22 +191,22 @@ describe('sourceCatalogLogic', () => {
     })
 
     it.each([
-        { previewEnabled: true, expectedMatches: 1 },
-        { previewEnabled: false, expectedMatches: 0 },
+        { search: 'webhook', name: 'event-webhook', previewEnabled: true, expectedMatches: 1 },
+        { search: 'webhook', name: 'event-webhook', previewEnabled: false, expectedMatches: 0 },
+        { search: 'pixel', name: 'event-tracking-pixel', previewEnabled: true, expectedMatches: 1 },
+        { search: 'pixel', name: 'event-tracking-pixel', previewEnabled: false, expectedMatches: 0 },
     ])(
-        'shows the incoming webhook source in a "webhook" search when the preview is $previewEnabled',
-        ({ previewEnabled, expectedMatches }) => {
+        'shows $name in a "$search" search when the preview is $previewEnabled',
+        ({ search, name, previewEnabled, expectedMatches }) => {
             const logic = sourceCatalogLogic()
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags(previewEnabled ? [FEATURE_FLAGS.CDP_HOG_SOURCES] : [], {
                 [FEATURE_FLAGS.CDP_HOG_SOURCES]: previewEnabled,
             })
 
-            logic.actions.setSearch('webhook')
+            logic.actions.setSearch(search)
 
-            expect(logic.values.filteredItems.filter((item) => item.name === 'event-webhook')).toHaveLength(
-                expectedMatches
-            )
+            expect(logic.values.filteredItems.filter((item) => item.name === name)).toHaveLength(expectedMatches)
         }
     )
 
@@ -218,7 +218,7 @@ describe('sourceCatalogLogic', () => {
             [FEATURE_FLAGS.CDP_HOG_SOURCES]: true,
         })
 
-        expect(logic.values.catalogItems.some((item) => item.name === 'event-webhook')).toBe(false)
+        expect(logic.values.catalogItems.some((item) => item.name.startsWith('event-'))).toBe(false)
 
         unmountRestricted()
     })

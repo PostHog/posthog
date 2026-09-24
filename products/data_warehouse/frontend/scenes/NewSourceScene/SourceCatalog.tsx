@@ -47,6 +47,9 @@ const SourceTile = memo(function SourceTile({
             </div>
             <div className="flex flex-col items-start gap-2 min-w-0 text-left">
                 <div className="font-medium text-sm leading-tight line-clamp-2">{item.label}</div>
+                {item.description && (
+                    <div className="text-xs text-secondary leading-snug line-clamp-2">{item.description}</div>
+                )}
                 {item.status === 'coming_soon' ? (
                     <>
                         <LemonTag type="warning">Coming soon</LemonTag>
