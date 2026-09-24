@@ -213,9 +213,16 @@ class _WarehouseRowFields(CloningVisitor):
             self.locals.pop()
 
     def visit_block(self, node: ast.Block) -> ast.Block:
-        self.locals.append({d.name for d in node.declarations if isinstance(d, ast.VariableDeclaration)})
+        # A `let` shadows a column from its own declaration on, as in the compiler, so a read before
+        # it still means the column.
+        self.locals.append(set())
         try:
-            return super().visit_block(node)
+            declarations = []
+            for declaration in node.declarations:
+                declarations.append(self.visit(declaration))
+                if isinstance(declaration, ast.VariableDeclaration):
+                    self.locals[-1].add(declaration.name)
+            return ast.Block(start=node.start, end=node.end, declarations=declarations)
         finally:
             self.locals.pop()
 

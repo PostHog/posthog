@@ -263,6 +263,24 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert "internal/test user filters read $virt_is_bot" in response["bytecode_error"]
         assert "organization" not in response["bytecode_error"]
 
+    def test_warehouse_sql_filter_reads_the_column_until_a_let_shadows_it(self):
+        # `picked` reads the column, the `let` after it does not reach back.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let picked := organization; let organization := 'other'; return picked = 'acme' }, [1])",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "acme"}}).result is True
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "other"}}).result is False
+
     def test_event_filters_still_reject_a_bare_unknown_column(self):
         # Only a warehouse row lives under properties; an event filter naming an unknown root is a typo.
         response = compile_filters_bytecode(
