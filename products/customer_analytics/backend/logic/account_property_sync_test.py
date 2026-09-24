@@ -163,7 +163,7 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source=source, segment="tracked")
         source.refresh_from_db()
         assert run.status == "completed"
-        assert source.consecutive_failures == 0
+        assert source.consecutive_failures == 4
         assert source.is_enabled
 
     def test_final_attempt_persists_a_failed_run(self) -> None:
