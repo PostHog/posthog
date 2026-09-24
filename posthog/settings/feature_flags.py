@@ -172,9 +172,8 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     type_cast=int,  # 512KB
 )
 
-# Config version 2 writes are admitted per project by internal feature flags (see
-# products/feature_flags/backend/facade/config_writes.py). This bounds one rule's opaque
-# metadata object in an admitted write; pilot scope, revisited at the shared-project gate.
+# Bounds one rule's opaque metadata object in an admitted config version 2 write (admission itself
+# is by internal feature flag, see facade/config_writes.py). Pilot scope, revisited at the shared-project gate.
 FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES: int = get_from_env(
     "FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES", 2048, type_cast=int
 )

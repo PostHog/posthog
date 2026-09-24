@@ -45,8 +45,7 @@ V2_CREATION_FLAG = "feature-flag-rules-v2-creation"
 
 
 def _flag_enabled(key: str, team_id: int) -> bool:
-    # Local evaluation only: a write path must not wait on a remote flag call, and an
-    # unresolved flag (client not loaded yet, unsupported condition) reads as closed.
+    # Local evaluation only, so a write never waits on a remote call; an unresolved flag reads as closed.
     try:
         return feature_enabled_or_false(
             key,
