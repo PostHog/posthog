@@ -51,8 +51,9 @@ Prefer reusing existing insights over recreating them.
 ## Assemble the dashboard
 
 - New dashboard: `dashboard-create` with a short (3–7 word) name and a concise description, then add the insight tiles.
-- Existing dashboard: `dashboard-update`. Adding, replacing, or removing insights means sending the full intended set of
-  tiles — insights you omit are removed, so include the ones you want to keep.
+- Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
+  remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
+  To replace an insight tile, add the new insight and delete the old tile.
 - Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
   tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as
