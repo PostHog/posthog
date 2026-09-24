@@ -352,7 +352,6 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     bufferedToTime: number | null
     createExportJSON: () => ExportedSessionRecordingFileV2
     customRRWebEvents: customEvent[]
-    metadataDurationMs: number | null
     durationMs: number
     effectiveSourceLoadingStates: SourceLoadingState[]
     end: Dayjs | null
@@ -360,6 +359,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     hasOversizedMutations: boolean
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
+    metadataDurationMs: number | null
     oversizedMutationRanges: Record<number, OversizedMutationRange[]>
     playableSnapshotsByWindowId: Record<number, eventWithTime[]>
     processedSnapshots: RecordingSnapshot[]
@@ -575,15 +575,16 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             oversizedMutationRanges: Record<number, OversizedMutationRange[]>
         ) => Record<number, eventWithTime[]>
         snapshots: (processedSnapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => RecordingSnapshot[]
+        metadataDurationMs: (sessionPlayerMetaData: SessionRecordingType | null) => number | null
         start: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
-            sessionPlayerMetaData: SessionRecordingType | null
+            sessionPlayerMetaData: SessionRecordingType | null,
+            metadataDurationMs: number | null
         ) => Dayjs | null
         end: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             sessionPlayerMetaData: SessionRecordingType | null
         ) => Dayjs | null
-        metadataDurationMs: (sessionPlayerMetaData: SessionRecordingType | null) => number | null
         durationMs: (start: Dayjs | null, end: Dayjs | null, metadataDurationMs: number | null) => number
         segments: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
@@ -1015,15 +1016,38 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
+        // The server's own measure of the recording's length, which lands with the metadata.
+        // `recording_duration` measures the same span in whole seconds, so it is only the fallback.
+        metadataDurationMs: [
+            (s) => [s.sessionPlayerMetaData],
+            (meta: SessionRecordingType | null): number | null => {
+                if (meta?.start_time && meta?.end_time) {
+                    return dayjs(meta.end_time).diff(dayjs(meta.start_time))
+                }
+                return meta?.recording_duration ? meta.recording_duration * 1000 : null
+            },
+        ],
+
         start: [
-            (s) => [s.snapshots, s.sessionPlayerMetaData],
-            (snapshots: RecordingSnapshot[], meta: SessionRecordingType | null): Dayjs | null => {
+            (s) => [s.snapshots, s.sessionPlayerMetaData, s.metadataDurationMs],
+            (
+                snapshots: RecordingSnapshot[],
+                meta: SessionRecordingType | null,
+                metadataDurationMs: number | null
+            ): Dayjs | null => {
                 const firstSnapshot = snapshots[0] || null
                 const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
                 const snapshotStart = firstSnapshot ? dayjs(firstSnapshot.timestamp) : null
 
                 if (eventStart && snapshotStart) {
-                    return eventStart.isBefore(snapshotStart) ? eventStart : snapshotStart
+                    if (!snapshotStart.isBefore(eventStart)) {
+                        return eventStart
+                    }
+                    // A snapshot dated further before the recording than the recording is long carries a
+                    // skewed client clock. Taking it as the time origin strands every real event past the
+                    // end of the timeline, which is what makes these recordings unwatchable.
+                    const isSkewed = metadataDurationMs != null && eventStart.diff(snapshotStart) > metadataDurationMs
+                    return isSkewed ? eventStart : snapshotStart
                 }
                 return eventStart || snapshotStart
             },
@@ -1040,18 +1064,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
                 }
                 return eventEnd || snapshotEnd
-            },
-        ],
-
-        // The server's own measure of the recording's length, which lands with the metadata.
-        // `recording_duration` measures the same span in whole seconds, so it is only the fallback.
-        metadataDurationMs: [
-            (s) => [s.sessionPlayerMetaData],
-            (meta: SessionRecordingType | null): number | null => {
-                if (meta?.start_time && meta?.end_time) {
-                    return dayjs(meta.end_time).diff(dayjs(meta.start_time))
-                }
-                return meta?.recording_duration ? meta.recording_duration * 1000 : null
             },
         ],
 

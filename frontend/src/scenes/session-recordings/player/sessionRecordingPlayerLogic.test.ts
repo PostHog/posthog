@@ -1089,6 +1089,16 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.hasLateFullSnapshot).toBe(true)
         })
 
+        it('keeps a snapshot with a skewed clock from becoming the time origin', async () => {
+            // A snapshot dated hours before the recording used to drag `start` back with it. The
+            // timeline then ended before any real event, so the recording could not be watched at all.
+            await mountWithRecordingDuration(60)
+            seedRecording([inc(START - 17 * 60 * 60 * 1000), inc(START), inc(START + 1000)], [fs(START + 30000)])
+
+            expect(logic.values.sessionPlayerData.start?.valueOf()).toBe(START)
+            expect(logic.values.sessionPlayerData.durationMs).toBe(60000)
+        })
+
         it('reports at most the recording length while the recording is still loading', async () => {
             // The reported symptom: a skewed snapshot timestamp stretches the span between `start` and
             // `end`, so a clamp that waits for every source to arrive lets the banner claim an
