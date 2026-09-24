@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use feature_flags::flags::config_v2::{Outcome, ParseError};
-use feature_flags::flags::evaluate_v2::{Evaluation, EvaluationError, Evaluator};
+use feature_flags::flags::evaluate_v2::{Evaluation, EvaluationError, Evaluator, PersonProperties};
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
 use feature_flags::flags::flag_request::MAX_DISTINCT_ID_LEN;
@@ -387,8 +387,9 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
     };
     use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
     use feature_flags::flags::flag_matching::FeatureFlagMatcher;
-    use feature_flags::flags::flag_models::{EvaluationMetadata, FeatureFlagList};
-    use feature_flags::utils::test_utils::{mock_group_type_cache, TestContext};
+    use feature_flags::utils::test_utils::{
+        flag_list_with_metadata, mock_group_type_cache, TestContext,
+    };
     use std::collections::HashMap;
 
     let db = TestContext::new(None).await;
@@ -397,30 +398,36 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         None,
         None,
     ));
-    let (mut projected, mut direct, mut skipped) = (0, 0, 0);
+    let (mut projected, mut skipped) = (0, 0);
     for case in corpus::cases() {
         let id = case["id"].as_str().unwrap();
+        let properties = corpus::properties(&case);
+        let context = corpus::context(&case, &properties);
+        // White-box cases need the hash seam, eligibility cases the request boundary, and
+        // the matcher always knows the distinct ID, so unavailable context has no request shape.
         if matches!(
             case["family"].as_str().unwrap(),
             "white_box" | "eligibility"
-        ) {
+        ) || matches!(context.properties, PersonProperties::Unavailable)
+        {
             skipped += 1;
             continue;
         }
+        let complete = matches!(context.properties, PersonProperties::Complete(_));
         let team = db.insert_new_team(None).await.unwrap();
         let mut flag = corpus::read(&case);
         flag.team_id = team.id;
-        let input = &case["context"];
-        let identifier = input["identifier"].as_str().unwrap().to_string();
-        let properties = corpus::properties(&case);
-        let complete = input["properties_complete"].as_bool().unwrap();
         if complete && !properties.is_empty() {
-            db.insert_person(team.id, identifier.clone(), Some(json!(properties)))
-                .await
-                .unwrap();
+            db.insert_person(
+                team.id,
+                context.person_identifier.to_string(),
+                Some(json!(properties)),
+            )
+            .await
+            .unwrap();
         }
         let mut matcher = FeatureFlagMatcher::new(
-            identifier,
+            context.person_identifier.to_string(),
             None,
             team.id,
             db.create_postgres_router(),
@@ -428,37 +435,17 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
             mock_group_type_cache(HashMap::new()),
             None,
         )
-        .with_timezone(input["timezone"].as_str().unwrap().parse().unwrap())
-        .with_explicit_exact_matching(input["explicit_exact_matching"].as_bool().unwrap())
-        .with_now(input["now"].as_str().unwrap().parse().unwrap())
+        .with_timezone(context.timezone)
+        .with_explicit_exact_matching(context.use_explicit_exact_matching)
+        .with_now(context.now)
         .with_only_use_override_person_properties(!complete);
         let expected = &case["expected"];
         let failed = expected["status"] != "success";
         let enabled = expected["value"].as_bool().unwrap_or(false);
-        if input["properties"].is_null() {
-            let result = matcher.get_match(&flag, None, None, None, &None);
-            assert_eq!(result.is_err(), failed, "{id}");
-            if let Ok(matched) = result {
-                assert_eq!(
-                    (matched.matches, matched.variant, matched.payload),
-                    (enabled, None, None),
-                    "{id}"
-                );
-            }
-            direct += 1;
-            continue;
-        }
         let key = flag.key.clone();
         let response = matcher
             .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: PreparedFlags::seal(vec![flag]),
-                    evaluation_metadata: Arc::new(EvaluationMetadata {
-                        dependency_stages: vec![vec![1]],
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
+                flag_list_with_metadata(vec![flag]),
                 (!complete).then(|| properties.clone()),
                 None,
                 None,
@@ -488,13 +475,7 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
             };
             assert_eq!(details.reason.code, expected_code, "{id}");
         }
-        let mut wire = serde_json::to_value(&response).unwrap();
-        // `failed` is omitted on the wire when false and has no serde default.
-        wire["flags"][&key]
-            .as_object_mut()
-            .unwrap()
-            .entry("failed")
-            .or_insert(json!(false));
+        let wire = serde_json::to_value(&response).unwrap();
         let reparse = || serde_json::from_value::<FlagsResponse>(wire.clone()).unwrap();
         let legacy = LegacyFlagsResponse::from_response(reparse());
         assert_eq!(
@@ -519,5 +500,5 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         );
         projected += 1;
     }
-    assert_eq!((projected, direct, skipped), (120, 2, 13));
+    assert_eq!((projected, skipped), (120, 15));
 }

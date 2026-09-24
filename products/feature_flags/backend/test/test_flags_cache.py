@@ -697,37 +697,15 @@ class TestOmitUnsupportedFlags(BaseTest):
         omissions = [e for e in log_events if e["event"] == "Omitted flags the service cache cannot carry"]
         assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
 
-    def test_supported_v2_row_is_published_verbatim_within_the_deployed_limit(self):
-        filters = {
-            "version": 2,
-            "return_type": "boolean",
-            "default_value": None,
-            "rules": [
-                {
-                    "id": "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1",
-                    "rule_type": "targeted_release",
-                    "targeting": {
-                        "properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "beta"}]
-                    },
-                    "value": True,
-                }
-            ],
-        }
+    def test_supported_v2_row_is_dropped_over_the_deployed_limit(self):
+        # The fixture test covers verbatim publication; this pins the size bound the Rust reader shares.
         flag = FeatureFlag.objects.create(team=self.team, key="v2-flag", created_by=self.user, filters={})
-        FeatureFlag.objects.filter(id=flag.id).update(filters=filters)
+        FeatureFlag.objects.filter(id=flag.id).update(
+            filters={"version": 2, "return_type": "boolean", "default_value": None, "rules": []}
+        )
 
-        payload = _get_feature_flags_for_service(self.team)
-
-        assert [f["key"] for f in payload["flags"]] == ["v2-flag"]
-        assert payload["flags"][0]["filters"] == filters
-        assert payload["evaluation_metadata"] == {
-            "dependency_stages": [[flag.id]],
-            "flags_with_missing_deps": [],
-            "transitive_deps": {str(flag.id): []},
-        }
-        assert payload["cohorts"] == []
-
-        with override_settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=64):
+        assert [f["key"] for f in _get_feature_flags_for_service(self.team)["flags"]] == ["v2-flag"]
+        with override_settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=32):
             assert _get_feature_flags_for_service(self.team)["flags"] == []
 
     def test_unsupported_flag_in_one_team_leaves_other_teams_in_the_batch_intact(self):

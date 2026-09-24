@@ -51,9 +51,7 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let (mut flags, undecodable) =
-        FeatureFlagList::from_pg_keeping_undecodable(pg_reader.clone(), team_id).await?;
-    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    let mut flags = load_supported_flags(pg_reader.clone(), team_id).await?;
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -77,11 +75,23 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
+/// The team's rows minus those this cache cannot carry; the request path's PostgreSQL
+/// fallback loads through here too, so a Redis miss serves the cached flag set.
+pub(crate) async fn load_supported_flags(
+    pg_reader: PostgresReader,
+    team_id: TeamId,
+) -> Result<Vec<FeatureFlag>, FlagError> {
+    let (mut flags, undecodable) =
+        FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
+    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    Ok(flags)
+}
+
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
 /// non-v1 documents unless active and accepted by the v2 evaluator, non-object documents
 /// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
 /// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
-pub(crate) fn omit_unsupported_flags(
+fn omit_unsupported_flags(
     team_id: TeamId,
     flags: &mut Vec<FeatureFlag>,
     undecodable: &UndecodableFlags,
@@ -100,6 +110,9 @@ pub(crate) fn omit_unsupported_flags(
         })
         .map(|flag| flag.id)
         .collect();
+    if unsupported.is_empty() {
+        return;
+    }
     let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
     for flag in flags.iter() {
         for dependency_id in extract_direct_flag_dependency_ids(flag) {

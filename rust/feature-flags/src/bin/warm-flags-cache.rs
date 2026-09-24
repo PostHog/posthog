@@ -912,9 +912,7 @@ mod tests {
             .await
             .expect("warm_team should succeed");
 
-        let mut published = published_flag_keys(&redis);
-        published.sort();
-        assert_eq!(published, ["v1-flag", "v2-flag"]);
+        assert_eq!(published_flag_keys(&redis), ["v1-flag", "v2-flag"]);
     }
 
     /// Regression for the warmer overwriting Django's etag. set() unconditionally

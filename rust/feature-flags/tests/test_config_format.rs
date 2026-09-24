@@ -13,7 +13,7 @@ use feature_flags::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
 use feature_flags::utils::test_utils::{
-    mock_group_type_cache, setup_redis_client, update_team_in_hypercache,
+    flag_list_with_metadata, mock_group_type_cache, setup_redis_client, update_team_in_hypercache,
     write_flags_wire_json_to_redis, TestContext,
 };
 use rstest::rstest;
@@ -160,14 +160,9 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
             db.insert_flag(
                 team.id,
                 Some(FeatureFlagRow {
-                    team_id: team.id,
-                    key,
-                    name: Some(String::new()),
-                    filters,
-                    active,
                     deleted,
                     version: Some(2),
-                    ..Default::default()
+                    ..row(team.id, &key, filters, active)
                 }),
             )
             .await?;
@@ -255,35 +250,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     let payload = json!({"token": team.api_token, "distinct_id": "example-person",
         "person_properties": {"account_tier": "preview"}});
 
-    for (endpoint, version, has_error_field, shape) in [
-        ("flags", "2", true, Shape::Detailed),
-        (
-            "flags",
-            "1",
-            true,
-            Shape::Map {
-                keeps_rejected_as_false: true,
-            },
-        ),
-        ("decide", "1", false, Shape::EnabledKeys),
-        (
-            "decide",
-            "2",
-            false,
-            Shape::Map {
-                keeps_rejected_as_false: false,
-            },
-        ),
-        (
-            "decide",
-            "3",
-            true,
-            Shape::Map {
-                keeps_rejected_as_false: true,
-            },
-        ),
-        ("decide", "4", true, Shape::Detailed),
-    ] {
+    for (endpoint, version, has_error_field, shape) in FORMATS {
         let response = client
             .post(format!(
                 "http://{}/flags?v={version}&config=false",
@@ -337,14 +304,12 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                 keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
                 assert_eq!(keys, EVALUATED.map(Value::from));
             }
-            Shape::Map {
-                keeps_rejected_as_false,
-            } => {
+            Shape::Map { enabled_only } => {
                 let mut expected = json!({});
                 for key in EVALUATED {
                     expected[key] = json!(true);
                 }
-                if cached && keeps_rejected_as_false {
+                if cached && !enabled_only {
                     for (key, _, _, _) in &docs {
                         if key.starts_with("rejected-") {
                             expected[key] = json!(false);
@@ -362,7 +327,60 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
 enum Shape {
     Detailed,
     EnabledKeys,
-    Map { keeps_rejected_as_false: bool },
+    /// `enabled_only` is the `/decide?v=2` map; the others carry every flag.
+    Map {
+        enabled_only: bool,
+    },
+}
+
+const FORMATS: [(&str, &str, bool, Shape); 6] = [
+    ("flags", "2", true, Shape::Detailed),
+    (
+        "flags",
+        "1",
+        true,
+        Shape::Map {
+            enabled_only: false,
+        },
+    ),
+    ("decide", "1", false, Shape::EnabledKeys),
+    ("decide", "2", false, Shape::Map { enabled_only: true }),
+    (
+        "decide",
+        "3",
+        true,
+        Shape::Map {
+            enabled_only: false,
+        },
+    ),
+    ("decide", "4", true, Shape::Detailed),
+];
+
+fn row(team_id: i32, key: &str, filters: Value, active: bool) -> FeatureFlagRow {
+    FeatureFlagRow {
+        team_id,
+        key: key.to_string(),
+        name: Some(String::new()),
+        filters,
+        active,
+        ..Default::default()
+    }
+}
+
+fn matcher(db: &TestContext) -> FeatureFlagMatcher {
+    FeatureFlagMatcher::new(
+        "example-person".to_string(),
+        None,
+        1,
+        db.create_postgres_router(),
+        Arc::new(CohortCacheManager::new(
+            db.non_persons_reader.clone(),
+            None,
+            None,
+        )),
+        mock_group_type_cache(HashMap::new()),
+        None,
+    )
 }
 
 const EVALUATED: [&str; 6] = [
@@ -377,20 +395,7 @@ const EVALUATED: [&str; 6] = [
 #[tokio::test]
 async fn non_v1_rejects_before_preparation_and_missing_dependency_default() {
     let db = TestContext::new(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(
-        db.non_persons_reader.clone(),
-        None,
-        None,
-    ));
-    let mut matcher = FeatureFlagMatcher::new(
-        "example-person".to_string(),
-        None,
-        1,
-        db.create_postgres_router(),
-        cohort_cache,
-        mock_group_type_cache(HashMap::new()),
-        None,
-    );
+    let mut matcher = matcher(&db);
     let flag: FeatureFlag = serde_json::from_value(json!({
         "id": 1, "team_id": 1, "key": "rejected", "active": true,
         "ensure_experience_continuity": true,
@@ -428,20 +433,7 @@ async fn non_v1_rejects_before_preparation_and_missing_dependency_default() {
 #[tokio::test]
 async fn a_dependent_v1_flag_still_matches_against_a_non_v1_dependency() {
     let db = TestContext::new(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(
-        db.non_persons_reader.clone(),
-        None,
-        None,
-    ));
-    let mut matcher = FeatureFlagMatcher::new(
-        "example-person".to_string(),
-        None,
-        1,
-        db.create_postgres_router(),
-        cohort_cache,
-        mock_group_type_cache(HashMap::new()),
-        None,
-    );
+    let mut matcher = matcher(&db);
     let flags: Vec<FeatureFlag> = serde_json::from_value(json!([
         {"id": 1, "team_id": 1, "key": "blocker", "active": true,
          "filters": {"version": 2, "groups": [{"rollout_percentage": 100}]}},
@@ -498,14 +490,12 @@ async fn mixed_team_projects_supported_v2_beside_v1(#[case] cached: bool) -> Res
     let malformed = db
         .insert_flag(
             team.id,
-            Some(FeatureFlagRow {
-                team_id: team.id,
-                key: "v2-malformed".to_string(),
-                name: Some(String::new()),
-                filters: json!({"version": 2, "groups": [{"rollout_percentage": 100}]}),
-                active: true,
-                ..Default::default()
-            }),
+            Some(row(
+                team.id,
+                "v2-malformed",
+                json!({"version": 2, "groups": [{"rollout_percentage": 100}]}),
+                true,
+            )),
         )
         .await?;
     for (key, filters, active) in [
@@ -534,51 +524,36 @@ async fn mixed_team_projects_supported_v2_beside_v1(#[case] cached: bool) -> Res
             true,
         ),
     ] {
-        db.insert_flag(
-            team.id,
-            Some(FeatureFlagRow {
-                team_id: team.id,
-                key: key.to_string(),
-                name: Some(String::new()),
-                filters,
-                active,
-                ..Default::default()
-            }),
-        )
-        .await?;
+        db.insert_flag(team.id, Some(row(team.id, key, filters, active)))
+            .await?;
     }
     let wrapper = build_flags_cache(db.non_persons_reader.clone(), team.id).await?;
     let mut built: Vec<&str> = wrapper.flags.iter().map(|flag| flag.key.as_str()).collect();
     built.sort();
     assert_eq!(built, ["v1-off", "v1-on", "v2-default-null", "v2-targeted"]);
-    let encoded = serde_json::to_string(&wrapper)?;
-    let published: Value = serde_json::from_str(&encoded)?;
-    let targeted_entry = published["flags"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|flag| flag["key"] == "v2-targeted")
-        .unwrap();
-    assert_eq!(
-        targeted_entry["filters"]["rules"][0]["targeting"]["properties"][0]["key"],
-        "account_tier"
-    );
     if cached {
-        write_flags_wire_json_to_redis(redis.clone(), team.id, encoded).await?;
+        write_flags_wire_json_to_redis(redis.clone(), team.id, serde_json::to_string(&wrapper)?)
+            .await?;
     }
 
     let server = common::ServerHandle::for_config(DEFAULT_TEST_CONFIG.clone()).await;
     let client = reqwest::Client::new();
     for (distinct_id, targeted_value) in [("example-person", true), ("other-person", false)] {
         let payload = json!({"token": team.api_token, "distinct_id": distinct_id});
-        for (endpoint, version) in [
-            ("flags", "2"),
-            ("flags", "1"),
-            ("decide", "1"),
-            ("decide", "2"),
-            ("decide", "3"),
-            ("decide", "4"),
-        ] {
+        let expected = json!({"v1-on": true, "v1-off": false,
+            "v2-targeted": targeted_value, "v2-default-null": false});
+        let enabled_keys = || {
+            let mut keys: Vec<Value> = expected
+                .as_object()
+                .unwrap()
+                .iter()
+                .filter(|(_, value)| **value == true)
+                .map(|(key, _)| json!(key))
+                .collect();
+            keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+            keys
+        };
+        for (endpoint, version, has_error_field, shape) in FORMATS {
             let body: Value = client
                 .post(format!(
                     "http://{}/flags?v={version}&config=false",
@@ -591,55 +566,47 @@ async fn mixed_team_projects_supported_v2_beside_v1(#[case] cached: bool) -> Res
                 .error_for_status()?
                 .json()
                 .await?;
-            let detailed = version == "4" || (endpoint == "flags" && version == "2");
-            let enabled_only = endpoint == "decide" && (version == "1" || version == "2");
-            if !enabled_only {
+            if has_error_field {
                 assert_eq!(body["errorsWhileComputingFlags"], false, "{body}");
             }
-            let mut expected = json!({"v1-on": true, "v1-off": false,
-                "v2-targeted": targeted_value, "v2-default-null": false});
-            if enabled_only {
-                expected
-                    .as_object_mut()
-                    .unwrap()
-                    .retain(|_, value| value == true);
-            }
-            if detailed {
-                let flags = body["flags"].as_object().unwrap();
-                assert_eq!(flags.len(), 4, "{body}");
-                for (key, value) in expected.as_object().unwrap() {
-                    assert_eq!(flags[key]["enabled"], *value, "{body}");
-                    assert!(flags[key].get("failed").is_none(), "{body}");
-                    assert!(flags[key]["variant"].is_null(), "{body}");
-                    assert!(flags[key]["metadata"]["payload"].is_null(), "{body}");
-                }
-                assert_eq!(
-                    flags["v2-default-null"]["reason"]["code"],
-                    "no_condition_match"
-                );
-                assert_eq!(
-                    flags["v2-targeted"]["reason"]["code"],
-                    if targeted_value {
-                        "condition_match"
-                    } else {
-                        "no_condition_match"
+            match shape {
+                Shape::Detailed => {
+                    let flags = body["flags"].as_object().unwrap();
+                    assert_eq!(flags.len(), 4, "{body}");
+                    for (key, value) in expected.as_object().unwrap() {
+                        assert_eq!(flags[key]["enabled"], *value, "{body}");
+                        assert!(flags[key].get("failed").is_none(), "{body}");
+                        assert!(flags[key]["variant"].is_null(), "{body}");
+                        assert!(flags[key]["metadata"]["payload"].is_null(), "{body}");
                     }
-                );
-            } else if endpoint == "decide" && version == "1" {
-                let mut keys = body["featureFlags"].as_array().unwrap().clone();
-                keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-                let mut expected_keys: Vec<Value> = expected
-                    .as_object()
-                    .unwrap()
-                    .keys()
-                    .map(|key| json!(key))
-                    .collect();
-                expected_keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-                assert_eq!(keys, expected_keys, "{body}");
-            } else {
-                assert_eq!(body["featureFlags"], expected, "{endpoint} v{version}");
-                if endpoint == "flags" || version == "3" {
-                    assert_eq!(body["featureFlagPayloads"], json!({}), "{body}");
+                    assert_eq!(
+                        flags["v2-default-null"]["reason"]["code"],
+                        "no_condition_match"
+                    );
+                    assert_eq!(
+                        flags["v2-targeted"]["reason"]["code"],
+                        if targeted_value {
+                            "condition_match"
+                        } else {
+                            "no_condition_match"
+                        }
+                    );
+                }
+                Shape::EnabledKeys => {
+                    let mut keys = body["featureFlags"].as_array().unwrap().clone();
+                    keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                    assert_eq!(keys, enabled_keys(), "{body}");
+                }
+                Shape::Map { enabled_only } => {
+                    let mut map = expected.clone();
+                    if enabled_only {
+                        map.as_object_mut()
+                            .unwrap()
+                            .retain(|_, value| value == true);
+                    } else {
+                        assert_eq!(body["featureFlagPayloads"], json!({}), "{body}");
+                    }
+                    assert_eq!(body["featureFlags"], map, "{endpoint} v{version}");
                 }
             }
         }
@@ -661,21 +628,7 @@ async fn mixed_team_projects_supported_v2_beside_v1(#[case] cached: bool) -> Res
 #[tokio::test]
 async fn detailed_analysis_is_omitted_for_a_v2_flag_and_kept_for_v1() {
     let db = TestContext::new(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(
-        db.non_persons_reader.clone(),
-        None,
-        None,
-    ));
-    let mut matcher = FeatureFlagMatcher::new(
-        "example-person".to_string(),
-        None,
-        1,
-        db.create_postgres_router(),
-        cohort_cache,
-        mock_group_type_cache(HashMap::new()),
-        None,
-    )
-    .with_detailed_analysis(true);
+    let mut matcher = matcher(&db).with_detailed_analysis(true);
     let flags: Vec<FeatureFlag> = serde_json::from_value(json!([
         {"id": 1, "team_id": 1, "key": "v1", "active": true,
          "filters": {"groups": [{"rollout_percentage": 100}]}},
@@ -687,14 +640,7 @@ async fn detailed_analysis_is_omitted_for_a_v2_flag_and_kept_for_v1() {
     .unwrap();
     let response = matcher
         .evaluate_all_feature_flags(
-            FeatureFlagList {
-                flags: PreparedFlags::seal(flags),
-                evaluation_metadata: Arc::new(EvaluationMetadata {
-                    dependency_stages: vec![vec![1, 2]],
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
+            flag_list_with_metadata(flags),
             None,
             None,
             None,

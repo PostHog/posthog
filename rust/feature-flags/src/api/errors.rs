@@ -163,6 +163,14 @@ impl FlagError {
         }
     }
 
+    /// The evaluator could not produce a value for a supported v2 flag.
+    pub fn flag_evaluation(details: impl std::fmt::Debug) -> Self {
+        FlagError::InternalError {
+            code: "flag_evaluation_error",
+            cause: anyhow::anyhow!("Flag evaluation failed: {details:?}"),
+        }
+    }
+
     pub fn batch_evaluation_panicked() -> Self {
         FlagError::InternalError {
             code: "batch_evaluation_panicked",

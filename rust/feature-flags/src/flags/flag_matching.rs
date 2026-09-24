@@ -406,6 +406,7 @@ pub struct FeatureFlagMatcher {
     /// relative dates), so flag evaluation matches HogQL/ClickHouse cohort behavior.
     /// Parsed once per request and reused across every property comparison.
     timezone: Tz,
+    /// Request evaluation time. Only v2 relative-date predicates read it; tests pin it.
     now: DateTime<Utc>,
 }
 
@@ -1160,8 +1161,7 @@ impl FeatureFlagMatcher {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                // Condition analysis reads v1 release conditions; a v2 flag omits it.
-                let flag_details = if self.detailed_analysis && flag.filters.is_v1() {
+                let flag_details = if self.detailed_analysis {
                     // Use merged person properties (DB + overrides) for condition analysis
                     let merged_person_props = self
                         .get_person_properties(person_property_overrides.as_ref())
@@ -1430,10 +1430,10 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        flag.filters.require_supported()?;
         if let Some(config) = flag.filters.supported_v2() {
             return self.get_match_v2(config, person_property_overrides);
         }
-        flag.filters.require_v1()?;
         // Seed with the lowest-priority "could not evaluate" reason so any real evaluation
         // result outranks it via `get_highest_priority_match_evaluation`. NoGroupType is
         // the floor: a pure-group flag whose only condition is skipped for missing context
@@ -1710,13 +1710,18 @@ impl FeatureFlagMatcher {
         config: &Config,
         person_property_overrides: Option<&HashMap<String, Value>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        let merged = self.get_person_properties(person_property_overrides)?;
-        let properties = if self.flag_evaluation_state.get_person_properties().is_some() {
-            PersonProperties::Complete(&merged)
-        } else if person_property_overrides.is_some() {
-            PersonProperties::Partial(&merged)
+        // A config without predicates never reads properties, so skip the merge.
+        let merged = if config.rules.iter().any(|rule| !rule.targeting.is_empty()) {
+            Some(self.get_person_properties(person_property_overrides)?)
         } else {
-            PersonProperties::Unavailable
+            None
+        };
+        let properties = match &merged {
+            Some(map) if self.flag_evaluation_state.get_person_properties().is_some() => {
+                PersonProperties::Complete(map)
+            }
+            Some(map) if person_property_overrides.is_some() => PersonProperties::Partial(map),
+            _ => PersonProperties::Unavailable,
         };
         let evaluation = Evaluator::new(config).evaluate(&EvaluationContext {
             person_identifier: &self.distinct_id,

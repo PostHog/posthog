@@ -124,27 +124,27 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     ``_omit_unsupported_flags`` are serialized, so every other document here is a
     readable config version 1 or a supported v2 document, which has no dependencies.
     """
-    if _is_unevaluable(flag_data) or not _is_v1_document(flag_data):
+    if not _reads_v1_conditions(flag_data):
         return set()
     return _parse_dependency_ids(flag_dependency_properties(flag_data.get("filters", {})))
 
 
-def _is_v1_document(flag_data: dict[str, Any]) -> bool:
-    return detect_config_format(flag_data.get("filters", {})).kind == "v1"
+def _reads_v1_conditions(flag_data: dict[str, Any]) -> bool:
+    """Whether a serialized flag's release conditions are read: evaluable, and a v1
+    document (a kept v2 document has no cohort or flag references)."""
+    return not _is_unevaluable(flag_data) and detect_config_format(flag_data.get("filters", {})).kind == "v1"
 
 
-def _is_supported_v2(flag: FeatureFlag) -> bool:
-    """Whether the Rust reader evaluates this row: active, and a document the shared
-    validator admits under the deployed filter-size limit. Rust also rejects what it
-    cannot read, and isolates such a row with a failed record rather than failing the team.
+def _validates_v2(filters: Mapping[str, Any]) -> bool:
+    """Whether the shared validator admits a v2 document under the deployed filter-size
+    limit, the bound the Rust reader also applies. Rust may still reject what it cannot
+    read; it then isolates that row with a failed record rather than failing the team.
     """
-    if not flag.active or flag.deleted:
-        return False
     limits = ValidationLimits(
         max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES, max_metadata_bytes=sys.maxsize
     )
     try:
-        validate_config(flag.filters, limits=limits)
+        validate_config(filters, limits=limits)
     except ConfigValidationError:
         return False
     return True
@@ -155,7 +155,7 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     cache cannot carry the row.
 
     A non-object document, an unsupported discriminator, and a v2 document that is
-    inactive or that ``_is_supported_v2`` rejects are rejected whatever the row's
+    inactive or that ``_validates_v2`` rejects are rejected whatever the row's
     lifecycle, so an inactive v2 row is never blanked into a v1-shaped entry. A supported
     active v2 row is carried verbatim and has no dependencies. An unevaluable v1 object is
     not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
@@ -166,7 +166,7 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
         return None
     kind = detect_config_format(filters).kind
     if kind == "v2":
-        return set() if _is_supported_v2(flag) else None
+        return set() if flag.active and not flag.deleted and _validates_v2(filters) else None
     if kind != "v1":
         return None
     if not flag.active or flag.deleted:
@@ -251,7 +251,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
-        if _is_unevaluable(flag) or not _is_v1_document(flag):
+        if not _reads_v1_conditions(flag):
             continue
         cohort_ids |= referenced_cohort_ids(flag.get("filters", {}))
     return cohort_ids

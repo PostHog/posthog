@@ -432,7 +432,7 @@ pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
     pub variant: Option<String>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
@@ -534,7 +534,8 @@ impl FromFeatureAndMatch for FlagDetails {
                 payload: flag_match.payload.clone(),
                 has_experiment: flag.has_experiment,
             },
-            conditions: if detailed_analysis {
+            // The analysis describes v1 release conditions; a v2 flag omits it.
+            conditions: if detailed_analysis && flag.filters.is_v1() {
                 Some(Self::build_condition_analysis(
                     flag,
                     flag_match,
