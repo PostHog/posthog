@@ -422,6 +422,7 @@ class StamphogGitHubClient:
         headers: dict[str, str] | None = None,
         timeout: int = 15,
         stream: bool = False,
+        priority: Priority = Priority.CRITICAL,
     ) -> requests.Response:
         """Installation-authenticated request through the gated egress transport.
 
@@ -441,7 +442,7 @@ class StamphogGitHubClient:
                 source=_SOURCE,
                 headers={**(headers or {}), "Authorization": f"Bearer {token}"},
                 installation_id=self.installation_id,
-                priority=Priority.CRITICAL,
+                priority=priority,
                 endpoint=endpoint,
                 params=params,
                 json=json_body,
@@ -1164,22 +1165,35 @@ class StamphogGitHubClient:
             "mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) "
             "{ minimizedComment { isMinimized } } }"
         )
+        log_fields = {"repo": repo, "pr_number": pr_number, "review_id": review_id}
         try:
+            # BATCH lets the egress limiter shed this cosmetic call before it spends budget that dismissals need.
             response = self._request(
                 "POST",
                 "/graphql",
                 endpoint="/graphql",
                 json_body={"query": mutation, "variables": {"id": node_id}},
+                priority=Priority.BATCH,
             )
-            data = self._json(response, "/graphql") if response.status_code == 200 else None
         except Exception:
-            data = None
-        if not isinstance(data, dict) or data.get("errors"):
+            logger.warning("stamphog_github_minimize_dismissed_review_request_failed", **log_fields, exc_info=True)
+            return
+        if response.status_code != 200:
             logger.warning(
-                "stamphog_github_minimize_dismissed_review_failed",
-                repo=repo,
-                pr_number=pr_number,
-                review_id=review_id,
+                "stamphog_github_minimize_dismissed_review_http_error", **log_fields, status_code=response.status_code
+            )
+            return
+        try:
+            data = self._json(response, "/graphql")
+        except StamphogGitHubError:
+            logger.warning("stamphog_github_minimize_dismissed_review_non_json_response", **log_fields)
+            return
+        if not isinstance(data, dict) or data.get("errors"):
+            errors = data.get("errors") if isinstance(data, dict) else None
+            logger.warning(
+                "stamphog_github_minimize_dismissed_review_graphql_errors",
+                **log_fields,
+                error_types=[e.get("type") for e in errors or [] if isinstance(e, dict)],
             )
 
     def upsert_sticky_comment(self, repo: str, number: int, body: str) -> dict:

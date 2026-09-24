@@ -511,6 +511,9 @@ class GetPrReviewThreadsTests(SimpleTestCase):
 # and hiding a dismissed review as outdated must never fail or retry the calling activity, unlike
 # every other read/write on StamphogGitHubClient.
 class CosmeticWriteFailOpenTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.requested_urls: list[str] = []
+
     def _call(
         self,
         transport_response_or_error: fakes.FakeResponse | Exception,
@@ -519,6 +522,7 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
         def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
             if url.endswith("/access_tokens"):
                 return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            self.requested_urls.append(url)
             if url.endswith("/dismissals"):
                 return fakes.FakeResponse(200, json_data={"id": 999, "node_id": "PRR_999"})
             if isinstance(transport_response_or_error, Exception):
@@ -568,6 +572,7 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
         [
             ("http_error", fakes.FakeResponse(502, text="bad gateway")),
             ("graphql_errors", fakes.FakeResponse(200, json_data={"errors": [{"message": "forbidden"}]})),
+            ("non_json_body", fakes.FakeResponse(200, text="not json")),
             ("transport_exception", RuntimeError("network blew up")),
         ]
     )
@@ -575,6 +580,7 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
         self, _name: str, minimize_failure: fakes.FakeResponse | Exception
     ) -> None:
         self._call(minimize_failure, lambda c: c.dismiss_pr_review("acme/widgets", 5, 999, "stale"))
+        assert self.requested_urls[-1] == "https://api.github.com/graphql"
 
 
 class BuildAppJwtIssuerTests(SimpleTestCase):
