@@ -202,15 +202,12 @@ WHERE timestamp >= {window_start}
     '$feature_flag_called', '$experiment_exposure', '$exception',
     'survey sent', 'survey shown', 'survey dismissed',
     '$llm_prompt_fetched',
-    '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric',
-    '$ai_feedback', '$ai_evaluation', '$ai_tag',
-    '$ai_trace_summary', '$ai_generation_summary',
-    '$ai_trace_clusters', '$ai_generation_clusters',
     '$conversations_loaded', '$conversations_widget_loaded',
     '$conversations_message_sent', '$conversations_user_identified',
     '$conversations_restore_link_requested',
     '$conversations_widget_state_changed', '$conversations_back_to_tickets'
   )
+  AND NOT startsWith(event, '$ai_')
 GROUP BY event
 ORDER BY c DESC
 LIMIT 20

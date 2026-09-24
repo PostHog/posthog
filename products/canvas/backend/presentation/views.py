@@ -855,6 +855,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="publish-current-version")
     def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Queue a build for the current source version without changing source or metadata."""

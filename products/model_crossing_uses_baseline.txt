@@ -428,6 +428,7 @@ posthog.Team workflows.HogFlowRevision.team reverse-accessor(hogflowrevision_set
 posthog.Team workflows.HogFlowSchedule.team reverse-accessor(hogflowschedule_set) 1
 posthog.Team workflows.HogFlowTemplate.team reverse-accessor(hogflowtemplate_set) 1
 posthog.Team workflows.TeamWorkflowsConfig.team reverse-accessor(teamworkflowsconfig) 1
+posthog.Team workflows.WorkflowProposal.team reverse-accessor(workflowproposal_set) 1
 posthog.User access_control.AccessControl.created_by reverse-accessor(accesscontrol_set) 1
 posthog.User access_control.OrganizationResourceAccess.created_by reverse-accessor(organizationresourceaccess_set) 1
 posthog.User access_control.Role.created_by reverse-accessor(roles) 1
@@ -535,6 +536,7 @@ posthog.User workflows.HogFlow.created_by reverse-accessor(hogflow_set) 1
 posthog.User workflows.HogFlowBatchJob.created_by reverse-accessor(hogflowbatchjob_set) 1
 posthog.User workflows.HogFlowRevision.created_by reverse-accessor(hogflowrevision_set) 1
 posthog.User workflows.HogFlowTemplate.created_by reverse-accessor(hogflowtemplate_set) 1
+posthog.User workflows.WorkflowProposal.resolved_by reverse-accessor(resolved_workflow_proposals) 1
 product_analytics.Insight alerts.AlertConfiguration.insight reverse-accessor(alertconfiguration_set) 1
 product_analytics.Insight dashboards.Dashboard.insights reverse-accessor(dashboards) 1
 product_analytics.Insight dashboards.DashboardTile.insight reverse-accessor(dashboard_tiles) 1
@@ -635,7 +637,7 @@ product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.analytics_platform.backend.lazy_computation.tests.test_lazy_computation_executor drives(TrendsQueryRunner) 2
 product_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
@@ -865,6 +867,7 @@ warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sql_warehou
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status in-collection 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.external_data_failure instance-many(select_related) 1
+warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.webhook_subscription_stale instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.logic.sources instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1
@@ -962,7 +965,7 @@ web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_aler
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_run_insights drives(TrendsQuery) 1

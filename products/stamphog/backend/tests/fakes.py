@@ -267,8 +267,13 @@ class GitHubRecorder:
     def _graphql(self, body: dict) -> FakeResponse:
         query = str(body.get("query") or "")
         variables = body.get("variables") or {}
-        # Two GraphQL callers share /graphql: get_pr_review_threads and get_user_team_slugs. Route by
-        # the query's shape (only the review-threads query mentions reviewThreads).
+        # GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, and the
+        # minimizeComment mutation after a dismissal. Route by the query's shape.
+        if "minimizeComment" in query:
+            self.github_writes.append({"kind": "minimize_review", "node_id": variables.get("id"), "query": query})
+            return FakeResponse(
+                200, json_data={"data": {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}}
+            )
         if "reviewThreads" in query:
             repo = f"{variables.get('owner', '')}/{variables.get('name', '')}"
             number = int(variables.get("pr") or 0)
@@ -345,7 +350,7 @@ class GitHubRecorder:
         for review in self.pr_reviews.get((repo, number), []):
             if review.get("id") == review_id:
                 review["state"] = "DISMISSED"
-        return FakeResponse(200, json_data={})
+        return FakeResponse(200, json_data={"id": review_id, "node_id": f"PRR_{review_id}", "state": "DISMISSED"})
 
 
 def _extract(query: str, prefix: str) -> str:

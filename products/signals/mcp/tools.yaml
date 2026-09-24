@@ -235,7 +235,8 @@ tools:
             PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
             priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default
             ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports,
-            each with its summary. The other views are `needs_input` (waiting on a human), `monitoring` (an
+            each with its summary. The other views are `needs_input` (waiting on a human), `needs_decision` (failed
+            reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring` (an
             implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with
             `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every
             report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving
@@ -284,6 +285,35 @@ tools:
                 - assignee
                 - created_at
                 - updated_at
+    inbox-reports-merge:
+        operation: signals_reports_merge_create
+        enabled: false
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{id}'
+        title: Merge duplicate reports into one
+        description: >
+            Fold duplicate inbox reports into the one report that survives them, when the same issue landed in more than
+            one report. The URL names the survivor and `source_report_ids` (1–10) names the duplicates. Pick the
+            survivor deliberately: prefer the older report, and prefer the one holding an open implementation PR or an
+            active claim. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the
+            survivor, the survivor's signal counters take theirs on, and each source is archived with a 'duplicate of'
+            link back. A source's open pull request stays open, because the survivor holds it after the move; any active
+            claim on a source is released first, so re-claim the survivor if you were working on one. Titles and
+            summaries are NOT combined, so follow with `inbox-reports-update` if the survivor needs a rewrite. Both ends
+            must be a live report, and the whole call applies or none of it does: 409 and no writes when the survivor is
+            resolved, or when a source is the survivor itself, is resolved or archived, is still being researched
+            (`in_progress`), or carries more signals than one merge can move. A merged report keeps its URL but can
+            never be restored, so merge only reports you are confident are the same issue, and use an
+            `inbox-report-artefacts-create` `related_to` link when they are merely related.
+        param_overrides:
+            id:
+                aliases:
+                    - survivor_report_id
     inbox-reports-retrieve:
         operation: signals_reports_retrieve
         enabled: true
@@ -339,22 +369,23 @@ tools:
             Transition a single signal report to a new state. Use 'resolved' when the work this report asked for has
             been done (e.g. you fixed the issue it describes), 'suppressed' to dismiss the report from the inbox (the
             user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the
-            pipeline for later review. Resolving is only allowed from a researched status (ready or pending_input) or a
-            suppressed report — other statuses return 409. Dismissing or resolving closes the report's open
-            implementation PR, if it has one; a resolved report never reopens, and a recurrence starts a fresh report
-            linked to it. Optionally include a `dismissal_reason` — a canonical code from the inbox UI
-            (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`, `wrong_repo`,
-            `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw
-            string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request,
-            `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or
-            `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use
-            `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an
-            'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is
-            recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note`
-            (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL
-            artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
-            allowed from the report's current status. To transition several reports at once, use
-            `inbox-reports-bulk-set-state` instead of calling this per report.
+            pipeline for later review. Resolving is allowed from ready, pending_input, or failed, or from a suppressed
+            report whose previous status was ready, pending_input, failed, or resolved. Repeat resolution succeeds.
+            Other statuses return 409. Fixed reasons require state='suppressed' or state='resolved', not 'potential'.
+            Dismissing or resolving closes the report's open implementation PR, if it has one; a resolved report never
+            reopens, and a recurrence starts a fresh report linked to it. Optionally include a `dismissal_reason` — a
+            canonical code from the inbox UI (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`,
+            `analysis_wrong`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a
+            labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog` when the fix
+            landed without a pull request, `pr_merged` when a pull request with the fix was merged but did not resolve
+            the report on its own, or `already_fixed` when it was fixed before the report was filed; the other codes
+            describe a dismissal. Use `wrong_repo` when the agent picked the wrong repository for this report, and pass
+            `corrected_repository` (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should
+            have used — the correction is recorded and fed into future repository selection for this project. Use
+            `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code.
+            Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions.
+            Returns 409 if the transition is not allowed from the report's current status. To transition several reports
+            at once, use `inbox-reports-bulk-set-state` instead of calling this per report.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
@@ -394,7 +425,9 @@ tools:
             reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT:
             create it with `enabled=false` (the per-scout `emit` flag is set separately via `scout-config-update`).
             There is at most one config per (source_product, source_type) per project; if one already exists, update it
-            instead.
+            instead. For `source_product=linear`, `source_type=issue`, pass `config.linear_team_ids` (a list of Linear
+            team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams become signals;
+            the warehouse still syncs the whole workspace. Omit it to use every team.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -436,7 +469,9 @@ tools:
         description: >
             Partially update an existing signal source config by ID — typically to flip its `enabled` flag on or off, or
             to adjust its `config`. Only the fields you pass are changed. To turn the Signals scout source off for a
-            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config.
+            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. `config` is replaced as a
+            whole, so include the existing keys (such as `steering`) when changing one of them, for example the Linear
+            source's `linear_team_ids` allowlist.
     inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true
@@ -734,13 +769,18 @@ tools:
         title: List project members for reviewer routing
         description: >
             Return the people who can review work on this project — one row per member with access to it, each with
-            their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no
-            linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a
-            fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list
-            members, match the owner by email/name, then put their `user_uuid` in `suggested_reviewers` on
-            `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a null `github_login` only
-            means no draft PR can be opened as that person. Pass `search` to narrow a large roster. Strictly
-            team-scoped.
+            their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked
+            GitHub identity), and the `teams` they belong to. The cold-start reviewer-routing path: when a finding's
+            owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or
+            inbox precedent, list members, match the owner by email/name, then put their `user_uuid` in
+            `suggested_reviewers` on `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a
+            null `github_login` only means no draft PR can be opened as that person. Pass `search` to narrow a large
+            roster by name or email. Pass `team` with a bare team slug (no `@org/` prefix) to turn a slug from a note,
+            from CODEOWNERS, or from an owners file into the people on that team, maintainers first: take the first 1 to
+            3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back
+            as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost
+            always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic
+            snapshot, so it can lag the live team. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: true
@@ -1004,10 +1044,10 @@ tools:
         title: List a scout run's emitted findings
         description: >
             Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its
-            `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
-            deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
-            Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
-            (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
+            `description` (the finding text as surfaced), `severity`, `tags`, and the deterministic `source_id`
+            (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run
+            actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly
+            team-scoped — a run UUID belonging to another team returns 404.
     scout-runs-findings-summary:
         operation: signals_scout_runs_findings_summary
         enabled: false
@@ -1049,12 +1089,12 @@ tools:
         description: >
             Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
             cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its
-            `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
-            deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
-            surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
-            `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
-            upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to
-            walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.
+            `run_id`, `description` (the finding text as surfaced), `severity`, `tags`, and the deterministic
+            `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet surfaced lately?"
+            in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope
+            to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on
+            `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past
+            the cap. Capped at 200 rows (default 50). Strictly team-scoped.
     scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -1131,6 +1171,12 @@ tools:
             `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or
             `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from
             returning every entry's full prose. Results capped at 1000.
+    signals-config-create:
+        operation: signals_config_create
+        enabled: false
+    signals-config-list:
+        operation: signals_config_list
+        enabled: false
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
@@ -1158,6 +1204,12 @@ tools:
     signals-report-pr-review-comments-create:
         operation: signals_report_pr_review_comments_create
         enabled: false
+    signals-reports-available-reviewers-retrieve:
+        operation: signals_reports_available_reviewers_retrieve
+        enabled: false
+    signals-reports-destroy:
+        operation: signals_reports_destroy
+        enabled: false
     signals-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: false
@@ -1172,6 +1224,12 @@ tools:
         enabled: false
     signals-reports-refund-summary-retrieve:
         operation: signals_reports_refund_summary_retrieve
+        enabled: false
+    signals-reports-reingest-create:
+        operation: signals_reports_reingest_create
+        enabled: false
+    signals-reports-reviewers-update:
+        operation: signals_reports_reviewers_update
         enabled: false
     signals-reports-signals-retrieve:
         operation: signals_reports_signals_retrieve

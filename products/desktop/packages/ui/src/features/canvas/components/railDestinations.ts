@@ -1,6 +1,7 @@
 import {
   BellIcon,
   BookOpenTextIcon,
+  ChatsCircleIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -15,6 +16,7 @@ import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
 import {
   isRestorableVisitHref,
   type NavRailPane,
+  railPaneFoldsIntoWork,
 } from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
@@ -26,6 +28,7 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
@@ -41,6 +44,7 @@ import {
   navigateToSpaces,
   navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
+import { hrefPath } from "@posthog/ui/router/reportNavigation";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ComponentType } from "react";
 
@@ -99,6 +103,13 @@ function showSpaces(): void {
 function focusColumnSearch(): void {
   useSidebarStore.getState().setOpen(true);
   requestSidebarSearchFocus();
+}
+
+function showInboxList(): void {
+  if (isInboxTriagePath(hrefPath(currentHref() ?? ""))) {
+    navigateToInbox();
+  }
+  focusColumnSearch();
 }
 
 /**
@@ -210,7 +221,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: EnvelopeSimple,
     href: "/inbox",
     onPick: navigateToInbox,
-    onReclick: focusColumnSearch,
+    onReclick: showInboxList,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
     enabled: (flags) => flags.inbox,
@@ -259,4 +270,31 @@ export function visibleRailDestinations(
   flags: RailFlags,
 ): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
+}
+
+export function showWorkColumn(): void {
+  useSidebarStore.getState().setOpen(true);
+}
+
+const WORK_DESTINATION: RailDestination = {
+  pane: "spaces",
+  label: "Work",
+  analyticsId: "spaces",
+  Icon: ChatsCircleIcon,
+  href: "/spaces",
+  onPick: () => {
+    showWorkColumn();
+    navigateToSpaces();
+  },
+  onReclick: showWorkColumn,
+};
+
+export function visibleWorkRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  const rest = RAIL_DESTINATIONS.filter(
+    ({ enabled, pane }) =>
+      !railPaneFoldsIntoWork(pane) && (enabled?.(flags) ?? true),
+  );
+  return [WORK_DESTINATION, ...rest];
 }

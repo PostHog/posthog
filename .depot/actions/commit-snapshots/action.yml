@@ -73,7 +73,25 @@ runs:
                     elif git apply --reverse --check "$patch" 2>/dev/null; then
                       echo "Skipping $patch (already applied)"
                     else
-                      echo "::warning::Patch $patch could not be applied — skipping"
+                      # A sharded job writes only the snapshots of the tests it ran, so two shards can
+                      # both create the same file. Apply the patch file by file and merge the amber
+                      # files that collide instead of dropping the whole patch.
+                      echo "Applying $patch file by file"
+                      for file in $(git apply --numstat "$patch" | cut -f3); do
+                        if git apply --check --include="$file" "$patch" 2>/dev/null; then
+                          git apply --index --include="$file" "$patch"
+                        elif [[ "$file" == *.ambr ]] && [ -f "$file" ] \
+                          && grep -F -A1 -- "diff --git a/$file b/$file" "$patch" | grep -q '^new file mode'; then
+                          extract_dir=$(mktemp -d)
+                          (cd "$extract_dir" && git apply --include="$file" "$patch")
+                          python3 .github/scripts/merge-amber-snapshots.py "$file" "$extract_dir/$file"
+                          rm -rf "$extract_dir"
+                          git add -- "$file"
+                          echo "Merged $file from $patch"
+                        else
+                          echo "::warning::$file in $patch could not be applied — skipping that file"
+                        fi
+                      done
                     fi
                   done
                   echo "::endgroup::"

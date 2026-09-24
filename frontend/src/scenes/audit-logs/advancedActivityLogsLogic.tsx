@@ -489,7 +489,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 loadExports: async () => {
                     const params = new URLSearchParams()
                     params.append('context_path', '/advanced_activity_logs/')
-                    const response = await api.get(`api/environments/${values.currentTeamIdStrict}/exports/?${params}`)
+                    const response = await api.get(`api/projects/${values.currentTeamIdStrict}/exports/?${params}`)
                     return response.results || []
                 },
             },

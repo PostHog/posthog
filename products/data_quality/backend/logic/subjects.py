@@ -9,6 +9,8 @@ denormalized name is refreshed on every run so renames self-heal.
 from collections.abc import Collection
 from uuid import UUID
 
+from posthog.schema import DatabaseSerializedFieldType
+
 from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -17,6 +19,7 @@ from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT
 
 from ..facade.contracts import MetricSubject, SelectableSubject
 from ..facade.enums import SubjectType
+from . import posthog_tables
 from .contracts import SubjectRef
 
 _WAREHOUSE_OBJECT_SUBJECT_TYPES = {
@@ -32,7 +35,23 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
         return _resolve_table(team_id, subject_uuid)
     if kind is SubjectType.METRIC:
         return _resolve_metric(team_id, subject_uuid)
+    if kind is SubjectType.POSTHOG_TABLE:
+        return _resolve_posthog_table(subject_uuid)
     return _resolve_view(team_id, subject_uuid)
+
+
+def _resolve_posthog_table(subject_uuid: str | UUID) -> SubjectRef:
+    entry = posthog_tables.by_id(subject_uuid)
+    if entry is None:
+        return _missing(SubjectType.POSTHOG_TABLE, subject_uuid)
+    return SubjectRef(
+        subject_type=SubjectType.POSTHOG_TABLE,
+        subject_uuid=str(entry.id),
+        name=entry.name,
+        queryable_name=entry.name,
+        exists=True,
+        time_column=entry.time_column,
+    )
 
 
 def unqueryable_table_ids(team_id: int) -> set[UUID]:
@@ -76,6 +95,17 @@ def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[Se
                 columns=columns_by_id.get(saved_query_id) or {},
             )
             for saved_query_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
+        )
+    if SubjectType.POSTHOG_TABLE in kinds:
+        subjects.extend(
+            SelectableSubject(
+                subject_type=SubjectType.POSTHOG_TABLE,
+                id=str(entry.id),
+                name=entry.name,
+                time_column=entry.time_column,
+                columns=entry.columns,
+            )
+            for entry in posthog_tables.TABLES
         )
     if SubjectType.METRIC in kinds:
         subjects.extend(
@@ -178,12 +208,27 @@ def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUI
     kind = SubjectType(subject_type)
     if kind is SubjectType.METRIC:
         return None
+    if kind is SubjectType.POSTHOG_TABLE:
+        entry = posthog_tables.by_id(subject_uuid)
+        return entry.columns.get(column_name) if entry else None
     if kind is SubjectType.TABLE:
         table_id = UUID(str(subject_uuid))
         columns = warehouse_facade.all_queryable_table_columns(team_id, {table_id}).get(table_id, {})
     else:
         columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
     return columns.get(column_name)
+
+
+def posthog_table_column_is_selectable(subject_uuid: str | UUID, column_name: str) -> bool:
+    """Whether the column is one the registry lists, or a path into one of its JSON columns."""
+    entry = posthog_tables.by_id(subject_uuid)
+    if entry is None:
+        return False
+    head, _, tail = column_name.partition(".")
+    column_type = entry.columns.get(head)
+    if column_type is None:
+        return False
+    return not tail or column_type == DatabaseSerializedFieldType.JSON.value
 
 
 def _missing(kind: SubjectType, subject_uuid: str | UUID) -> SubjectRef:

@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { memo, useId, useMemo, useState } from 'react'
 
-import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconSearch } from '@posthog/icons'
+import { LemonInput, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -12,7 +12,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
-import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { AiChatListItem } from 'scenes/max/components/List/AiChatListItem'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -266,8 +265,7 @@ export function NavTabChat({
     inPanel?: boolean
     onItemClick?: () => void
 }): JSX.Element {
-    // The chat surface can be mounted twice at once (nav tab, kept mounted, plus the side panel),
-    // so the search input's id must be per-instance to keep label/htmlFor pairing valid.
+    // The nav tab and side panel can mount together, so each search input needs a unique id.
     const searchInputId = useId()
     const {
         conversationHistory,
@@ -327,33 +325,26 @@ export function NavTabChat({
                 onInputValueChange={setInputValue}
             >
                 <div className="flex flex-col h-full min-h-0">
-                    <div className={cn('flex items-center gap-1 p-2 shrink-0', inPanel && 'p-1')}>
-                        <label
-                            htmlFor={searchInputId}
-                            className={cn(
-                                'input-like flex items-center flex-1 px-1 gap-1 group h-[30px]',
-                                inPanel && 'bg-fill-input'
-                            )}
-                        >
-                            <IconSearch className="size-4 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
-                            <Combobox.Input
-                                id={searchInputId}
-                                placeholder={tasksEnabled ? 'Search all' : 'Chat history'}
-                                aria-label={tasksEnabled ? 'Search chats and tasks' : 'Chat history'}
-                                className="w-full text-sm bg-transparent border-none focus:outline-none focus:ring-0 transition-[width] duration-100 h-[30px]"
-                                autoFocus={inPanel}
-                            />
-                            {inputValue && (
-                                <ButtonPrimitive
-                                    iconOnly
-                                    onClick={() => setInputValue('')}
-                                    className="shrink-0 -mr-1"
-                                    tooltip="Clear search"
-                                >
-                                    <IconX className="size-3 text-tertiary" />
-                                </ButtonPrimitive>
-                            )}
-                        </label>
+                    <div className="flex items-center gap-1 p-1 shrink-0">
+                        <LemonInput
+                            inputComponent={Combobox.Input}
+                            id={searchInputId}
+                            type="search"
+                            size="small"
+                            className="flex-1 min-w-0 min-h-[30px]"
+                            placeholder="Filter chats"
+                            aria-label="Filter chats"
+                            value={inputValue}
+                            onChange={setInputValue}
+                            autoFocus={inPanel}
+                            fullWidth
+                            data-attr="nav-chat-search"
+                            prefix={
+                                <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
+                                    <IconSearch className="size-4" />
+                                </div>
+                            }
+                        />
                         {tasksEnabled && <TaskAssigneeFilterMenu />}
                         <Link
                             to={urls.ai()}

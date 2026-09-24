@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardType } from '~/types'
 
 import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
 
 const IMAGE_URL = 'https://imagedelivery.net/lvc9lblm6_VvsB0sE7lLrg/70-s-dance-hog/md'
 
-const makeDashboard = (body?: string): DashboardType<QueryBasedInsightModel> =>
+const makeDashboard = (body?: string): DashboardType =>
     ({
         id: 123,
         name: 'Image tile story',
@@ -31,7 +31,7 @@ const makeDashboard = (body?: string): DashboardType<QueryBasedInsightModel> =>
         filters: {},
         tags: [],
         user_access_level: AccessControlLevel.Editor,
-    }) as DashboardType<QueryBasedInsightModel>
+    }) as DashboardType
 
 const meta: Meta<typeof ImageTileModal> = {
     title: 'Products/Dashboards/Tiles/Image Tile Modal',

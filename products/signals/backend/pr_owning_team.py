@@ -19,7 +19,6 @@ from posthog.models.integration import GitHubIntegration
 
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +30,8 @@ _TEAM_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 @frozen
 class OwningTeam:
     slug: str
-    # Organization members of the team with a connected GitHub account, in random order.
+    # Lowercase GitHub logins of every team member, in random order. GitHub team membership is the
+    # ownership, so a member needs no PostHog account.
     logins: tuple[str, ...]
 
 
@@ -40,7 +40,6 @@ class OwningTeamResolver:
 
     def __init__(self, github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef) -> None:
         self.github = github
-        self.team_id = team_id
         self.parsed = parsed
         self.log = logger.bind(
             team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number
@@ -82,7 +81,8 @@ class OwningTeamResolver:
             )
             return None
 
-        logins = list(resolve_org_github_login_to_users(self.team_id, members["logins"]))
+        # Lowercase, so the logins match the normalized suggested reviewer and opt-in logins.
+        logins = list(dict.fromkeys(login.lower() for login in members["logins"]))
         # TODO: prefer the member with the fewest open self-driving pull requests, to spread the load.
         random.shuffle(logins)
         self.log.info("signals.pr_owning_team.resolved", team_slug=slug, candidates=len(logins))
