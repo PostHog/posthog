@@ -471,6 +471,90 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
 
+    def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
+        # A scout that splits one finding into a stack has to be able to record the order, and the
+        # cycle guard has to hold on this path too, not only on the REST action.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            second = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(title="feat(cart): second step"), format="json"
+            ).json()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": second["report_id"],
+                    "links": [
+                        {"kind": "depends_on", "report_id": first["report_id"], "reason": "shares the same module"}
+                    ],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["links_appended"] == 1
+        stored = SignalReportArtefact.objects.filter(
+            report_id=second["report_id"], type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        )
+        assert [json.loads(row.content)["report_id"] for row in stored] == [first["report_id"]]
+        # Directed, so the predecessor carries nothing.
+        assert not SignalReportArtefact.objects.filter(
+            report_id=first["report_id"], type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        ).exists()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            cycle = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": first["report_id"],
+                    "links": [{"kind": "depends_on", "report_id": second["report_id"]}],
+                },
+                format="json",
+            )
+        assert cycle.status_code == status.HTTP_400_BAD_REQUEST, cycle.json()
+
+    def test_a_links_only_edit_counts_as_an_edit(self) -> None:
+        # A links-only edit commits the link and answers 200, so it has to reach the edit tally and
+        # the report-to-run work-log link too. Left out of the `changed` predicate, the link lands
+        # while `edited_report_ids` and the run's transcript link on the report stay unset.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        target = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="depends on")
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": first["report_id"],
+                    "links": [{"kind": "depends_on", "report_id": str(target.id)}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [first["report_id"]]
+
+    def test_edit_report_rejects_an_unknown_link_kind(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            other = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(title="feat(cart): other"), format="json"
+            ).json()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "links": [{"kind": "blocks", "report_id": other["report_id"]}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_edit_report_appends_evidence_and_moves_the_report_counts(self) -> None:
         # The evidence rail is create-only without this: a scout with fresh corroboration could only
         # write prose into the collapsed work log. The appended row must land bound to the report and
@@ -2149,18 +2233,17 @@ class TestScoutReportAPI(APIBaseTest):
             assert captured is not None
             return captured.event_uuid
 
-        def observation(source_id: str, description: str = "Checkout errors doubled", weight: float = 1.0):
-            return ScoutReportSignal(description=description, source_id=source_id, weight=weight)
+        def observation(source_id: str, description: str = "Checkout errors doubled"):
+            return ScoutReportSignal(description=description, source_id=source_id, weight=1.0)
 
         checkout = forward([observation("checkout-errors")])
         assert checkout == forward([observation("checkout-errors")])
         # The rail carries a row per source id, so the same prose recorded twice is two observations.
         assert checkout != forward([observation("checkout-errors-eu")])
         assert checkout != forward([observation("checkout-errors", description="Signups fell")])
-        assert checkout != forward([observation("checkout-errors", weight=2.0)])
         # A description is scout-authored free text, so on a pipe-joined key a note carrying the
         # evidence part verbatim hashes like the evidence edit itself and one of the two is dropped.
-        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors",1.0]]')
+        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors"]]')
 
     @parameterized.expand(
         [

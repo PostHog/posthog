@@ -20,7 +20,6 @@ import structlog
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
-from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
@@ -33,6 +32,7 @@ from posthog.models.integration import (
 
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
+from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
 
 logger = structlog.get_logger(__name__)
 
@@ -298,44 +298,25 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         if tracker is None or tracker.pr_linked_at is not None:
             return False
 
-        parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
-        if parsed is None:
-            return False
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
-        if github is None:
-            logger.info("signals.tracker_issue_link_no_integration", report_id=report_id, pr_url=pr_url)
-            return False
-
-        pull_request = github.get_pull_request(parsed.repository, parsed.number)
-        if not pull_request.get("success"):
-            logger.warning(
-                "signals.tracker_issue_link_pr_fetch_failed",
-                report_id=report_id,
-                pr_url=pr_url,
-                error=pull_request.get("error"),
-            )
-            return False
-
-        body = pull_request.get("body") or ""
         marker = f"{PR_BODY_MARKER}:{report_id} -->"
-        if marker not in body:
-            reference = _pr_body_reference(tracker, pr_repository=parsed.repository)
+
+        def add_reference(body: str, repository: str) -> str | None:
+            if marker in body:
+                return body
+            reference = _pr_body_reference(tracker, pr_repository=repository)
             if reference is None:
-                return False
-            outcome = github.update_pull_request_body(
-                parsed.repository,
-                parsed.number,
-                f"{body.rstrip()}\n\n{marker}\n{reference}\n",
-                expected_etag=pull_request.get("etag"),
-            )
-            if not outcome.get("success"):
-                logger.warning(
-                    "signals.tracker_issue_link_pr_update_failed",
-                    report_id=report_id,
-                    pr_url=pr_url,
-                    error=outcome.get("error"),
-                )
-                return False
+                return None
+            return f"{body.rstrip()}\n\n{marker}\n{reference}\n"
+
+        outcome = edit_pull_request_body(
+            team_id=team_id,
+            report_id=report_id,
+            pr_url=pr_url,
+            edit=add_reference,
+            log_event="signals.tracker_issue_link",
+        )
+        if outcome != BodyEditOutcome.WRITTEN:
+            return False
 
         if tracker.provider == Integration.IntegrationKind.LINEAR and tracker.integration is not None:
             # Best-effort: the description reference already links the two, and this attachment

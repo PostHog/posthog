@@ -1,4 +1,5 @@
 import type { TaskService } from "@posthog/core/task-detail/taskService";
+import type { RootLogger } from "@posthog/di/logger";
 import {
   type AgentConversationEvent,
   mcpToolKey,
@@ -12,6 +13,14 @@ import {
   PiSessionController,
   type PiSessionProvider,
 } from "./piSessionController";
+
+const logger: RootLogger = {
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  scope: () => logger,
+};
 
 function createCloudTaskClient(autoStart = true) {
   const subscriptions: Array<{
@@ -789,7 +798,11 @@ describe("CloudPiSessionClient", () => {
     const provider: PiSessionProvider = {
       get: vi.fn(async () => session),
     };
-    const controller = new PiSessionController(provider, {} as TaskService);
+    const controller = new PiSessionController(
+      provider,
+      {} as TaskService,
+      logger,
+    );
 
     const connection = controller.connect("task-1");
     await vi.waitFor(() => {

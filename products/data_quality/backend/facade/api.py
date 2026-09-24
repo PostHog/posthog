@@ -7,7 +7,7 @@ the AST-bearing ``CheckPlan`` stay inside ``logic``, since they are compiler int
 data. ORM model classes never cross here either -- ``facade/models.py`` is their one channel.
 """
 
-from ..activity_logging import log_metric_schedule_change
+from ..activity_logging import log_schedule_change
 from ..logic.checks import (
     checks_for_subject,
     edit_check,
@@ -16,6 +16,7 @@ from ..logic.checks import (
     live_subject_checks,
     soft_delete_check,
     start_check_suite,
+    subject_filter,
     subject_health,
     upsert_check,
     validate_check,
@@ -28,17 +29,17 @@ from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
 from ..logic.output_schema import metric_output_schema
-from ..logic.permissions import authorized_subject_types, restrict_subject_types, writable_subjects
+from ..logic.permissions import authorized_subject_types, restrict_subject_types, sql_denial_context, writable_subjects
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
-from ..logic.schedule_service import get_schedule_with_history, schedule_with_history, update_schedule
-from ..logic.schedules import (
-    MetricCheckSchedule,
-    ScheduleUnavailableError,
-    ScheduleUpdateResult,
-    get_schedule,
-    set_schedule,
+from ..logic.schedule_service import (
+    SubjectSchedule,
+    get_schedule_with_history,
+    list_schedules_with_history,
+    schedule_with_history,
+    update_schedule,
 )
+from ..logic.schedules import CheckSchedule, ScheduleUnavailableError, ScheduleUpdateResult, get_schedule, set_schedule
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.subject_access import (
     DenialContext,
@@ -56,15 +57,17 @@ from ..logic.subject_access import (
     visible_checks,
     without_denied_runs,
 )
-from ..logic.subjects import resolve_metric_subjects, resolve_subject, testable_metric_subjects
+from ..logic.subject_schedules import runs_on_a_schedule
+from ..logic.subjects import resolve_metric_subjects, resolve_subject, selectable_subjects, testable_metric_subjects
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
-from .contracts import CheckTypeInfo, MetricSubject, OutputColumn
+from .contracts import CheckTypeInfo, MetricSubject, OutputColumn, SelectableSubject
 
 __all__ = [
-    "log_metric_schedule_change",
-    "MetricCheckSchedule",
+    "log_schedule_change",
+    "CheckSchedule",
     "ScheduleUnavailableError",
     "ScheduleUpdateResult",
+    "SubjectSchedule",
     "CheckConfigError",
     "CheckEditConflict",
     "CheckStatusRow",
@@ -73,6 +76,7 @@ __all__ = [
     "DenialContext",
     "MetricSubject",
     "OutputColumn",
+    "SelectableSubject",
     "ReadableSubjects",
     "ReferencedSubjects",
     "SubjectKey",
@@ -83,6 +87,7 @@ __all__ = [
     "UnknownCheckTypeError",
     "authorized_subject_types",
     "restrict_subject_types",
+    "sql_denial_context",
     "live_subject_checks",
     "caller_denial_context",
     "can_be_object_denied",
@@ -100,6 +105,7 @@ __all__ = [
     "get_gate_config",
     "get_schedule",
     "get_schedule_with_history",
+    "list_schedules_with_history",
     "list_check_types",
     "metric_output_schema",
     "notify_materialization_blocked",
@@ -110,12 +116,15 @@ __all__ = [
     "resolve_metric_subjects",
     "roll_up_health",
     "set_gate_materialization_on_checks",
+    "runs_on_a_schedule",
     "set_schedule",
     "schedule_with_history",
     "soft_delete_check",
     "start_check_suite",
+    "subject_filter",
     "subject_health",
     "subject_locations",
+    "selectable_subjects",
     "testable_metric_subjects",
     "suites_backing_unreadable_runs_q",
     "to_config_entry",

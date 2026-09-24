@@ -171,9 +171,14 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
+# The close-out summary tool is a sandbox harness tool, not a PostHog MCP tool, so it is absent from
+# the `mcp__posthog__exec` catalog and has to be called under its qualified name.
+_TASK_SUMMARY_TOOL = "task_summary_update"
+_TASK_SUMMARY_TOOL_ID = f"mcp__posthog-code-tools__{_TASK_SUMMARY_TOOL}"
+
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
 # numbered differently (the report channel has an extra search step), so both are rendered from here.
-_CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose."""
+_CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose. Before that, call `task_summary_update` with the same close-out text, per *Writing the summary*."""
 
 _HOW_A_RUN_WORKS_SIGNAL_STEPS = """4. **Decide.** For each hypothesis, decide whether to:
    - **Emit** a finding (call `scout-emit-signal`). This includes building on a prior finding when new evidence materially advances the picture: emit a fresh finding citing the prior one's `finding_id` in your description.
@@ -283,11 +288,11 @@ Surfacing a finding is half the job: nothing automatically tells you whether the
 
 If the `scout_fleet` roster shows `signals-scout-inbox-validation` running here with `emit` on, re-measuring **resolved inbox reports** is its territory, so keep yours to the follow-ups only you track. It enqueues only reports resolved in about the last 14 days, though, so an older one of yours is still yours: dropped by both is the outcome this queue exists to prevent."""
 
-# The check channel. `task:write` reaches the check tools from any posture, so the gate here is not
-# about scope like the re-surface clause: it is about having a report to hang a check on. A
-# signal-channel scout holds a finding id and no report, so it keeps the scratchpad queue as its
-# whole loop.
-_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `scout-report-check-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `scout-report-check-list` before you add one, since a report carries at most 5 open checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured.
+# The check channel. The check tools need `signal_scout_report:write` plus the `edit_report` tool
+# grant, which the caller below already checks. The extra gate here is about having a report to hang
+# a check on: a signal-channel scout holds a finding id and no report, so it keeps the scratchpad
+# queue as its whole loop.
+_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `scout-report-check-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `scout-report-check-list` before you add one, since a report carries at most 5 open checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured. Cancel a check you wrote in error with `scout-report-check-cancel`, before its first run.
 """
 
 _FOLLOWUP_RESURFACE_SIGNAL = (
@@ -344,10 +349,11 @@ Default to recent windows (~last 72h) when querying, since fresh evidence is usu
 
 _FINDING_SCHEMA = """# Finding schema
 
+Emit only what you are confident is real. When you are not sure, write a scratchpad entry instead. An unsure finding costs the reader more than a silent run.
+
 When you call `scout-emit-signal`:
 
 - `description`: the inbox surface and the dedupe key. Your skill body owns the prose contract.
-- `confidence` ∈ [0, 1]: your certainty the finding is real. This is the emit gate: below ~0.65, prefer a scratchpad entry over emitting.
 - `evidence`: a list of citations, capped at 20 entries.
 - `tags`: optional category slugs for the finding; see *Tagging your findings* below.
 - `finding_id`: a stable id for this finding, echoed into the signal for traceability. It does NOT dedupe: emitting the same id twice creates two signals, so emit each finding exactly once and never retry an emit."""
@@ -506,6 +512,7 @@ This is the single highest-leverage field you set. `suggested_reviewers` (a list
 - **Always try to set it.** Spend real effort identifying who owns the affected area, leaning on evidence you already gathered: code owners, recent authors on the relevant surface, the team that owns the product. Treat "I couldn't find an owner" as a last resort, not a default.
 - **Identify a reviewer two ways, and prefer the uuid.** `user_uuid` (`{user_uuid: "..."}`) names a PostHog member directly, so it is the safer identity: it cannot be mis-typed into someone else, and it works for a member who never connected GitHub. `github_login` is a bare lowercase login (`{github_login: "octocat"}`, no `@`, no display name), matched exactly, so a guessed, mis-cased, or display-name handle reaches no one. Use the login when your evidence is commit authorship; use the uuid whenever your evidence names a PostHog user (an account owner, an entity's `created_by`).
 - **No owner in your evidence? List the members.** `scout-members-list` returns this project's members with `email`, name, and resolved `github_login` (pass `search` to narrow a big project). Match the owner by email/name, then route to their `user_uuid`. Every member is routable, including one whose `github_login` is null — a null login only means no draft PR can be opened as that person, not that the report can't reach them. The org-scoped `org-member-get-github-login` / `org-members-list` tools are not available in a scout run, so this is the in-run lookup path.
+- **Got a team, not a person? Resolve the slug.** `scout-members-list` with `team=<bare slug>` (no `@your-org/` prefix) returns that team's members, maintainers first, so a slug from a note, from CODEOWNERS, or from an owners file becomes reviewers you can route. Take the first 1 to 3 and route them by `user_uuid`; prefer one when a maintainer clearly owns the area. An error back means the roster isn't synced for that slug, not that the team doesn't exist: fall back to name or email matching, and never report the team as missing. The roster is a periodic snapshot, so it can lag the live team.
 - **Set `reason` on every reviewer you name.** One sentence of the concrete evidence tying this person to the affected surface ("created the affected dashboard", "human correction on the prior tracing report routed to them"). It is persisted on the report, so humans and future runs can tell an evidence-backed route from a guess without replaying your transcript. A reviewer you can't write a reason for is a reviewer you haven't verified.
 - **Check for human corrections first.** A human swapping a suggested reviewer for someone else is the strongest ownership evidence there is, so treat it as authoritative precedent over commit history and fold it into your `reviewer:` memory keys. A `report_reviewer_correction` note tells you when one lands on a report you filed or on a login you already hold, and the condense rule for it is in *Notes left for you*. The project profile's `recent_reviewer_corrections` carries the recent ones; for history beyond that window, query `advanced-activity-logs-list` with `scopes=["SignalReport"]`, `activities=["suggested_reviewers_changed"]` (on an org without the audit-logs feature that call fails with a payment-required error: skip it, don't retry).
 - **Weigh other precedent by its evidence, not its existence.** A comparable report's reviewer entries (via `inbox-report-artefacts-list`) or your own `reviewer:` memory are strong precedent when they carry `relevant_commits`, a concrete `reason`, or a human correction behind them, and are an earlier run's unexplained guess when they carry none of those. Precedent is self-reinforcing, so every blind reuse becomes the next run's precedent and compounds a mis-route indefinitely: corroborate from what you gathered this run (an entity's `created_by`, the owning team, recent authors in the data), or say so in `reason` ("inherited from report X, unverified").
@@ -526,6 +533,7 @@ _GITHUB_EVIDENCE_HEAD = """# Code-derived reviewer evidence (`gh`, read-only)
 This sandbox has the GitHub CLI (`gh`) authenticated with a **read-only** token for this project's connected repositories. Its one job here: turn "who owns the affected surface?" into commit evidence before you set `suggested_reviewers`, instead of inheriting precedent. `gh` has no repository to infer, so every example below passes `--repo` and so must every call you make.
 
 - **Query recent authors of the affected path** once you know which files or dirs the issue touches (from the entity, the error, or a comparable report's `repository`): `gh api 'repos/<owner>/<repo>/commits?path=<dir-or-file>&per_page=30' --jq '[.[].author.login] | group_by(.) | map({login: .[0], commits: length}) | sort_by(-.commits)'`. Two or three such calls (the specific file, its directory, the product root) triangulate ownership. This is evidence-gathering, not archaeology, so don't page through history beyond that.
+- **Check repository ownership when you know the affected paths.** Look for `CODEOWNERS` in `.github/`, then the repository root, then `docs/`; use the first file found and the last rule that matches each path. Also check `owners.yaml` when present. Human reviewer corrections take precedence; if the files name different owners, keep the `owners.yaml` owner first and add a CODEOWNERS owner as a second suggested reviewer only when each resolves to a project member. A GitHub team handle is not a reviewer: resolve its members before suggesting one person. Missing files or unclear paths are not evidence of ownership.
 - **Check whether the work is already in flight** before you file something autostart could open a PR for: `gh pr list --repo <owner>/<repo> --state open --search '<keywords>'` (then `gh pr view <n> --repo <owner>/<repo> --json files,title,url` on a plausible hit), `gh api 'repos/<owner>/<repo>/branches?per_page=100'` for a recently pushed branch, and `gh issue list --repo <owner>/<repo> --state open --assignee '*' --search '<keywords>'` for a ticket someone is on. Search by the paths a fix would touch as well as by wording, since concurrent work is easier to recognize by its files. An *open, unassigned* backlog ticket doesn't count: the issue is known, not started. """
 
 _GITHUB_EVIDENCE_TAIL = """
@@ -628,11 +636,12 @@ _REPORT_CHARTS = f"""# Attaching charts
 
 - **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`), `title` the heading above it, `query` a query node: `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` when you want a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Anything else is refused. Add a `caption` when there's something specific to look at.
 - **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
+- **A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending. Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column. For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 - **Only attach a query you actually ran this session.** A query is checked for its `kind` and its size when you write it, not for whether it runs, so a well-formed node holding a broken query is stored without complaint and then fails to draw when a reader opens the report, with nothing to tell you. When you want the exact shape of an ad-hoc node, read it off an existing insight rather than guessing.
 - **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` (whose runner would buy an LLM completion per reader) are each refused wherever they sit in the node. A warehouse query is fine through HogQL: keep `connectionId`, drop `sendRawQuery`.
 - **Place it from the summary.** A markdown link with a `chart:` target, `[Daily signups](chart:signups-drop)`, draws the chart at that point in the body; reference it once, since repeating doesn't draw a second copy, and an unreferenced chart still renders after the prose. Two references in one paragraph sit side by side, so give a pair you want compared a paragraph of their own; one inside a table cell or heading has no room to draw, so its chart falls to the end. The inbox sizes a chart from its query, so set `size` (`small`, `medium`, `large`) only when it gets that wrong.
 - **Write prose that stands on its own.** A report can also be delivered to Slack, where nothing draws a chart and a reference degrades to its plain label. "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
-- **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later.
+- **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later. This holds for charts alone. A metric and a follow-up check measure the period before each run, so each one needs a relative `dateRange.date_from` and an empty `date_to`. An absolute window is refused there.
 - **At most {MAX_REPORT_CHARTS} per report**, far more than most reports should use. Every chart runs its query when someone opens the report, so three charts a reader studies beat a dozen they scroll past.
 - **`charts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary, so to keep a chart send it again (`inbox-reports-retrieve` returns the current `charts` to start from). Leave `charts` out entirely and the report keeps the ones it has; send `charts: []` to take them all down, which is what you want once the finding has moved on and the old chart would mislead. When an edit advances the report's evidence window, re-send the chart under the same `chart_id` with a refreshed window: fresh numbers beside a chart still pinned to the original dates read as a report gone stale.
 
@@ -663,6 +672,16 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "source": {{"kind": "HogQLQuery", "query": "SELECT exception_type, uniq(distinct_id) AS people FROM ... GROUP BY exception_type ORDER BY people DESC"}},
       "display": "ActionsBar",
       "chartSettings": {{"xAxis": {{"column": "exception_type"}}, "yAxis": [{{"column": "people"}}]}}
+    }}
+  }},
+  {{
+    "chart_id": "exceptions-by-type-daily",
+    "title": "Exceptions per day, by type",
+    "query": {{
+      "kind": "DataVisualizationNode",
+      "source": {{"kind": "HogQLQuery", "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"}},
+      "display": "ActionsLineGraph",
+      "chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}], "seriesBreakdownColumn": "exception_type", "showLegend": true}}
     }}
   }}
 ]
@@ -698,7 +717,9 @@ Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}. Whatever
 
 Your close-out `summary` renders in the scout's run history **collapsed to the first ~2 lines** until expanded, so applied here that means one or two sentences stating the outcome (what was found, with the key number, or that the run was quiet), a blank line, then two to five short bullets for what you checked, what you skipped and why, and what you wrote to memory.
 
-Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log."""
+Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log.
+
+The `{_TASK_SUMMARY_TOOL}` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. It is a harness tool in your sandbox, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`; it is not on the `mcp__posthog__exec` interface, per *How to call tools*. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
 
 # Rendered only for a team whose knowledge base is reachable and looks maintained — the runner
 # resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`).
@@ -1345,7 +1366,7 @@ def build_run_prompt(
 - **team_id**: `{team_id}`, implicit on every MCP call.
 - **skill_name**: `{skill.name}`, your steering layer.
 - **skill_version**: `{skill.version}`, the version it is pinned to, written as a bare number and never `v`-prefixed. `skill_name` and `skill_version` are the two arguments the `skill-get` call in *First: read your skill* takes.{authors_line}
-- **run_id**: `{run_id}`, passed when calling `{emit_tool}`.
+- **run_id**: `{run_id}`, passed to every `scout-*` tool that takes it, including `{emit_tool}` and the report-check tools.
 - **started_at**: `{started_at_iso}`, when this run began (UTC). Informational; use current clock time for queries about "now"."""
     # Everything above this block is identical across runs of the same channel, so both runtimes'
     # prefix caches can reuse it. Every per-team and per-run interpolation belongs here, per-team
@@ -1367,7 +1388,9 @@ def build_run_prompt(
     return f"""{intro}
 # How to call tools
 
-Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
+Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. Search by prefix, one family at a time (`search ^scout-`, `search ^inbox-report`), and confirm a single name with `info <tool_name>`. Do not build one pattern that lists every tool you hold: `search` refuses a pattern over 800 characters. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
+
+One tool named in this prompt is not on that interface: `{_TASK_SUMMARY_TOOL}`, the close-out summary tool. It is a harness tool your sandbox mounts, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`. `search` and `info` on `mcp__posthog__exec` do not know it under any spelling, so a lookup there tells you nothing and is not a gap to report through `agent-feedback`. If the qualified name is not in your tool catalog, this run does not mount it: write the close-out in your final JSON `summary` as usual and move on.
 
 # First: read your skill
 

@@ -10,7 +10,6 @@ from parameterized import parameterized
 from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -25,6 +24,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
     _insight_resource_label,
     handle_posthog_link_unfurl,

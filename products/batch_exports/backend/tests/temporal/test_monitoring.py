@@ -256,6 +256,7 @@ async def test_monitoring_workflow_when_missing_batch_export_runs(
     assert len(runs) == 1
     for run in runs:
         assert run.data_interval_start is not None
+        assert run.data_interval_end is not None
         expected_missing_runs.append((run.data_interval_start, run.data_interval_end))
         await run.adelete()
 
@@ -315,6 +316,7 @@ async def test_monitoring_workflow_when_missing_events(
     for run in runs:
         if run.records_completed and run.records_completed > 1:
             assert run.data_interval_start is not None
+            assert run.data_interval_end is not None
             missing_events = run.records_completed // 2
             expected_missing_events.append(
                 EventCount(

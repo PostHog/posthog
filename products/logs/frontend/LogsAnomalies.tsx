@@ -109,13 +109,13 @@ function SeriesBands(): JSX.Element {
     return (
         <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto" data-attr="logs-anomalies-band-charts">
             <div className="text-secondary text-sm">
-                Log volume per hour from {formatWindowBound(seriesBands.window_start)} to{' '}
+                Log volume from {formatWindowBound(seriesBands.window_start)} to{' '}
                 {formatWindowBound(seriesBands.window_end)}.{' '}
                 {seriesBands.series.some((series) =>
                     series.buckets.some((bucket) => bucket.lower !== null && bucket.upper !== null)
                 )
-                    ? 'Expected ranges use the same time of week in previous weeks. Marked points fell outside that range.'
-                    : 'Expected ranges are not available yet.'}{' '}
+                    ? 'Expected ranges target 99% coverage for individual buckets when traffic patterns stay stable. Marked points fall outside the range and need investigation.'
+                    : 'Expected ranges need at least four weeks of sustained traffic before this window. Try a more recent window, or check back as history builds.'}{' '}
                 Click a bucket to read its logs.
             </div>
             {seriesBands.series_truncated ? (
@@ -143,11 +143,11 @@ function SeriesBands(): JSX.Element {
 
 export function learningBaselineLabel(bandReadyAt: string | null, windowEnd: string): string {
     if (bandReadyAt === null) {
-        return 'Expected range unavailable'
+        return 'No expected range for this window'
     }
     // Round up: a wait of just over two days still needs a third day of data.
     const days = Math.max(1, Math.ceil(dayjs(bandReadyAt).diff(windowEnd, 'day', true)))
-    return `Learning baseline · ${days} more ${days === 1 ? 'day' : 'days'}`
+    return `Learning baseline · ${days} more ${days === 1 ? 'day' : 'days'} of history`
 }
 
 function formatWindowBound(timestamp: string): string {
@@ -181,8 +181,8 @@ const SeriesCard = memo(function SeriesCard({
                     <Tooltip
                         title={
                             bandReadyAt
-                                ? `First seen ${formatDay(series.history_start)}. The expected range starts ${formatDay(bandReadyAt)}.`
-                                : 'Expected ranges are not available yet. You can still select a bucket to read its logs.'
+                                ? `Sustained traffic starts ${formatDay(series.history_start)}. A rolling window of this length has enough earlier history from ${formatDay(bandReadyAt)}. For a fixed historical window, choose a more recent date range.`
+                                : 'There is no expected range for this window. Choose a more recent window, or select a bucket to read its logs.'
                         }
                     >
                         <LemonTag type="caution">{learningBaselineLabel(bandReadyAt, windowEnd)}</LemonTag>

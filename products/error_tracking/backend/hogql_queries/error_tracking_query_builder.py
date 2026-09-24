@@ -886,18 +886,15 @@ class ErrorTrackingQueryBuilder:
                 for property_name in properties:
                     # A property definition can type a searched property as
                     # Boolean, Float, or DateTime, and the property swapper then
-                    # casts the field away from String. `lower()` rejects those
+                    # casts the field away from String. String search rejects those
                     # types, so stringify first.
                     field = ast.Call(name="toString", args=[ast.Field(chain=[*chain_prefix, property_name])])
                     or_exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Gt,
                             left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Call(name="lower", args=[field]),
-                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                                ],
+                                name="multiSearchAnyCaseInsensitive",
+                                args=[field, ast.Array(exprs=[ast.Constant(value=token)])],
                             ),
                             right=ast.Constant(value=0),
                         )

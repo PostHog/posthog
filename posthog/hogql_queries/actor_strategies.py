@@ -154,6 +154,11 @@ class PersonStrategy(ActorStrategy):
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "Email"])]),
+                            right=ast.Constant(value=f"%{search}%"),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
                             right=ast.Constant(value=f"%{search}%"),
                         ),

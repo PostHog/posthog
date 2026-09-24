@@ -91,6 +91,7 @@ CDP_VIEW_TRIGGER_PATCH = "cdp-data-warehouse-view-trigger-2026-08"
 
 # Histories recorded before this marker must keep passing only the team ID to the activity.
 DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH = "duckgres-shadow-translation-gate-2026-09"
+TRINO_SHADOW_EXECUTION_PATCH = "trino-shadow-execution-2026-09"
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
@@ -130,6 +131,7 @@ class MaterializeViewWorkflowInputs:
     managed_warehouse_only: bool = False
     dangerously_execute_raw_sql: bool = False
     manually_triggered_by_id: int | None = None
+    skip_trino: bool = False
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
 
@@ -163,6 +165,7 @@ class MaterializeViewWorkflowResult:
     duration_seconds: float
     quality_blocking_failures: int | None = None
     quality_audited: bool = False
+    trino_materialized: bool | None = None
 
 
 @temporalio.workflow.defn(name="data-modeling-materialize-view")
@@ -219,8 +222,10 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 ),
             )
 
+        use_trino = managed_warehouse_enabled and temporalio.workflow.patched(TRINO_SHADOW_EXECUTION_PATCH)
+        trino_materialized: bool | None = False if use_trino else None
         managed_warehouse_shadow_handle = None
-        if managed_warehouse_enabled or managed_warehouse_only:
+        if (managed_warehouse_enabled or managed_warehouse_only) and not (use_trino and inputs.skip_trino):
             managed_warehouse_job_id = await temporalio.workflow.execute_activity(
                 create_data_modeling_job_activity,
                 CreateDataModelingJobInputs(
@@ -245,8 +250,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     job_id=managed_warehouse_job_id,
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                    use_trino=use_trino,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=20),
+                heartbeat_timeout=dt.timedelta(minutes=2) if use_trino else None,
+                cancellation_type=(
+                    temporalio.workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+                    if use_trino
+                    else temporalio.workflow.ActivityCancellationType.TRY_CANCEL
+                ),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3 if managed_warehouse_only else 1,
                     initial_interval=dt.timedelta(seconds=10),
@@ -343,13 +355,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         end_time = temporalio.workflow.now()
                         blocked_duration_seconds = (end_time - start_time).total_seconds()
                         if managed_warehouse_shadow_handle is not None:
-                            await self._collect_shadow_comparison(
+                            shadow_succeeded = await self._collect_shadow_comparison(
                                 managed_warehouse_shadow_handle,
                                 managed_warehouse_job_id,
                                 materialize_result.row_count,
                                 blocked_duration_seconds,
                                 inputs,
                             )
+                            if use_trino:
+                                trino_materialized = shadow_succeeded
                         return MaterializeViewWorkflowResult(
                             job_id=job_id,
                             node_id=inputs.node_id,
@@ -357,6 +371,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                             duration_seconds=blocked_duration_seconds,
                             quality_blocking_failures=staged_verdict,
                             quality_audited=True,
+                            trino_materialized=trino_materialized,
                         )
                     storage_result: PrepareQueryableTableResult = await temporalio.workflow.execute_activity(
                         publish_queryable_table_activity,
@@ -422,13 +437,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
 
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if managed_warehouse_shadow_handle is not None:
-                    await self._collect_shadow_comparison(
+                    shadow_succeeded = await self._collect_shadow_comparison(
                         managed_warehouse_shadow_handle,
                         managed_warehouse_job_id,
                         materialize_result.row_count,
                         duration_seconds,
                         inputs,
                     )
+                    if use_trino:
+                        trino_materialized = shadow_succeeded
 
                 temporalio.workflow.logger.info(
                     "MaterializeViewWorkflow completed successfully",
@@ -455,6 +472,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     duration_seconds=duration_seconds,
                     quality_blocking_failures=staged_verdict,
                     quality_audited=quality_audited,
+                    trino_materialized=trino_materialized,
                 )
             except Exception as e:
                 # handle failure
@@ -510,6 +528,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     extra=inputs.properties_to_log,
                 )
                 capture_exception(shadow_err)
+        if use_trino:
+            trino_materialized = result is not None and result.error is None
+            if not trino_materialized:
+                raise temporalio.exceptions.ApplicationError(
+                    result.error if result and result.error else "Trino materialization did not complete"
+                )
         # The managed warehouse job is the serving job when ClickHouse did not run.
         if job_id is None:
             if managed_warehouse_job_id is None:
@@ -520,6 +544,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             node_id=inputs.node_id,
             rows_materialized=result.row_count if result else 0,
             duration_seconds=result.duration_seconds if result else 0,
+            trino_materialized=trino_materialized,
         )
 
     async def _staged_audit_verdict(
@@ -843,7 +868,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         clickhouse_row_count: int,
         clickhouse_duration_seconds: float,
         inputs: MaterializeViewWorkflowInputs,
-    ) -> None:
+    ) -> bool:
         """Await the managed warehouse shadow activity and emit comparison metrics.
 
         The activity itself is responsible for updating its job to a terminal state.
@@ -884,6 +909,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     **inputs.properties_to_log,
                 },
             )
+            return shadow_result.error is None
         except Exception as shadow_err:
             get_managed_warehouse_shadow_finished_metrics("error").add(1)
             await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
@@ -892,6 +918,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 extra=inputs.properties_to_log,
             )
             capture_exception(shadow_err)
+            return False
 
     async def _finalize_orphaned_managed_warehouse_job(
         self,

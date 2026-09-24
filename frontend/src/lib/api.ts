@@ -7,10 +7,17 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import {
+    ApiError,
+    BROWSER_FETCH_FAILURE_MESSAGES,
+    NetworkError,
+    type NetworkFailureReason,
+    readableErrorMessage,
+    ResponseBodyReadError,
+} from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -170,7 +177,6 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyGroupFilter,
-    QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
     RawAnnotationType,
@@ -219,25 +225,19 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalScoutEmission,
-    SignalScoutEmissionReportLink,
-    SignalScoutRunSummary,
     SignalSourceConfig,
     SignalTeamConfig,
-    SignalUserAutonomyConfig,
 } from 'products/signals/frontend/inbox/types'
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
@@ -327,7 +327,7 @@ export interface ApiUploadOptions extends ApiMethodOptions {
     onUploadProgress?: (progress: ApiUploadProgress) => void
 }
 
-export { ApiError, NetworkError }
+export { ApiError, NetworkError, ResponseBodyReadError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -398,9 +398,11 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * must still surface as a failure. The thrown ApiError deliberately carries no `status`: the
  * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
  * should classify a garbled body like the fetch-level network failure it effectively is. The
- * real status stays in the message for triage.
+ * real status stays in the message for triage. A read that fails mid-stream (rather than completing
+ * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
+ * noise and left out of error tracking.
  */
-async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
@@ -417,7 +419,18 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
-        throw new ApiError(`Failed to read response body ${requestContext()}`)
+        // Error tracking excludes this shape, so this event is the only remaining signal that can
+        // tell a persistent truncation regression from one user's bad connection. The URL is
+        // normalized first, because `handleFetch` records the prepared one and an endpoint that
+        // splits across two pathnames is not aggregatable.
+        captureClientRequestFailure({
+            pathname: requestPathname(normalizeUrl(url)),
+            method,
+            status: response.status,
+            is_shared_view: isSharedView(),
+            failure_reason: 'response_body_read',
+        })
+        throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
         return null
@@ -471,6 +484,9 @@ export class ApiConfig {
         this._currentProjectId = id
     }
 }
+
+/** A workflow's type: the surface that owns it, else what it does. */
+export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
 
 export class ApiRequest {
     private pathComponents: string[]
@@ -561,33 +577,31 @@ export class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
-    // # Environments
-    public environments(): ApiRequest {
-        return this.addPathComponent('environments')
-    }
-
-    public environmentsDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
-        return this.environments().addPathComponent(id)
+    // The deprecated environments alias is one EnvironmentsRewriteMiddleware rewrites to the projects
+    // viewset, so team-scoped paths build on `projects/` instead. The id stays the team id, because a
+    // child environment has a different id from its project and the route accepts either.
+    public teamProjectDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
+        return this.projectsDetail(id)
     }
 
     // # CSP reporting
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+        return this.teamProjectDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
     }
 
     // # AI observability
 
     public aiObservabilityTranslate(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
+        return this.teamProjectDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
     }
 
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('insights')
+        return this.teamProjectDetail(teamId).addPathComponent('insights')
     }
 
-    public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent(id)
     }
 
@@ -595,19 +609,15 @@ export class ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
 
-    public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
-    public insightSharingPasswords(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharingPasswords(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insightSharing(id, teamId).addPathComponent('passwords')
     }
 
-    public insightSharingPassword(
-        id: QueryBasedInsightModel['id'],
-        passwordId: string,
-        teamId?: TeamType['id']
-    ): ApiRequest {
+    public insightSharingPassword(id: InsightModel['id'], passwordId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightSharingPasswords(id, teamId).addPathComponent(passwordId)
     }
 
@@ -617,7 +627,7 @@ export class ApiRequest {
 
     // # Column Configurations
     public columnConfigurations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('column_configurations')
+        return this.teamProjectDetail(teamId).addPathComponent('column_configurations')
     }
 
     public columnConfigurationDetail(id: string, teamId?: TeamType['id']): ApiRequest {
@@ -631,7 +641,7 @@ export class ApiRequest {
     // (used by a different app, not this frontend) serve the "desktop" surface. So every call
     // from this frontend is implicitly and exclusively scoped to "web".
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('file_system')
+        return this.teamProjectDetail(teamId).addPathComponent('file_system')
     }
 
     public fileSystemUnfiled(type?: string, teamId?: TeamType['id']): ApiRequest {
@@ -667,7 +677,7 @@ export class ApiRequest {
     }
 
     public fileSystemShortcut(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('file_system_shortcut')
+        return this.teamProjectDetail(teamId).addPathComponent('file_system_shortcut')
     }
 
     public fileSystemShortcutDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
@@ -680,7 +690,7 @@ export class ApiRequest {
 
     // # User product list
     public userProductList(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('user_product_list')
+        return this.teamProjectDetail(teamId).addPathComponent('user_product_list')
     }
 
     // # Plugins
@@ -693,7 +703,7 @@ export class ApiRequest {
     }
 
     public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('plugin_configs')
+        return this.teamProjectDetail(teamId).addPathComponent('plugin_configs')
     }
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -709,7 +719,7 @@ export class ApiRequest {
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('hog_functions')
+        return this.teamProjectDetail(teamId).addPathComponent('hog_functions')
     }
 
     public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -733,19 +743,6 @@ export class ApiRequest {
         return this.links(teamId).addPathComponent(id)
     }
 
-    // # MCP Store
-    public mcpServers(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('mcp_servers')
-    }
-
-    public mcpServerInstallations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('mcp_server_installations')
-    }
-
-    public mcpServerInstallation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.mcpServerInstallations(teamId).addPathComponent(id)
-    }
-
     // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
@@ -766,7 +763,7 @@ export class ApiRequest {
 
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('exports')
+        return this.teamProjectDetail(teamId).addPathComponent('exports')
     }
 
     public export(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -775,7 +772,7 @@ export class ApiRequest {
 
     // # Events
     public events(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('events')
+        return this.teamProjectDetail(teamId).addPathComponent('events')
     }
 
     public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -788,7 +785,7 @@ export class ApiRequest {
 
     // # Logs
     public logs(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('logs')
+        return this.teamProjectDetail(projectId).addPathComponent('logs')
     }
 
     public logsQuery(projectId?: ProjectType['id']): ApiRequest {
@@ -813,7 +810,7 @@ export class ApiRequest {
 
     // # Tracing
     public tracingSpans(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
+        return this.teamProjectDetail().addPathComponent('tracing').addPathComponent('spans')
     }
 
     // # Data management
@@ -910,7 +907,7 @@ export class ApiRequest {
 
     // # Customer Profile Configs
     public customerProfileConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('customer_profile_configs')
+        return this.teamProjectDetail(teamId).addPathComponent('customer_profile_configs')
     }
 
     public customerProfileConfigsDetail(id: CustomerProfileConfigType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -918,7 +915,7 @@ export class ApiRequest {
     }
 
     public customerJourneys(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('customer_journeys')
+        return this.teamProjectDetail(teamId).addPathComponent('customer_journeys')
     }
 
     public customerJourneysDetail(id: CustomerJourneyApi['id'], teamId?: TeamType['id']): ApiRequest {
@@ -927,7 +924,7 @@ export class ApiRequest {
 
     // Recordings
     public recordings(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_recordings')
+        return this.teamProjectDetail(teamId).addPathComponent('session_recordings')
     }
 
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -935,13 +932,11 @@ export class ApiRequest {
     }
 
     public sessionRecordingsExternalReferences(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_recording_external_references')
+        return this.teamProjectDetail(teamId).addPathComponent('session_recording_external_references')
     }
 
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('session_recordings')
-            .addPathComponent('matching_events')
+        return this.teamProjectDetail(teamId).addPathComponent('session_recordings').addPathComponent('matching_events')
     }
 
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
@@ -975,7 +970,7 @@ export class ApiRequest {
 
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dashboards')
+        return this.teamProjectDetail(teamId).addPathComponent('dashboards')
     }
 
     public dashboardsDetail(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1098,7 +1093,7 @@ export class ApiRequest {
 
     // # Persons
     public persons(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('persons')
+        return this.teamProjectDetail(teamId).addPathComponent('persons')
     }
 
     public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
@@ -1114,7 +1109,7 @@ export class ApiRequest {
 
     // # Groups
     public groups(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('groups')
+        return this.teamProjectDetail(teamId).addPathComponent('groups')
     }
 
     public group(index: number, key: string, teamId?: TeamType['id']): ApiRequest {
@@ -1210,7 +1205,7 @@ export class ApiRequest {
 
     // # User interviews
     public userInterviews(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('user_interviews')
+        return this.teamProjectDetail(teamId).addPathComponent('user_interviews')
     }
 
     public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1234,11 +1229,6 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
     }
 
-    // Per-user signal autonomy config (singleton keyed by user). Not project-scoped.
-    public signalUserAutonomy(userId: string | '@me' = '@me'): ApiRequest {
-        return this.addPathComponent('users').addPathComponent(userId).addPathComponent('signal_autonomy')
-    }
-
     // # Signal Source Configs
     public signalSourceConfigs(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('source_configs')
@@ -1251,23 +1241,6 @@ export class ApiRequest {
     // # Signal Team Config (singleton per team)
     public signalTeamConfig(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('config')
-    }
-
-    // # Signal Report Artefacts (suggested_reviewers is the only writable type)
-    public signalReportArtefact(reportId: SignalReport['id'], artefactId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalReport(reportId, teamId).addPathComponent('artefacts').addPathComponent(artefactId)
-    }
-
-    // # Signal Scouts
-    public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('signals')
-            .addPathComponent('scout')
-            .addPathComponent('runs')
-    }
-
-    public signalScoutRun(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalScoutRuns(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -1322,7 +1295,7 @@ export class ApiRequest {
 
     // Error tracking
     public errorTracking(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('error_tracking')
+        return this.teamProjectDetail(teamId).addPathComponent('error_tracking')
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
@@ -1382,7 +1355,7 @@ export class ApiRequest {
     }
 
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
+        return this.teamProjectDetail(teamId)
             .addPathComponent('error_tracking')
             .addPathComponent('git-provider-file-links')
     }
@@ -1428,7 +1401,7 @@ export class ApiRequest {
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('quick_filters')
+        return this.teamProjectDetail(teamId).addPathComponent('quick_filters')
     }
 
     public quickFilter(id: string, teamId?: TeamType['id']): ApiRequest {
@@ -1437,7 +1410,7 @@ export class ApiRequest {
 
     // # Web Analytics Filter Presets
     public webAnalyticsFilterPresets(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('web_analytics_filter_presets')
+        return this.teamProjectDetail(teamId).addPathComponent('web_analytics_filter_presets')
     }
 
     public webAnalyticsFilterPreset(shortId: string, teamId?: TeamType['id']): ApiRequest {
@@ -1446,7 +1419,7 @@ export class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_tables')
     }
 
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1455,11 +1428,11 @@ export class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
 
     public dataWarehouseSavedQueryFolders(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_folders')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_saved_query_folders')
     }
 
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1471,7 +1444,7 @@ export class ApiRequest {
     }
 
     public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_drafts')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_saved_query_drafts')
     }
 
     public dataWarehouseSavedQueryDraft(id: DataWarehouseSavedQueryDraft['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1489,7 +1462,7 @@ export class ApiRequest {
         offset = 0,
         teamId?: TeamType['id']
     ): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').withQueryString({
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_jobs').withQueryString({
             saved_query_id: savedQueryId,
             limit: pageSize,
             offset,
@@ -1497,16 +1470,16 @@ export class ApiRequest {
     }
 
     public dataModelingJobsRunning(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
     }
 
     public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
     }
 
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_nodes')
     }
 
     public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1515,12 +1488,12 @@ export class ApiRequest {
 
     // # Data Modeling Edges
     public dataModelingEdges(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_edges')
+        return this.teamProjectDetail(teamId).addPathComponent('data_modeling_edges')
     }
 
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
+        return this.teamProjectDetail(teamId).addPathComponent('warehouse_view_link')
     }
 
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1542,7 +1515,7 @@ export class ApiRequest {
 
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('subscriptions')
+        return this.teamProjectDetail(teamId).addPathComponent('subscriptions')
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1551,7 +1524,7 @@ export class ApiRequest {
 
     // # Integrations
     public integrations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('integrations')
+        return this.teamProjectDetail(teamId).addPathComponent('integrations')
     }
 
     public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1697,15 +1670,12 @@ export class ApiRequest {
     // # Alerts
     public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         if (alertId) {
-            return this.environmentsDetail(teamId)
-                .addPathComponent('alerts')
-                .addPathComponent(alertId)
-                .withQueryString({
-                    insight_id: insightId,
-                })
+            return this.teamProjectDetail(teamId).addPathComponent('alerts').addPathComponent(alertId).withQueryString({
+                insight_id: insightId,
+            })
         }
 
-        return this.environmentsDetail(teamId).addPathComponent('alerts').withQueryString({
+        return this.teamProjectDetail(teamId).addPathComponent('alerts').withQueryString({
             insight_id: insightId,
         })
     }
@@ -1722,7 +1692,7 @@ export class ApiRequest {
 
     // Queries
     public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
-        const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
+        const apiRequest = this.teamProjectDetail(teamId).addPathComponent('query')
         if (queryKind) {
             return apiRequest.addPathComponent(queryKind)
         }
@@ -1742,7 +1712,7 @@ export class ApiRequest {
     }
 
     public queryUpgrade(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('upgrade')
+        return this.teamProjectDetail(teamId).addPathComponent('query').addPathComponent('upgrade')
     }
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
@@ -1759,7 +1729,7 @@ export class ApiRequest {
 
     // Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('endpoints')
+        return this.teamProjectDetail(teamId).addPathComponent('endpoints')
     }
 
     public endpointDetail(name: string): ApiRequest {
@@ -1772,21 +1742,21 @@ export class ApiRequest {
 
     // Managed Viewsets
     public dataWarehouseManagedViewset(kind: DataWarehouseManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
+        return this.teamProjectDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
     // Conversations (Max AI)
     public conversations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('conversations')
+        return this.teamProjectDetail(teamId).addPathComponent('conversations')
     }
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+        return this.teamProjectDetail(teamId).addPathComponent('conversations').addPathComponent(id)
     }
 
     // Max hands-free mode (ElevenLabs Scribe token proxy)
     public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('max_hands_free')
+        return this.teamProjectDetail(teamId).addPathComponent('max_hands_free')
     }
 
     // Conversations (Support product)
@@ -1809,7 +1779,7 @@ export class ApiRequest {
 
     // Batch Exports
     public batchExports(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('batch_exports')
+        return this.teamProjectDetail(teamId).addPathComponent('batch_exports')
     }
 
     public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1842,7 +1812,7 @@ export class ApiRequest {
 
     // External Data Source
     public externalDataSources(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('external_data_sources')
+        return this.teamProjectDetail(teamId).addPathComponent('external_data_sources')
     }
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1850,7 +1820,7 @@ export class ApiRequest {
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
+        return this.teamProjectDetail(teamId).addPathComponent('external_data_schemas')
     }
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1866,12 +1836,12 @@ export class ApiRequest {
 
     // Fix HogQL errors
     public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
+        return this.teamProjectDetail(teamId).addPathComponent('fix_hogql')
     }
 
     // Insight Variables
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('insight_variables')
+        return this.teamProjectDetail(teamId).addPathComponent('insight_variables')
     }
 
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
@@ -1928,20 +1898,20 @@ export class ApiRequest {
 
     // Data color themes
     public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+        return this.teamProjectDetail(teamId).addPathComponent('data_color_themes')
     }
 
     public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+        return this.teamProjectDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 
     public addProductIntent(): ApiRequest {
-        return this.environments().current().addPathComponent('add_product_intent')
+        return this.projects().current().addPathComponent('add_product_intent')
     }
 
     // Max Core Memory
     public coreMemory(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('core_memory')
+        return this.teamProjectDetail().addPathComponent('core_memory')
     }
 
     public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
@@ -1949,7 +1919,7 @@ export class ApiRequest {
     }
 
     public messagingTemplates(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('messaging_templates')
+        return this.teamProjectDetail().addPathComponent('messaging_templates')
     }
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
@@ -1957,11 +1927,7 @@ export class ApiRequest {
     }
 
     public messagingCategories(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('messaging_categories')
-    }
-
-    public messagingCategory(categoryId: string): ApiRequest {
-        return this.messagingCategories().addPathComponent(categoryId)
+        return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
     public messagingCategoriesImportFromCustomerIO(): ApiRequest {
@@ -1992,24 +1958,14 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('remove_track_config')
     }
 
-    public messagingPreferences(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('messaging_preferences')
-    }
-
-    public messagingPreferencesLink(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('generate_link')
-    }
-
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
-    }
-
-    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
+        return this.teamProjectDetail()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
     }
 
     public hogFlows(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('hog_flows')
+        return this.teamProjectDetail().addPathComponent('hog_flows')
     }
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
@@ -2017,7 +1973,7 @@ export class ApiRequest {
     }
 
     public hogFlowTemplates(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('hog_flow_templates')
+        return this.teamProjectDetail().addPathComponent('hog_flow_templates')
     }
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
@@ -2025,12 +1981,12 @@ export class ApiRequest {
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
+        return this.teamProjectDetail(teamId).addPathComponent('evaluation_runs')
     }
 
     // Heatmap screenshots
     public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('heatmap_screenshots')
+        return this.teamProjectDetail(teamId).addPathComponent('heatmap_screenshots')
     }
 
     public heatmapScreenshot(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -2039,7 +1995,7 @@ export class ApiRequest {
 
     public heatmapScreenshotsSaved(teamId?: TeamType['id']): ApiRequest {
         // Deprecated path: kept for potential fallback during rollout
-        return this.environmentsDetail(teamId).addPathComponent('saved')
+        return this.teamProjectDetail(teamId).addPathComponent('saved')
     }
 
     public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
@@ -2048,7 +2004,7 @@ export class ApiRequest {
 
     // Revenue analytics
     public revenueAnalyticsJoins(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
+        return this.teamProjectDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
     }
 }
 
@@ -2524,8 +2480,9 @@ const api = {
             // return a non-array, which would break callers that iterate over the result.
             return Array.isArray(response) ? response : []
         },
-        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemLogView().create({ data })
+        // The backend answers 204 No Content, so there is no entry to hand back.
+        async create(data: { ref?: string; type?: string }): Promise<void> {
+            await new ApiRequest().fileSystemLogView().create({ data })
         },
     },
 
@@ -2978,6 +2935,7 @@ const api = {
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
                 limit?: number
                 offset?: number
+                includeImpact?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -3024,6 +2982,16 @@ const api = {
                 .export(exportId, teamId)
                 .withAction('content')
                 .withQueryString('download=true')
+                .assembleFullUrl(true)
+        },
+
+        // For fetch() callers. The download URL redirects to object storage, and connect-src does not
+        // allow that origin, so the fetch fails. direct=true serves the bytes from our origin (PNG only).
+        determineExportFetchUrl(exportId: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): string {
+            return new ApiRequest()
+                .export(exportId, teamId)
+                .withAction('content')
+                .withQueryString('direct=true')
                 .assembleFullUrl(true)
         },
 
@@ -3810,7 +3778,7 @@ const api = {
             notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
-            insightId?: QueryBasedInsightModel['id']
+            insightId?: InsightModel['id']
             recordingId?: SessionRecordingType['id']
             notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
@@ -3833,7 +3801,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3858,7 +3826,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3883,7 +3851,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -4080,73 +4048,6 @@ const api = {
         },
         async delete(id: LinkType['id']): Promise<void> {
             await new ApiRequest().link(id).delete()
-        },
-    },
-
-    mcpServers: {
-        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
-            return await new ApiRequest().mcpServers().get()
-        },
-    },
-
-    mcpServerInstallations: {
-        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
-            return await new ApiRequest().mcpServerInstallations().get()
-        },
-        async update(id: string, data: Record<string, any>): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).update({ data })
-        },
-        async delete(id: string): Promise<void> {
-            await new ApiRequest().mcpServerInstallation(id).delete()
-        },
-        async share(id: string): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
-        },
-        async unshare(id: string): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
-        },
-        async installCustom(data: {
-            name: string
-            url: string
-            auth_type: string
-            api_key?: string
-            description?: string
-            client_id?: string
-            client_secret?: string
-            scope?: 'personal' | 'shared'
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
-        },
-        async installTemplate(data: {
-            template_id: string
-            api_key?: string
-            scope?: 'personal' | 'shared'
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
-        },
-        async listTools(
-            id: string,
-            params?: { include_removed?: boolean }
-        ): Promise<{ results: Record<string, any>[] }> {
-            return await new ApiRequest()
-                .mcpServerInstallation(id)
-                .withAction('tools')
-                .withQueryString(params?.include_removed ? { include_removed: '1' } : undefined)
-                .get()
-        },
-        async updateToolApproval(
-            id: string,
-            toolName: string,
-            approvalState: 'approved' | 'needs_approval' | 'do_not_use'
-        ): Promise<Record<string, any>> {
-            return await new ApiRequest()
-                .mcpServerInstallation(id)
-                .withAction('tools')
-                .withAction(encodeURIComponent(toolName))
-                .update({ data: { approval_state: approvalState } })
-        },
-        async refreshTools(id: string): Promise<{ results: Record<string, any>[] }> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('tools/refresh').create({ data: {} })
         },
     },
 
@@ -5178,72 +5079,6 @@ const api = {
         },
     },
 
-    // Scout runs still use the legacy client. Scout configs use the generated Signals client.
-    signalScout: {
-        runs: {
-            // Newest-first raw array (not paginated), capped at 100 server-side.
-            async list(params?: {
-                limit?: number
-                text?: string
-                emitted?: boolean
-                date_from?: string
-                date_to?: string
-            }): Promise<SignalScoutRunSummary[]> {
-                return await new ApiRequest().signalScoutRuns().withQueryString(params).get()
-            },
-            async get(runId: string): Promise<SignalScoutRunSummary> {
-                return await new ApiRequest().signalScoutRun(runId).get()
-            },
-            async emissions(runId: string): Promise<SignalScoutEmission[]> {
-                return await new ApiRequest().signalScoutRun(runId).withAction('emissions').get()
-            },
-            // Per-finding reverse lookup: which inbox report each emitted finding grouped into.
-            // `report` is null when a finding hasn't grouped, was deduped, or its signal was deleted.
-            async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
-                return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
-            },
-            // Batched form of `emissions`: every run's findings in one request, flat newest-first
-            // (each row carries its `run_id`). POST since the run-id set can be large.
-            async emissionsBatch(runIds: string[]): Promise<SignalScoutEmission[]> {
-                return await new ApiRequest()
-                    .signalScoutRuns()
-                    .withAction('emissions/batch')
-                    .create({ data: { run_ids: runIds } })
-            },
-            // Batched form of `emissionReports`: resolves every run's findings to their inbox report
-            // in a single ClickHouse round-trip, instead of one query per run.
-            async emissionReportsBatch(runIds: string[]): Promise<SignalScoutEmissionReportLink[]> {
-                return await new ApiRequest()
-                    .signalScoutRuns()
-                    .withAction('emissions/reports/batch')
-                    .create({ data: { run_ids: runIds } })
-            },
-        },
-    },
-
-    signalUserAutonomy: {
-        async get(userId: string | '@me' = '@me'): Promise<SignalUserAutonomyConfig | null> {
-            try {
-                return await new ApiRequest().signalUserAutonomy(userId).get()
-            } catch (error: any) {
-                // 404 = no config yet (user hasn't opted in). Treat as null.
-                if (error?.status === 404) {
-                    return null
-                }
-                throw error
-            }
-        },
-        async update(
-            data: SignalUserAutonomyConfigCreateApi,
-            userId: string | '@me' = '@me'
-        ): Promise<SignalUserAutonomyConfig> {
-            return await new ApiRequest().signalUserAutonomy(userId).create({ data })
-        },
-        async remove(userId: string | '@me' = '@me'): Promise<void> {
-            await new ApiRequest().signalUserAutonomy(userId).delete()
-        },
-    },
-
     signalSourceConfigs: {
         async list(): Promise<PaginatedResponse<SignalSourceConfig>> {
             return await new ApiRequest().signalSourceConfigs().get()
@@ -5313,8 +5148,15 @@ const api = {
              * across the entire resume chain). Used to bootstrap the sandbox stream before
              * opening SSE.
              */
-            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
-                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+            async getLogEntries(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: { signal?: AbortSignal; projectId?: TeamType['id'] } = {}
+            ): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .getResponse({ signal: options.signal })
                 const text = await response.text()
                 const entries: Record<string, any>[] = []
                 for (const line of text.split('\n')) {
@@ -5344,6 +5186,7 @@ const api = {
                 runId: TaskRun['id'],
                 options: {
                     signal: AbortSignal
+                    projectId?: TeamType['id']
                     lastEventId?: string
                     startLatest?: boolean
                     /**
@@ -5373,7 +5216,7 @@ const api = {
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
-                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                let request = new ApiRequest().taskRun(taskId, runId, options.projectId).withAction('stream')
                 if (!options.lastEventId && options.startLatest) {
                     request = request.withQueryString({ start: 'latest' })
                 }
@@ -5773,9 +5616,11 @@ const api = {
         async lineage({
             nodeId,
             savedQueryId,
+            metricId,
         }: {
             nodeId?: DataModelingNode['id']
             savedQueryId?: string
+            metricId?: string
         }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
             const params: Record<string, string> = {}
             if (nodeId) {
@@ -5783,6 +5628,9 @@ const api = {
             }
             if (savedQueryId) {
                 params.saved_query_id = savedQueryId
+            }
+            if (metricId) {
+                params.metric_id = metricId
             }
             return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
@@ -6498,7 +6346,7 @@ const api = {
                 ...(scope !== undefined ? { scope } : {}),
             }
             return await new ApiRequest()
-                .environments()
+                .projects()
                 .current()
                 .withAction('settings_as_of')
                 .withQueryString(toParams(params, true))
@@ -6535,34 +6383,8 @@ const api = {
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
-
-        // Messaging Categories
-        async getCategories(params?: { category_type?: string }): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest()
-                .messagingCategories()
-                .withQueryString(toParams(params || {}))
-                .get()
-        },
-        async getCategory(categoryId: string): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).get()
-        },
-        async createCategory(data: any): Promise<any> {
-            return await new ApiRequest().messagingCategories().create({ data })
-        },
-        async updateCategory(categoryId: string, data: any): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).update({ data })
-        },
-        async deleteCategory(categoryId: string): Promise<void> {
-            return await new ApiRequest().messagingCategory(categoryId).delete()
-        },
-        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
-            const response = await new ApiRequest().messagingPreferencesLink().create({
-                data: {
-                    recipient,
-                },
-            })
-            return response.preferences_url || null
-        },
+        // The generated client's export function forces the response through JSON parsing (see
+        // frontend/src/lib/api-orval-mutator.ts), which breaks the CSV blob this endpoint streams back.
         async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
             const response = await new ApiRequest()
                 .messagingPreferencesExportOptOutsCsv()
@@ -6570,24 +6392,24 @@ const api = {
                 .getResponse()
             return await response.blob()
         },
-        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
-            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
-                data: { opt_outs: optOuts, category_key: categoryKey },
-            })
-        },
     },
     hogFlows: {
         async getHogFlows(params?: {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation' | 'loop'
+            type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().withQueryString(params).get()
+            // The API reads one comma-separated value; toParams would send a repeated key.
+            const { type, ...rest } = params ?? {}
+            return await new ApiRequest()
+                .hogFlows()
+                .withQueryString({ ...rest, ...(type?.length ? { type: type.join(',') } : {}) })
+                .get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
@@ -7008,56 +6830,8 @@ const api = {
             return await new ApiRequest().conversationsTicket(ticketId).get()
         },
 
-        async create(data: {
-            distinct_id: string
-            anonymous_traits?: Record<string, any>
-            channel_source?: string
-        }): Promise<any> {
-            return await new ApiRequest().conversationsTickets().create({ data })
-        },
-
-        async update(
-            ticketId: string,
-            data: Partial<{
-                status: string
-                escalation_reason: string
-                assignee: { type: 'user' | 'role'; id: string | number } | null
-            }>
-        ): Promise<any> {
-            return await new ApiRequest().conversationsTicket(ticketId).update({ data })
-        },
-
-        async delete(ticketId: string): Promise<void> {
-            return await new ApiRequest().conversationsTicket(ticketId).delete()
-        },
-
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
-        },
-
-        async compose(data: {
-            message: string
-            recipient_email: string
-            email_config_id: string
-            recipient_distinct_id?: string
-            email_subject?: string
-            rich_content?: Record<string, unknown> | null
-        }): Promise<{ id: string; ticket_number: number }> {
-            return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
-        },
-
-        async bulkUpdateStatus(ids: string[], ticketStatus: string): Promise<{ updated: number; ids: string[] }> {
-            return await new ApiRequest()
-                .conversationsTickets()
-                .withAction('bulk_update_status')
-                .create({ data: { ids, status: ticketStatus } })
-        },
-
-        async submitAiFeedback(
-            ticketId: string,
-            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
-        ): Promise<void> {
-            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
         },
     },
 
@@ -7388,7 +7162,7 @@ const api = {
     projects: {
         async generateConversationsPublicToken(teamId?: TeamType['id']): Promise<TeamType> {
             return await new ApiRequest()
-                .environmentsDetail(teamId)
+                .teamProjectDetail(teamId)
                 .withAction('generate_conversations_public_token')
                 .create()
         },
@@ -7460,14 +7234,21 @@ function classifyNetworkFailure(): NetworkFailureReason {
     return 'network'
 }
 
+/**
+ * `response_body_read` is not a `NetworkError` reason: the request completed and the server
+ * answered, so only the read of the body failed.
+ */
+type ClientRequestFailureReason = NetworkFailureReason | 'response_body_read'
+
 function captureClientRequestFailure(properties: {
     pathname: string
     method: string
-    duration: number
+    /** Absent when the failure surfaced after the response, outside the timed request. */
+    duration?: number
     /** 0 for a request that never reached the server, so network failures are separable from HTTP ones. */
     status: number
     is_shared_view: boolean
-    failure_reason?: NetworkFailureReason
+    failure_reason?: ClientRequestFailureReason
 }): void {
     // when used inside the posthog toolbar, `posthog.capture` isn't loaded
     // check if the function is available before calling it.
@@ -7529,6 +7310,15 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
     })
 }
 
+async function isStaleSessionResponse(response: Response): Promise<boolean> {
+    try {
+        const data = await response.clone().json()
+        return data?.code === 'sensitive_action_required_reauth'
+    } catch {
+        return false
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7569,7 +7359,14 @@ async function handleFetch(
             })
             throw new NetworkError(reason, error)
         }
-        throw new ApiError(error as any, response?.status)
+        // The caught value is the failure, not its message: passing it as `message` stringifies an
+        // object to "[object Object]" and leaves `detail`, `code` and `data` empty, so neither the
+        // user nor support can read what went wrong. `cause` carries the original stack, which is the
+        // only frame naming where in the request path the fault came from - every `ApiError` shares
+        // this one.
+        const failure = new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
+        failure.cause = error
+        throw failure
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.
@@ -7577,6 +7374,12 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
+            return await handleFetch(url, method, fetcher, true)
+        }
+    }
+
+    if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
+        if (await awaitReauthentication()) {
             return await handleFetch(url, method, fetcher, true)
         }
     }

@@ -1,16 +1,14 @@
 ---
 name: working-with-scouts
 description: >
-  How to get real jobs done with PostHog Signals scouts — the scheduled agents that watch a
-  project and write reports into the Signals inbox — and how to steer and customize the fleet
-  over time. Use when a user wants to delegate a watching job ("have a scout keep an eye on X",
-  "tell me if Y spikes"), wants a recurring judged metric from a scout ("score X on a
-  schedule", "measure quality of Y"), wants to know which scout covers a surface, asks how to
-  act on what scouts report, complains the fleet is noisy or quiet, or wants the fleet to get
-  smarter over time (feedback loops, calibration, promoting one-off steers into policy). The
-  operating manual for the human–scout working relationship; routes to `authoring-scouts` for
-  write mechanics, `exploring-scouts` for run observability, and `inbox-exploration` for report
-  triage. Trigger on "work with my scouts", "get more out of scouts", "have a scout watch X",
+  Work with PostHog Signals scouts: scheduled agents that monitor a project and write
+  reports into the Signals inbox. Use to assign monitoring work, schedule quality scoring,
+  find which scout covers a surface, act on reports, reduce noise, investigate missing
+  findings, or improve the fleet through feedback and calibration. Also covers follow-up
+  checks that verify whether a reported problem stays fixed. Use `authoring-scouts` for
+  edits, `exploring-scouts` for run observability, and `inbox-exploration` for report triage.
+  Trigger on "work with my scouts", "get more out of scouts", "have a scout watch X",
+  "tell me if Y spikes", "score X on a schedule", "measure quality of Y",
   "what do I do with this scout report", "calibrate/review my scout fleet".
 metadata:
   owner_team: signals
@@ -101,6 +99,12 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
   A reviewer correction is the strongest routing evidence the fleet gets: it reaches the scouts that filed or edited the report and the scouts whose `reviewer:` memory names a removed login (capped at twenty targets per correction, so on a very busy report a few can miss it), so fixing a misrouted report in place teaches the fleet who owns the surface.
   The forwarded note carries GitHub logins and is written only when the corrector holds skill-editor access on the canonical project, so a correction made without that access, or one that only adds or removes a `user_uuid` reviewer with no linked GitHub account, stays on the report and is not forwarded.
   The discussion and rating paths demand the full notes-write authorization (skill-editor access plus the `signal_scout:write` / `llm_skill:write` key scopes), so a note typed by someone without it is not forwarded: a discussion question still lives on the report's thread, but a rating note survives only in the analytics event, so if it must reach the scout, have someone authorized leave it as a scout note.
+- **Resolving a report is not the end of it — a check measures whether the fix held.** A **check** is a follow-up measurement a scout (or the report pipeline) attaches to a report: one expectation, and a time to test it. Resolving the report starts its clock, and after a soak window — 24 hours by default, longer for a fix that reaches users slowly, like a mobile release or a cached client bundle — it re-measures, and the verdict lands on the report. So "did that actually work?" becomes a stored fact instead of something somebody has to remember to go and re-derive.
+  Three things this changes in how you work:
+  - **Read a resolved report's checks before you call it done.** `posthog:inbox-report-checks-list` shows each check's `status` and `last_outcome`. A check still open means a verdict is coming, so there is no need to re-measure by hand. Reading the rows is `exploring-scouts`' job.
+  - **A failed check means the fix did not hold**, and the relapse is filed as a fresh report linked back to the resolved one rather than reopening it — a resolved report has left the inbox, so nothing there would be read. Treat that new report as the live item.
+  - **Resolve honestly, and resolve on the merge.** A check dated from a premature resolve measures the window before the fix shipped and can fail a fix that worked.
+    Checks are written only by scout runs and by the pipeline; there is no create surface for a person, so if a resolved report should be re-measured and carries no check, the lever is the scout — a note asking it to attach one, or a skill edit via `authoring-scouts`.
 - **Reports route to people.** A scout that can name a plausible owner sets `suggested_reviewers`, and the inbox floats those reports to the top of that person's view.
   A reviewer is a PostHog user: a scout routes by `user_uuid` (any org member, no GitHub account needed) or by `github_login` (matched against the member's linked GitHub identity), and `is_suggested_reviewer` flips for the viewer on either match.
   If reports for a surface keep landing unrouted or misrouted, that's fixable: correct the reviewers on the report itself (the correction is forwarded as above), leave a fleet-wide routing note (`posthog:scout-notes-create` with no `skill_name`, "route billing-adjacent reports to Dana"), or steer the scout (note or skill edit) toward the right owner for the area. A `pipeline:report-research` note steers only the reports the pipeline builds from clustered signals; a scout that authors reports directly sets `suggested_reviewers` itself and never reads that audience.
@@ -225,3 +229,4 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 | "Write / edit / retune a scout"                        | `authoring-scouts`                                                                                        |
 | "Why did the scout stop flagging X?"                   | Scratchpad first (`noise:` / `addressed:` / `dedupe:` / `allowlist:`), then notes, then config            |
 | "What did this scout change?"                          | "Auditing what a scout changed" above: the run window, then `advanced-activity-logs-list`                 |
+| "Did that fix actually hold?"                          | `posthog:inbox-report-checks-list` on the resolved report; mechanics in `authoring-scouts`                |

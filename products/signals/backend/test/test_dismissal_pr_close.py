@@ -8,12 +8,21 @@ from parameterized import parameterized
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.implementation_pr import (
     PrCloseReason,
     close_implementation_pr_for_report,
     fetch_implementation_pr_state_for_reports,
 )
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment, SignalReportTask
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+    SignalReportTask,
+)
+from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.tasks import close_dismissed_report_pr
 from products.tasks.backend.models import Task, TaskRun
@@ -164,6 +173,12 @@ class TestClosePrWhenReportDismissed(BaseTest):
     def test_pr_closed_webhook_does_not_enqueue_for_any_linked_report(self):
         reports = [self._create_report(), self._create_report()]
         for report in reports:
+            SignalReportArtefact.append_dismissal(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=Dismissal(reason="already_fixed"),
+                attribution=ArtefactAttribution.system(),
+            )
             SignalReportAssignment.all_teams.create(
                 team=self.team,
                 report=report,
@@ -186,6 +201,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
         for report in reports:
             report.refresh_from_db()
             assert report.status == SignalReport.Status.SUPPRESSED
+            assert fixed_dismissal_at(report) is None
 
     def test_unrelated_save_of_suppressed_report_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)

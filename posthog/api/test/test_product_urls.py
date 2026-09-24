@@ -1,14 +1,13 @@
 from types import ModuleType
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest, HttpResponse
 from django.test import SimpleTestCase
-from django.urls import path, re_path, resolve, reverse
+from django.urls import path, resolve, reverse
 
 from parameterized import parameterized
 
-import posthog.urls
-from posthog.api import api_not_found
-from posthog.product_urls import ProductRootRoutes, ProductRouteError
+from posthog.product_urls import ProductRootRoutes
 from posthog.utils import opt_slash_path
 
 
@@ -16,78 +15,54 @@ def _view(request: HttpRequest) -> HttpResponse:
     return HttpResponse()
 
 
-def _routes_module(product: str, *routes: str) -> ModuleType:
-    module = ModuleType(f"products.{product}.backend.routes")
-    module.urlpatterns = [path(route, _view) for route in routes]  # type: ignore[attr-defined]
-    return module
+def _routes_module() -> ModuleType:
+    return ModuleType("products.stamphog.backend.routes")
 
 
 class TestProductRootRoutes(SimpleTestCase):
-    def test_collects_the_patterns_a_product_declares(self) -> None:
-        module = _routes_module("stamphog", "webhooks/stamphog/github", "api/stamphog/thing")
+    def test_mounts_each_declared_list_under_the_prefix_reserved_for_the_product(self) -> None:
+        module = _routes_module()
+        module.api_urlpatterns = [path("thing", _view)]  # type: ignore[attr-defined]
+        module.webhook_urlpatterns = [opt_slash_path("github", _view)]  # type: ignore[attr-defined]
 
-        collected = ProductRootRoutes.from_module(module)
+        mounts = ProductRootRoutes.from_module(module)
 
-        assert [str(pattern.pattern) for pattern in collected] == [
-            "webhooks/stamphog/github",
-            "api/stamphog/thing",
+        assert [str(mount.pattern) for mount in mounts] == ["api/stamphog/", "webhooks/stamphog/"]
+
+    def test_a_module_that_declares_no_list_contributes_nothing(self) -> None:
+        assert ProductRootRoutes.from_module(_routes_module()) == []
+
+    @parameterized.expand([("urlpatterns",), ("webhooks_urlpatterns",), ("api_url_patterns",)])
+    def test_a_module_that_declares_an_unmounted_list_fails_the_url_conf(self, name: str) -> None:
+        module = _routes_module()
+        setattr(module, name, [path("thing", _view)])
+
+        with self.assertRaises(ImproperlyConfigured) as caught:
+            ProductRootRoutes.from_module(module)
+
+        assert name in str(caught.exception)
+        assert "'api_urlpatterns'" in str(caught.exception)
+
+
+class TestProductRootRoutesInTheUrlConf(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a path a product declares", "/api/user_interviews/vapi_webhook/", "user_interviews_vapi_webhook"),
+            ("a path without a trailing slash", "/api/legal_documents/pandadoc", "legal_document_pandadoc_webhook"),
+            ("a list a product includes", "/api/customer_analytics/external/account", "external-account"),
         ]
-
-    def test_a_module_without_urlpatterns_contributes_nothing(self) -> None:
-        assert ProductRootRoutes.from_module(ModuleType("products.stamphog.backend.routes")) == []
+    )
+    def test_a_mounted_route_keeps_its_url_and_its_global_name(self, _name: str, url: str, route_name: str) -> None:
+        assert resolve(url).url_name == route_name
+        assert reverse(route_name) == url
 
     @parameterized.expand(
         [
-            ("core namespace", "webhooks/github"),
-            ("another product", "api/legal_documents/pandadoc"),
-            ("prefix without the separator", "webhooks/stamphogus/github"),
-            ("unreserved namespace", "internal/stamphog/thing"),
+            ("stamphog bare", "/webhooks/stamphog/github", "github_stamphog_webhook"),
+            ("stamphog trailing slash", "/webhooks/stamphog/github/", "github_stamphog_webhook"),
+            ("workflows bare", "/webhooks/workflows/ses-events", "sns_default_webhook"),
+            ("workflows trailing slash", "/webhooks/workflows/ses-events/", "sns_default_webhook"),
         ]
     )
-    def test_rejects_a_route_outside_the_products_own_prefixes(self, _name: str, route: str) -> None:
-        module = _routes_module("stamphog", route)
-
-        with self.assertRaises(ProductRouteError) as caught:
-            ProductRootRoutes.from_module(module)
-
-        assert str(caught.exception) == (
-            f"Product 'stamphog' declares root URL pattern {route!r}, which must start with "
-            "'api/stamphog/' or 'webhooks/stamphog/'"
-        )
-
-    @parameterized.expand(
-        [
-            ("bare regex", "webhooks/stamphog/github"),
-            ("regex ending in a group", "webhooks/stamphog/github/?"),
-        ]
-    )
-    def test_rejects_an_unanchored_regex_route(self, _name: str, regex: str) -> None:
-        module = ModuleType("products.stamphog.backend.routes")
-        module.urlpatterns = [re_path(regex, _view)]  # type: ignore[attr-defined]
-
-        with self.assertRaises(ProductRouteError) as caught:
-            ProductRootRoutes.from_module(module)
-
-        assert str(caught.exception) == (
-            f"Product 'stamphog' declares root URL pattern {regex!r} as an unanchored regex, "
-            "which matches anywhere in the path. Start it with '^'"
-        )
-
-    def test_accepts_the_anchored_regex_opt_slash_path_builds(self) -> None:
-        module = ModuleType("products.stamphog.backend.routes")
-        module.urlpatterns = [opt_slash_path("webhooks/stamphog/github", _view)]  # type: ignore[attr-defined]
-
-        assert len(ProductRootRoutes.from_module(module)) == 1
-
-
-class TestProductRootRouteSlot(SimpleTestCase):
-    def test_product_routes_sit_after_core_routes_and_before_the_api_fallback(self) -> None:
-        names = [getattr(pattern, "name", None) for pattern in posthog.urls.urlpatterns]
-        routes = [str(pattern.pattern) for pattern in posthog.urls.urlpatterns]
-
-        assert names.index("schema") < names.index("user_interviews_vapi_webhook")
-        assert names.index("user_interviews_vapi_webhook") < routes.index("^api.+")
-
-    def test_the_api_fallback_does_not_shadow_a_moved_product_route(self) -> None:
-        assert reverse("user_interviews_vapi_webhook") == "/api/user_interviews/vapi_webhook/"
-        assert resolve("/api/user_interviews/vapi_webhook/").func is not api_not_found
+    def test_an_opt_slash_route_matches_relative_to_its_mount(self, _name: str, url: str, view_name: str) -> None:
+        assert resolve(url).func.__name__ == view_name

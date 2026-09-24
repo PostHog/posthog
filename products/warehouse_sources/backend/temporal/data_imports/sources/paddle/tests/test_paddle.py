@@ -8,14 +8,22 @@ from unittest import mock
 from requests import Response
 from requests.adapters import HTTPAdapter
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paddle import PaddleSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PADDLE_BASE_URL,
     PaddlePermissionError,
     PaddleResumeConfig,
+    PaddleUnreachableError,
     _format_paddle_datetime_query_value,
     _get_paddle_session,
     paddle_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source import (
+    INVALID_API_KEY_ERROR,
+    KEY_CHECK_FAILED_ERROR,
+    MISSING_PERMISSIONS_ERROR,
+    PaddleSource,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -24,6 +32,7 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 PADDLE_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.make_tracked_session"
 )
+SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source"
 
 
 def _response(
@@ -275,9 +284,56 @@ class TestValidateCredentials:
         assert validate_credentials("key") is False
 
     @mock.patch(PADDLE_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
+    def test_transport_failure_is_not_a_rejected_key(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
+        with pytest.raises(PaddleUnreachableError):
+            validate_credentials("key")
+
+
+class TestSourceValidateCredentials:
+    def _validate(self) -> tuple[bool, str | None]:
+        return PaddleSource().validate_credentials(PaddleSourceConfig(paddle_api_key="key"), team_id=1)
+
+    @mock.patch(PADDLE_SESSION_PATCH)
+    def test_ok(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        assert self._validate() == (True, None)
+
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [(401, INVALID_API_KEY_ERROR), (403, MISSING_PERMISSIONS_ERROR)],
+    )
+    @mock.patch(PADDLE_SESSION_PATCH)
+    def test_refusal_message(self, mock_session, status_code: int, expected: str) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        valid, message = self._validate()
+
+        assert valid is False
+        assert message == expected
+        # The wizard shows this string and nothing else, so it has to name a next step and must
+        # not carry the probed endpoint name the permission error reports.
+        assert "reconnect" in message
+        assert "Missing permissions" not in message
+
+    @mock.patch(PADDLE_SESSION_PATCH)
+    def test_unreachable_paddle_does_not_blame_the_key(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        valid, message = self._validate()
+
+        # Paddle never judged the key, so telling the customer to replace it would send them
+        # rotating a key that works.
+        assert valid is False
+        assert message == KEY_CHECK_FAILED_ERROR
+
+    @mock.patch(f"{SOURCE_MODULE}.validate_paddle_credentials", side_effect=RuntimeError("probe blew up"))
+    @mock.patch(f"{SOURCE_MODULE}.capture_exception")
+    def test_unexpected_failure_is_captured_not_shown(self, mock_capture, _mock_validate) -> None:
+        valid, message = self._validate()
+
+        assert valid is False
+        assert message == KEY_CHECK_FAILED_ERROR
+        assert "probe blew up" not in message
+        assert mock_capture.call_count == 1
 
 
 class TestPaddleSession:

@@ -1,15 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { router } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { Node } from '~/queries/schema/schema-general'
+import { InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, InsightShortId, QueryBasedInsightModel, ItemMode } from '~/types'
+import { AccessControlLevel, InsightShortId, InsightModel, ItemMode } from '~/types'
 
+import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightPageHeader } from './InsightPageHeader'
 import { insightSceneLogic } from './insightSceneLogic'
@@ -24,7 +27,7 @@ jest.mock('scenes/max/useMaxTool', () => ({
 
 const SAVED_INSIGHT_ID = 'abc123' as InsightShortId
 
-const MOCK_INSIGHT_BASE: QueryBasedInsightModel = {
+const MOCK_INSIGHT_BASE: InsightModel = {
     id: 1,
     short_id: SAVED_INSIGHT_ID,
     name: 'Test Insight',
@@ -47,7 +50,7 @@ const MOCK_INSIGHT_BASE: QueryBasedInsightModel = {
     user_access_level: AccessControlLevel.Editor,
 }
 
-function makeInsight(overrides: Partial<QueryBasedInsightModel> = {}): QueryBasedInsightModel {
+function makeInsight(overrides: Partial<InsightModel> = {}): InsightModel {
     return { ...MOCK_INSIGHT_BASE, ...overrides }
 }
 
@@ -98,7 +101,7 @@ describe('InsightPageHeader', () => {
     function renderHeader(opts: {
         insightMode: ItemMode
         dashboardItemId: InsightShortId | 'new'
-        insight?: QueryBasedInsightModel
+        insight?: InsightModel
     }): {
         sceneLogic: ReturnType<typeof insightSceneLogic.build>
         iLogic: ReturnType<typeof insightLogic.build>
@@ -195,6 +198,68 @@ describe('InsightPageHeader', () => {
                 }
             }
         )
+    })
+
+    describe('unsaved view-mode edits carried into edit mode', () => {
+        // Spying on router.actions.push (rather than asserting post-navigation state) keeps this
+        // test at the level of the code the fix actually changed, without booting the fuller
+        // router/upgradeQuery chain insightSceneLogic.test.ts already covers.
+        let pushSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => ({ type: 'noop' }) as any)
+        })
+
+        afterEach(() => {
+            pushSpy.mockRestore()
+        })
+
+        function makeTrendsQuery(compare: boolean): InsightVizNode {
+            return {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    compareFilter: { compare },
+                },
+            } as InsightVizNode
+        }
+
+        it('includes the current query in the edit URL when it differs from the saved insight', () => {
+            const savedQuery = makeTrendsQuery(false)
+            const insight = makeInsight({ query: savedQuery })
+            renderHeader({ insightMode: ItemMode.View, dashboardItemId: SAVED_INSIGHT_ID, insight })
+
+            // The rendered header already mounted its own insightDataLogic instance — reuse it
+            // rather than mounting a second one, which desyncs the reducer state Kea expects.
+            const dataLogic = insightDataLogic.findMounted({ dashboardItemId: SAVED_INSIGHT_ID, doNotLoad: true })
+            expect(dataLogic).not.toBeNull()
+
+            const modifiedQuery = makeTrendsQuery(true)
+            act(() => {
+                dataLogic!.actions.setQuery(modifiedQuery)
+            })
+
+            fireEvent.click(queryByAttr('insight-edit-button')!)
+
+            expect(pushSpy).toHaveBeenCalledTimes(1)
+            const pushedUrl = pushSpy.mock.calls[0][0] as string
+            expect(pushedUrl).toContain(`#q=${encodeURIComponent(JSON.stringify(modifiedQuery))}`)
+        })
+
+        it('pushes the same edit URL as before when there is nothing unsaved to carry over', () => {
+            const savedQuery = makeTrendsQuery(false)
+            const insight = makeInsight({ query: savedQuery })
+            renderHeader({ insightMode: ItemMode.View, dashboardItemId: SAVED_INSIGHT_ID, insight })
+
+            fireEvent.click(queryByAttr('insight-edit-button')!)
+
+            // No #q= means the editor falls back to loading the saved insight's own query, same as
+            // it always has — this asserts the URL is byte-for-byte what insightEdit() alone builds,
+            // so the saved query can't have been dropped by this change.
+            expect(pushSpy).toHaveBeenCalledTimes(1)
+            expect(pushSpy.mock.calls[0][0]).toEqual(urls.insightEdit(SAVED_INSIGHT_ID))
+        })
     })
 
     describe('alert tool', () => {

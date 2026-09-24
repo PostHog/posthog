@@ -104,11 +104,8 @@ _PREV_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Merge-queue run counts over the same window with no branch/run_scope filter, so the list can rank
-# queue-gating workflows whatever scope is active. Only needed when a filter is on: without one, the
-# main query's own countIf already answers this. The scan covers only the workflows the main query
-# returned, HAVING keeps the gating ones, and the explicit bound keeps HogQL's default 100-row cap
-# from silently dropping some of them.
+# Merge-queue run counts with no branch or run_scope filter, over the workflows the main query returned.
+# The explicit LIMIT stops HogQL's default 100-row cap from dropping gating rows.
 _GATING_SELECT = f"""
     SELECT
         repo_owner,

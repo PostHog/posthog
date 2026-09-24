@@ -50,7 +50,7 @@ export function SetupTab(): JSX.Element {
         useValues(setupPlanLogic)
     const { loadSetupPlan, reviewSuggestion, confirmReviewedSuggestion, confirmReviewedBatch } =
         useActions(setupPlanLogic)
-    const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
+    const { integrationSettingsModal, setupEntryPointLabel } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
     // Keep the audit gated for one release so the two flags can roll independently;
@@ -72,7 +72,11 @@ export function SetupTab(): JSX.Element {
     const active = sections.find((section) => section.key === setupSection) ?? sections[0]
 
     useEffect(() => {
-        posthog.capture('marketing analytics setup section viewed', { section: active.key })
+        posthog.capture('marketing analytics setup section viewed', {
+            section: active.key,
+            entry_point: setupEntryPointLabel,
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active.key])
 
     return (
@@ -125,7 +129,7 @@ export function SetupTab(): JSX.Element {
                 onClose={() => reviewSuggestion(null)}
                 onConfirm={(item) => {
                     // Navigate ops finish here; everything else goes to the server.
-                    if (item.apply && runNavigateOp(item.apply)) {
+                    if (item.apply && runNavigateOp(item.apply, setupEntryPointLabel)) {
                         reviewSuggestion(null)
                         return
                     }

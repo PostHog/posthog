@@ -23,14 +23,12 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     return false
 }
 
-/**
- * Offer Resolve only where the backend accepts a direct transition to RESOLVED — a researched
- * report (ready or pending_input). Other live statuses (potential, candidate, in_progress,
- * failed) return 409, so don't show a dead-end affordance. Mirrors `canCreateImplementationPr`
- * and the server transition guard.
- */
 export function canResolveReport(report: SignalReport): boolean {
-    return report.status === SignalReportStatus.READY || report.status === SignalReportStatus.PENDING_INPUT
+    return (
+        report.status === SignalReportStatus.READY ||
+        report.status === SignalReportStatus.PENDING_INPUT ||
+        report.status === SignalReportStatus.FAILED
+    )
 }
 
 /** The backend closes an open implementation PR on resolve; surfaces use this to say so. */

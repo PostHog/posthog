@@ -1,17 +1,24 @@
 import math
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_select
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
-from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+from posthog.hogql_queries.paginators import get_query_limit
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector, min_points_to_evaluate
 
 from products.alerts.backend.evaluation.contract import (
+    AlertDataUnavailableError,
     AlertExtractionError,
     ComparableSeries,
     ExtractionResult,
@@ -38,17 +45,57 @@ LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
 _DEFAULT_HOGQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
 
 
+def _point_date(label: str | None) -> str | None:
+    if label is None:
+        return None
+    try:
+        if len(label) == 10:
+            return date.fromisoformat(label).isoformat()
+        if len(label) > 10 and label[10] in ("T", " "):
+            return datetime.fromisoformat(label).isoformat()
+    except ValueError:
+        pass
+    return None
+
+
 def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
     """Validate a stored SQL alert config, defaulting an absent one to last-row evaluation."""
     return HogQLAlertConfig.model_validate(raw or _DEFAULT_HOGQL_CONFIG)
 
 
+def _explicit_limit(insight: Insight) -> int | None:
+    """Read the saved query's constant row limit for detector validation."""
+    query = insight.query or {}
+    source = query.get("source") if query.get("kind") == "DataVisualizationNode" else query
+    if not isinstance(source, dict) or not isinstance(source.get("query"), str):
+        return None
+    try:
+        parsed = parse_select(source["query"])
+    except BaseHogQLError:
+        return None
+    return get_query_limit(parsed) if isinstance(parsed, ast.SelectQuery | ast.SelectSetQuery) else None
+
+
+@frozen
+class _FetchedRows:
+    rows: list
+    column_names: list[str] | None
+    truncated: bool
+
+
 def _calculate_rows_and_columns(
-    insight: Insight, team: Any, *, user: Any, execution_mode: ExecutionMode
-) -> tuple[list, list[str] | None]:
-    """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
-    the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
-    (raise to avoid a misfire, matching trends); a non-list result is a malformed shape.
+    insight: Insight,
+    team: Any,
+    *,
+    user: Any,
+    execution_mode: ExecutionMode,
+    evaluation: HogQLAlertEvaluation,
+) -> _FetchedRows:
+    """Run a SQL insight — the fetch-and-validate prologue shared by the threshold and detector
+    extractors. A ``None`` result means the query layer swallowed an error (raise to avoid a
+    misfire, matching trends); a non-list result is a malformed shape. Every evaluation except
+    first_row needs the complete result, so those get the completeness check; first_row reads
+    the head, which truncation can't touch.
     """
     calculation_result = calculate_for_query_based_insight(
         insight,
@@ -56,15 +103,37 @@ def _calculate_rows_and_columns(
         execution_mode=execution_mode,
         user=user,
         analytics_props={"source": EventSource.ALERT},
+        limit_context=LimitContext.SQL_ALERT,
     )
+    truncated = calculation_result.has_more is True
     rows = calculation_result.result
     if rows is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not isinstance(rows, list):
         raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
+    if evaluation != HogQLAlertEvaluation.FIRST_ROW:
+        if truncated:
+            # Missing tail rows can change last-row and any-row results. The owner must adjust
+            # the query before checks can safely resume.
+            if evaluation == HogQLAlertEvaluation.LAST_ROW:
+                raise AlertExtractionError(
+                    "The query returns more rows than its row limit, so the newest rows are missing and the "
+                    "alert would check the wrong row. Raise the SQL LIMIT to cover every row the alert needs, "
+                    "or order newest first and use first-row evaluation."
+                )
+            raise AlertExtractionError(
+                "The query returns more rows than its row limit, so rows this alert should check are missing "
+                "and a breach could go unnoticed. Raise the SQL LIMIT to cover every row the alert needs, or "
+                "aggregate the query to return fewer rows."
+            )
+        if calculation_result.has_more is not False:
+            raise AlertDataUnavailableError(
+                "The alert could not confirm the query returned every row. Use a plain SELECT with a constant "
+                f"LIMIT under {MAX_SELECT_RETURNED_ROWS}, or use first-row evaluation if only the first rows matter."
+            )
     columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
     column_names = [str(c) for c in columns] if columns else None
-    return rows, column_names
+    return _FetchedRows(rows=rows, column_names=column_names, truncated=truncated)
 
 
 def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
@@ -130,9 +199,15 @@ class HogQLExtractor:
         config = hogql_config_or_default(alert.config)
         evaluation = config.evaluation
 
-        rows, column_names = _calculate_rows_and_columns(
-            insight, alert.team, user=alert.created_by, execution_mode=execution_mode
+        fetched = _calculate_rows_and_columns(
+            insight,
+            alert.team,
+            user=alert.created_by,
+            execution_mode=execution_mode,
+            evaluation=evaluation,
         )
+        rows = fetched.rows
+        column_names = fetched.column_names
         if len(rows) == 0:
             # No rows means the metric is genuinely 0 this check (matching trends), so a lower
             # bound can still breach.
@@ -205,14 +280,8 @@ def extract_hogql_detector_series(
     execution_mode: ExecutionMode,
     user: Any = None,
 ) -> ExtractionResult:
-    """Build the full ordered value series an anomaly detector scores from a SQL/HogQL insight.
-
-    Shared by the alert-check extractor and the read-only simulation. Unlike trends, a SQL query is
-    self-contained — its rows *are* the history, so there's no wider lookback window to refetch; the
-    query must return enough rows for the detector's window. Only ``last_row``/``first_row`` apply:
-    ``any_row`` rows are unrelated entities, not a time axis, so scoring change across them is
-    meaningless. Too few rows to fill the window yields an empty series (uncomputed); an empty result
-    yields an empty series flagged ``empty_query_result`` (the metric is genuinely 0).
+    """Extract SQL history for checks and simulation. Invalid limits disable checks; short uncapped
+    histories remain retryable. Empty results retain the zero-result semantics.
     """
     if config.evaluation == HogQLAlertEvaluation.ANY_ROW:
         raise AlertExtractionError(
@@ -220,7 +289,24 @@ def extract_hogql_detector_series(
             "entities, not a time series. Use last-row or first-row evaluation."
         )
 
-    rows, column_names = _calculate_rows_and_columns(insight, team, user=user, execution_mode=execution_mode)
+    min_samples = _compute_min_samples_for_detector(detector_config)
+    required_samples = min_points_to_evaluate(detector_config)
+    explicit_limit = _explicit_limit(insight)
+    if explicit_limit is not None and explicit_limit < required_samples:
+        raise AlertExtractionError(
+            f"The query's LIMIT of {explicit_limit} rows is below the {required_samples} rows the detector "
+            f"needs. Raise the LIMIT to at least {required_samples}, or reduce the detector window."
+        )
+
+    fetched = _calculate_rows_and_columns(
+        insight,
+        team,
+        user=user,
+        execution_mode=execution_mode,
+        evaluation=config.evaluation,
+    )
+    rows = fetched.rows
+    column_names = fetched.column_names
     if len(rows) == 0:
         return ExtractionResult(
             series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
@@ -241,13 +327,22 @@ def extract_hogql_detector_series(
         for i, row in enumerate(ordered)
     ]
 
-    # Too few points to score → report uncomputed (None). SQL rows are the series verbatim — unlike
-    # trends, there's no incomplete-interval drop to offset — so the detector's own minimum is the
-    # exact cutoff. (Trends adds +1 to compensate for the dropped interval; SQL must not, or a query
-    # returning exactly the detector's minimum would be wrongly rejected as "not enough data".)
-    min_samples = _compute_min_samples_for_detector(detector_config)
-    if len(values) < min_samples:
-        return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
+    # SQL rows are the series verbatim, so the detector's minimum is the exact cutoff.
+    # A short series cannot establish that the alert is not firing.
+    if len(values) < required_samples:
+        if fetched.truncated:
+            # The history is short because the row limit provably cut it, not because the data
+            # is young, so waiting never heals it — same configuration-error routing as the
+            # last-row guard.
+            raise AlertExtractionError(
+                f"The detector needs at least {required_samples} rows, but the row limit cut the result to "
+                f"{len(values)}. Raise the SQL LIMIT to cover the full history, or reduce the detector window."
+            )
+        raise AlertDataUnavailableError(
+            f"The anomaly alert needs at least {required_samples} rows, but the query returned {len(values)}. "
+            "The alert retries as more data arrives. To evaluate sooner, expand the query history or reduce "
+            "the detector window."
+        )
 
     # Score only the most recent window the detector needs (current stays last). A SQL query can
     # return a large result, and detectors like KNN/LOF/OCSVM train on every point handed in — so
@@ -263,7 +358,10 @@ def extract_hogql_detector_series(
     label_cell = _label_cell(anchor_row, label_index)
     series_label = label_cell if label_cell is not None else _value_column_label(column_names, value_index)
 
-    points = [SeriesPoint(date=None, value=v) for v in values]
+    dates = [_point_date(_label_cell(row, label_index)) for row in ordered[-min_samples:]]
+    # Partial dates would shift chart positions when the simulation removes missing labels.
+    has_dates = all(point_date is not None for point_date in dates)
+    points = [SeriesPoint(date=point_date if has_dates else None, value=v) for point_date, v in zip(dates, values)]
     single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
     return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 

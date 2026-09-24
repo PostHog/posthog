@@ -581,6 +581,102 @@ describe('ingest-handler', () => {
         expect(body.last_accepted_seq).toBe(1)
     })
 
+    it('sends budget steers through the authenticated callback on accepted and replayed events', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const config = makeConfig({
+                djangoCallbackBaseUrl: 'http://django.example.com',
+                agentProxyCallbackSecret: 'proxy-secret',
+            })
+            const event = {
+                type: 'notification',
+                timestamp: '2026-01-01T00:00:06.000Z',
+                notification: {
+                    method: '_posthog/budget_steer',
+                    params: {
+                        stage: 'critical',
+                        mode: 'publish',
+                        delivered: true,
+                        spent_usd: 7,
+                        cap_usd: 10,
+                        threshold_spent_usd: 6.5,
+                        threshold_at: '2026-01-01T00:00:00.000Z',
+                        delivered_at: '2026-01-01T00:00:05.000Z',
+                        team_id: 999,
+                        secret: 'not-for-analytics',
+                    },
+                },
+            }
+            const body = makeStringBody(JSON.stringify({ seq: 1, event }) + '\n')
+            const first = await handleIngest(
+                makeContext({ body }),
+                fakeRedis as unknown as Redis,
+                config,
+                [] as CryptoKey[]
+            )
+            expect(first.status).toBe(200)
+            const retry = await handleIngest(
+                makeContext({ body: makeStringBody(JSON.stringify({ seq: 1, event }) + '\n') }),
+                fakeRedis as unknown as Redis,
+                config,
+                [] as CryptoKey[]
+            )
+            expect(await decodeJson(retry)).toMatchObject({ accepted: 0, duplicate: 1 })
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2))
+            const [url, request] = callback.mock.calls[0]!
+            expect(url).toBe('http://django.example.com/internal/tasks/runs/run-123/agent-proxy-callback/')
+            expect(request?.headers).toMatchObject({
+                Authorization: 'Bearer test-token',
+                'X-Agent-Proxy-Secret': 'proxy-secret',
+            })
+            expect(JSON.parse(String(request?.body))).toMatchObject({
+                kind: 'budget_steer',
+                task_id: TASK_ID,
+                team_id: TEAM_ID,
+                sequence: 1,
+                timestamp: '2026-01-01T00:00:06.000Z',
+                stage: 'critical',
+                mode: 'publish',
+                delivered: true,
+                threshold_spent_usd: 6.5,
+                threshold_at: '2026-01-01T00:00:00.000Z',
+                delivered_at: '2026-01-01T00:00:05.000Z',
+            })
+            expect(String(request?.body)).not.toContain('not-for-analytics')
+            expect(callback.mock.calls[1]![1]?.body).toBe(request?.body)
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
+    it('retries a budget steer callback after a temporary capture failure', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(new Response('', { status: 503 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const event = {
+                type: 'notification',
+                notification: {
+                    method: '_posthog/budget_steer',
+                    params: { stage: 'warn', mode: 'publish', delivered: true, spent_usd: 5, cap_usd: 10 },
+                },
+            }
+            const response = await handleIngest(
+                makeContext({ body: makeStringBody(JSON.stringify({ seq: 1, event }) + '\n') }),
+                fakeRedis as unknown as Redis,
+                makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' }),
+                [] as CryptoKey[]
+            )
+            expect(response.status).toBe(200)
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2), { timeout: 3000 })
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
     it('mixes accepted and duplicate when some events are re-sent', async () => {
         const config = makeConfig()
         // Seed seq 1 via a prior request

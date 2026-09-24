@@ -306,4 +306,91 @@ describe('ToolExecutor analytics capture', () => {
 
         captureSpy.mockRestore()
     })
+
+    // MCP 2026-07-28 carries no session of its own, so the agent's handle is the only one
+    // these calls can group by.
+    const statelessState = (): ReturnType<typeof makeToolExecutorState> =>
+        makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', mcpProtocolVersion: '2026-07-28' } as any,
+        })
+
+    const readConversationHandle = (result: unknown): string | undefined => {
+        const content = (result as { content?: { text?: string }[] }).content ?? []
+        for (const part of content) {
+            try {
+                const parsed = JSON.parse(part.text ?? '')
+                if (parsed && typeof parsed.conversation_id === 'string') {
+                    return parsed.conversation_id
+                }
+            } catch {
+                continue
+            }
+        }
+        return undefined
+    }
+
+    it('hands a session handle to a client that carries none, and groups the echoed call with it', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = statelessState()
+        await executor.handleToolsList(state)
+
+        const first = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+        const handle = readConversationHandle(first)
+
+        expect(handle).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
+
+        const second = await executor.handleToolCall(
+            { name: 'exec', arguments: { command: 'tools', conversation_id: handle } },
+            state
+        )
+
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(2))
+        expect(captureSpy.mock.calls[1]![0].conversationId).toBe(handle)
+        // `RequestContext` holds this same object; a copy would leave its events sessionless.
+        expect(state.requestContext.mcpConversationId).toBe(handle)
+        // Repeating it would spend tokens telling the agent what it just told us.
+        expect(readConversationHandle(second)).toBeUndefined()
+        expect((second as { isError?: boolean }).isError).toBeFalsy()
+
+        captureSpy.mockRestore()
+    })
+
+    it('leaves a client that already has a session untouched', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        // `makeToolExecutorState` carries `sessionId: 'sess-1'`, the wrapper-app id.
+        const state = makeToolExecutorState([], { useSingleExec: true })
+        await executor.handleToolsList(state)
+
+        const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+
+        // Minting here would split the session these clients already group by, and append a
+        // block to every first result, for the majority of today's traffic.
+        expect(readConversationHandle(result)).toBeUndefined()
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBeUndefined()
+
+        captureSpy.mockRestore()
+    })
+
+    it('keeps the handle a wrapper app sent on the conversation header', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', mcpConversationId: 'conv-from-header' } as any,
+        })
+        await executor.handleToolsList(state)
+
+        const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+
+        // The header is the app's own grouping. Minting over it would replace that app's
+        // conversation with a fresh handle on every call.
+        expect(readConversationHandle(result)).toBeUndefined()
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe('conv-from-header')
+
+        captureSpy.mockRestore()
+    })
 })

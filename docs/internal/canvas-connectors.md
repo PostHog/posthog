@@ -11,6 +11,10 @@ but does not change the space's repository settings. The viewer must have access
 and must submit the form before a run starts. Omitting both fields opens the usual empty task form.
 Do not use `tasks.create_and_run` for a repository override: that action inherits the space settings.
 
+`tasks.create_and_run` accepts optional `model` and `reasoning_effort` fields (from the task model catalogue)
+that apply to that one task and do not change saved run preferences. `reasoning_effort` requires `model`.
+A retry with the same `idempotency_key` returns the existing task even if these fields change.
+
 `ph.openExternal(url)` accepts HTTPS GitHub PR links as well as PostHog HTTPS URLs. GitHub links
 must use `github.com`, with no credentials, custom port, or query string. PR overview, files,
 commits, and checks paths are allowed, including fragment links. The host opens these PR links

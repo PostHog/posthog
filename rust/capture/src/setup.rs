@@ -399,6 +399,7 @@ pub async fn build_components(
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
         config.ai_max_event_bytes,
+        config.ai_lane_predicate,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
@@ -417,6 +418,10 @@ pub async fn build_components(
     info!(
         "config: is_mirror_deploy == {:?} ; log_level == {:?}",
         config.is_mirror_deploy, config.log_level
+    );
+    info!(
+        ai_lane_predicate = config.ai_lane_predicate.as_tag(),
+        "AI lane membership predicate"
     );
 
     CaptureComponents {

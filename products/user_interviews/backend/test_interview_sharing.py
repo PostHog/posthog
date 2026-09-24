@@ -12,6 +12,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError, connection
 from django.db.models import QuerySet
 from django.template.loader import get_template
@@ -27,6 +28,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.sharing import check_can_access_sharing_configuration
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.rate_limit import VapiWebhookIPThrottle
 
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
 from products.user_interviews.backend.presentation.webhooks import (
@@ -860,6 +862,31 @@ class TestVapiWebhook(APIBaseTest):
         resent = self._signed_post("topsecret", payload)
         self.assertEqual(resent.status_code, status.HTTP_202_ACCEPTED, resent.content)
         self.assertEqual(UserInterview.objects.count(), 1)
+
+    @parameterized.expand(
+        [
+            ("under_the_rate", 0, status.HTTP_202_ACCEPTED),
+            ("over_the_rate", 1, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch.object(VapiWebhookIPThrottle, "rate", "1/minute")
+    def test_webhook_caps_deliveries_from_one_ip(self, _name: str, already_spent: int, expected_status: int):
+        # The cap is the provider's `throttle_class`, so this also pins that the ingress lane
+        # actually runs it: a provider that dropped the attribute would answer 202 to both.
+        cache.clear()
+        share = self._create_share()
+        self.client.logout()
+        for _ in range(already_spent):
+            self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+
+        response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
+            self.assertGreater(int(response.headers["Retry-After"]), 0)
+        else:
+            self.assertNotIn("Retry-After", response.headers)
 
     @override_settings(VAPI_WEBHOOK_SECRET="")
     def test_webhook_fails_closed_when_secret_unset(self):

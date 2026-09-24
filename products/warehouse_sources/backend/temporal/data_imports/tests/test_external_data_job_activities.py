@@ -7,7 +7,7 @@ from unittest import mock
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError, CancelledError
+from temporalio.exceptions import ApplicationError, CancelledError, TimeoutError, TimeoutType
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
+    SYNC_RUN_STALLED_MESSAGE,
+    SYNC_RUN_TOO_LONG_MESSAGE,
     TRANSIENT_EGRESS_MESSAGE,
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
@@ -64,6 +66,25 @@ class TestCustomerFacingError(SimpleTestCase):
 
     def test_missing_cause_does_not_show_the_customer_none(self) -> None:
         assert _customer_facing_error(None) == UNEXPECTED_ERROR_MESSAGE
+
+    @parameterized.expand(
+        [
+            ("start_to_close", TimeoutType.START_TO_CLOSE, SYNC_RUN_TOO_LONG_MESSAGE),
+            ("schedule_to_close", TimeoutType.SCHEDULE_TO_CLOSE, SYNC_RUN_TOO_LONG_MESSAGE),
+            ("heartbeat", TimeoutType.HEARTBEAT, SYNC_RUN_STALLED_MESSAGE),
+            ("schedule_to_start", TimeoutType.SCHEDULE_TO_START, SYNC_RUN_STALLED_MESSAGE),
+            ("unknown", None, SYNC_RUN_STALLED_MESSAGE),
+        ]
+    )
+    def test_timed_out_activity_does_not_surface_temporals_own_wording(
+        self, _name: str, timeout_type: TimeoutType | None, expected: str
+    ) -> None:
+        # Temporal's message for a timed-out activity is "activity <Budget> timeout", which names our
+        # orchestration and gives the customer nothing to act on.
+        cause = TimeoutError("activity StartToClose timeout", type=timeout_type, last_heartbeat_details=[])
+        result = _customer_facing_error(cause)
+        assert result == expected
+        assert "timeout" not in result
 
 
 class TestIsAppDbFailure(SimpleTestCase):

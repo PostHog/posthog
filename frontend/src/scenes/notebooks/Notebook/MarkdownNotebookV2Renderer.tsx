@@ -35,6 +35,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
+import { NotebookBtwLayout } from 'products/notebooks/frontend/NotebookBtwLayout'
+import { notebookBtwLogic } from 'products/notebooks/frontend/notebookBtwLogic'
+
 import { NODE_ICONS } from '../nodeIcons'
 import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
 import { NotebookNodeType } from '../types'
@@ -97,6 +100,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { session: btwSession } = useValues(notebookBtwLogic({ shortId }))
+    const { openBtw, closeBtw } = useActions(notebookBtwLogic({ shortId }))
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const enabledAIComponentTags = useMemo(
         () => [
@@ -744,45 +749,48 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
-            <NotebookComponentRunStatusContext.Provider value={resolveComponentRunStatus}>
-                <MarkdownNotebook
-                    value={markdownEditorValue}
-                    aiPromptAuthorName={user?.first_name || 'You'}
-                    remoteValue={remoteMarkdown}
-                    remoteVersion={notebook?.version}
-                    mode={isEditable ? 'edit' : 'view'}
-                    hideResourceLinks={isShared}
-                    registry={markdownRegistry}
-                    extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
-                    hiddenInsertCommandKeys={hiddenInsertCommandKeys}
-                    onChange={isEditable ? handleMarkdownNotebookChange : undefined}
-                    onSaveRequested={isEditable ? saveNotebookNow : undefined}
-                    onConflict={reportMarkdownMergeConflicts}
-                    remoteCarets={remoteCarets}
-                    onCaretChange={isEditable ? publishMarkdownCaret : undefined}
-                    onAskAI={isEditable ? handleAskAI : undefined}
-                    convertExternalDataTransferToNodes={isEditable ? convertExternalDataTransferToNodes : undefined}
-                    isAskAIDisabled={inlineAIRequests.length > 0}
-                    askAIDisabledReason={
-                        dataProcessingAccepted
-                            ? undefined
-                            : 'Approve AI data processing in organization settings to use Ask AI.'
-                    }
-                    createAIConversationId={uuid}
-                    deferRemoteValue={markdownEditorInteractionActive}
-                    onInteractionStateChange={setMarkdownEditorInteractionActive}
-                    allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
-                    canvasHeader={<NotebookVariablesBar />}
-                    className="Notebook__markdown-v2"
-                    data-attr="notebook-markdown-v2"
-                    autoFocus={isEditable}
-                    showDebug={isEditable}
-                    debugOpen={isDebugOpen}
-                    onDebugOpenChange={handleDebugOpenChange}
-                    focusAIPromptRequest={focusAIPromptRequest}
-                    aiWritingNodeIndexes={aiWritingNodeIndexes}
-                />
-            </NotebookComponentRunStatusContext.Provider>
+            <NotebookBtwLayout session={btwSession} onClose={closeBtw}>
+                <NotebookComponentRunStatusContext.Provider value={resolveComponentRunStatus}>
+                    <MarkdownNotebook
+                        value={markdownEditorValue}
+                        aiPromptAuthorName={user?.first_name || 'You'}
+                        remoteValue={remoteMarkdown}
+                        remoteVersion={notebook?.version}
+                        mode={isEditable ? 'edit' : 'view'}
+                        hideResourceLinks={isShared}
+                        registry={markdownRegistry}
+                        extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
+                        hiddenInsertCommandKeys={hiddenInsertCommandKeys}
+                        onChange={isEditable ? handleMarkdownNotebookChange : undefined}
+                        onSaveRequested={isEditable ? saveNotebookNow : undefined}
+                        onConflict={reportMarkdownMergeConflicts}
+                        remoteCarets={remoteCarets}
+                        onCaretChange={isEditable ? publishMarkdownCaret : undefined}
+                        onAskAI={isEditable ? handleAskAI : undefined}
+                        onBtw={isEditable ? openBtw : undefined}
+                        convertExternalDataTransferToNodes={isEditable ? convertExternalDataTransferToNodes : undefined}
+                        isAskAIDisabled={inlineAIRequests.length > 0}
+                        askAIDisabledReason={
+                            dataProcessingAccepted
+                                ? undefined
+                                : 'Approve AI data processing in organization settings to use Ask AI.'
+                        }
+                        createAIConversationId={uuid}
+                        deferRemoteValue={markdownEditorInteractionActive}
+                        onInteractionStateChange={setMarkdownEditorInteractionActive}
+                        allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
+                        canvasHeader={<NotebookVariablesBar />}
+                        className="Notebook__markdown-v2"
+                        data-attr="notebook-markdown-v2"
+                        autoFocus={isEditable}
+                        showDebug={isEditable}
+                        debugOpen={isDebugOpen}
+                        onDebugOpenChange={handleDebugOpenChange}
+                        focusAIPromptRequest={focusAIPromptRequest}
+                        aiWritingNodeIndexes={aiWritingNodeIndexes}
+                    />
+                </NotebookComponentRunStatusContext.Provider>
+            </NotebookBtwLayout>
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner
                     key={request.conversationId}

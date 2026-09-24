@@ -2,12 +2,16 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
+
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, GroupType, GroupTypeIndex, OrganizationType } from '~/types'
 
+import { workflowLogic } from '../../../workflowLogic'
+import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { encodeSlackFilters } from '../../registry/triggers/slackTriggerFilters'
 import { createExampleEventForTrigger } from '../../testEventFactory'
 import {
@@ -16,6 +20,11 @@ import {
     hogFlowEditorTestLogic,
     parseGroupsFromResult,
 } from './hogFlowEditorTestLogic'
+
+jest.mock('scenes/hog-functions/sampleEventsQuery', () => ({
+    ...jest.requireActual('scenes/hog-functions/sampleEventsQuery'),
+    performWideEventsQueryInTwoPhases: jest.fn(),
+}))
 
 // Mounting hogFlowEditorTestLogic mounts workflowLogic, whose afterMount loads the hog
 // flow; without a valid fixture the editor's resetFlowFromHogFlow crashes and logs.
@@ -261,7 +270,246 @@ describe('hogFlowEditorTestLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': WORKFLOW_FIXTURE } })
+        useMocks({
+            get: { '/api/environments/:team_id/hog_flows/:id/': WORKFLOW_FIXTURE },
+            // The editor autosaves, so a test that waits long enough reaches the save handler.
+            // Echo the body back, or the saved edit is reverted by the response.
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => [
+                    200,
+                    { ...WORKFLOW_FIXTURE, ...((await request.json()) as Record<string, any>) },
+                ],
+            },
+        })
+        // clearMocks keeps implementations, so a test that installs one would otherwise hand it
+        // to every test that runs after it.
+        ;(performWideEventsQueryInTwoPhases as jest.Mock).mockReset()
+    })
+
+    describe('sample event follows the trigger filters', () => {
+        it('reloads the sample event when the trigger filters change', async () => {
+            // The panel fetched once on mount, so editing the trigger filters left the tester running
+            // against an event that no longer matched the filters on screen.
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+            hogFlowEditorLogic({ id: 'test-workflow' }).actions.setMode('test')
+
+            // Consume the load that mounting always does, so the assertion below can only pass on a
+            // second one. Without this the test passes even when nothing reacts to the filters.
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+
+            const before = logic.values.matchingFilters
+
+            await expectLogic(logic, () => {
+                flowLogic.actions.setWorkflowValue(
+                    'actions',
+                    WORKFLOW_FIXTURE.actions.map((action) =>
+                        action.id === 'trigger_node'
+                            ? {
+                                  ...action,
+                                  config: {
+                                      type: 'event',
+                                      filters: { events: [{ id: '$pageview', type: 'events', properties: [] }] },
+                                  },
+                              }
+                            : action
+                    )
+                )
+            }).toDispatchActions(['loadSampleGlobals'])
+
+            expect(logic.values.matchingFilters).not.toEqual(before)
+        })
+
+        it('reloads the sample event for a trigger that follows an event picked by name', async () => {
+            // The by-name selector renders only for a trigger this panel cannot query, so the
+            // picked name outlives that trigger. It must not stop the panel from following the
+            // filters once the trigger is one the panel does query.
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+            hogFlowEditorLogic({ id: 'test-workflow' }).actions.setMode('test')
+
+            const setTriggerConfig = (config: Record<string, any>): void => {
+                flowLogic.actions.setWorkflowValue(
+                    'actions',
+                    WORKFLOW_FIXTURE.actions.map((action) =>
+                        action.id === 'trigger_node' ? { ...action, config } : action
+                    )
+                )
+            }
+
+            // Consume the load that mounting always does, so the assertion below can only pass on
+            // a later one.
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+            await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
+
+            setTriggerConfig({ type: 'webhook', filters: {} })
+            logic.actions.loadSampleEventByName({ eventName: '$pageview' })
+            expect(logic.values.lastSearchedEventName).toEqual('$pageview')
+
+            await expectLogic(logic, () => {
+                setTriggerConfig({
+                    type: 'event',
+                    filters: { events: [{ id: 'user logged in', type: 'events', properties: [] }] },
+                })
+            }).toDispatchActions(['loadSampleGlobals'])
+        })
+
+        it('follows the test-account toggle, in the reload and in the query', async () => {
+            // The live trigger folds the team's test-account filters in, so a sample that ignores
+            // the toggle can be an event the trigger would reject.
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock.mockImplementation(async () => ({ results: [] }))
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+            hogFlowEditorLogic({ id: 'test-workflow' }).actions.setMode('test')
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+
+            expect(queryMock.mock.calls[0][0].filterTestAccounts).toBe(false)
+            queryMock.mockClear()
+
+            await expectLogic(logic, () => {
+                flowLogic.actions.setWorkflowValue(
+                    'actions',
+                    WORKFLOW_FIXTURE.actions.map((action) =>
+                        action.id === 'trigger_node'
+                            ? { ...action, config: { type: 'event', filters: { filter_test_accounts: true } } }
+                            : action
+                    )
+                )
+            }).toDispatchActions(['loadSampleGlobals'])
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(true)
+            expect(queryMock.mock.calls[0][0].filterTestAccounts).toBe(true)
+        })
+
+        it('holds the reload until the test tab opens', async () => {
+            // The build tab mounts this panel for its output mapping, so a filter edit there must
+            // not spend a query on someone who never opens the tester.
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock.mockImplementation(async () => ({ results: [] }))
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+            hogFlowEditorLogic({ id: 'test-workflow' }).actions.setMode('build')
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+            queryMock.mockClear()
+
+            await expectLogic(logic, () => {
+                flowLogic.actions.setWorkflowValue(
+                    'actions',
+                    WORKFLOW_FIXTURE.actions.map((action) =>
+                        action.id === 'trigger_node'
+                            ? { ...action, config: { type: 'event', filters: { filter_test_accounts: true } } }
+                            : action
+                    )
+                )
+            }).toDispatchActions(['markSampleGlobalsStale'])
+            expect(queryMock).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                hogFlowEditorLogic({ id: 'test-workflow' }).actions.setMode('test')
+            }).toDispatchActions(['loadSampleGlobals', 'loadSampleGlobalsSuccess'])
+
+            expect(queryMock).toHaveBeenCalledTimes(1)
+            expect(queryMock.mock.calls[0][0].filterTestAccounts).toBe(true)
+        })
+
+        it('keeps the newest sample event when an older query answers last', async () => {
+            // Two loads overlap and the first query answers second. The stale answer must be
+            // discarded, or the panel shows an event the current filters never asked for.
+            const eventRow = (uuid: string): any[] => [
+                { uuid, event: '$pageview', distinct_id: 'd1', properties: {}, timestamp: '2026-05-01T00:00:00Z' },
+                { id: 'p1', properties: {} },
+            ]
+            let releaseStale: (() => void) | undefined
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock
+                .mockImplementationOnce(
+                    async () =>
+                        await new Promise((resolve) => {
+                            releaseStale = () => resolve({ results: [eventRow('stale-event')] })
+                        })
+                )
+                .mockImplementation(async () => ({ results: [eventRow('fresh-event')] }))
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+            while (!releaseStale) {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            }
+
+            logic.actions.loadSampleGlobals({})
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
+
+            releaseStale!()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
+        })
+
+        it('keeps the newest sample event when an older query fails last', async () => {
+            // The same overlap, but the older query fails for a real reason. Its failure belongs to
+            // a load nobody is waiting for, so it must neither clear the event nor raise an error.
+            const eventRow = (uuid: string): any[] => [
+                { uuid, event: '$pageview', distinct_id: 'd1', properties: {}, timestamp: '2026-05-01T00:00:00Z' },
+                { id: 'p1', properties: {} },
+            ]
+            let failStale: (() => void) | undefined
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock
+                .mockImplementationOnce(
+                    async () =>
+                        await new Promise((_resolve, reject) => {
+                            failStale = () => reject(new Error('query failed'))
+                        })
+                )
+                .mockImplementation(async () => ({ results: [eventRow('fresh-event')] }))
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+            while (!failStale) {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            }
+
+            logic.actions.loadSampleGlobals({})
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
+
+            failStale!()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
+            expect(logic.values.sampleGlobalsError).toBeNull()
+        })
+
+        it('still reports a failure that no later load supersedes', async () => {
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock.mockImplementation(async () => {
+                throw new Error('query failed')
+            })
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals', 'setSampleGlobalsError'])
+            expect(logic.values.sampleGlobalsError).toEqual('Failed to load matching events. Please try again.')
+        })
     })
 
     describe('groupTypesForTest gating on group_analytics', () => {

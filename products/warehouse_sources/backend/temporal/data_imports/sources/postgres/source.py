@@ -332,6 +332,17 @@ _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
     "schedule."
 )
 
+# What a customer reads when their database reports a damaged page rather than a damaged row
+# length. The driver text is raw Postgres internals (a TOAST chunk number, a block number), so it
+# reads like a PostHog defect and names no next action.
+_SOURCE_PAGE_CORRUPTION_ERROR = (
+    "PostHog couldn't read one of the tables you're syncing because your database reported "
+    "damaged data on disk. PostHog only reads from your source, so this has to be repaired on "
+    "your database. Check your database server logs, run a consistency check on the table (for "
+    "example pg_amcheck), reindex it if an index is damaged, or restore the affected data from a "
+    "backup. Then re-enable the sync."
+)
+
 _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
     "Your read replica kept canceling PostHog's reads because it had to apply changes from the "
     "primary that removed rows the sync was still reading, and the conflict outlasted every retry. "
@@ -648,6 +659,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "dashboard for this branch's connection settings, then re-enable the sync."
             ),
             "FATAL: no such database": None,
+            # A connection pooler (e.g. PgBouncer) rejects the connection because the configured
+            # username isn't in its own user list — distinct from Postgres's own
+            # "password authentication failed for user", which means the username exists but the
+            # password is wrong. Deterministic until the customer fixes the pooler username, so
+            # retrying just re-hits it. Match without "FATAL:" since the driver pads the severity
+            # with a variable number of spaces.
+            "no such user": (
+                "Your database connection pooler rejected the connection because it doesn't "
+                'recognize the configured username ("no such user"). Check the username for this '
+                "source against your pooler's configuration, then re-enable the sync."
+            ),
             # A relation or column the sync reads was dropped or renamed on the source, so the
             # streaming query fails with SQLSTATE 42P01 ("relation ... does not exist") or 42703
             # ("column ... does not exist"). The stored schema/query is fixed until the customer
@@ -882,6 +904,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
                 "re-enable the sync."
             ),
+            # The same provider family names some quotas in the refusal and others not at all
+            # ("has exceeded the quota"), so the two keys above miss those wordings and the raw
+            # libpq line — carrying the customer's host and port — is retried and then stored.
+            # Every variant ends in the same provider sentence, so match that instead of each
+            # quota name. Placed last so the two entries above keep their more specific copy.
+            "quota. Upgrade your plan to increase limits": (
+                "Your database provider blocked the connection because your project exceeded a plan "
+                "quota. Upgrade the plan or wait for the quota to reset, then re-enable the sync."
+            ),
             # A database proxy (observed on Prisma Accelerate) refuses the connection because the
             # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
             # The restriction is account-level state only the customer can lift (upgrade the plan or
@@ -1014,6 +1045,30 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "memory pressure on your database (for example lower work_mem, reduce concurrent "
                 "connections, or increase the instance's memory), then re-enable the sync."
             ),
+            # PostgreSQL's allocator rejects a request it can't service, raised via a bare `elog`
+            # that carries no specific SQLSTATE and so surfaces as the internal-error class (XX000,
+            # psycopg's `InternalError_`): "invalid memory alloc request size <n>". Observed while
+            # streaming rows through a server-side cursor (see `get_rows`) with the requested size
+            # wrapped to just under UINT64_MAX — the signature of a corrupted length field in the
+            # row's own stored data (for example a damaged TOAST pointer), not anything in our query.
+            # The corruption lives in the source row, so retrying re-reads into the same wall every
+            # time. The volatile request size is excluded from the match.
+            "invalid memory alloc request size": (
+                "PostgreSQL refused to allocate memory while reading a row from one of your tables "
+                '("invalid memory alloc request size"). This usually means that row\'s stored data is '
+                "corrupted on the source database (for example a damaged TOAST value), rather than a "
+                "problem with the sync. Check this table for data corruption (for example with "
+                "pg_amcheck), then repair or remove the affected rows and re-enable the sync."
+            ),
+            # The same damage reported through the wordings that name the page instead of the
+            # allocation: a TOAST row whose out-of-line chunks are gone, an index page that reads
+            # back as zeroes, and a heap or index page the server could not read at all. We only
+            # ever run `SELECT ... FROM <relation>`, so each one is damage on the customer's side,
+            # fixed to the affected page, and every retry re-reads that page into the same error.
+            # The volatile chunk and block numbers and relation names are excluded from the match.
+            "missing chunk number": _SOURCE_PAGE_CORRUPTION_ERROR,
+            "unexpected zero page": _SOURCE_PAGE_CORRUPTION_ERROR,
+            "could not read block": _SOURCE_PAGE_CORRUPTION_ERROR,
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely

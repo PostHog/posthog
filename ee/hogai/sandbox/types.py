@@ -73,6 +73,30 @@ def pi_turn_error(event: dict) -> bool:
     return pi_event.get("stopReason") == PI_STOP_REASON_ERROR
 
 
+def turn_completed_successfully(event: Mapping[str, object]) -> bool:
+    """True when a turn-closing event reports ``end_turn`` as its stop reason.
+
+    `is_turn_complete` answers "the turn is over". This answers "the turn is over and the
+    agent finished its work", which a caller needs before it acts on the turn's result. The
+    stop reason sits in a different place in each of the three envelopes.
+    """
+    if event.get("type") == PI_EVENT_TYPE:
+        pi_event = event.get("event")
+        if not isinstance(pi_event, dict) or pi_event.get("type") != PI_TURN_COMPLETED_TYPE:
+            return False
+        return pi_event.get("stopReason") == STOP_REASON_END_TURN
+    if event.get("type") != ACP_NOTIFICATION_TYPE:
+        return False
+    notification = event.get("notification")
+    if not isinstance(notification, dict):
+        return False
+    if notification.get("method") == TURN_COMPLETE_METHOD:
+        params = notification.get("params")
+        return isinstance(params, dict) and params.get("stopReason") == STOP_REASON_END_TURN
+    result = notification.get("result")
+    return isinstance(result, dict) and result.get("stopReason") == STOP_REASON_END_TURN
+
+
 def turn_complete_trace_id(event: Mapping[str, object]) -> str | None:
     """The finished turn's gateway trace id, when the agent reported one.
 

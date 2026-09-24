@@ -140,6 +140,26 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording reviewer feedback on an AI reply.')
 
 /**
+ * Record that a human used or edited the latest AI draft.
+ */
+export const conversationsTicketsAiHumanOutcomeCreateBodyMessageIdMax = 200
+
+export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
+    .object({
+        message_id: zod
+            .string()
+            .max(conversationsTicketsAiHumanOutcomeCreateBodyMessageIdMax)
+            .describe('ID of the private AI draft being adopted.'),
+        outcome: zod
+            .enum(['used', 'edited'])
+            .describe('\* `used` - used\n\* `edited` - edited')
+            .describe(
+                'used when the human inserts the draft as-is; edited after they change it in the composer.\n\n\* `used` - used\n\* `edited` - edited'
+            ),
+    })
+    .describe('Payload for recording whether a human adopted an AI draft.')
+
+/**
  * Update a private note on a ticket.
  *
  * Only the note's author can edit it. Customer-facing replies cannot be

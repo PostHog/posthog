@@ -1064,6 +1064,7 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
 
 
 class DistanceFunc(StrEnum):
@@ -1259,6 +1260,12 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
+class Kind2(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
+
+
 class ConversionRateInputType(StrEnum):
     MANUAL = "manual"
     AUTOMATIC = "automatic"
@@ -1376,6 +1383,7 @@ class FileSystemIconType(StrEnum):
     TRACING = "tracing"
     METRICS = "metrics"
     WORKFLOWS = "workflows"
+    BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
@@ -2238,6 +2246,12 @@ class PlanningStepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class PredicateFixAction(StrEnum):
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
+
+
 class PredicateIndexVerdict(StrEnum):
     INDEXED = "indexed"
     BLOCKED = "blocked"
@@ -2363,6 +2377,7 @@ class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
     AI_ENGINEERING = "AI engineering"
     BEHAVIOR = "Behavior"
+    MESSAGING = "Messaging"
     APP_MONITORING = "App monitoring"
     FEATURES = "Features"
     TOOLS = "Tools"
@@ -2555,13 +2570,12 @@ class QueryScanFindingKind(StrEnum):
     PERSONS_JOIN = "persons_join"
 
 
-class QueryScanFindingReason(StrEnum):
-    IN_OR = "in_or"
-    WRAPPED = "wrapped"
-    NEGATED = "negated"
-    DYNAMIC = "dynamic"
-    NOT_PRUNED = "not_pruned"
-    FILTERS = "filters"
+class QueryScanFixLocation(StrEnum):
+    QUERY = "query"
+    SUBQUERY = "subquery"
+    VIEW = "view"
+    INSIGHT_DATE_RANGE = "insight_date_range"
+    DASHBOARD_DATE_FILTER = "dashboard_date_filter"
 
 
 class QuickFilterContext(StrEnum):

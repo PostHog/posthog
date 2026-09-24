@@ -38,9 +38,19 @@ class ClerkEndpointConfig:
 # Note: Clerk API does not support filtering by updated_at, so only full refresh is supported.
 CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
     "users": ClerkEndpointConfig(name="users", path="/users"),
-    "organizations": ClerkEndpointConfig(name="organizations", path="/organizations", is_wrapped_response=True),
+    # Clerk answers 404 resource_not_found for every instance-wide Organizations list on instances
+    # that don't have Organizations switched on — the same feature-off signal the organization
+    # invitations list below already carries. A list endpoint returns 200 with an empty array when
+    # it simply holds no rows, so a 404 here can't mean a missing record. Skip zero rows instead of
+    # failing the schema every run.
+    "organizations": ClerkEndpointConfig(
+        name="organizations", path="/organizations", is_wrapped_response=True, gated_feature="Organizations"
+    ),
     "organization_memberships": ClerkEndpointConfig(
-        name="organization_memberships", path="/organization_memberships", is_wrapped_response=True
+        name="organization_memberships",
+        path="/organization_memberships",
+        is_wrapped_response=True,
+        gated_feature="Organizations",
     ),
     "invitations": ClerkEndpointConfig(
         name="invitations",
@@ -66,13 +76,19 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         gated_feature="Organizations",
     ),
     "organization_domains": ClerkEndpointConfig(
-        name="organization_domains", path="/organization_domains", is_wrapped_response=True
+        name="organization_domains",
+        path="/organization_domains",
+        is_wrapped_response=True,
+        gated_feature="Organizations",
     ),
     "organization_roles": ClerkEndpointConfig(
-        name="organization_roles", path="/organization_roles", is_wrapped_response=True
+        name="organization_roles", path="/organization_roles", is_wrapped_response=True, gated_feature="Organizations"
     ),
     "organization_permissions": ClerkEndpointConfig(
-        name="organization_permissions", path="/organization_permissions", is_wrapped_response=True
+        name="organization_permissions",
+        path="/organization_permissions",
+        is_wrapped_response=True,
+        gated_feature="Organizations",
     ),
     "role_sets": ClerkEndpointConfig(name="role_sets", path="/role_sets", is_wrapped_response=True),
     "waitlist_entries": ClerkEndpointConfig(

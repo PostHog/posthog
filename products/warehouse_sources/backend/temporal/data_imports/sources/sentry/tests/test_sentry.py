@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sen
     SentryPaginator,
     SentryRateLimitedError,
     SentryResumeConfig,
+    SentrySessionsRejectedError,
     SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
     _issues_parent_row_filter,
@@ -1728,6 +1729,47 @@ class TestSentryCustomIteratorEndpoints:
         assert seen_params[0] is not None
         assert seen_params[0]["groupBy"] == ["project", "release", "environment", "session.status"]
         assert seen_params[0]["interval"] == "1d"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_sessions_skips_when_token_has_no_project_access(self, mock_request) -> None:
+        # Same failure mode as organization_stats_summary: the token's user isn't a member of any
+        # project in the org, and Sentry 400s this endpoint rather than returning an empty result.
+        mock_request.return_value = _response({"detail": "No projects available"}, status_code=400)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="sessions",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        assert list(cast(Any, resp.items())) == []
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_sessions_other_400_is_classified_non_retryable(self, mock_request) -> None:
+        # A clamped window can still fall outside the org's actual release-health retention, which
+        # Sentry rejects with a 400. That's deterministic for the request we build, so it must fail
+        # fast with a credential-safe message instead of retrying the raw HTTPError (whose URL
+        # embeds the org slug).
+        mock_request.return_value = _response({"detail": 'Invalid field: "bogus"'}, status_code=400)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="sessions",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(SentrySessionsRejectedError) as exc_info:
+            list(cast(Any, resp.items()))
+
+        message = str(exc_info.value)
+        assert "acme" not in message and "sentry.io" not in message
+        assert error_message_matches(message, SentrySource().get_non_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_organization_stats_flattens_series_and_excludes_project_grouping(self, mock_request) -> None:

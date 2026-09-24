@@ -1,9 +1,12 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models import Team, User
 
+from products.review_hog.backend.api.settings import ReviewUserSettingsSerializer
 from products.review_hog.backend.models import ReviewUserSettings
 from products.skills.backend.models.skills import LLMSkill
 from products.stamphog.backend.facade.testing import seed_repo_config
@@ -28,6 +31,8 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
             "review_labeled_prs": True,
             "resolve_comments": True,
+            "review_authored_prs": False,
+            "flash_reasoning_effort": "medium",
             "urgency_threshold": "consider",
             "can_trigger_reviews": False,  # REVIEWHOG_TEAM_IDS is empty in tests
             "stamphog_connected": False,  # no synced+enabled repo config in this project
@@ -39,7 +44,13 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         # stops accepting it (e.g. marked read-only) would silently no-op the switch.
         res = self.client.patch(
             self.url,
-            {"urgency_threshold": "must_fix", "stamphog_review_inbox_prs": True, "resolve_comments": False},
+            {
+                "urgency_threshold": "must_fix",
+                "stamphog_review_inbox_prs": True,
+                "resolve_comments": False,
+                "review_authored_prs": True,
+                "flash_reasoning_effort": "xhigh",
+            },
             format="json",
         )
 
@@ -49,7 +60,16 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert row.urgency_threshold == "must_fix"
         assert row.stamphog_review_inbox_prs is True
         assert row.resolve_comments is False
+        assert row.review_authored_prs is True
+        assert row.flash_reasoning_effort == "xhigh"
         assert row.review_labeled_prs is True  # untouched field keeps its default
+
+        disabled = self.client.patch(self.url, {"review_authored_prs": False}, format="json")
+
+        assert disabled.status_code == 200
+        disabled_row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert disabled_row.review_authored_prs is False
+        assert disabled_row.flash_reasoning_effort == "xhigh"
 
     @parameterized.expand(
         [
@@ -85,13 +105,19 @@ class TestReviewUserSettingsAPI(APIBaseTest):
     def test_settings_are_per_user(self) -> None:
         # One user's opt-out must not leak into a teammate's row — the gate reads the PR author's.
         other = User.objects.create_and_join(self.organization, "other-settings@posthog.com", None)
-        self.client.patch(self.url, {"review_labeled_prs": False}, format="json")
+        self.client.patch(
+            self.url,
+            {"review_labeled_prs": False, "review_authored_prs": True, "flash_reasoning_effort": "xhigh"},
+            format="json",
+        )
 
         self.client.force_login(other)
         res = self.client.get(self.url)
 
         assert res.status_code == 200
         assert res.json()["review_labeled_prs"] is True
+        assert res.json()["review_authored_prs"] is False
+        assert res.json()["flash_reasoning_effort"] == "medium"
 
     def test_get_seeds_the_authoring_skill_idempotently(self) -> None:
         # The settings GET is the tab's always-called endpoint, so it must make the authoring guide
@@ -119,3 +145,12 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert row.team_id == self.team.id
         assert row.urgency_threshold == "must_fix"
+
+
+class TestReviewUserSettingsValidation(SimpleTestCase):
+    @parameterized.expand(["low", "high"])
+    def test_flash_effort_rejects_values_outside_its_supported_choices(self, effort: str) -> None:
+        serializer = ReviewUserSettingsSerializer(data={"flash_reasoning_effort": effort}, partial=True)
+
+        assert not serializer.is_valid()
+        assert "flash_reasoning_effort" in serializer.errors

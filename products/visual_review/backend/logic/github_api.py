@@ -66,6 +66,55 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
         return "master"
 
 
+def default_branch_head_sha(repo: Repo) -> str | None:
+    """The commit the repo's default branch points at, or None when GitHub cannot say."""
+    try:
+        github = get_github_integration_for_repo(repo)
+        # Not `_get_default_branch`: its fallback name can point at a branch that is not the default,
+        # and a commit from that branch would scope the lift wrongly.
+        branch = github.get_default_branch(repo.repo_full_name)
+        # One path segment, so a branch name with a slash does not split the ref.
+        response = github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
+    except Exception:
+        logger.warning("visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id))
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id), status=response.status_code
+        )
+        return None
+    return response.json().get("sha")
+
+
+def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str) -> bool | None:
+    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell."""
+    try:
+        github = get_github_integration_for_repo(repo)
+        merge_base = _get_merge_base_sha(github, repo.repo_full_name, ancestor_sha, head_sha)
+    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+        logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
+        return None
+    if merge_base is None:
+        return None
+    return merge_base == ancestor_sha
+
+
+def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
+    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell.
+
+    Two commits never change their ancestry, so a known answer is cached and later calls for the
+    same pair make no request. An unknown answer is not cached, so the next call asks again.
+    """
+    if ancestor_sha == head_sha:
+        return True
+    ancestry = content_cache.load_by_hash(
+        "commit_ancestry",
+        f"{repo.id}:{ancestor_sha}..{head_sha}",
+        lambda: _is_ancestor(repo, ancestor_sha, head_sha),
+    )
+    return ancestry is True
+
+
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
 
 

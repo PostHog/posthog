@@ -1,5 +1,7 @@
 # Test cases for user-email-lookups-use-the-shared-fold rule.
 # ruff: noqa: F821, E501
+from django.contrib.auth import get_user_model
+
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import User
 
@@ -23,6 +25,16 @@ def flagged_exact_match(email: str):
     # An exact match misses every address that folds onto the same account.
     # ruleid: user-email-lookups-use-the-shared-fold
     return User.objects.filter(email=email).first()
+
+
+def flagged_swappable_model_get(email: str):
+    # ruleid: user-email-lookups-use-the-shared-fold
+    return get_user_model().objects.get(email__iexact=email)
+
+
+def flagged_swappable_model_exact_match(email: str):
+    # ruleid: user-email-lookups-use-the-shared-fold
+    return get_user_model().objects.filter(email=email).first()
 
 
 def ok_shared_fold_queryset(email: str):
