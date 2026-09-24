@@ -26,6 +26,12 @@ export function PersonDeleteModal(): JSX.Element | null {
         showPersonDeleteModal(null)
     }
 
+    const deleteDisabledReason = deletedPersonLoading
+        ? 'Deleting the person...'
+        : matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
+          ? undefined
+          : 'Please type the correct confirmation text'
+
     return (
         <LemonModal isOpen={!!personDeleteModal} onClose={handleClose} title="Confirm deletion" maxWidth="500px">
             <div className="space-y-4">
@@ -85,13 +91,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                     type="primary"
                     status="danger"
                     loading={deletedPersonLoading}
-                    disabledReason={
-                        deletedPersonLoading
-                            ? 'Deleting the person...'
-                            : !matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
-                              ? 'Please type the correct confirmation text'
-                              : undefined
-                    }
+                    disabledReason={deleteDisabledReason}
                     onClick={() =>
                         deletePerson(personDeleteModal as PersonType, alsoDeleteEvents, alsoDeleteRecordings)
                     }
