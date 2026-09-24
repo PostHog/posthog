@@ -7,6 +7,7 @@ from pydantic import BaseModel, ValidationError
 
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
+    MAX_RANKING_MODEL_RESULTS,
     ArtefactContentValidationError,
     CodeReference,
     Commit,
@@ -121,7 +122,6 @@ def _ranking_model_result(**overrides):
         "roles": ["served"],
         "feature_schema_version": 1,
         "status": "scored",
-        "skip_reason": None,
         "scores": {"open": 0.42, "pr_merged": 0.03},
         "metadata": {"feature_set": "tabular"},
     }
@@ -129,23 +129,26 @@ def _ranking_model_result(**overrides):
     return result
 
 
+def _skipped_challenger(**overrides):
+    return _ranking_model_result(
+        **{
+            "model_name": "report_embeddings",
+            "roles": ["challenger"],
+            "status": "skipped",
+            "skip_reason": "no report vector for this report yet",
+            "scores": {},
+            "metadata": {},
+            **overrides,
+        }
+    )
+
+
 def _ranking_score(**overrides):
     content = {
         "scored_at": "2026-01-02T03:04:05Z",
-        "embedding_inserted_at": None,
         "manifest_version": "2026-01-02",
         "served_key": "tabular@2026-01-01",
-        "results": {
-            "tabular@2026-01-01": _ranking_model_result(),
-            "report_embeddings@2026-01-01": _ranking_model_result(
-                model_name="report_embeddings",
-                roles=["challenger"],
-                status="skipped",
-                skip_reason="no report vector for this report yet",
-                scores={},
-                metadata={},
-            ),
-        },
+        "results": {"tabular@2026-01-01": _ranking_model_result()},
     }
     content.update(overrides)
     return content
@@ -191,7 +194,15 @@ class TestValidateArtefactContent(SimpleTestCase):
                     "reason": "the fix lands second",
                 },
             ),
-            ("ranking_score", _ranking_score()),
+            (
+                "ranking_score",
+                _ranking_score(
+                    results={
+                        "tabular@2026-01-01": _ranking_model_result(),
+                        "report_embeddings@2026-01-01": _skipped_challenger(),
+                    },
+                ),
+            ),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
@@ -214,62 +225,7 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
             ("report_link", {"kind": "blocks", "report_id": "00000000-0000-0000-0000-000000000002"}),
             ("report_link", {"kind": "depends_on", "report_id": "report-2"}),
-            # A consumer reads the served score as `results[served_key]`, so each of these would
-            # leave it with a missing key, a key that names another model, or no score at all.
             ("ranking_score", _ranking_score(served_key="tabular@2025-12-31")),
-            (
-                "ranking_score",
-                _ranking_score(
-                    results={"tabular@2026-01-01": _ranking_model_result(status="skipped", scores={})},
-                ),
-            ),
-            (
-                "ranking_score",
-                _ranking_score(results={"tabular@2025-12-31": _ranking_model_result()}),
-            ),
-            (
-                "ranking_score",
-                _ranking_score(
-                    results={"tabular@2026-01-01": _ranking_model_result(scores={"open": 1.4})},
-                ),
-            ),
-            (
-                "ranking_score",
-                _ranking_score(
-                    results={
-                        "tabular@2026-01-01": _ranking_model_result(),
-                        "report_embeddings@2026-01-01": _ranking_model_result(model_name="report_embeddings"),
-                    },
-                ),
-            ),
-            (
-                "ranking_score",
-                _ranking_score(
-                    results={
-                        "tabular@2026-01-01": _ranking_model_result(),
-                        "report_embeddings@2026-01-01": _ranking_model_result(
-                            model_name="report_embeddings",
-                            roles=["challenger"],
-                            status="skipped",
-                            skip_reason="no report vector for this report yet",
-                            scores={"open": 0.1},
-                        ),
-                    },
-                ),
-            ),
-            ("ranking_score", _ranking_score(results={})),
-            (
-                "ranking_score",
-                _ranking_score(
-                    results={
-                        f"tabular@2026-01-{day:02d}": _ranking_model_result(
-                            model_version=f"2026-01-{day:02d}", roles=["challenger"]
-                        )
-                        for day in range(2, 9)
-                    }
-                    | {"tabular@2026-01-01": _ranking_model_result()},
-                ),
-            ),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
@@ -299,3 +255,57 @@ class TestValidateArtefactContent(SimpleTestCase):
 
         with self.assertRaises(ArtefactContentValidationError):
             artefact_type_for(NotAnArtefact())
+
+
+class TestRankingScore(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("served_key_not_in_results", {"served_key": "tabular@2025-12-31"}),
+            (
+                "served_model_did_not_score",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(status="skipped", scores={})}},
+            ),
+            ("key_names_another_model", {"results": {"tabular@2025-12-31": _ranking_model_result()}}),
+            (
+                "no_served_role",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(roles=["challenger"])}},
+            ),
+            (
+                "two_served_roles",
+                {
+                    "results": {
+                        "tabular@2026-01-01": _ranking_model_result(),
+                        "report_embeddings@2026-01-01": _ranking_model_result(model_name="report_embeddings"),
+                    }
+                },
+            ),
+            (
+                "score_above_one",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(scores={"open": 1.4})}},
+            ),
+            (
+                "skipped_model_carries_scores",
+                {
+                    "results": {
+                        "tabular@2026-01-01": _ranking_model_result(),
+                        "report_embeddings@2026-01-01": _skipped_challenger(scores={"open": 0.1}),
+                    }
+                },
+            ),
+            (
+                "more_models_than_the_cap",
+                {
+                    "results": {"tabular@2026-01-01": _ranking_model_result()}
+                    | {
+                        f"tabular@2026-02-{day:02d}": _ranking_model_result(
+                            model_version=f"2026-02-{day:02d}", roles=["challenger"]
+                        )
+                        for day in range(1, MAX_RANKING_MODEL_RESULTS + 1)
+                    }
+                },
+            ),
+        ]
+    )
+    def test_rejects_a_pass_whose_served_score_cannot_be_read(self, _name, overrides):
+        with self.assertRaises(ArtefactContentValidationError):
+            parse_artefact_content("ranking_score", _ranking_score(**overrides))

@@ -22,7 +22,7 @@ import re
 from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
@@ -278,21 +278,18 @@ class ChannelAssignment(BaseModel):
 # one of them lands in a single row. The cap bounds that row, so a manifest that grew past what a
 # reader could order cannot make every report read expensive.
 MAX_RANKING_MODEL_RESULTS = 5
-# The only role with meaning to a reader of these rows: the model whose scores the inbox would
-# order on. Every other role in a manifest names a challenger, and the manifest owns that
-# vocabulary, so the roles list stays free text.
+# The serving manifest owns the role vocabulary, so `roles` stays free text. This is the one role
+# a reader of these rows acts on: the model whose scores the inbox would order on.
 RANKING_SERVED_ROLE = "served"
 
 
 class RankingModelResult(BaseModel):
-    """One model's part of a scoring pass: which model it was, and either its head probabilities or
-    why it produced none.
+    """One model's part of a scoring pass.
 
     The identity fields mirror the training dag's own columns and its `metadata.json`, so a stored
-    score joins to the model that wrote it without a lookup. `model_kind` names the learner the
-    loader dispatches on, which keeps a family with its own predict from needing a new artefact
-    type. A skipped result is kept rather than dropped, because "this model could not score this
-    report" is the coverage read the serving work is measured on.
+    score joins to the model that wrote it without a lookup. A skipped result is kept rather than
+    dropped, because "this model could not score this report" is the coverage read the serving work
+    is measured on.
     """
 
     # Pydantic reserves the `model_` prefix for its own API, so the guard is lifted here. Renaming
@@ -316,15 +313,18 @@ class RankingModelResult(BaseModel):
     skip_reason: str | None = Field(
         default=None, description="Why a skipped model produced no scores, e.g. a missing report vector."
     )
-    scores: dict[str, float] = Field(
+    # A head's score is consumed as a probability, by a threshold and by the composite score over
+    # the heads, so a raw margin stored here would be silently wrong rather than unusable. The
+    # bound belongs on the field so the generated schema carries it too.
+    scores: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict,
-        description="Outcome head name to its calibrated probability, in [0, 1]. Empty on a skipped model.",
+        description="Outcome head name to its calibrated probability. Empty on a skipped model.",
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description=(
             "Copied from the model's metadata.json: training partition, feature set, per-head "
-            "readability and holdout summary. Carried so a reader can judge a score without the model store."
+            "readability and holdout summary, so a reader can judge a score without the model store."
         ),
     )
 
@@ -337,17 +337,6 @@ class RankingModelResult(BaseModel):
     def identity_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
-        return v
-
-    @field_validator("scores")
-    @classmethod
-    def scores_must_be_probabilities(cls, v: dict[str, float]) -> dict[str, float]:
-        # A head's score is consumed as a probability: a threshold and the composite score over the
-        # heads both read it as one, so a raw margin stored here would be silently wrong rather
-        # than unusable. The bound also rejects NaN, which no comparison satisfies.
-        for head, score in v.items():
-            if not 0.0 <= score <= 1.0:
-                raise ValueError(f"score for head {head!r} must be a probability in [0, 1], got {score!r}")
         return v
 
     @model_validator(mode="after")
@@ -371,8 +360,7 @@ class RankingScore(BaseModel):
         default=None,
         description=(
             "Landing time of the report vector the pass scored, which is the sweep's idempotency "
-            "key: a report whose text did not change since this moment needs no new pass. Absent "
-            "when no model in the pass read a vector."
+            "key. Absent when no model in the pass read a vector."
         ),
     )
     manifest_version: str = Field(description="Version of the serving manifest that chose the models for the pass.")
@@ -380,7 +368,9 @@ class RankingScore(BaseModel):
         description="Key in `results` of the model whose scores the inbox would order on, as `<model_name>@<model_version>`."
     )
     results: dict[str, RankingModelResult] = Field(
-        description="Every model the pass ran, keyed by `<model_name>@<model_version>`."
+        min_length=1,
+        max_length=MAX_RANKING_MODEL_RESULTS,
+        description="Every model the pass ran, keyed by `<model_name>@<model_version>`.",
     )
 
     @field_validator("manifest_version", "served_key")
@@ -391,32 +381,24 @@ class RankingScore(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def results_are_keyed_by_their_model(self) -> RankingScore:
-        if not self.results:
-            raise ValueError("results must carry at least one model")
-        if len(self.results) > MAX_RANKING_MODEL_RESULTS:
-            raise ValueError(f"results must carry at most {MAX_RANKING_MODEL_RESULTS} models")
+    def served_score_is_resolvable(self) -> RankingScore:
+        # A consumer reads the served score as `results[served_key]`, so each rule here closes one
+        # way that expression returns the wrong thing or nothing at all.
+        served_keys = []
         for key, result in self.results.items():
             if key != result.key:
                 raise ValueError(f"result key {key!r} does not match its model {result.key!r}")
-        return self
-
-    @model_validator(mode="after")
-    def served_key_names_a_scored_served_model(self) -> RankingScore:
-        served = self.results.get(self.served_key)
-        if served is None:
+            if RANKING_SERVED_ROLE in result.roles:
+                served_keys.append(key)
+        if len(served_keys) != 1:
+            raise ValueError(f"exactly one result must carry the {RANKING_SERVED_ROLE!r} role, got {served_keys}")
+        if self.served_key not in self.results:
             raise ValueError(f"served_key {self.served_key!r} is not a key of results")
+        served = self.results[self.served_key]
         if RANKING_SERVED_ROLE not in served.roles:
             raise ValueError(f"served_key {self.served_key!r} does not carry the {RANKING_SERVED_ROLE!r} role")
         if served.status != "scored":
             raise ValueError(f"served_key {self.served_key!r} is {served.status}, so the pass has no served score")
-        # More than one served entry makes "the score the inbox would order on" ambiguous, which is
-        # the one question this artefact exists to answer.
-        served_keys = [key for key, result in self.results.items() if RANKING_SERVED_ROLE in result.roles]
-        if len(served_keys) > 1:
-            raise ValueError(
-                f"exactly one result may carry the {RANKING_SERVED_ROLE!r} role, got {sorted(served_keys)}"
-            )
         return self
 
 
@@ -1083,9 +1065,8 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 # Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
 # may write them; API writes would let callers fabricate automation provenance or completion.
-# `ranking_score` is model output: the scoring sweep is its only writer, so accepting it through the
-# API would let a caller fabricate a probability the model never produced, and the score is read
-# back as evidence about the model rather than about the report.
+# `ranking_score` is model output: the scoring sweep is its only writer, so accepting it through
+# the API would let a caller fabricate a probability the model never produced.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "task_run",
