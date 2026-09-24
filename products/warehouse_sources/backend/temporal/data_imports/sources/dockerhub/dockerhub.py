@@ -1,6 +1,5 @@
 import hashlib
 import datetime
-import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlsplit
@@ -9,6 +8,8 @@ import orjson
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -49,7 +50,7 @@ class DockerhubAuthExpiredError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class DockerhubResumeConfig:
     # Full URL of the next page to fetch, taken verbatim from the API's `next` field (it carries the
     # page/page_size/ordering params). Merge dedupes any re-pulled page on the primary key.
@@ -507,23 +508,30 @@ def _unexpected_status_message(status_code: int) -> str:
     )
 
 
-def _probe_sessions(personal_access_token: str) -> tuple[requests.Session, requests.Session]:
-    """Build the ``(login, data)`` session pair a credential probe needs.
+@frozen
+class ProbeSessions:
+    """The two tracked sessions a credential probe uses.
 
-    The login response body carries a JWT under the generic `token` key that the name-based sample
-    scrubbers don't redact, so credentials are exchanged on a capture-disabled session (still
-    metered and logged). The JWT then rides in the Authorization header, redacted by name, on the
-    capture-enabled data session."""
-    login_session = make_tracked_session(
-        headers={"Accept": "application/json"},
-        redact_values=(personal_access_token,),
-        capture=False,
+    Credentials are exchanged on `login`, which has sample capture disabled, because the login
+    response body carries a JWT under the generic `token` key that the name-based sample scrubbers
+    don't redact. The JWT then rides in the Authorization header, redacted by name, on `data`."""
+
+    login: requests.Session
+    data: requests.Session
+
+
+def _build_probe_sessions(personal_access_token: str) -> ProbeSessions:
+    return ProbeSessions(
+        login=make_tracked_session(
+            headers={"Accept": "application/json"},
+            redact_values=(personal_access_token,),
+            capture=False,
+        ),
+        data=make_tracked_session(
+            headers={"Accept": "application/json"},
+            redact_values=(personal_access_token,),
+        ),
     )
-    session = make_tracked_session(
-        headers={"Accept": "application/json"},
-        redact_values=(personal_access_token,),
-    )
-    return login_session, session
 
 
 def check_access(username: str, personal_access_token: str, namespace: str) -> tuple[int, Optional[str]]:
@@ -532,9 +540,9 @@ def check_access(username: str, personal_access_token: str, namespace: str) -> t
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status (with a message) otherwise.
     """
-    login_session, session = _probe_sessions(personal_access_token)
+    sessions = _build_probe_sessions(personal_access_token)
     try:
-        response = login_session.post(
+        response = sessions.login.post(
             f"{DOCKERHUB_BASE_URL}{LOGIN_PATH}",
             json={"username": username, "password": personal_access_token},
             timeout=15,
@@ -555,7 +563,7 @@ def check_access(username: str, personal_access_token: str, namespace: str) -> t
 
     # Probe the configured namespace so a typo'd org name fails at connect time, not sync time.
     try:
-        probe = session.get(
+        probe = sessions.data.get(
             f"{DOCKERHUB_BASE_URL}/v2/namespaces/{quote(namespace)}/repositories?{urlencode({'page_size': 1})}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=15,
@@ -624,10 +632,10 @@ def check_endpoint_access(
     if not probes:
         return permissions
 
-    login_session, session = _probe_sessions(personal_access_token)
+    sessions = _build_probe_sessions(personal_access_token)
     token: Any = None
     try:
-        response = login_session.post(
+        response = sessions.login.post(
             f"{DOCKERHUB_BASE_URL}{LOGIN_PATH}",
             json={"username": username, "password": personal_access_token},
             timeout=15,
@@ -645,7 +653,7 @@ def check_endpoint_access(
 
     for endpoint in probes:
         try:
-            probe = session.get(
+            probe = sessions.data.get(
                 _permission_probe_url(endpoint, namespace),
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=15,

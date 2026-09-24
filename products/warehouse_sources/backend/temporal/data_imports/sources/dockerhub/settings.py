@@ -1,12 +1,14 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class DockerhubEndpointConfig:
     name: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
