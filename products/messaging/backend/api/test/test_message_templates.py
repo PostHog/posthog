@@ -296,7 +296,8 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = getattr(self.client, method)(url, data=data, format="json")
         assert response.status_code == expected_status, response.json()
 
-    def test_update_replaces_content_wholesale(self):
+    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
+    def test_update_replaces_content_wholesale(self, mock_emit):
         """The content JSONField is replaced as a unit on update, never deep-merged —
         a payload without design makes the submitted html canonical."""
         self.message_template.content = {
@@ -317,6 +318,15 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert email["html"] == "<p>New</p>"
         # The stored design is a wrap of the new html, not a merge of the old design
         assert email["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"] == "<p>New</p>"
+        self._assert_resource_edited_emitted(mock_emit)
+
+    def _assert_resource_edited_emitted(self, mock_emit):
+        assert mock_emit.call_count == 1
+        kwargs = mock_emit.call_args.kwargs
+        assert kwargs["resource_type"] == "MessageTemplate"
+        assert kwargs["resource_id"] == str(self.message_template.id)
+        assert kwargs["updated_at"] == self.message_template.updated_at.isoformat()
+        assert kwargs["actor_user_id"] == self.user.id
 
     def test_personal_api_key_cannot_access_other_teams_template(self):
         api_key = self.create_personal_api_key_with_scopes(["hog_flow:read"])
@@ -363,8 +373,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
             },
         }
 
+    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
     @patch("products.messaging.backend.api.message_templates.render_design_html")
-    def test_design_patch_updates_one_block_and_rerenders(self, mock_render):
+    def test_design_patch_updates_one_block_and_rerenders(self, mock_render, mock_emit):
         mock_render.return_value = "<html>patched</html>"
         self.message_template.content = {"email": {"subject": "Hi", "design": self._design_with_text()}}
         self.message_template.save()
@@ -383,9 +394,11 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert email["subject"] == "Hi"
         assert email["html"] == "<html>patched</html>"
         mock_render.assert_called_once()
+        self._assert_resource_edited_emitted(mock_emit)
 
+    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
     @patch("products.messaging.backend.api.message_templates.render_design_html")
-    def test_design_patch_unknown_id_leaves_template_untouched(self, mock_render):
+    def test_design_patch_unknown_id_leaves_template_untouched(self, mock_render, mock_emit):
         mock_render.return_value = "<html>x</html>"
         original = self._design_with_text()
         self.message_template.content = {"email": {"subject": "Hi", "design": original}}
@@ -401,6 +414,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         self.message_template.refresh_from_db()
         assert self.message_template.content["email"]["design"] == original
         mock_render.assert_not_called()
+        mock_emit.assert_not_called()
 
     def test_design_patch_without_design_returns_400(self):
         # self.message_template has no design in content.email
