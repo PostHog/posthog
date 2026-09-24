@@ -1,6 +1,6 @@
-import { buildIntegerMatcher } from '~/common/config/config'
 import { DateTime } from 'luxon'
 
+import { buildIntegerMatcher } from '~/common/config/config'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
