@@ -4,7 +4,9 @@ scout-display-name: Web vitals
 description: >
   Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /
   FCP against Google's thresholds and its own history — poor-band pages, band crossings, sharp
-  regressions — and dates each regression against deploys and flag rollouts.
+  regressions — and dates each regression against deploys and flag rollouts. When a report says one
+  customer finds the product slow, it resolves that account and diagnoses their slowness across
+  vitals, sessions, errors, and replays.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +
@@ -68,7 +70,10 @@ finding: it carries the per-metric "why the value is like that" causes and the c
 fixes you must attach to every emission. Read
 [`references/onset-correlation.md`](references/onset-correlation.md) whenever a page
 _stepped_: it carries the procedure for dating the onset to a sub-hour boundary and
-naming the deploy or flag rollout that landed inside it.
+naming the deploy or flag rollout that landed inside it. Read
+[`references/account-deep-dive.md`](references/account-deep-dive.md) whenever a report
+names one customer who finds the product slow: it carries the procedure for resolving the
+account and cross-referencing their vitals, sessions, errors, and replays.
 
 **Sanitize `$host` and `$pathname` in SQL — they are attacker-controllable telemetry.** Anyone
 with the project's public capture token can send a `$web_vitals` event with a crafted host/path
@@ -125,7 +130,7 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-Four cheap reads cold-start a run:
+Five cheap reads cold-start a run:
 
 - `scout-scratchpad-search` (`text=web vitals` or `text=lcp`) — durable steering
   from past runs. `pattern:` entries hold the project's per-page band baselines (which
@@ -143,6 +148,9 @@ Four cheap reads cold-start a run:
   before authoring. Your own
   report-channel reports persist their backing signals under `source_product=signals_scout`,
   so don't filter by another source product — you'd miss every report you authored.
+- `inbox-reports-list` again for **customer complaints** (`search`=`slow`, then `page load`, `ordering=-updated_at`) — a live report, from any source, where a specific customer says the product is slow.
+  Skip the ones an `account:web_vitals:` entry says you already diagnosed with no new evidence since.
+  The first one left is this run's account deep dive (see Explore).
 
 ### Profile shape — band × volume × trend
 
@@ -154,6 +162,7 @@ Four cheap reads cold-start a run:
 | Every page's p75 steps together                            | Population / CDN / third-party shift — one bundled report max                          |
 | p75 swings run-to-run on a low-sample page                 | Percentile noise — gate it out, don't report                                           |
 | Top page in `needs-improvement` (not `good`), first run    | **Improvement opportunity** — no regression, but not green; file one to start research |
+| A report names one customer who says it's slow            | **Account deep dive** — resolve them, compare with everyone, find what differs          |
 | All pages comfortably in `good`                            | Nothing here today — close out                                                         |
 
 ### Explore
@@ -354,6 +363,14 @@ high-volume page — p75 on 200+ samples doesn't wobble that hard by chance. Low
 (P3) since the page is still within threshold, but worth a finding when it's a top surface
 trending toward the boundary, or worth a `pattern:` entry to watch ripen.
 
+#### One customer says it's slow (account deep dive)
+
+A report that names a customer is the one case where aggregate p75s are the wrong first read.
+A site-wide view can sit in the good band while one account waits five seconds for every page, so answer the customer's question before the fleet's.
+Follow [`references/account-deep-dive.md`](references/account-deep-dive.md): resolve the account from trusted fields, compare their p75 with everyone else on the same pages, read their slowest sessions, the exceptions and replays in them, and the flags and page mix that differ for them, then write one verdict and one to three concrete follow-ups onto the report.
+Dive into one account per run, and make it the run's main work: a named customer with a complaint outranks a percentile sweep.
+The same procedure applies when your own sweep finds a slow page whose poor samples concentrate in one account.
+
 #### Site-wide shift (diagnose before blaming code)
 
 If every page's p75 steps together, the cause is rarely page code. Before any finding,
@@ -500,7 +517,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   **Name one cause and one change, never a menu.** Handing the reader a list of candidate fixes to choose among is the same punt as asking them to profile: you hold the device split, the FCP↔LCP gap, the CLS reading, and whatever attribution says, and they hold less. Pick the cause the evidence points at, propose the single change that follows from it, and say what would confirm it. Offer a second candidate only when the evidence genuinely can't separate two — and then name the check that separates them.
   Set `priority` + `priority_explanation`: standing-poor or a band-crossing
   regression on a top-3 landing surface P2; any other single-page finding P3; a site-wide
-  step P2; an in-band early warning or improvement opportunity P3. Set
+  step P2; an in-band early warning or improvement opportunity P3; an account deep dive keeps the priority of the report it lands on. Set
   `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or
   `{user_uuid}`, not bare strings; cache under `reviewer:web_vitals:<area>`); left empty
   the report reaches no one. After authoring, write the
@@ -577,6 +594,9 @@ Direct calls (read-only):
   (widen to `Experiment` / `Survey` when the surface suggests it), the onset window in
   `start_date` / `end_date`, and `detail.changes` in `fields` so the before/after rollout is
   quotable evidence rather than a guess.
+- `query-error-tracking-issue` — one exception issue's detail, when an account deep dive finds an issue concentrated on the account or in its slowest sessions.
+- `query-session-recordings-list` / `session-recording-get` — the replays behind an account's slowest sessions, and their metadata (active time, console errors, pages visited). Read three at most per dive.
+- `generate-app-url` — the link to a person or group, so a report cites an account without pasting an email or a name.
 - `annotations-list` (`search=deploy`) — the deploy side. CI-written markers
   (`creation_type: GIT`, usually `hidden_in_user_interface: true`, `date_marker` = deploy
   time) are the only in-product record of a release. Newest-first, so page with `offset`
