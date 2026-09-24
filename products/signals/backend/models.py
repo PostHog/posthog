@@ -1,3 +1,4 @@
+import json
 import uuid
 import logging
 from collections import defaultdict
@@ -16,6 +17,7 @@ from django.utils.functional import Promise
 from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
@@ -401,6 +403,12 @@ class SignalReport(UUIDModel):
     # Deprecated - unused
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
+    # Cached from the newest `actionability_judgment` artefact so the inbox list can sort and filter
+    # on a column instead of casting artefact JSON for every report in the team. Receivers in
+    # receivers.py keep them current. NULL means the report has no parseable judgment.
+    latest_actionability = models.CharField(max_length=30, null=True, blank=True)
+    latest_already_addressed = models.BooleanField(null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
@@ -582,6 +590,37 @@ class SignalReport(UUIDModel):
         self.status = new_status
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
+
+    @classmethod
+    def refresh_latest_actionability(cls, *, team_id: int, report_id: Any) -> bool:
+        """Recompute the cached actionability from the artefact log and store it on the row.
+
+        Returns whether the row changed, and False when the report no longer exists. The row is
+        locked for the read and the write, so two judgment writers cannot interleave: without the
+        lock, a writer that read the log before a concurrent judgment committed would overwrite
+        the cache with the older value once the other writer released the row.
+        """
+        with transaction.atomic():
+            # FOR NO KEY UPDATE, not FOR UPDATE: an artefact insert holds KEY SHARE on its report
+            # through the foreign key, and FOR UPDATE conflicts with that, so two concurrent
+            # judgment writers would deadlock.
+            row = (
+                cls.objects.select_for_update(no_key=True)
+                .filter(team_id=team_id, id=report_id)
+                .values_list("latest_actionability", "latest_already_addressed")
+                .first()
+            )
+            if row is None:
+                return False
+            latest = SignalReportArtefact.latest_actionability(report_id)
+            if row == (latest.actionability, latest.already_addressed):
+                return False
+            # `update()`, not `save()`: refreshing a cache must not bump `updated_at`, which the
+            # inbox sorts on, or fire the report's own save receivers.
+            cls.objects.filter(id=report_id).update(
+                latest_actionability=latest.actionability, latest_already_addressed=latest.already_addressed
+            )
+            return True
 
     def restore_target_status(self) -> "SignalReport.Status":
         """
@@ -1148,6 +1187,21 @@ def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalReportArtefact.ArtefactType.choices)
 
 
+@frozen
+class LatestActionability:
+    """The `actionability` and `already_addressed` of a report's newest parseable judgment.
+
+    Both `None` when the report has no `actionability_judgment` whose content is a JSON object.
+    """
+
+    actionability: str | None
+    already_addressed: bool | None
+
+    @classmethod
+    def unjudged(cls) -> "LatestActionability":
+        return cls(actionability=None, already_addressed=None)
+
+
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -1332,6 +1386,31 @@ class SignalReportArtefact(UUIDModel):
             .values_list("report_id", "channel_id", "channel__deleted")
         )
         return {str(report_id): channel_id for report_id, channel_id, deleted in rows if deleted is False}
+
+    @classmethod
+    def latest_actionability(cls, report_id: Any) -> LatestActionability:
+        """The newest parseable `actionability_judgment` of a report, as `SignalReport` caches it.
+
+        Entries that are not JSON objects are skipped rather than ending the search, so one
+        malformed row cannot hide the judgment written before it.
+        """
+        rows = cls.objects.filter(report_id=report_id, type=cls.ArtefactType.ACTIONABILITY_JUDGMENT).order_by(
+            "-created_at"
+        )
+        for content in rows.values_list("content", flat=True).iterator(chunk_size=20):
+            try:
+                parsed = json.loads(content)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            actionability = parsed.get("actionability")
+            already_addressed = parsed.get("already_addressed")
+            return LatestActionability(
+                actionability=actionability if isinstance(actionability, str) else None,
+                already_addressed=already_addressed if isinstance(already_addressed, bool) else None,
+            )
+        return LatestActionability.unjudged()
 
     @classmethod
     def _create(

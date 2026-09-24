@@ -4010,6 +4010,31 @@ class ScoutMembersQuerySerializer(serializers.Serializer):
             "large project's roster to the owner you're trying to match instead of pulling every member."
         ),
     )
+    team = serializers.CharField(
+        required=False,
+        help_text=(
+            "Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster "
+            "to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an "
+            "owners file resolves to people you can route to. Returns an error, not an empty list, when "
+            "the project has no synced team roster or the roster holds no rows for the slug."
+        ),
+    )
+
+
+class ScoutMemberTeamSerializer(serializers.Serializer):
+    """One team a member belongs to, from the project's synced team roster."""
+
+    provider = serializers.CharField(
+        help_text="Where the team is defined, for example `github`. Today every team comes from GitHub."
+    )
+    slug = serializers.CharField(help_text="The team's slug, lowercased. For example `team-desktop`.")
+    name = serializers.CharField(help_text="The team's display name. For example `Team Desktop`.")
+    is_maintainer = serializers.BooleanField(
+        help_text=(
+            "True when this member maintains the team. Prefer maintainers when you pick reviewers for a "
+            "team, and treat false as 'not known to maintain it': some rosters sync without roles."
+        )
+    )
 
 
 class ScoutMemberSerializer(serializers.Serializer):
@@ -4031,5 +4056,13 @@ class ScoutMemberSerializer(serializers.Serializer):
             "the member has no linked GitHub account, which does not stop you routing to them: pass "
             "their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only "
             "means no draft PR can be opened as that person."
+        ),
+    )
+    teams = ScoutMemberTeamSerializer(
+        many=True,
+        help_text=(
+            "The teams this member is on, from the project's synced team roster. Empty when no roster is "
+            "synced, or when the member has no linked GitHub account, since the roster is keyed on that "
+            "login. The roster is a periodic snapshot, so it can lag the live team."
         ),
     )

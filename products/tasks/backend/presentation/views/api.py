@@ -2837,6 +2837,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         strict_request_validation=True,
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["post"], url_path="analysis-activity", required_scopes=["task:write"])
     def analysis_activity(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -4339,6 +4340,7 @@ class LegacyDesktopAccessViewSet(viewsets.ViewSet):
         summary="Check PostHog Desktop access",
         description="Compatibility endpoint for released PostHog Desktop clients.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
         team = getattr(request.user, "team", None)

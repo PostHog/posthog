@@ -10,7 +10,7 @@
 //!   1. Batch-fetch up to N messages, bounded by a ~500ms coalesce window.
 //!   2. Dedupe by `team_id` — an edit session firing 20 saves becomes one build.
 //!   3. Build each unique team once, with bounded retries.
-//!   4. Route teams with permanent failures or exhausted retries to the DLQ.
+//!   4. Route teams that exhaust their retry budget to the DLQ.
 //!   5. Commit offsets as a batch (only after the build outcome is decided).
 //!
 //! The lazy request-path fill stays as the final safety net: a stuck consumer
@@ -49,7 +49,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-use feature_flags::api::errors::FlagError;
 use feature_flags::flags::cache_builder::build_flags_cache;
 use feature_flags::flags::cache_invalidation::{FlagsCacheInvalidation, Source};
 use feature_flags::flags::cache_shadow::{
@@ -870,7 +869,7 @@ async fn shadow_compare(
 ) -> ShadowOutcome {
     let built = match build_flags_cache(pg_reader.clone(), team_id).await {
         Ok(built) => built,
-        Err(e) => return ShadowOutcome::Failed(BuildFailure::from_build(e)),
+        Err(e) => return ShadowOutcome::Failed(BuildFailure::database(e)),
     };
 
     let live = match live_reader
@@ -906,7 +905,6 @@ async fn shadow_compare(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
 enum FailureCategory {
     Database,
-    ConfigFormat,
     CacheParse,
     Redis,
     S3,
@@ -918,7 +916,6 @@ impl FailureCategory {
     fn as_label(&self) -> &'static str {
         match self {
             Self::Database => "database",
-            Self::ConfigFormat => "config_format",
             Self::CacheParse => "cache_parse",
             Self::Redis => "redis",
             Self::S3 => "s3",
@@ -928,28 +925,22 @@ impl FailureCategory {
     }
 }
 
-/// A terminal build failure tagged with its cause so metrics and DLQ headers can
-/// distinguish invalid configuration from infrastructure failures.
+/// A terminal build failure tagged with the tier that failed, so the error metric
+/// and DLQ headers can attribute it — that tier (database / redis / s3 / serialize)
+/// is the triage signal the DLQ exists to provide.
 struct BuildFailure {
     category: FailureCategory,
     message: String,
 }
 
 impl BuildFailure {
-    fn from_build(err: FlagError) -> Self {
-        let category = if err.error_code() == "flag_data_parsing_error" {
-            FailureCategory::ConfigFormat
-        } else {
-            FailureCategory::Database
-        };
+    /// A failure reading flag/cohort state from Postgres (the `build_flags_cache`
+    /// step). The whole step is DB-bound on this path, so it's attributed wholesale.
+    fn database(err: impl std::fmt::Display) -> Self {
         Self {
-            category,
+            category: FailureCategory::Database,
             message: err.to_string(),
         }
-    }
-
-    fn should_retry(&self, attempt: u32, max_attempts: u32) -> bool {
-        self.category != FailureCategory::ConfigFormat && attempt < max_attempts
     }
 
     /// A failure reading the live entry during a shadow compare. `Json`/`Pickle`
@@ -1010,7 +1001,7 @@ async fn build_with_retry(
                 return Ok(());
             }
             Err(failure) => {
-                if !failure.should_retry(attempt, cfg.build_max_attempts) {
+                if attempt >= cfg.build_max_attempts {
                     return Err(failure);
                 }
                 metrics::counter!(BUILD_RETRIES).increment(1);
@@ -1046,7 +1037,7 @@ async fn build_once(
 ) -> Result<PersistOutcome, BuildFailure> {
     let cache = build_flags_cache(pg_reader.clone(), team_id)
         .await
-        .map_err(BuildFailure::from_build)?;
+        .map_err(BuildFailure::database)?;
     persist_flags_cache(writer, team_id, &cache, ttl_seconds)
         .await
         .map_err(BuildFailure::from_persist)
@@ -1262,8 +1253,7 @@ mod tests {
 
     use super::{
         fold_message, max_per_partition, precreate_counters, retry_backoff, truncate_for_header,
-        BuildFailure, FlagError, ShadowOutcome, ShadowOutcomeLabel, Source, TeamBatch,
-        DLQ_ERROR_HEADER_MAX,
+        BuildFailure, ShadowOutcome, ShadowOutcomeLabel, Source, TeamBatch, DLQ_ERROR_HEADER_MAX,
     };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
@@ -1301,6 +1291,34 @@ mod tests {
                 .map(|(team_id, emitted_at, offset)| (team_id, emitted_at, Source::Edit, offset))
                 .collect(),
         )
+    }
+
+    #[tokio::test]
+    async fn build_once_persists_the_team_without_its_unsupported_flags() {
+        use common_hypercache::writer::HyperCacheWriter;
+        use common_redis::MockRedisClient;
+        use feature_flags::flags::cache_writer::make_cache_config;
+        use feature_flags::utils::test_utils::{
+            dummy_s3_client, insert_v1_and_v2_flags, published_flag_keys, TestContext,
+        };
+        use std::sync::Arc;
+
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        insert_v1_and_v2_flags(&context, team.id).await;
+        let redis = Arc::new(MockRedisClient::new());
+        let writer = HyperCacheWriter::new(
+            redis.clone(),
+            dummy_s3_client(),
+            make_cache_config("us-east-1", "test-bucket", None),
+        );
+
+        let outcome = super::build_once(&context.non_persons_reader, &writer, team.id, 60)
+            .await
+            .unwrap_or_else(|failure| panic!("{}", failure.message));
+
+        assert_eq!(published_flag_keys(&redis), ["v1-flag"]);
+        assert!(!outcome.etag.is_empty());
     }
 
     #[test]
@@ -1489,20 +1507,11 @@ mod tests {
     }
 
     #[test]
-    fn build_failure_classifies_build_errors_and_skips_config_format_retries() {
-        for (err, expected_category, retryable) in [
-            (FlagError::DatabaseUnavailable, "database", true),
-            (
-                FlagError::flag_data_parsing("unsupported feature flag configuration format"),
-                "config_format",
-                false,
-            ),
-        ] {
-            let failure = BuildFailure::from_build(err);
-            assert_eq!(failure.category.as_label(), expected_category);
-            assert_eq!(failure.should_retry(1, 3), retryable);
-            assert!(!failure.should_retry(3, 3));
-        }
+    fn build_failure_attributes_build_step_to_database() {
+        assert_eq!(
+            BuildFailure::database("pg unreachable").category.as_label(),
+            "database"
+        );
     }
 
     #[test]
@@ -1615,7 +1624,7 @@ mod tests {
                 ShadowOutcomeLabel::LiveEntryMissing,
             ),
             (
-                ShadowOutcome::Failed(BuildFailure::from_build(FlagError::DatabaseUnavailable)),
+                ShadowOutcome::Failed(BuildFailure::database("pg unreachable")),
                 ShadowOutcomeLabel::Error,
             ),
             (
@@ -1654,8 +1663,6 @@ mod tests {
         "flags_cache_builder_build_retries_total{}",
         "flags_cache_builder_builds_total{reason=cache_parse,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=cache_parse,result=failure,source=refresh}",
-        "flags_cache_builder_builds_total{reason=config_format,result=failure,source=edit}",
-        "flags_cache_builder_builds_total{reason=config_format,result=failure,source=refresh}",
         "flags_cache_builder_builds_total{reason=database,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=database,result=failure,source=refresh}",
         "flags_cache_builder_builds_total{reason=other,result=failure,source=edit}",
@@ -1674,7 +1681,6 @@ mod tests {
         "flags_cache_builder_messages_received_total{}",
         "flags_cache_builder_parse_errors_total{}",
         "flags_cache_shadow_build_failures_total{category=cache_parse}",
-        "flags_cache_shadow_build_failures_total{category=config_format}",
         "flags_cache_shadow_build_failures_total{category=database}",
         "flags_cache_shadow_build_failures_total{category=other}",
         "flags_cache_shadow_build_failures_total{category=redis}",
