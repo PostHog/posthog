@@ -50,7 +50,6 @@ import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
 import { EVALUATION_RUNS_QUERY_LIMIT, formatNumericEvaluationScore, numericOutputConfigError } from './constants'
 import {
-    evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
     evaluationSupportsReports,
     evaluationSupportsRunOutcomes,
@@ -100,7 +99,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
-    const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
@@ -142,10 +140,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const isSentiment = evaluation.evaluation_type === 'sentiment'
     const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
     const isSessionTarget = evaluation.target === 'session'
-    const offersSessionTarget = evaluationOffersSessionTarget(evaluation, settlingStrategyEnabled)
-    // Read the stored strategy whether or not the flag is on. The flag gates the *picker*, not what
-    // the row contains: an API- or MCP-created session eval is inactivity, and forcing fixed_window
-    // here rendered a "wait 30 minutes" field holding a default the config never had.
+    // An API- or MCP-created session eval stores no strategy but behaves as inactivity. Forcing
+    // fixed_window here rendered a "wait 30 minutes" field holding a default the config never had.
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const supportsRunOutcomes = evaluationSupportsRunOutcomes(originalEvaluation)
@@ -586,14 +582,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                     value: 'trace',
                                                                     label: 'Whole trace',
                                                                 },
-                                                                ...(offersSessionTarget
-                                                                    ? [
-                                                                          {
-                                                                              value: 'session' as const,
-                                                                              label: 'Whole session',
-                                                                          },
-                                                                      ]
-                                                                    : []),
+                                                                {
+                                                                    value: 'session',
+                                                                    label: 'Whole session',
+                                                                },
                                                             ]}
                                                             fullWidth
                                                         />
@@ -607,27 +599,25 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </p>
                                                     {isAggregateTarget && (
                                                         <>
-                                                            {settlingStrategyEnabled && (
-                                                                <LemonField.Pure label="Evaluate when">
-                                                                    <LemonSelect<EvaluationSettleStrategy>
-                                                                        value={effectiveStrategy}
-                                                                        onChange={setSettleStrategy}
-                                                                        options={[
-                                                                            {
-                                                                                value: 'fixed_window',
-                                                                                label: 'A fixed delay has passed',
-                                                                            },
-                                                                            {
-                                                                                value: 'inactivity',
-                                                                                label: isSessionTarget
-                                                                                    ? 'The session goes quiet'
-                                                                                    : 'The trace goes quiet',
-                                                                            },
-                                                                        ]}
-                                                                        fullWidth
-                                                                    />
-                                                                </LemonField.Pure>
-                                                            )}
+                                                            <LemonField.Pure label="Evaluate when">
+                                                                <LemonSelect<EvaluationSettleStrategy>
+                                                                    value={effectiveStrategy}
+                                                                    onChange={setSettleStrategy}
+                                                                    options={[
+                                                                        {
+                                                                            value: 'fixed_window',
+                                                                            label: 'A fixed delay has passed',
+                                                                        },
+                                                                        {
+                                                                            value: 'inactivity',
+                                                                            label: isSessionTarget
+                                                                                ? 'The session goes quiet'
+                                                                                : 'The trace goes quiet',
+                                                                        },
+                                                                    ]}
+                                                                    fullWidth
+                                                                />
+                                                            </LemonField.Pure>
                                                             {effectiveStrategy === 'fixed_window' ? (
                                                                 <LemonField.Pure label="Wait before evaluating">
                                                                     <div className="space-y-1">
