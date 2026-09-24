@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -11,6 +11,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { usersTwoFactorStatusRetrieve } from '~/generated/core/api'
 import type { TwoFactorStatusApi } from '~/generated/core/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
@@ -268,6 +269,17 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         toggleBackupCodesModal: (open: boolean) => ({ open }),
         setSetupCallOngoing: (ongoing: boolean) => ({ ongoing }),
     }),
+    // GlobalModals mounts this logic on every page, so the status loads on first read instead of on mount.
+    lazyLoaders(() => ({
+        status: [
+            null as TwoFactorStatusApi | null,
+            {
+                loadStatus: async () => {
+                    return await usersTwoFactorStatusRetrieve('@me')
+                },
+            },
+        ],
+    })),
     reducers({
         isTwoFactorSetupModalOpen: [
             false,
@@ -321,21 +333,6 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 closeTwoFactorSetupModal: (state) => ({ ...state, isOngoing: false }),
             },
         ],
-        status: [
-            null as TwoFactorStatusApi | null,
-            {
-                loadStatusSuccess: (_, { status }) => status,
-                generateBackupCodesSuccess: (state, { generatingCodes }) => {
-                    if (!state) {
-                        return null
-                    }
-                    return {
-                        ...state,
-                        backup_codes_remaining: generatingCodes?.backup_codes.length ?? state.backup_codes_remaining,
-                    }
-                },
-            },
-        ],
     }),
     selectors({
         is2FAEnabled: [(s) => [s.status], (status: TwoFactorStatusApi | null): boolean => !!status?.is_enabled],
@@ -362,15 +359,6 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorStartSetupRetrieve() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.get('api/users/@me/two_factor_start_setup/')
                     return response
-                },
-            },
-        ],
-        status: [
-            null as TwoFactorStatusApi | null,
-            {
-                loadStatus: async () => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersTwoFactorStatusRetrieve() from '~/generated/core/api' instead.
-                    return await api.get<TwoFactorStatusApi>('api/users/@me/two_factor_status/')
                 },
             },
         ],
@@ -403,7 +391,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             },
         },
     })),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         submitTokenSuccess: () => {
             lemonToast.success('2FA method added successfully')
             actions.loadStatus()
@@ -426,8 +414,15 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 throw e
             }
         },
-        generateBackupCodesSuccess: () => {
+        generateBackupCodesSuccess: ({ generatingCodes }) => {
             lemonToast.success('Backup codes generated successfully')
+            // The new codes replace the old ones, so the remaining count is known without another request.
+            if (values.status && generatingCodes) {
+                actions.loadStatusSuccess({
+                    ...values.status,
+                    backup_codes_remaining: generatingCodes.backup_codes.length,
+                })
+            }
         },
         closeTwoFactorSetupModal: () => {
             // Clear the form when closing the modal
@@ -436,8 +431,6 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadStatus()
-
         if (
             values.user &&
             values.user.organization?.enforce_2fa &&
