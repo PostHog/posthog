@@ -10,6 +10,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
@@ -468,8 +469,15 @@ def _unknown_filter_globals(expr: ast.Expr) -> list[str]:
     )
 
 
-def _compile_against_runtime(expr: ast.Expr, team: Team) -> tuple[list[Any], list[str], HogQLContext]:
-    """The bytecode, every root it reads that the runtime does not provide, and the compile context."""
+@frozen
+class _RuntimeCompilation:
+    bytecode: list[Any]
+    # Every root the program reads that the runtime does not provide.
+    unknown_roots: list[str]
+    context: HogQLContext
+
+
+def _compile_against_runtime(expr: ast.Expr, team: Team) -> _RuntimeCompilation:
     # Declaring the globals turns the compiler's field resolution into a check: it warns on a
     # root that is neither a local, an upvalue, nor one of ours.
     context = HogQLContext(team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
@@ -477,7 +485,7 @@ def _compile_against_runtime(expr: ast.Expr, team: Team) -> tuple[list[Any], lis
     unknown = sorted(
         {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
     )
-    return bytecode, unknown, context
+    return _RuntimeCompilation(bytecode=bytecode, unknown_roots=unknown, context=context)
 
 
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
@@ -488,10 +496,13 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception("Select queries are not allowed in filters")
 
         expr = _LowerConstantMembership().visit(expr)
-        filters["bytecode"], unknown, context = _compile_against_runtime(expr, team)
-        if unknown and filters.get("source") in DATA_WAREHOUSE_SOURCES:
-            expr = _WarehouseRowFields(roots=set(unknown)).visit(expr)
-            filters["bytecode"], unknown, context = _compile_against_runtime(expr, team)
+        compiled = _compile_against_runtime(expr, team)
+        if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
+            expr = _WarehouseRowFields(roots=set(compiled.unknown_roots)).visit(expr)
+            compiled = _compile_against_runtime(expr, team)
+        filters["bytecode"] = compiled.bytecode
+        unknown = compiled.unknown_roots
+        context = compiled.context
         if unknown:
             # The person saving a destination did not write the team's test account filters, so a
             # message that only names the field sends them looking in the wrong place.
