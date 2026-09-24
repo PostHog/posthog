@@ -136,11 +136,15 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
             ("bob", {"inv-1"}),
             ("Newsletter", {"inv-2"}),
             ("example.com", {"inv-1", "inv-2"}),
+            ("first_last", {"inv-3"}),
+            ("50%", {"inv-3"}),
         ]
     )
     def test_search_matches_recipient_or_subject(self, term: str, expected_ids: set):
         self._seed("inv-1", recipient="bob@example.com", subject="Welcome")
         self._seed("inv-2", recipient="alice@example.com", subject="Newsletter")
+        self._seed("inv-3", recipient="first_last@example.org", subject="50% off")
+        self._seed("inv-4", recipient="first.last@example.org", subject="500 offers")
         results = self._list({"search": term}).json()
         assert {r["invocation_id"] for r in results} == expected_ids
 
