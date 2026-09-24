@@ -148,6 +148,7 @@ export interface heatmapLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     blockConsentModals: boolean
     containerWidth: number | null
+    dataUrlEditDisabledReason: string | null
     desiredNumericWidth: number
     displayUrlIsPattern: boolean
     draftSettings: HeatmapSettings
@@ -336,6 +337,7 @@ export interface heatmapLogicMeta {
         previewType: (savedSettings: HeatmapSettings | null, type: HeatmapType) => HeatmapType
         editDisabledReason: (userAccessLevel: AccessControlLevel | null) => string | null
         renderSettingsEditDisabledReason: (editDisabledReason: string | null, source: HeatmapSource) => string | null
+        dataUrlEditDisabledReason: (editDisabledReason: string | null) => string | null
         urlEditDisabledReason: (editDisabledReason: string | null, source: HeatmapSource) => string | null
         saveDisabledReason: (
             editDisabledReason: string | null,
@@ -829,6 +831,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (s) => [s.editDisabledReason, s.source],
             (reason: string | null, source: HeatmapSource): string | null =>
                 reason || (source === 'toolbar' ? 'Open in toolbar to capture a new screenshot.' : null),
+        ],
+        dataUrlEditDisabledReason: [
+            (s) => [s.editDisabledReason],
+            (reason: string | null): string | null =>
+                reason || getAccessControlDisabledReason(AccessControlResourceType.Heatmap, AccessControlLevel.Editor),
         ],
         urlEditDisabledReason: [
             (s) => [s.editDisabledReason, s.source],

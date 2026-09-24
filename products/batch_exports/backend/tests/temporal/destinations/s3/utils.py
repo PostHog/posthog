@@ -333,7 +333,9 @@ async def assert_clickhouse_records_in_s3(
         # Re-running the query itself yields the expected rows, with the same interval bounds
         # substituted as the run exported with.
         producer = ClickHouseTestProducer(
-            model=HogQLQueryRecordBatchModel(team_id=team_id, hogql_query=batch_export_model.hogql_query)
+            model=HogQLQueryRecordBatchModel(
+                team_id=team_id, hogql_query=batch_export_model.hogql_query, user_id=batch_export_model.user_id
+            )
         )
     else:
         producer = ClickHouseTestProducer()

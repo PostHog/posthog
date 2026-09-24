@@ -47,10 +47,10 @@ from products.replay_vision.backend.temporal.metrics import (
     record_sweep_outcome,
 )
 from products.replay_vision.backend.temporal.read_meter_types import (
+    buckets_or_pre_split,
+    current_sweep_throttle_factor,
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
-    sweep_spend_bytes_24h,
-    sweep_throttle_factor,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
@@ -234,9 +234,11 @@ def _throttled(scanner: ReplayScanner) -> bool:
     lagging behind the horizon) is never throttled harder while it drains its backlog.
     """
     now = dt.datetime.now(dt.UTC)
-    factor = sweep_throttle_factor(
-        sweep_spend_bytes_24h(_buckets_or_pre_split(scanner.fast_read_bytes_by_hour, scanner), now),
+    factor = current_sweep_throttle_factor(
+        scanner.fast_read_bytes_by_hour,
+        scanner.sweep_read_bytes_by_hour,
         scanner.sweep_throttle_factor_override,
+        now,
     )
     if factor <= 1:
         return False
@@ -273,12 +275,6 @@ def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) ->
         activity.logger.exception("replay_vision.priming_pass_failed")
         record_sweep_outcome("priming_failed")
         return []
-
-
-def _buckets_or_pre_split(buckets: dict[str, int] | None, scanner: ReplayScanner) -> dict[str, int] | None:
-    """`is None`, not truthiness: only a column the meter has never written falls back to the
-    pre-split total bucket, which keeps throttled scanners throttled across the deploy."""
-    return scanner.sweep_read_bytes_by_hour if buckets is None else buckets
 
 
 # Kept back for the activity's own wrap-up (exclusion filtering, result serialization).
@@ -326,7 +322,9 @@ def _deep_sweep(
     if now - last_attempt < DEEP_SWEEP_INTERVAL:
         return [], None
     factor = deep_sweep_throttle_factor(
-        deep_spend_bytes_per_day(_buckets_or_pre_split(scanner.deep_read_bytes_by_hour, scanner), now)
+        deep_spend_bytes_per_day(
+            buckets_or_pre_split(scanner.deep_read_bytes_by_hour, scanner.sweep_read_bytes_by_hour), now
+        )
     )
     if now - last_attempt < DEEP_SWEEP_INTERVAL * factor:
         return [], None

@@ -1,4 +1,7 @@
-"""Slack link unfurling for PostHog resource URLs (metadata only)."""
+"""Slack link unfurling for PostHog resource URLs (metadata only).
+
+Ticket subjects and messages are customer-authored, so every one goes through `escape_slack_mrkdwn`.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.user_access_control import (
@@ -225,11 +229,6 @@ def _find_ticket(team_id: int, ref: str) -> Ticket | None:
         return None
 
 
-def _escape_mrkdwn(text: str) -> str:
-    """Escape mrkdwn control chars — ticket subjects/messages are customer-authored."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _ticket_requester(team: Team, ticket: Ticket) -> str:
     """Display the ticket's requester using the project's person display-name settings.
 
@@ -260,7 +259,7 @@ def _ticket_opening_message(team_id: int, ticket_id: UUID) -> str | None:
         .values_list("content", flat=True)
         .first()
     )
-    return _truncate(_escape_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
+    return _truncate(escape_slack_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
 
 
 def _unfurl_payload(*, resource_label: str, title: str, description: str | None) -> dict:
@@ -504,7 +503,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             unfurls[raw_url] = _ticket_unfurl_payload(
                 url=raw_url,
                 ticket=ticket,
-                requester=_escape_mrkdwn(_ticket_requester(team, ticket)),
+                requester=escape_slack_mrkdwn(_ticket_requester(team, ticket)),
                 opening_message=_ticket_opening_message(team.pk, ticket.id),
             )
         elif kind == "task":
@@ -519,7 +518,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 skipped.append({"kind": kind, "ref": ref, "reason": "not_found_or_no_access"})
                 continue
             label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
-            unfurls[raw_url] = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
+            unfurls[raw_url] = _unfurl_payload(
+                resource_label=label, title=escape_slack_mrkdwn(task.title), description=None
+            )
             try:
                 _attach_public_slack_thread_reference(
                     slack=slack,

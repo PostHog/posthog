@@ -1,13 +1,18 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { FILES_TREE_KEY } from '~/layout/panel-layout/navbar/tabs/navFilesTabLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { initKeaTests } from '~/test/init'
 
 import { PosthogFilesystem } from './posthogFilesystem'
@@ -21,12 +26,13 @@ const mockFolderFor = jest.fn<Promise<string | null>, []>()
 jest.mock('./terminalRuntime', () => ({
     TerminalRuntime: jest.fn().mockImplementation(() => ({
         start: jest.fn(async (_server, _signal, ready) => ready()),
+        write: jest.fn(),
+        displayInput: { release: jest.fn() },
         dispose: jest.fn(),
         resize: jest.fn(),
         syncClock: jest.fn(),
         changeDirectory: jest.fn(() => true),
         read: jest.fn(() => ''),
-        write: jest.fn(),
     })),
 }))
 jest.mock('./TerminalSession', () => ({
@@ -45,6 +51,7 @@ jest.mock('./posthogFilesystem', () => ({
     })),
 }))
 jest.mock('./posthogCommands', () => ({ PosthogCommands: jest.fn() }))
+jest.mock('./terminalAI', () => ({ TerminalAI: jest.fn() }))
 
 describe('terminal lifecycle', () => {
     beforeEach(() => {
@@ -60,6 +67,43 @@ describe('terminal lifecycle', () => {
 
     afterEach(() => jest.restoreAllMocks())
 
+    it.each([false, true])('opens folders with the simple side panel enabled: %s', (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
+            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled,
+        })
+        const push = jest.spyOn(router.actions, 'push')
+        const url = urls.projectFiles('Research & notes/Reports')
+        terminalLogic.actions.openUrl(url)
+        if (enabled) {
+            expect(push).not.toHaveBeenCalled()
+            expect(panelLayoutLogic.values.navExperimentActiveTab).toBe('files')
+            expect(projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).values.expandedFolders).toContain(
+                'project://Research & notes/Reports'
+            )
+        } else {
+            expect(push).toHaveBeenCalledWith(url)
+        }
+        terminalLogic.actions.openUrl('/insights/example')
+        expect(push).toHaveBeenCalledWith('/insights/example')
+    })
+
+    it.each([true, false])('keeps project-qualified folder links in their own project: %s', (sameProject) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
+            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+        })
+        const push = jest.spyOn(router.actions, 'push')
+        const projectId = MOCK_DEFAULT_TEAM.id + (sameProject ? 0 : 1)
+        const url = `/project/${projectId}/files?folder=Reports`
+        terminalLogic.actions.openUrl(url)
+        if (sameProject) {
+            expect(push).not.toHaveBeenCalled()
+        } else {
+            expect(push).toHaveBeenCalledWith(url)
+        }
+    })
+
     it('does not boot without the flag and stops an active session on revocation', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
         terminalLogic.actions.attach(document.createElement('div'))
@@ -73,6 +117,26 @@ describe('terminal lifecycle', () => {
         expect(runtime.dispose).toHaveBeenCalledTimes(1)
         expect(window.posthogTerminal).toBeUndefined()
         expect(terminalLogic.values.status).toBe('idle')
+    })
+
+    it('interrupts the foreground program when closing the display but keeps the terminal running', async () => {
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        terminalLogic.actions.setDisplayOpen(true)
+        terminalDockLogic.actions.setDockOpen(false)
+        terminalLogic.actions.setDisplayError('Display error')
+        terminalLogic.actions.closeDisplay()
+        expect(terminalDockLogic.values.dockOpen).toBe(true)
+        expect(terminalLogic.values.displayError).toBeNull()
+        expect(terminalLogic.values.displayOpen).toBe(false)
+        expect(runtime.write).toHaveBeenCalledWith('\x03')
+        expect(runtime.displayInput.release).toHaveBeenCalled()
+        expect(runtime.dispose).not.toHaveBeenCalled()
+        expect(terminalLogic.values.status).toBe('ready')
+        terminalLogic.actions.setDisplayOpen(true)
+        terminalLogic.actions.stop()
+        expect(terminalLogic.values.displayOpen).toBe(false)
     })
 
     it('preserves Stop across reattachment and project changes', async () => {
