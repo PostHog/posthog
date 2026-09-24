@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.conf import settings
@@ -8,6 +9,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.utils import uuid7
 
@@ -65,7 +67,7 @@ class TestObservationMedia(BaseTest):
             is_system=True,
         )
 
-    def _prepare(self, **overrides: Any) -> Any:
+    def _inputs(self, **overrides: Any) -> ObservationMediaInputs:
         fields: dict[str, Any] = {
             "team_id": self.team.id,
             "observation_id": self.observation.id,
@@ -73,7 +75,10 @@ class TestObservationMedia(BaseTest):
             "analysis_asset_id": self.analysis_asset.id,
         }
         fields.update(overrides)
-        return async_to_sync(prepare_observation_thumbnail_activity)(ObservationMediaInputs(**fields))
+        return ObservationMediaInputs(**fields)
+
+    def _prepare(self, **overrides: Any) -> Any:
+        return async_to_sync(prepare_observation_thumbnail_activity)(self._inputs(**overrides))
 
     def test_media_object_is_written_outside_the_exports_prefix(self) -> None:
         prepared = self._prepare()
@@ -115,6 +120,15 @@ class TestObservationMedia(BaseTest):
 
         assert prepared.activity_input.video_time_s == expected_s
         assert prepared.video_start_ms == int(expected_s * 1000)
+
+    def test_a_missing_analysis_asset_fails_without_retrying(self) -> None:
+        analysis_asset_id = self.analysis_asset.id
+        self.analysis_asset.delete()
+
+        with pytest.raises(ApplicationError) as caught:
+            self._prepare(analysis_asset_id=analysis_asset_id)
+
+        assert caught.value.non_retryable is True
 
     def test_finalize_links_the_rendered_object_to_the_observation(self) -> None:
         prepared = self._prepare()

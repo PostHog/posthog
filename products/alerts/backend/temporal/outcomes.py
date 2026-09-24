@@ -18,7 +18,7 @@ from products.alerts.backend.temporal.metrics import increment_outcomes_recorded
 
 
 @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
-async def alerts_product_record_outcomes_activity(inputs: SourceOutcomeInputs) -> int:
+async def alerts_platform_record_outcomes_activity(inputs: SourceOutcomeInputs) -> int:
     """Records one batch's decisions. Returns how many reached the tables."""
     # Imported in the activity body, not at module scope: a Django model import trips Temporal's
     # workflow sandbox, and the worker registration that reaches this module runs through one.

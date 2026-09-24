@@ -1,7 +1,7 @@
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightShortId, InsightModel } from '~/types'
 
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
@@ -12,11 +12,6 @@ export enum MaxContextType {
     EVALUATION = 'evaluation',
     NOTEBOOK = 'notebook',
 }
-
-export type InsightWithQuery = Pick<
-    Partial<QueryBasedInsightModel>,
-    'query' | 'short_id' | 'name' | 'derived_name' | 'description' | 'id'
->
 
 export interface MaxInsightContext {
     type: MaxContextType.INSIGHT
@@ -112,15 +107,30 @@ export type MaxContextItem =
     | MaxEvaluationContext
     | MaxNotebookContext
 
+/**
+ * The insight fields Max's context needs. `rawSceneContext` deep-compares its whole value, so
+ * narrowing here keeps `result` out of that comparison. Pass the model whole and a refresh that
+ * changed only results reads as a context change.
+ */
+export type MaxContextInsight = Pick<
+    Partial<InsightModel>,
+    'query' | 'short_id' | 'name' | 'derived_name' | 'description' | 'id'
+>
+
+/** A dashboard reduced to what Max reads from it, for the same reason as `MaxContextInsight`. */
+export type MaxContextDashboard = Pick<DashboardType, 'id' | 'name' | 'description' | 'filters'> & {
+    tiles: { insight?: MaxContextInsight }[]
+}
+
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
-    data: InsightWithQuery
+    data: MaxContextInsight
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
-    data: DashboardType<InsightWithQuery>
+    data: MaxContextDashboard
 }
 type MaxEventContextInput = {
     type: MaxContextType.EVENT
@@ -157,7 +167,7 @@ export type MaxContextInput =
     | MaxEvaluationContextInput
     | MaxNotebookContextInput
 
-function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWithQuery {
+function pickInsightFields(insight: Partial<InsightModel>): MaxContextInsight {
     return {
         id: insight.id,
         short_id: insight.short_id,
@@ -173,19 +183,22 @@ function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWit
  * These ensure proper typing and consistent patterns across scene logics
  */
 export const createMaxContextHelpers = {
-    dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContextInput => ({
+    dashboard: (dashboard: DashboardType): MaxDashboardContextInput => ({
         type: MaxContextType.DASHBOARD,
         data: {
-            ...dashboard,
+            id: dashboard.id,
+            name: dashboard.name,
+            description: dashboard.description,
+            filters: dashboard.filters,
+            // A dashboard scene offers its context before its tiles load, so this can be unset.
             tiles: (dashboard.tiles ?? []).map((tile) => ({
-                ...tile,
                 insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
             })),
         },
     }),
 
     insight: (
-        insight: InsightWithQuery,
+        insight: Partial<InsightModel>,
         {
             filtersOverride,
             variablesOverride,
