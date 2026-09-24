@@ -138,7 +138,7 @@ describe('PlayerSidebarExperimentsSection', () => {
             expect(before.textContent).toBe('-00:24')
             expect((await exposureLink('Inside window')).textContent).toBe('00:05')
             const after = await exposureLink('After end')
-            expect(after.textContent).toBe('+00:39')
+            expect(after.textContent).toBe('+00:38')
             // A gap under a second rounds up rather than flooring to 00:00, which would read as the
             // "no exposure here" the signed offset exists to correct.
             expect((await exposureLink('Fraction of a second before start')).textContent).toBe('-00:01')

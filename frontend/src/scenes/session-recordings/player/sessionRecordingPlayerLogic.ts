@@ -571,6 +571,7 @@ export interface sessionRecordingPlayerLogicValues {
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
+    metadataDurationMs: number | null // sessionRecordingDataCoordinatorLogic
     trackedWindow: number | null // sessionRecordingDataCoordinatorLogic
     urls: {
         timestamp: number
@@ -1135,7 +1136,11 @@ export interface sessionRecordingPlayerLogicMeta {
             sessionPlayerData: SessionPlayerData,
             seekRenderability: (timestamp: number) => SeekRenderability
         ) => number | null
-        leadingUnplayableMs: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => number
+        leadingUnplayableMs: (
+            sessionPlayerData: SessionPlayerData,
+            leadingRecoveryTimestamp: number | null,
+            metadataDurationMs: number | null
+        ) => number
         hasLateFullSnapshot: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => boolean
         unrenderableWindowSpans: (
             sessionPlayerData: SessionPlayerData,
@@ -1216,6 +1221,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
+                'metadataDurationMs',
                 'createExportJSON',
                 'customRRWebEvents',
                 'fullyLoaded',
@@ -1981,16 +1987,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         leadingUnplayableMs: [
-            (s) => [s.sessionPlayerData, s.leadingRecoveryTimestamp],
-            (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null): number => {
+            (s) => [s.sessionPlayerData, s.leadingRecoveryTimestamp, s.metadataDurationMs],
+            (
+                sessionPlayerData: SessionPlayerData,
+                leadingRecoveryTimestamp: number | null,
+                metadataDurationMs: number | null
+            ): number => {
                 const start = sessionPlayerData.start?.valueOf()
                 if (start == null || leadingRecoveryTimestamp == null) {
                     return 0
                 }
-                // `durationMs` is capped by the metadata duration, so a skewed start can put the recovery
-                // point past the end of the timeline. A span longer than the recording it belongs to is
-                // impossible, so report at most the whole recording.
-                return Math.min(leadingRecoveryTimestamp - start, sessionPlayerData.durationMs)
+                // A skewed start puts the recovery point past the end of the timeline, and a span longer
+                // than the recording it belongs to is impossible. The metadata bound is the one that does
+                // not move with the skew; `durationMs` reads it too, and is the fallback when no metadata
+                // times have arrived.
+                return Math.min(leadingRecoveryTimestamp - start, metadataDurationMs ?? sessionPlayerData.durationMs)
             },
         ],
 

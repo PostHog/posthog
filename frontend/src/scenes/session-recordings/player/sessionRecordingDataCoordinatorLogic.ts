@@ -352,6 +352,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     bufferedToTime: number | null
     createExportJSON: () => ExportedSessionRecordingFileV2
     customRRWebEvents: customEvent[]
+    metadataDurationMs: number | null
     durationMs: number
     effectiveSourceLoadingStates: SourceLoadingState[]
     end: Dayjs | null
@@ -582,12 +583,8 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             sessionPlayerMetaData: SessionRecordingType | null
         ) => Dayjs | null
-        durationMs: (
-            start: Dayjs | null,
-            end: Dayjs | null,
-            sessionPlayerMetaData: SessionRecordingType | null,
-            fullyLoaded: boolean
-        ) => number
+        metadataDurationMs: (sessionPlayerMetaData: SessionRecordingType | null) => number | null
+        durationMs: (start: Dayjs | null, end: Dayjs | null, metadataDurationMs: number | null) => number
         segments: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             start: Dayjs | null,
@@ -1046,22 +1043,30 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
+        // How long the recording is according to its metadata, which the server derives from the
+        // session's own bounds. `start` and `end` take the outermost of the metadata times and the
+        // snapshot timestamps, so one snapshot with a skewed client clock stretches the span between
+        // them without bound. This is what bounds it, and it lands with the metadata rather than
+        // waiting for every source to load. `recording_duration` measures the same span in whole
+        // seconds, so it is only the fallback.
+        metadataDurationMs: [
+            (s) => [s.sessionPlayerMetaData],
+            (meta: SessionRecordingType | null): number | null => {
+                if (meta?.start_time && meta?.end_time) {
+                    return dayjs(meta.end_time).diff(dayjs(meta.start_time))
+                }
+                return meta?.recording_duration ? meta.recording_duration * 1000 : null
+            },
+        ],
+
         durationMs: [
-            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded],
-            (
-                start: Dayjs | null,
-                end: Dayjs | null,
-                meta: SessionRecordingType | null,
-                fullyLoaded: boolean
-            ): number => {
+            (s) => [s.start, s.end, s.metadataDurationMs],
+            (start: Dayjs | null, end: Dayjs | null, metadataDurationMs: number | null): number => {
                 if (!start || !end) {
                     return 0
                 }
                 const snapshotDuration = end.diff(start)
-                if (fullyLoaded && meta?.recording_duration) {
-                    return Math.min(snapshotDuration, meta.recording_duration * 1000)
-                }
-                return snapshotDuration
+                return metadataDurationMs == null ? snapshotDuration : Math.min(snapshotDuration, metadataDurationMs)
             },
         ],
 
