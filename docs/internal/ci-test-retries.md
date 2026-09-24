@@ -20,6 +20,10 @@ Jest retries after the other tests in the file.
 Local Jest commands do not enable the shared CI retry setting.
 Existing suite-specific overrides still apply.
 
+The nightly Playwright audit dispatches the full E2E workflow with zero retries.
+Manual and audit dispatches restore a schema cache only when its migration-set key matches the requested revision exactly.
+A cache miss or failed restore falls back to replaying migrations; dispatches never use the latest dump from a different migration set.
+
 The `jest-junit` patch preserves the existing test names, file paths, counts, and final results.
 It adds `flakyFailure` for a passing retry and `rerunFailure` for earlier attempts when the final attempt fails.
 `logErrorsBeforeRetry: true` is required so Jest retains `retryReasons` for the reporter.

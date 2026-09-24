@@ -437,6 +437,37 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it.each([
+        ['manual dispatch', workflowDispatch('feat/example'), 'success'],
+        ['dispatch with a cache service error', workflowDispatch('feat/example'), 'failure'],
+        ['master push', push(), 'success'],
+        ['ready PR', pullRequest(), 'success'],
+    ] as const)('Playwright attempts schema restoration and runs migrations on %s', (name, github, outcome) => {
+        const wf = workflow('ci-e2e-playwright.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                changes: {
+                    decide: { outputs: { shouldRun: 'true' } },
+                    'schema-key': { outputs: { migrations_key: 'posthog-schema-mig-test' } },
+                },
+                playwright: { 'schema-cache': { outcome } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes.steps.find((step) => step.id === 'schema-key')?.runs).toBe(true)
+        expect(plan.jobs.playwright.steps.find((step) => step.id === 'schema-cache')?.runs).toBe(true)
+        expect(
+            plan.jobs.playwright.steps.find((step) => step.name === 'Prime posthog_e2e_test from cached schema')?.runs
+        ).toBe(true)
+        expect(
+            plan.jobs.playwright.steps.find(
+                (step) => step.name === 'Apply postgres and clickhouse migrations and setup dev'
+            )?.runs
+        ).toBe(true)
+    })
+
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
         const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
