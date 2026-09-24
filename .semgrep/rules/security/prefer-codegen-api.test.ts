@@ -48,6 +48,9 @@ await api.stream(`api/foo`, { onMessage })
 // ruleid: prefer-codegen-api
 const i6 = await api.createWithUploadProgress<Foo>(`api/foo`, formData)
 
+// ruleid: prefer-codegen-api
+const i7 = await api.loadPaginatedResults<Foo>(`api/foo`)
+
 // ok: prefer-codegen-api
 const j = await api.integrations.authorizeUrl()
 

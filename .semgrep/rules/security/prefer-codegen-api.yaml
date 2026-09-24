@@ -35,11 +35,12 @@ rules:
           - pattern: api.patch(...)
           - pattern: api.update(...)
           - pattern: api.delete(...)
+          - pattern: api.loadPaginatedResults(...)
           # Semgrep's TypeScript parser treats generic-typed calls (api.create<T>())
           # as a different AST shape that AST-level patterns above don't match,
           # so fall back to a regex. Bounds the type args by `(` rather than `>` so
           # nested generics like api.get<PaginatedResponse<Foo>>(...) still match.
-          - pattern-regex: '\bapi\.(get|getResponse|stream|post|create|createResponse|createWithUploadProgress|put|patch|update|delete)<[^(]*>\s*\('
+          - pattern-regex: '\bapi\.(get|getResponse|stream|post|create|createResponse|createWithUploadProgress|put|patch|update|delete|loadPaginatedResults)<[^(]*>\s*\('
       paths:
           include:
               - '/frontend/src/'

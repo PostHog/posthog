@@ -438,10 +438,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 loadAllTeams: async () => {
                     const user = userLogic.values.user
                     if (!user?.organizations?.length) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                         return await api.loadPaginatedResults('api/projects')
                     }
                     const results = await Promise.all(
                         user.organizations.map((org) =>
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsList() from '~/generated/core/api' instead.
                             api.loadPaginatedResults<TeamBasicType>(`api/organizations/${org.id}/projects`)
                         )
                     )
