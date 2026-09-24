@@ -1130,7 +1130,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             id: message.id,
                             content: message.content || '',
                             richContent: message.rich_content,
-                            authorType: authorType === 'support' ? 'human' : authorType,
+                            authorType: authorType === 'support' || authorType === 'workflow' ? 'human' : authorType,
                             authorName: displayName,
                             createdBy: message.created_by,
                             createdAt: message.created_at,

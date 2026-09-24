@@ -29,7 +29,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
 
-import { IngestionConsumer } from './ingestion-consumer'
+import { IngestionConsumer, latestOffsetTimestampGauge } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -222,6 +222,21 @@ describe('IngestionConsumer', () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
+        })
+
+        it('should stop exporting the processed timestamp of revoked partitions', async () => {
+            latestOffsetTimestampGauge.reset()
+            const messages = createKafkaMessages([createEvent(), createEvent()])
+            messages[1].partition = 2
+            await ingester.handleKafkaBatch(messages)
+
+            const onPartitionsRevoked = jest.mocked(ingester['kafkaConsumer'].connect).mock.calls[0][1]!
+            await onPartitionsRevoked([{ topic: 'test', partition: 1 }])
+
+            const { values } = await latestOffsetTimestampGauge.get()
+            expect(values.filter((v) => v.labels.groupId === ingester['groupId'])).toEqual([
+                expect.objectContaining({ labels: expect.objectContaining({ topic: 'test', partition: 2 }) }),
+            ])
         })
 
         it('should process a cookieless event', async () => {

@@ -39,6 +39,7 @@ export type RunAlertKind =
  */
 export interface RunConnectionState {
     kind: RunAlertKind
+    retryable?: boolean
     /** `reconnecting`: current 1-based reconnect attempt. */
     attempt?: number
     /** `reconnecting`: max attempts before the connection is given up. */

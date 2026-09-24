@@ -368,6 +368,16 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExport was last updated.",
     )
+    last_modified_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="The user who last saved this batch export's configuration.",
+    )
     last_paused_at = models.DateTimeField(
         null=True,
         default=None,
@@ -503,6 +513,11 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             offset_in_hours = self.interval_offset // 3600
             return offset_in_hours % 24
         return None
+
+    @property
+    def hogql_query(self) -> str | None:
+        """Return the HogQL query of this batch export's source, if it has one."""
+        return self.source.hogql_query if self.source is not None else None
 
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
@@ -726,6 +741,16 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
     last_updated_at = models.DateTimeField(
         auto_now=True,
         help_text="The timestamp at which this was last updated.",
+    )
+    last_modified_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="The user who last saved this batch export's configuration.",
     )
     model = models.CharField(
         max_length=64,

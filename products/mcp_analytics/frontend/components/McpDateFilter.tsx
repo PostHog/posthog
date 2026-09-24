@@ -81,7 +81,7 @@ export function McpDateFilter({ dateFrom, dateTo, onChange, dataAttr }: McpDateF
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger
                 render={
-                    <Button variant="outline" data-attr={dataAttr} data-quill>
+                    <Button variant="outline" size="sm" data-attr={dataAttr} data-quill>
                         <IconCalendar />
                         {formatTriggerLabel(value)}
                     </Button>

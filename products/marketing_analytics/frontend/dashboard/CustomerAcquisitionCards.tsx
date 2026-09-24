@@ -1,17 +1,19 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { SamplingRate } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { OverviewMetricCardGrid } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import { WebOverviewItem } from '~/queries/schema/schema-general'
 
 import { customerAcquisitionMetrics } from './customerAcquisitionMetrics'
+import { MarketingQueryError } from './MarketingQueryError'
 
 interface CustomerAcquisitionCardsProps {
     configurationLoading: boolean
     configured: boolean
     loading: boolean
     error: boolean
+    queryId?: string | null
     customerResults?: WebOverviewItem[]
     trafficResults?: WebOverviewItem[]
     samplingRate?: SamplingRate
@@ -24,6 +26,7 @@ export function CustomerAcquisitionCards({
     configured,
     loading,
     error,
+    queryId,
     customerResults,
     trafficResults,
     samplingRate,
@@ -51,15 +54,12 @@ export function CustomerAcquisitionCards({
                     </LemonButton>
                 </LemonCard>
             ) : error ? (
-                <LemonBanner
-                    type="error"
-                    action={{
-                        children: 'Retry',
-                        onClick: onRetry,
-                    }}
-                >
-                    Could not load new customers.
-                </LemonBanner>
+                <MarketingQueryError
+                    message="Could not load new customers."
+                    queryId={queryId}
+                    onRetry={onRetry}
+                    loading={loading}
+                />
             ) : (
                 <OverviewMetricCardGrid
                     layout="contents"
