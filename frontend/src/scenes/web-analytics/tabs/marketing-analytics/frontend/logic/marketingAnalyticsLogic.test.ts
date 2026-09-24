@@ -58,6 +58,68 @@ describe('marketingAnalyticsLogic', () => {
         localStorage.clear()
     })
 
+    it.each([false, true])(
+        'restores campaign columns on a fresh visit with URL override: %s',
+        async (overrideFromUrl) => {
+            const mountTable = async (): Promise<ReturnType<typeof marketingAnalyticsTilesLogic.build>> => {
+                logic = marketingAnalyticsLogic()
+                logic.mount()
+                const tiles = marketingAnalyticsTilesLogic()
+                tiles.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                return tiles
+            }
+            let tiles = await mountTable()
+            const select = [MarketingAnalyticsBaseColumns.Campaign, MarketingAnalyticsBaseColumns.Clicks]
+            const pinnedColumns = [MarketingAnalyticsBaseColumns.Clicks]
+            logic.actions.setDraftConversionGoal({
+                kind: NodeKind.EventsNode,
+                event: 'purchase',
+                conversion_goal_id: 'draft-purchase',
+                conversion_goal_name: 'Draft purchase',
+                schema_map: {},
+            })
+            await expectLogic(marketingAnalyticsTableLogic, () =>
+                marketingAnalyticsTableLogic.actions.setQuery({
+                    ...tiles.values.campaignCostsBreakdown!,
+                    pinnedColumns: [...pinnedColumns, 'Draft purchase'],
+                    source: {
+                        ...(tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery),
+                        select: [...select, 'Draft purchase', 'Cost per Draft purchase'],
+                        orderBy: [[MarketingAnalyticsBaseColumns.Clicks, 'DESC']],
+                    },
+                })
+            ).toFinishAllListeners()
+            expect(
+                JSON.parse(
+                    localStorage.getItem(
+                        `${MOCK_TEAM_ID}__.scenes.marketingAnalytics.marketingAnalyticsTableLogic.columnConfiguration`
+                    )!
+                )
+            ).toEqual({ select, pinnedColumns, orderBy: [[MarketingAnalyticsBaseColumns.Clicks, 'DESC']] })
+            tiles.unmount()
+            logic.unmount()
+
+            initKeaTests()
+            router.actions.push(
+                urls.marketingAnalyticsApp(),
+                overrideFromUrl ? { select: 'Campaign,Cost', order_column: 'Cost', order_direction: 'ASC' } : {}
+            )
+            tiles = await mountTable()
+            try {
+                expect(tiles.values.campaignCostsBreakdown).toMatchObject({
+                    pinnedColumns: overrideFromUrl ? [] : pinnedColumns,
+                    source: {
+                        select: overrideFromUrl ? ['Campaign', 'Cost'] : ['Clicks', 'Campaign'],
+                        orderBy: overrideFromUrl ? [['Cost', 'ASC']] : [['Clicks', 'DESC']],
+                    },
+                })
+            } finally {
+                tiles.unmount()
+            }
+        }
+    )
+
     it('excludes conversion queries only in Ad performance and preserves legacy columns', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
