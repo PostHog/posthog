@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
 
@@ -15,6 +16,7 @@ import { APPS_STARRED_TREE_KEY, navAppsTabLogic } from './navAppsTabLogic'
 
 describe('navAppsTabLogic', () => {
     beforeEach(() => {
+        useMocks({ get: { '/api/environments/:team_id/file_system_shortcut/': { results: [] } } })
         initKeaTests()
         navAppsTabLogic.mount()
     })
@@ -81,6 +83,59 @@ describe('navAppsTabLogic', () => {
             starredTree.actionTypes.setSearchTerm,
         ])
         expect(starredTree.values.searchTerm).toEqual('onboarding')
+    })
+
+    it('configures app stars without changing files, folders, or existing order', async () => {
+        const app = { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }
+        const create = jest.fn(() => [201, app])
+        const remove = jest.fn(() => [204])
+        useMocks({
+            post: { '/api/environments/:team_id/file_system_shortcut/': create },
+            delete: { '/api/environments/:team_id/file_system_shortcut/app-star/': remove },
+        })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        const existing = [
+            { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
+            { id: 'file', path: 'Feature flags', type: 'insight', ref: 'insight-1', href: '/insights/insight-1' },
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+        ]
+        projectTreeDataLogic.actions.loadShortcutsSuccess(existing)
+        navAppsTabLogic.actions.setSearch('no matches')
+        expect(navAppsTabLogic.values.starredAppIds['Feature flags']).toBeUndefined()
+
+        await expectLogic(navAppsTabLogic, () => {
+            navAppsTabLogic.actions.setAppStarred('Feature flags', true)
+            navAppsTabLogic.actions.setAppStarred('Feature flags', true)
+        }).toDispatchActions([projectTreeDataLogic.actionTypes.addShortcutItemSuccess])
+        expect(create).toHaveBeenCalledTimes(1)
+        expect(projectTreeDataLogic.values.shortcutData).toEqual([...existing, app])
+        expect(navAppsTabLogic.values.starredAppIds['Feature flags']).toBe('app-star')
+
+        await expectLogic(navAppsTabLogic, () => {
+            navAppsTabLogic.actions.setAppStarred('Feature flags', false)
+            navAppsTabLogic.actions.setAppStarred('Feature flags', false)
+        }).toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutSuccess])
+        expect(remove).toHaveBeenCalledTimes(1)
+        expect(projectTreeDataLogic.values.shortcutData).toEqual(existing)
+    })
+
+    it('keeps a star after a failed removal and allows a retry', async () => {
+        const remove = jest
+            .fn()
+            .mockReturnValueOnce([500, { detail: 'Try again' }])
+            .mockReturnValueOnce([204])
+        useMocks({ delete: { '/api/environments/:team_id/file_system_shortcut/app-star/': remove } })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+        ])
+
+        await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setAppStarred('Feature flags', false))
+            .toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutFailure])
+            .toMatchValues({ starredAppIds: { 'Feature flags': 'app-star' }, shortcutDataLoading: false })
+        await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setAppStarred('Feature flags', false))
+            .toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutSuccess])
+            .toMatchValues({ starredAppIds: {}, shortcutDataLoading: false })
     })
     it.each([
         ['apps', ['Product analytics']],
