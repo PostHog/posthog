@@ -2,14 +2,16 @@ name: Workflows as code
 
 # Pushes the repository's own workflows in products/workflows/workflows/ to
 # PostHog on master. Pull requests run the required check in Frontend CI.
+#
+# The paths name only the workflow files and this file. A change to the SDK can
+# change what every file compiles to, so it reaches the project on the next
+# change to a workflow file or on a manual dispatch, never as a side effect.
 on:
     push:
         branches:
             - master
         paths:
             - products/workflows/workflows/**
-            - products/workflows/packages/workflows/**
-            - products/workflows/package.json
             - .github/workflows/workflows-as-code.yml
     workflow_dispatch:
 
@@ -28,6 +30,10 @@ jobs:
         if: github.ref == 'refs/heads/master'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
+        # A repository admin creates this environment with required reviewers and
+        # stores POSTHOG_WORKFLOWS_API_KEY on it. GitHub creates a missing
+        # environment on the first run with no protection rules and no secrets,
+        # and then the push step skips with a warning.
         environment: workflows-as-code
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -43,16 +49,22 @@ jobs:
                   install-command: pnpm install --frozen-lockfile --filter "@posthog/workflows..." --filter "@posthog/products-workflows"
 
             # Project 2 is PostHog's own project on PostHog Cloud US, which is where
-            # these workflows run. The variables exist so a fork can point the push
-            # at its own project; the secret is the only thing that has to be set.
+            # these workflows run. The project and host variables exist so a fork can
+            # point the push at its own project. The secret and the email integration
+            # variable have to be set, because integration ids differ per project.
             - name: Push workflows to PostHog
               env:
                   POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
                   POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
                   POSTHOG_CLI_HOST: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
+                  POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID: ${{ vars.POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID }}
               run: |
                   if [[ -z "$POSTHOG_CLI_API_KEY" ]]; then
-                      echo "::warning::Push skipped: set the POSTHOG_WORKFLOWS_API_KEY secret to push these workflows to project $POSTHOG_CLI_PROJECT_ID on $POSTHOG_CLI_HOST."
+                      echo "::warning::Push skipped: set the POSTHOG_WORKFLOWS_API_KEY secret on the workflows-as-code environment to push these workflows to project $POSTHOG_CLI_PROJECT_ID on $POSTHOG_CLI_HOST."
+                      exit 0
+                  fi
+                  if [[ -z "$POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID" ]]; then
+                      echo "::warning::Push skipped: set the POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID variable to the id of an email integration in project $POSTHOG_CLI_PROJECT_ID."
                       exit 0
                   fi
                   pnpm --filter=@posthog/workflows repo:push

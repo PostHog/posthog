@@ -55,8 +55,19 @@ Leave `status` out of the file. A pushed workflow starts as a draft and sends no
 ## In CI
 
 Frontend CI runs `pnpm --filter=@posthog/workflows test` and `repo:check` on every pull request that touches this folder or the package, offline and without credentials, so a pull request from a fork passes too.
-The `Workflows as code` GitHub Actions job (`.github/workflows/workflows-as-code.yml`) runs on a push to `master`. Manual dispatches run only from `master`. It runs `repo:push` when the repository environment secret `POSTHOG_WORKFLOWS_API_KEY` is set.
-The secret holds the project's secret API key (`phs_...`), which needs the workflows scope enabled on the project, once PostHog accepts one on the workflows endpoint ([Silthus/posthog#106](https://github.com/Silthus/posthog/issues/106)). A personal API key with the `hog_flow:write` scope works today and keeps working.
-The push goes to project `2`, PostHog's own project on PostHog Cloud US, unless the repository variable `POSTHOG_WORKFLOWS_PROJECT_ID` names another one.
-The variable `POSTHOG_WORKFLOWS_HOST` is optional too and defaults to `https://us.posthog.com`.
-Without the secret, the job prints one line and succeeds.
+
+The `Workflows as code` GitHub Actions job (`.github/workflows/workflows-as-code.yml`) runs `repo:push` on a push to `master` that changes this folder or the job's own file, and on a manual dispatch from `master`.
+A change to the package alone does not push, because it can change what every file here compiles to. The next change to this folder, or a manual dispatch, pushes it.
+
+The job runs in the `workflows-as-code` GitHub environment.
+A repository admin has to create that environment with required reviewers and store the `POSTHOG_WORKFLOWS_API_KEY` secret on it, so that only a run a reviewer approves can read the key.
+If nobody creates it, GitHub creates it on the first run with no reviewers and no secrets, and the job skips the push.
+
+The job reads these settings:
+
+- `POSTHOG_WORKFLOWS_API_KEY` (secret, required): the project's secret API key (`phs_...`) with the workflows scope enabled, once PostHog accepts one on the workflows endpoint ([Silthus/posthog#106](https://github.com/Silthus/posthog/issues/106)). Until then, use a personal API key with the `hog_flow:write` scope.
+- `POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID` (variable, required): the email integration the workflows here send from.
+- `POSTHOG_WORKFLOWS_PROJECT_ID` (variable, optional): defaults to `2`, PostHog's own project on PostHog Cloud US.
+- `POSTHOG_WORKFLOWS_HOST` (variable, optional): defaults to `https://us.posthog.com`.
+
+Without the secret or the email integration variable, the job prints a warning and succeeds.
