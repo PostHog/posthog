@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
+from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
@@ -369,9 +369,6 @@ _PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL = "tasks-exclude-wizard-from-boot-total
 # Preserve that command order on replay while new runs can release it after the primary clone.
 _PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clone"
 
-# Desktop preparation links a large workspace and writes compiled package outputs. Give
-# that non-idempotent work one attempt with a budget larger than its inner 10-minute cap.
-_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
 _DEV_STACK_PREVIEW_WAIT_TIMEOUT = timedelta(minutes=15)
 
@@ -437,6 +434,9 @@ _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 
 _PATCH_ID_PROGRESS_EMIT_NONBLOCKING = "progress-emit-nonblocking-2026-09"
+# A new activity worker can record the merge queue flag as true while an old workflow worker
+# ignores it and dispatches, so replay takes the skip only where the marker was recorded.
+_PATCH_ID_MERGE_QUEUE_SKIP = "tasks-merge-queue-skip-2026-09"
 
 _PENDING_PROGRESS_FLUSH_SECONDS = 15.0
 
@@ -990,6 +990,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
+        if pr_context.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
+            workflow.logger.info(
+                "PR is in the merge queue, skipping CI follow-up",
+                extra={"run_id": self.context.run_id, "pr_url": pr_context.pr_url},
+            )
+            return CIFollowUpDecision.SKIP
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
         if not ci_follow_up_actionable_gate():
             # Legacy replay path: any fingerprint change fires; feedback is not consulted.
@@ -1113,6 +1119,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             label = "PR merged" if snapshot.pr_state == "merged" else "PR closed"
             await self._emit_progress("ci", "completed", label, "setup")
             return CIFollowUpDecision.TERMINAL
+        if snapshot.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
+            # The journal stays untouched, so the feedback waits for the next tick after the PR
+            # leaves the queue instead of being marked handled.
+            workflow.logger.info(
+                "PR is in the merge queue, skipping CI follow-up",
+                extra={"run_id": self.context.run_id, "pr_url": snapshot.pr_url},
+            )
+            return CIFollowUpDecision.SKIP
         attention = self._babysit_journal.attention(snapshot)
         if attention.is_empty:
             if (
@@ -2111,9 +2125,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
         will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
-        def prepares_desktop(repository: str) -> bool:
-            return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
-
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
         boot_path = "overlap" if overlap else "classic"
         launch_ms: int | None = None
@@ -2141,7 +2152,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             async def clone_repository(
                 repository: str,
             ) -> tuple[CloneRepositoryInSandboxOutput | None, bool, bool]:
-                prepares_repository_desktop = prepares_desktop(repository)
                 try:
                     clone_output = await workflow.execute_activity(
                         clone_repository_in_sandbox,
@@ -2152,9 +2162,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
                         ),
-                        start_to_close_timeout=(
-                            _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
-                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                 except Exception as error:
@@ -2229,7 +2237,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if will_checkout and checkout_repository not in failed_repositories and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
-            prepares_repository_desktop = prepares_desktop(checkout_repository)
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup", wait=False)
@@ -2244,9 +2251,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
                 ),
-                start_to_close_timeout=(
-                    _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
-                ),
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             # Pre-rollout histories (and mocked tests) recorded a null result here.

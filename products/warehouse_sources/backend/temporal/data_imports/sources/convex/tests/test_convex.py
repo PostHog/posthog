@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
     _CONVEX_RETRY,
     ConvexResumeConfig,
+    InvalidDeployKeyError,
     InvalidDeployUrlError,
     InvalidWindowError,
     StreamingExportNotEnabledError,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     qualified_table_name,
     split_qualified_table_name,
     validate_credentials,
+    validate_deploy_key,
     validate_deploy_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.source import ConvexSource
@@ -102,9 +104,16 @@ class TestValidateDeployUrl:
             with pytest.raises(InvalidDeployUrlError):
                 validate_deploy_url(url)
 
+    @parameterized.expand(
+        [
+            ("bad_url", "http://169.254.169.254", "deploy-key"),
+            ("unsendable_key", "https://swift-lemur-123.convex.cloud", "prod:swift-lemur-123|ab\u2028cd"),
+            ("blank_key", "https://swift-lemur-123.convex.cloud", "   "),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_validate_credentials_rejects_bad_url_without_network_call(self, mock_get):
-        ok, err = validate_credentials("http://169.254.169.254", "deploy-key")
+    def test_validate_credentials_rejects_bad_input_without_network_call(self, _name, url, deploy_key, mock_get):
+        ok, err = validate_credentials(url, deploy_key)
         assert not ok
         assert err is not None
         mock_get.assert_not_called()
@@ -147,6 +156,42 @@ class TestValidateDeployUrl:
         assert "swift-lemur-123" not in err
         assert "convex.cloud" not in err
         assert "400" in err
+
+
+class TestValidateDeployKey:
+    @parameterized.expand(
+        [
+            ("plain", "prod:swift-lemur-123|abc", "prod:swift-lemur-123|abc"),
+            ("surrounding_spaces", "  prod:swift-lemur-123|abc  ", "prod:swift-lemur-123|abc"),
+            ("trailing_newline", "prod:swift-lemur-123|abc\n", "prod:swift-lemur-123|abc"),
+            # A key copied out of a browser can carry an invisible separator that latin-1 cannot
+            # encode. Both are whitespace to str.strip, so a key that only has one at either end
+            # stays usable.
+            ("trailing_line_separator", "prod:swift-lemur-123|abc\u2028", "prod:swift-lemur-123|abc"),
+            ("leading_no_break_space", "\u00a0prod:swift-lemur-123|abc", "prod:swift-lemur-123|abc"),
+            # invalid - should raise
+            ("blank", "   ", None),
+            ("embedded_line_separator", "prod:swift-lemur\u2028-123|abc", None),
+            ("embedded_non_latin_1", "prod:swift-lemur-123|ab\u2603cd", None),
+        ]
+    )
+    def test_validate_deploy_key(self, _name: str, deploy_key: str, expected: str | None) -> None:
+        if expected is not None:
+            cleaned = validate_deploy_key(deploy_key)
+            assert cleaned == expected
+            cleaned.encode("latin-1")
+        else:
+            with pytest.raises(InvalidDeployKeyError):
+                validate_deploy_key(deploy_key)
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_request_header_is_encodable_for_a_copy_pasted_key(self, mock_session: Mock) -> None:
+        mock_session.return_value.get.return_value = _make_response({})
+
+        get_json_schemas("https://swift-lemur-123.convex.cloud", "prod:swift-lemur-123|abc\u2028")
+
+        headers = mock_session.return_value.get.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Convex prod:swift-lemur-123|abc"
 
 
 class TestListSnapshotResumable:
@@ -573,6 +618,11 @@ class TestConvexNonRetryableErrors:
                 "invalid_window",
                 "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
                 "Please trigger a full resync of this source.",
+            ),
+            (
+                "unsendable_deploy_key",
+                "Your deploy key contains characters PostHog can't send to Convex. "
+                "Copy the key again from your Convex dashboard, then try again.",
             ),
         ]
     )

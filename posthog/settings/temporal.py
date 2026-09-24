@@ -29,8 +29,12 @@ MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES"
 # pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
 # pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
 ASYNCIFY_MAX_WORKERS: int = get_from_env("ASYNCIFY_MAX_WORKERS", 32, type_cast=int)
-TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
-TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
+TEMPORAL_TARGET_MEMORY_USAGE: float | None = get_from_env(
+    "TEMPORAL_TARGET_MEMORY_USAGE", None, optional=True, type_cast=float
+)
+TEMPORAL_TARGET_CPU_USAGE: float | None = get_from_env(
+    "TEMPORAL_TARGET_CPU_USAGE", None, optional=True, type_cast=float
+)
 
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
@@ -88,7 +92,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
     "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
-    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75"}',
+    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75", "posthog_ai": "75"}',
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)

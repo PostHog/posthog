@@ -8,7 +8,6 @@ from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
@@ -23,6 +22,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     SourceOrSchemaDeletedError,
+    V3PipelineLockLostError,
     _build_schema_snapshot,
     _create_job,
     _enrichment_pending,
@@ -88,9 +88,11 @@ class TestVerifyV3LockStillHeld:
         mock_get_holder.return_value = holder
 
         if expect_raise:
-            with pytest.raises(ApplicationError) as exc_info:
+            with pytest.raises(V3PipelineLockLostError) as exc_info:
                 _verify_v3_lock_still_held(1, self.SCHEMA_ID)
-            assert exc_info.value.non_retryable is True
+            # The takeover in acquire_v3_lock.py only steals from a terminal-looking holder, so
+            # this is the mechanism working as designed and must not open an error tracking issue.
+            assert is_expected_activity_failure(exc_info.value)
         else:
             _verify_v3_lock_still_held(1, self.SCHEMA_ID)
 
@@ -272,6 +274,30 @@ class TestCreateJobActivityStatusOrdering:
             create_external_data_job_model_activity(inputs)
 
         schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @parameterized.expand([("broken", "cdc_broken"), ("paused", "cdc_extraction_paused")])
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_a_halted_cdc_schema_keeps_its_failed_status(
+        self, _name: str, marker: str, mock_activity: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.sync_type_config = {marker: {"reason": "critical_lag_self_managed"}}
+        schema.save()
+
+        create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True
+            )
+        )
+
+        schema.refresh_from_db()
+        assert ExternalDataJob.objects.filter(schema_id=schema.id).exists()
         assert schema.status == ExternalDataSchema.Status.FAILED
 
 

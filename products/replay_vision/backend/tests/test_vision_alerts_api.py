@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -21,6 +23,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.models.vision_alert import (
     VisionAlertConfiguration,
     VisionAlertEvent,
+    VisionAlertKind,
     VisionAlertState,
 )
 
@@ -161,6 +164,41 @@ class TestVisionAlertCRUD(_VisionAlertAPITestCase):
         assert response.status_code == 200
         results = response.json()["results"]
         assert [r["name"] for r in results] == ["Other alert"]
+
+    @parameterized.expand(["alerts", "events"])
+    def test_rows_sharing_a_created_at_page_in_a_stable_order(self, endpoint: str) -> None:
+        # Insert in descending id order: only the id tie-breaker can then return ascending ids.
+        ids = sorted(uuid4() for _ in range(3))
+        with time_machine.travel(datetime(2026, 1, 1, 12, 0, tzinfo=UTC), tick=False):
+            if endpoint == "alerts":
+                url = self.base_url
+                for index, row_id in enumerate(reversed(ids)):
+                    VisionAlertConfiguration.objects.for_team(self.team.id).create(
+                        id=row_id,
+                        team=self.team,
+                        scanner=self.scanner,
+                        name=f"Alert {index}",
+                        kind=VisionAlertKind.METRIC,
+                        threshold=5,
+                    )
+            else:
+                alert = self._create_via_api()
+                url = f"{self.base_url}{alert['id']}/events/"
+                for row_id in reversed(ids):
+                    VisionAlertEvent.objects.create(
+                        id=row_id,
+                        alert_id=alert["id"],
+                        kind=VisionAlertEvent.Kind.SNOOZE,
+                        state_before=VisionAlertState.NOT_FIRING,
+                        state_after=VisionAlertState.SNOOZED,
+                    )
+
+        first = self.client.get(url, {"limit": 2})
+        second = self.client.get(url, {"limit": 2, "offset": 2})
+        assert first.status_code == 200, first.json()
+        assert second.status_code == 200, second.json()
+        paged = [row["id"] for row in first.json()["results"] + second.json()["results"]]
+        assert paged == [str(row_id) for row_id in ids]
 
     def test_match_kind_lifecycle_write_is_rejected_by_db(self) -> None:
         data = self._create_via_api(self._match_payload())

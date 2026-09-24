@@ -12,6 +12,7 @@ from posthog.models.user import User
 from products.cohorts.backend.models.cohort import Cohort
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
+    ObservationVerdict,
     ReplayObservation,
     annotate_output_number,
 )
@@ -39,6 +40,7 @@ def affected_observations(
     scanner: ReplayScanner,
     window_days: int,
     *,
+    verdict: ObservationVerdict | None = None,
     tag: str | None = None,
     min_score: float | None = None,
     max_score: float | None = None,
@@ -60,7 +62,10 @@ def affected_observations(
     if scanner_type == ScannerType.MONITOR:
         if tag or has_scores:
             raise ValueError("Monitor impact is verdict-based; tag and score filters don't apply.")
-        return base.filter(scanner_result__model_output__verdict="yes")
+        return base.filter(scanner_result__model_output__verdict=verdict or ObservationVerdict.YES)
+
+    if verdict is not None:
+        raise ValueError("Only monitors produce verdicts; `verdict` doesn't apply.")
 
     if scanner_type == ScannerType.CLASSIFIER:
         if has_scores:
@@ -93,12 +98,13 @@ def compute_scanner_impact(
     scanner: ReplayScanner,
     window_days: int = DEFAULT_IMPACT_WINDOW_DAYS,
     *,
+    verdict: ObservationVerdict | None = None,
     tag: str | None = None,
     min_score: float | None = None,
     max_score: float | None = None,
 ) -> ScannerImpact:
     aggregates = affected_observations(
-        scanner, window_days, tag=tag, min_score=min_score, max_score=max_score
+        scanner, window_days, verdict=verdict, tag=tag, min_score=min_score, max_score=max_score
     ).aggregate(
         affected_sessions=Count("session_id", distinct=True),
         affected_users=Count("distinct_id", filter=_HAS_USER, distinct=True),
@@ -107,7 +113,12 @@ def compute_scanner_impact(
     return ScannerImpact(window_days=window_days, **aggregates)
 
 
-def _qualifier_label(tag: str | None, min_score: float | None, max_score: float | None) -> str:
+def _qualifier_label(
+    verdict: ObservationVerdict | None, tag: str | None, min_score: float | None, max_score: float | None
+) -> str:
+    # A plain monitor cohort has always meant verdict yes, so only the other verdicts get a label.
+    if verdict and verdict != ObservationVerdict.YES:
+        return f", verdict {verdict}"
     if tag:
         return f", tag {tag}"
     if min_score is not None and max_score is not None:
@@ -124,13 +135,14 @@ def create_affected_cohort(
     user: User | None,
     window_days: int = DEFAULT_IMPACT_WINDOW_DAYS,
     *,
+    verdict: ObservationVerdict | None = None,
     tag: str | None = None,
     min_score: float | None = None,
     max_score: float | None = None,
 ) -> tuple[Cohort, int]:
     """Static cohort of matched users; returns (cohort, real member count). Raises ValueError when not creatable."""
     distinct_ids = list(
-        affected_observations(scanner, window_days, tag=tag, min_score=min_score, max_score=max_score)
+        affected_observations(scanner, window_days, verdict=verdict, tag=tag, min_score=min_score, max_score=max_score)
         .filter(_HAS_USER)
         .values_list("distinct_id", flat=True)
         .distinct()[: MAX_COHORT_DISTINCT_IDS + 1]
@@ -140,7 +152,7 @@ def create_affected_cohort(
     if len(distinct_ids) > MAX_COHORT_DISTINCT_IDS:
         raise ValueError(f"Too many users to save as one cohort (over {MAX_COHORT_DISTINCT_IDS:,}). Narrow the window.")
 
-    qualifier = _qualifier_label(tag, min_score, max_score)
+    qualifier = _qualifier_label(verdict, tag, min_score, max_score)
     cohort = Cohort.objects.create(
         team_id=scanner.team_id,
         name=f"{COHORT_NAME_PREFIX}{scanner.name}{qualifier} ({timezone.now().date().isoformat()})"[:400],
