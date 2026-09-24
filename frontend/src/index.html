@@ -23,9 +23,6 @@
         </style>
         {# Resource hints so the boot chain (font, CSS, entry -> App chunks) is fetched in parallel #}
         {# instead of discovered as a waterfall. Empty in dev mode and when no build manifest exists. #}
-        {% if js_url %}
-            <link rel="preconnect" href="{{ js_url }}" crossorigin>
-        {% endif %}
         {% if preload_font_url %}
             <link rel="preload" href="{{ js_url }}/{{ preload_font_url }}" as="font" type="font/woff2" crossorigin>
         {% endif %}

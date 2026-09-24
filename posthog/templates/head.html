@@ -1,6 +1,11 @@
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
+{% if js_url %}
+    {# Open the connection to the static origin now. The app stylesheet and the boot chunks all #}
+    {# come from there, and the stylesheet is only requested once the loader script runs. #}
+    <link rel="preconnect" href="{{ js_url }}" crossorigin>
+{% endif %}
 <!-- Favicons & OS-theme configurations -->
 <link rel="apple-touch-icon"
       sizes="180x180"
