@@ -39,7 +39,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
 │  │  2. Drain pending_sync set → sync_keys Vec                    │  │
 │  │                                                                │  │
 │  │  3. Build single Redis pipeline:                              │  │
-│  │     WRITES: INCRBY + EXPIRE for each (key, epoch)            │  │
+│  │     WRITES: INCRBY + EXPIREAT for each (key, epoch)          │  │
 │  │     READS:  MGET [curr_epoch, prev_epoch] per entity          │  │
 │  │                                                                │  │
 │  │  4. Execute pipeline                                          │  │
@@ -62,7 +62,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
                     │  {prefix}:{key}:{e} │
                     │                     │
                     │  e = epoch number   │
-                    │  TTL = 2 × window   │
+                    │ dies 1 epoch later  │
                     └─────────────────────┘
 ```
 
@@ -177,7 +177,7 @@ The background task uses `tokio::select!` over two sources:
 
 The pipeline per tick consists of:
 
-- **Writes**: `INCRBY key delta` + `EXPIRE key ttl` for each `(entity, epoch)` with pending counts
+- **Writes**: `INCRBY key delta` + `EXPIREAT key deadline` for each `(entity, epoch)` with pending counts
 - **Reads**: `MGET [current_epoch_key, prev_epoch_key]` for each entity in `pending_sync`
 
 All operations go in a single Redis round-trip.
@@ -241,7 +241,7 @@ but are written to Redis on the next tick — the under-count is negligible (<0.
 ```text
 Key:   {prefix}:{entity_key}:{epoch_number}
 Value: integer counter (INCRBY)
-TTL:   2 × window_interval (120s for 60s window)
+Dies:  (epoch + 2) × window_interval, an absolute instant fixed by the epoch
 ```
 
 Only 2 keys per entity exist at any time (current + previous epoch).
@@ -281,7 +281,7 @@ only if you're also changing the window/sync intervals.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `global_cache_ttl` | 2 × `window_interval` | `EXPIRE` TTL on Redis epoch keys. Clamped up to 2 × `window_interval` at construction so both epoch keys survive for reads. The default is derived from the *default* window, so a caller that changes `window_interval` and leaves this alone is corrected rather than silently under-enforcing |
+| `global_cache_ttl` | 2 × `window_interval` | Sets the deadline on Redis epoch keys, applied as `EXPIREAT` rather than a relative TTL so a key's life follows its epoch instead of its last write. Any value above the two-window minimum becomes clock-skew grace. |
 | `global_read_timeout` | 100ms | Timeout for batched MGET reads |
 | `global_write_timeout` | 100ms | Timeout for batched INCRBY writes |
 | `redis_key_prefix` | `@posthog/global_rate_limiter` | Prefix for all Redis keys (capture derives from `capture_mode`) |
