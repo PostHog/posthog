@@ -39,6 +39,10 @@ class TypeSafeClient(EgressClient):
 
 _typesafe_client = TypeSafeClient()
 
+# A connection that will not open is never worth waiting on. A caller where a person waits for the
+# answer passes a shorter read timeout.
+DEFAULT_TIMEOUT: tuple[float, float] = (3.0, 15.0)
+
 
 def typesafe_request(
     method: str,
@@ -48,15 +52,17 @@ def typesafe_request(
     source: str,
     endpoint: str,
     priority: Priority = Priority.NORMAL,
-    timeout: float | tuple[float, float] | None = None,
+    timeout: float | tuple[float, float] = DEFAULT_TIMEOUT,
     **kwargs: Any,
 ) -> requests.Response:
     """Make a gated, recorded TypeSafe request. ``source`` attributes the call to a subsystem.
 
-    The default lane is sheddable: the state sent to TypeSafe is derived from user input, and every
-    caller can do without the judgment, so TypeSafe traffic must not be able to consume the whole
-    budget the way a CRITICAL lane would.
+    Every call is sheddable: the state sent to TypeSafe is derived from user input, and every caller
+    can do without the judgment. A CRITICAL call is never shed, so it would skip the hourly ceiling,
+    which is the only cap on per-token spend. This function rejects CRITICAL for that reason.
     """
+    if priority is Priority.CRITICAL:
+        raise ValueError("TypeSafe calls must be sheddable, so use NORMAL or BATCH")
     return _typesafe_client.request(
         method,
         url,

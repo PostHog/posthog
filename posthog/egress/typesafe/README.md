@@ -33,14 +33,17 @@ The budget reads from settings at acquire time:
 
 At the 64k-token request limit and the published input price, the hourly ceiling caps spend at roughly $50 an hour.
 Typical requests are far smaller.
-The token-per-second limit has no budget of its own, because the request budget keeps the token rate far under it.
+The token-per-second limit has no budget of its own.
+At typical request sizes of a few hundred tokens, the request budget keeps the token rate far under it.
+At the 64k-token maximum, 600 requests a minute would exceed it, and TypeSafe answers with a 429.
+A caller that sends large states lowers its own request rate.
 Raise both settings when real traffic outgrows them.
 
 ## Lanes and callers
 
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
+`typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-Nothing in this domain runs `CRITICAL`, because the state sent to TypeSafe is derived from user input and callers can do without the judgment.
 No caller exists on master yet. Each new caller adds itself here with its lane and its feature flag.
 
 ## Rate-limit headers

@@ -23,7 +23,7 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe.transport import typesafe_request
+from posthog.egress.typesafe.transport import DEFAULT_TIMEOUT, typesafe_request
 
 TYPESAFE_API_BASE = "https://api.typesafe.ai"
 SYSTEM_ONE_ENDPOINT = "/v1/systemone"
@@ -34,10 +34,6 @@ JEV_LATEST = "jev-latest"
 
 # TypeSafe rejects a choice question with more options than this.
 MAX_CHOICE_OPTIONS = 255
-
-# A connection that will not open is never worth waiting on. A caller where a person waits for the
-# answer passes a shorter read timeout.
-DEFAULT_TIMEOUT: tuple[float, float] = (3.0, 15.0)
 
 type JsonValue = str | int | float | bool | None | Mapping[str, JsonValue] | Sequence[JsonValue]
 

@@ -136,10 +136,19 @@ class TestTypeSafeEgress(SimpleTestCase):
             system_one(state="Payouts fail", questions=_QUESTIONS, source="test")
         assert raised.exception.status_code == expected_status_code
 
-    @override_settings(TYPESAFE_API_KEY="")
-    def test_without_a_configured_key_never_calls_out(self) -> None:
-        with patch("requests.request") as request, self.assertRaises(TypeSafeNotConfigured):
-            system_one(state="hi", questions=_QUESTIONS, source="test")
+    @parameterized.expand(
+        [
+            ("no_configured_key", "", Priority.NORMAL, TypeSafeNotConfigured),
+            ("critical_lane_skips_the_spend_ceiling", _FAKE_API_KEY, Priority.CRITICAL, ValueError),
+        ]
+    )
+    def test_never_calls_out(self, _name: str, api_key: str, priority: Priority, error: type[Exception]) -> None:
+        with (
+            override_settings(TYPESAFE_API_KEY=api_key),
+            patch("requests.request") as request,
+            self.assertRaises(error),
+        ):
+            system_one(state="hi", questions=_QUESTIONS, source="test", priority=priority)
         request.assert_not_called()
 
     @override_settings(TYPESAFE_EGRESS_PER_MINUTE_BUDGET=7, TYPESAFE_EGRESS_HOURLY_BUDGET=11)
