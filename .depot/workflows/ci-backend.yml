@@ -85,8 +85,6 @@
 #   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
 #   trial a branch with `depot ci dispatch --workflow ci-backend.yml --ref <branch>` instead.
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
-# - WAIT_FOR_DOCKER_REGISTRY_MIRROR configures dockerd to check mirror.gcr.io before Docker
-#   Hub. Token requests to auth.docker.io time out intermittently from Depot CI sandboxes.
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
 # - Compose launches run under `nohup` with stdin, stdout and stderr redirected to
@@ -160,7 +158,6 @@ env:
     HYPOTHESIS_CONSTANTS_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
-    WAIT_FOR_DOCKER_REGISTRY_MIRROR: https://mirror.gcr.io
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
     CLICKHOUSE_HOST: 'localhost'
@@ -979,13 +976,17 @@ jobs:
                   # Shared dumps represent the PR base. Run-scoped dumps include
                   # the PR merge commit because their routing inputs may differ.
                   ref: ${{ needs.turbo-discover.outputs.schema_cache_key != '' && needs.turbo-discover.outputs.schema_base_sha || github.sha }}
+            - name: Configure Docker Hub mirror
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              run: |
+                  sudo jq '."registry-mirrors" = ["https://mirror.gcr.io"] + (."registry-mirrors" // [])' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+                  sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+                  sudo service docker restart
             - name: Start database services
               if: steps.schema-cache.outputs.cache-matched-key == ''
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: |
-                  bin/ci-wait-for-docker configure-mirror
-                  nohup bin/ci-wait-for-docker launch --background --down db redis7 clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+              run: nohup bin/ci-wait-for-docker launch --background --down db redis7 clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Set up Python
               if: steps.schema-cache.outputs.cache-matched-key == ''
               uses: ./.depot/actions/setup-python-cached
@@ -1119,6 +1120,11 @@ jobs:
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Configure Docker Hub mirror
+              run: |
+                  sudo jq '."registry-mirrors" = ["https://mirror.gcr.io"] + (."registry-mirrors" // [])' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+                  sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+                  sudo service docker restart
             - name: Start services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1126,7 +1132,6 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker configure-mirror
                   nohup bin/ci-wait-for-docker launch --background --down \
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
@@ -1736,12 +1741,15 @@ jobs:
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Configure Docker Hub mirror
+              run: |
+                  sudo jq '."registry-mirrors" = ["https://mirror.gcr.io"] + (."registry-mirrors" // [])' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+                  sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+                  sudo service docker restart
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: |
-                  bin/ci-wait-for-docker configure-mirror
-                  nohup bin/ci-wait-for-docker launch --background --down db redis7 clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+              run: nohup bin/ci-wait-for-docker launch --background --down db redis7 clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -2199,12 +2207,15 @@ jobs:
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Configure Docker Hub mirror
+              run: |
+                  sudo jq '."registry-mirrors" = ["https://mirror.gcr.io"] + (."registry-mirrors" // [])' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+                  sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+                  sudo service docker restart
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: |
-                  bin/ci-wait-for-docker configure-mirror
-                  nohup bin/ci-wait-for-docker launch --background --down db clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+              run: nohup bin/ci-wait-for-docker launch --background --down db clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -2782,6 +2793,11 @@ jobs:
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Configure Docker Hub mirror
+              run: |
+                  sudo jq '."registry-mirrors" = ["https://mirror.gcr.io"] + (."registry-mirrors" // [])' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+                  sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+                  sudo service docker restart
             - name: Stop/Start stack with Docker Compose
               shell: bash
               env:
@@ -2791,7 +2807,6 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker configure-mirror
                   nohup bin/ci-wait-for-docker launch --background --down-all-profiles </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Add service hostnames to /etc/hosts
               shell: bash

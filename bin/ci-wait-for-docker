@@ -23,13 +23,10 @@ COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 # timeout leaves the whole stack missing.
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
-# Docker Hub mirror URL. Configured on the daemon before the first Compose launch.
-REGISTRY_MIRROR="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 
 usage() {
     cat <<'EOF'
 Usage:
-  bin/ci-wait-for-docker configure-mirror
   bin/ci-wait-for-docker launch [--down|--down-all-profiles] [--background] [services...]
   bin/ci-wait-for-docker wait [--only] [services...]
 
@@ -189,35 +186,6 @@ run_launch_once() {
     compose_up "$@"
 }
 
-configure_registry_mirror() {
-    local config='{}'
-    local config_file=/etc/docker/daemon.json
-
-    [ -n "$REGISTRY_MIRROR" ] || return 0
-    if docker info --format '{{json .RegistryConfig.Mirrors}}' | grep -Fq "$REGISTRY_MIRROR"; then
-        return 0
-    fi
-
-    if sudo test -f "$config_file"; then
-        config=$(sudo cat "$config_file")
-    fi
-    config=$(jq --arg mirror "$REGISTRY_MIRROR" \
-        '."registry-mirrors" = [$mirror] + ((."registry-mirrors" // []) | map(select(. != $mirror)))' \
-        <<< "$config")
-    sudo install -d /etc/docker
-    printf '%s\n' "$config" | sudo tee "$config_file" >/dev/null
-    sudo service docker restart
-    for _ in {1..30}; do
-        if docker info --format '{{json .RegistryConfig.Mirrors}}' 2>/dev/null | grep -Fq "$REGISTRY_MIRROR"; then
-            echo "Docker Hub pulls use ${REGISTRY_MIRROR} first."
-            return 0
-        fi
-        sleep 1
-    done
-    echo "Docker did not load registry mirror ${REGISTRY_MIRROR}." >&2
-    return 1
-}
-
 run_launch() {
     local down_mode="none"
     local background=0
@@ -254,6 +222,7 @@ run_launch() {
     done
 
     launch_services=("$@")
+
     launch_runner() {
         local inner_attempt=1
         local inner_sleep_time
@@ -377,7 +346,7 @@ run_wait() {
 
 command="${1:-wait}"
 case "$command" in
-    configure-mirror|launch|wait)
+    launch|wait)
         shift
         ;;
     --help|-h)
@@ -390,9 +359,6 @@ case "$command" in
 esac
 
 case "$command" in
-    configure-mirror)
-        configure_registry_mirror
-        ;;
     launch)
         run_launch "$@"
         ;;
