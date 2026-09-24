@@ -12,8 +12,6 @@ import type {
 import type { WorkspaceService } from "../workspace/workspace";
 import { type GitService, mapPrState } from "./service";
 
-// Each check runs `gh` and git subprocesses, and every rendered task row asks
-// for one, so a long list must not start them all at once or on every refetch.
 const REVALIDATION_TTL_MS = 30_000;
 const MAX_CONCURRENT_REVALIDATIONS = 4;
 
@@ -110,7 +108,6 @@ export class TaskPrStatusService {
   ): Promise<void> {
     const inFlight = this.taskPrRevalidations.get(taskId);
     if (inFlight) return inFlight;
-    // A new cloud PR url skips the wait, so a PR the run just opened shows now.
     const last = this.lastRevalidations.get(taskId);
     if (
       last &&
