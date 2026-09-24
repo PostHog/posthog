@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 from pydantic import BaseModel
 
@@ -130,7 +130,11 @@ class _WarehouseCatalog:
 
 
 def queried_access_controlled_resources(
-    query, team: "Team", *, bypassed_scopes: frozenset[str] = frozenset(), _catalog: Optional[_WarehouseCatalog] = None
+    query: Union[HogQLQuery, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode, RetentionEntity],
+    team: "Team",
+    *,
+    bypassed_scopes: frozenset[str] = frozenset(),
+    _catalog: Optional[_WarehouseCatalog] = None,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
