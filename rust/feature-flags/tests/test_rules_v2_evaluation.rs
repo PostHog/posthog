@@ -403,12 +403,12 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         let id = case["id"].as_str().unwrap();
         let properties = corpus::properties(&case);
         let context = corpus::context(&case, &properties);
-        // White-box needs the hash seam, eligibility the request boundary, null context no request.
+        // White-box needs the hash seam, eligibility the request boundary. Unavailable
+        // context is a request without properties: partial, and empty.
         if matches!(
             case["family"].as_str().unwrap(),
             "white_box" | "eligibility"
-        ) || matches!(context.properties, PersonProperties::Unavailable)
-        {
+        ) {
             skipped += 1;
             continue;
         }
@@ -499,5 +499,5 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         );
         projected += 1;
     }
-    assert_eq!((projected, skipped), (120, 15));
+    assert_eq!((projected, skipped), (122, 13));
 }
