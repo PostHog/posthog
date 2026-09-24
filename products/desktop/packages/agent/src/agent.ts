@@ -4,7 +4,7 @@ import {
   mergePrUrls,
   readPrUrls,
 } from "@posthog/shared";
-import { catalogModelFor } from "@posthog/shared/model-catalog";
+import { isRetiredModel } from "@posthog/shared/model-catalog";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
@@ -154,7 +154,7 @@ export class Agent {
 
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
-      options.model && catalogModelFor(options.model)
+      options.model && !isRetiredModel(options.model)
         ? options.model
         : undefined;
     if (codexSubscription) {

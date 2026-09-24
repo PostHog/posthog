@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOfferedModel } from "./model-catalog";
+import { isOfferedModel, isRetiredModel } from "./model-catalog";
 
 describe("isOfferedModel", () => {
   it.each([
@@ -32,4 +32,22 @@ describe("isOfferedModel", () => {
   ])("offers %s", (modelId) => {
     expect(isOfferedModel(modelId)).toBe(true);
   });
+});
+
+describe("isRetiredModel", () => {
+  it.each(["claude-opus-4-7", "claude-sonnet-4-6", "@cf/zai-org/glm-5.2"])(
+    "retires %s",
+    (modelId) => {
+      expect(isRetiredModel(modelId)).toBe(true);
+    },
+  );
+
+  // A run may use an id the catalog never listed, so only a retired one is ruled out:
+  // `gpt-5.5-codex` is a vendor variant a person's own OpenAI subscription drives.
+  it.each(["gpt-5.5-codex", "claude-haiku-4-5", "claude-opus-5-5"])(
+    "does not retire %s",
+    (modelId) => {
+      expect(isRetiredModel(modelId)).toBe(false);
+    },
+  );
 });

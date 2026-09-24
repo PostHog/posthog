@@ -233,6 +233,7 @@ export {
 } from "./mentions";
 export {
   isOfferedModel,
+  isRetiredModel,
   supports1MContext,
   supportsFastMode,
 } from "./model-catalog";
