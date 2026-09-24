@@ -244,9 +244,10 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             },
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
                 // Covers non-polling products mounted before bootstrap settled. A cache hit
-                // gates this off, except for one still-armed revalidation catch-up.
+                // gates this off, except for one still-armed revalidation catch-up. The action
+                // can fire with the project still null, so detectIfProjectKnown re-checks it.
                 if (cache.cacheGate !== 'closed' && values.detectedStatus === null && !values.detectedStatusLoading) {
-                    actions.detectStatus()
+                    detectIfProjectKnown(actions, values)
                 }
             },
         })),

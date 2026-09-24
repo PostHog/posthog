@@ -305,6 +305,34 @@ describe('createSetupDetectionLogic', () => {
             expect(detect).toHaveBeenCalledTimes(1)
             expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
         })
+
+        // loadCurrentProjectSuccess can fire while the project is still null. Detecting
+        // against a null project would fail or return null, closing the cache gate and
+        // stranding has-data forever - the catch-up must wait for a known project instead.
+        it('waits for a known project before the catch-up revalidation runs', async () => {
+            await seedCachedHasData()
+            projectLogic.actions.loadCurrentProjectSuccess(null)
+
+            const detect = jest.fn<Promise<ProductSetupStatus | null>, []>(async () =>
+                projectLogic.findMounted()?.values.currentProjectId ? 'needs-setup' : null
+            )
+            const logic = buildCached(detect, true)
+            logic.mount()
+            expect(detect).not.toHaveBeenCalled()
+            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
+
+            // Still null - must not run detection yet.
+            projectLogic.actions.loadCurrentProjectSuccess(null)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(detect).not.toHaveBeenCalled()
+            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
+
+            // Once the project is known, the revalidation runs exactly once and applies its answer.
+            projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(detect).toHaveBeenCalledTimes(1)
+            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
+        })
     })
 
     it('does not poll when no interval is configured', async () => {

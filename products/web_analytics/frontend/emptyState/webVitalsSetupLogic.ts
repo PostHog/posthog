@@ -15,6 +15,7 @@ export const webVitalsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.WEB_ANALYTICS,
     path: ['products', 'web_analytics', 'frontend', 'emptyState', 'webVitalsSetupLogic'],
     cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const teamId = teamLogic.findMounted()?.values.currentTeamId
         if (!teamId) {
