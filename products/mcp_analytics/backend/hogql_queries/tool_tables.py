@@ -59,7 +59,9 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
     display_person_properties,
+    effective_tool_expr,
     mcp_query_date_range,
+    mcp_source_expr,
     shared_filter_exprs,
     tool_scope_exprs,
     validate_mcp_analytics_access,
@@ -440,26 +442,54 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
+    def _where(self) -> ast.Expr:
+        # Scoped to the new-SDK source but not to one effective tool, so the outer query
+        # can compute this tool's own aggregates via `is_tool` alongside the all-tool
+        # totals (the call/session share denominators) in a single scan.
+        return ast.And(
+            exprs=[
+                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
+                parse_expr(
+                    "timestamp >= {date_from}",
+                    placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
+                ),
+                parse_expr(
+                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
+                ),
+                mcp_source_expr(),
+                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
+            ]
+        )
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
             """
             SELECT
-                count() AS calls,
-                {_IS_ERROR} AS errors,
-                {_P50} AS p50_ms,
-                {_P95} AS p95_ms,
-                uniq(distinct_id) AS users,
-                uniq({_CONVERSATION_ID}) AS conversations,
-                countIf(notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}') AS with_intent
-            FROM events
-            WHERE {where}
+                countIf(is_tool) AS calls,
+                countIf(is_tool AND is_error) AS errors,
+                round(quantileIf(0.5)(duration_ms, is_tool)) AS p50_ms,
+                round(quantileIf(0.95)(duration_ms, is_tool)) AS p95_ms,
+                uniqIf(distinct_id, is_tool) AS users,
+                uniqIf(conversation_id, is_tool) AS conversations,
+                countIf(is_tool AND has_intent) AS with_intent,
+                count() AS total_calls,
+                uniq(conversation_id) AS total_conversations
+            FROM (
+                SELECT
+                    distinct_id,
+                    {_CONVERSATION_ID} AS conversation_id,
+                    toBool(properties.$mcp_is_error) AS is_error,
+                    toFloat(properties.$mcp_duration_ms) AS duration_ms,
+                    notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}' AS has_intent,
+                    {is_tool} AS is_tool
+                FROM events
+                WHERE {where}
+            )
             """,
             placeholders={
                 "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
-                "_IS_ERROR": parse_expr(_IS_ERROR),
-                "_P50": parse_expr(_P50),
-                "_P95": parse_expr(_P95),
-                "where": _tool_call_where(self.query, self.query_date_range, self.team),
+                "is_tool": effective_tool_expr(self.query.toolName),
+                "where": self._where(),
             },
         )
 
@@ -490,6 +520,8 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
                     users=int(row[4] or 0),
                     conversations=int(row[5] or 0),
                     with_intent=int(row[6] or 0),
+                    total_calls=int(row[7] or 0),
+                    total_conversations=int(row[8] or 0),
                 )
             ]
             if row and int(row[0] or 0) > 0

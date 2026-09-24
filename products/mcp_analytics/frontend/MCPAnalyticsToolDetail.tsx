@@ -31,6 +31,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { formatPercentage } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -223,6 +224,32 @@ function spark(values: number[]): number[] {
     return values.map((v) => (Number.isFinite(v) ? v : 0))
 }
 
+// Below this, formatPercentage's two-significant-digit rounding would show "0%", hiding that
+// the tool ran at all.
+const MIN_DISPLAYED_SHARE_PCT = 0.01
+
+// undefined when there's nothing to divide by, so the caller can fall back to the date range subtitle.
+function formatShare(part: number, total: number): string | undefined {
+    if (total === 0) {
+        return undefined
+    }
+    const pct = (part / total) * 100
+    if (pct > 0 && pct < MIN_DISPLAYED_SHARE_PCT) {
+        return `<${MIN_DISPLAYED_SHARE_PCT}%`
+    }
+    return formatPercentage(pct, { compact: true })
+}
+
+function formatCallShare(calls: number, totalCalls: number): string | undefined {
+    const share = formatShare(calls, totalCalls)
+    return share === undefined ? undefined : `${share} of all calls`
+}
+
+function formatSessionShare(sessions: number, totalSessions: number): string | undefined {
+    const share = formatShare(sessions, totalSessions)
+    return share === undefined ? undefined : `In ${share} of sessions`
+}
+
 function StatTiles({
     summary,
     loading,
@@ -255,6 +282,7 @@ function StatTiles({
         data: number[]
         color: string
         goodDirection: 'up' | 'down'
+        subtitle?: string
     }[] = [
         {
             label: 'Calls',
@@ -263,6 +291,7 @@ function StatTiles({
             data: spark(daily.calls),
             color: theme.colors[0],
             goodDirection: 'up',
+            subtitle: formatCallShare(calls, summary?.total_calls ?? 0),
         },
         {
             label: 'Error rate',
@@ -303,6 +332,7 @@ function StatTiles({
             data: spark(daily.sessions),
             color: theme.colors[6],
             goodDirection: 'up',
+            subtitle: formatSessionShare(summary?.conversations ?? 0, summary?.total_conversations ?? 0),
         },
     ]
 
@@ -316,7 +346,7 @@ function StatTiles({
                     labels={daily.labels}
                     interval={interval}
                     theme={theme}
-                    restingSubtitle={dateRangeLabel}
+                    restingSubtitle={tile.subtitle ?? dateRangeLabel}
                     sparklineHeight={40}
                     sparklineDashedFromIndex={incompleteTail ? daily.labels.length - 1 : undefined}
                 />
@@ -693,6 +723,11 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 header: 'Sessions',
                                 align: 'right',
                                 render: (r) => formatNumber(Number(r[4] ?? 0)),
+                            },
+                            {
+                                header: 'Session share',
+                                align: 'right',
+                                render: (r) => formatShare(Number(r[4] ?? 0), Number(r[5] ?? 0)) ?? '-',
                             },
                         ]}
                     />

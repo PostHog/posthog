@@ -480,6 +480,48 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
 
         assert self._run() == []
 
+    def test_totals_include_other_tools_calls_and_sessions(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1")
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1")
+        _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
+        _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
+        flush_persons_and_events()
+
+        row = self._run()[0]
+
+        assert row.calls == 2
+        assert row.conversations == 1
+        assert row.total_calls == 4
+        assert row.total_conversations == 2
+
+    def test_shared_property_filter_narrows_totals_not_just_this_tool(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1", client_name="claude-ai")
+        _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2", client_name="claude-ai")
+        _emit_tool_call(self.team, distinct_id="d3", tool_name="other", session_id="s3", client_name="cursor-vscode")
+        flush_persons_and_events()
+
+        runner = MCPToolStatsQueryRunner(
+            query=MCPToolStatsQuery(
+                toolName="query_run",
+                dateRange=DateRange(date_from="-7d"),
+                properties=[
+                    EventPropertyFilter(key="$mcp_client_name", value=["claude-ai"], operator=PropertyOperator.EXACT)
+                ],
+            ),
+            team=self.team,
+        )
+        row = runner.calculate().results[0]
+
+        # The cursor-vscode event is excluded from the total, not just from this tool's own numbers.
+        assert row.total_calls == 2
+        assert row.total_conversations == 2
+
+    def test_empty_when_no_calls_for_this_tool_even_if_other_tools_have_calls(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", tool_name="other")
+        flush_persons_and_events()
+
+        assert self._run("query_run") == []
+
 
 class TestMCPToolDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def _run(self, tool_name: str = "query_run") -> list[Any]:

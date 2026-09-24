@@ -246,3 +246,46 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         assert "OpenAI Codex" in by_harness
         assert "Cursor" not in by_harness
+
+    def test_harness_sessions_is_none_when_tool_name_unset(self) -> None:
+        self._emit(properties={"$mcp_client_name": "codex-mcp-client"})
+        flush_persons_and_events()
+
+        row = self._breakdown()["OpenAI Codex"]
+
+        assert row.harness_sessions is None
+
+    def test_harness_sessions_counts_all_tools_when_tool_name_set(self) -> None:
+        new_sdk = {"$mcp_source": "posthog_mcp_analytics"}
+        self._emit(distinct_id="d1", session_id="a", properties={"$mcp_client_name": "codex-mcp-client", **new_sdk})
+        # A different tool, same harness, different session: counts toward harness_sessions
+        # but not toward this tool's own `sessions`.
+        self._emit(
+            distinct_id="d2",
+            session_id="b",
+            properties={"$mcp_tool_name": "other_tool", "$mcp_client_name": "codex-mcp-client", **new_sdk},
+        )
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(dateRange=DateRange(date_from="-90d"), toolName="query_run"),
+            team=self.team,
+        )
+        row = {row.harness: row for row in runner.calculate().results}["OpenAI Codex"]
+
+        assert row.sessions == 1
+        assert row.harness_sessions == 2
+
+    def test_harness_omitted_when_tool_never_ran_there_but_shown_without_tool_name(self) -> None:
+        new_sdk = {"$mcp_source": "posthog_mcp_analytics"}
+        self._emit(
+            properties={"$mcp_tool_name": "other_tool", "$mcp_client_name": "codex-mcp-client", **new_sdk},
+        )
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(dateRange=DateRange(date_from="-90d"), toolName="query_run"),
+            team=self.team,
+        )
+        assert "OpenAI Codex" not in {row.harness for row in runner.calculate().results}
+        assert "OpenAI Codex" in self._breakdown()

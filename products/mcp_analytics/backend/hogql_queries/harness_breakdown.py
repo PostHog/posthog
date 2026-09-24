@@ -19,9 +19,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    effective_tool_expr,
     mcp_query_date_range,
+    mcp_source_expr,
     shared_filter_exprs,
-    tool_scope_exprs,
     validate_mcp_analytics_access,
 )
 
@@ -49,22 +50,66 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
-    def _where(self) -> ast.Expr:
-        exprs: list[ast.Expr] = [
+    def _base_exprs(self) -> list[ast.Expr]:
+        return [
             parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
             parse_expr(
                 "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
         ]
-        if self.query.toolName:
-            exprs.extend(tool_scope_exprs(self.query.toolName))
-        exprs.extend(shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts))
+
+    def _where(self) -> ast.Expr:
+        exprs = [
+            *self._base_exprs(),
+            *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
+        ]
+        return ast.And(exprs=exprs)
+
+    def _where_scoped_to_source(self) -> ast.Expr:
+        # Scoped to the new-SDK source but not to one effective tool, so the outer query
+        # can compute this tool's own aggregates via `is_tool` alongside the harness's
+        # all-tool session total (the session-share denominator) in a single scan.
+        exprs = [
+            *self._base_exprs(),
+            mcp_source_expr(),
+            *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
+        ]
         return ast.And(exprs=exprs)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # The harness label and token are HogQL fragments from mcp_harness; parse them
         # to AST and inject as placeholders (like {where}) so nothing is string-interpolated.
+        if self.query.toolName:
+            return parse_select(
+                """
+                SELECT
+                    {label} AS harness,
+                    countIf(is_tool) AS total_calls,
+                    countIf(is_tool AND is_error) AS errors,
+                    round(countIf(is_tool AND is_error) * 100.0 / countIf(is_tool), 1) AS error_rate_pct,
+                    countDistinctIf(session_id, session_id != '' AND is_tool) AS sessions,
+                    countDistinctIf(session_id, session_id != '') AS harness_sessions
+                FROM (
+                    SELECT
+                        {token} AS h,
+                        $session_id AS session_id,
+                        toBool(properties.$mcp_is_error) AS is_error,
+                        {is_tool} AS is_tool
+                    FROM events
+                    WHERE {where}
+                )
+                GROUP BY harness
+                HAVING countIf(is_tool) > 0
+                ORDER BY total_calls DESC
+                """,
+                placeholders={
+                    "label": parse_expr(mcp_harness.harness_label_sql("h")),
+                    "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
+                    "is_tool": effective_tool_expr(self.query.toolName),
+                    "where": self._where_scoped_to_source(),
+                },
+            )
         return parse_select(
             """
             SELECT
@@ -115,6 +160,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
                 errors=int(row[2] or 0),
                 error_rate_pct=float(row[3] or 0),
                 sessions=int(row[4] or 0),
+                harness_sessions=int(row[5] or 0) if self.query.toolName else None,
             )
             for row in (response.results or [])
         ]

@@ -3518,6 +3518,8 @@ export interface MCPHarnessBreakdownItem {
     errors: integer
     error_rate_pct: number
     sessions: integer
+    /** Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName. */
+    harness_sessions?: integer
 }
 
 export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -3676,6 +3678,10 @@ export interface MCPToolStatsItem {
     conversations: integer
     /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
     with_intent: integer
+    /** Calls to any tool in the same window and filters. The denominator for the tool's call share. */
+    total_calls: integer
+    /** Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share. */
+    total_conversations: integer
 }
 
 export interface MCPToolStatsQueryResponse extends AnalyticsQueryResponseBase {

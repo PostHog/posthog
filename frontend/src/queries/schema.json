@@ -31761,6 +31761,10 @@
                     "description": "Customer-facing harness label, e.g. \"Claude Agent SDK\", \"OpenAI Codex\", \"Cursor\", \"Other\".",
                     "type": "string"
                 },
+                "harness_sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName."
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33923,6 +33927,14 @@
                 "p95_ms": {
                     "type": ["number", "null"]
                 },
+                "total_calls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Calls to any tool in the same window and filters. The denominator for the tool's call share."
+                },
+                "total_conversations": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share."
+                },
                 "users": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33931,7 +33943,17 @@
                     "description": "Calls carrying a non-empty intent payload; the coverage denominator is `calls`."
                 }
             },
-            "required": ["calls", "errors", "p50_ms", "p95_ms", "users", "conversations", "with_intent"],
+            "required": [
+                "calls",
+                "errors",
+                "p50_ms",
+                "p95_ms",
+                "users",
+                "conversations",
+                "with_intent",
+                "total_calls",
+                "total_conversations"
+            ],
             "type": "object"
         },
         "MCPToolStatsQuery": {

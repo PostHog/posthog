@@ -45,18 +45,33 @@ EFFECTIVE_DESCRIPTION_SQL = (
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 
 
+def mcp_source_expr() -> ast.Expr:
+    """The `$mcp_source = NEW_SDK_SOURCE` predicate alone, without the tool-name predicate.
+
+    Used where a query must scan every tool's new-SDK calls (e.g. a share denominator)
+    instead of scoping to one effective tool.
+    """
+    return parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)})
+
+
+def effective_tool_expr(tool: str) -> ast.Expr:
+    """The effective-tool equality predicate alone, bound as ast.Constant.
+
+    Used to materialize a per-row boolean column so one scan can produce both a
+    tool-scoped aggregate and an all-tools total in the same query.
+    """
+    return parse_expr(
+        "{EFFECTIVE_TOOL_SQL} = {tool}",
+        placeholders={"EFFECTIVE_TOOL_SQL": parse_expr(EFFECTIVE_TOOL_SQL), "tool": ast.Constant(value=tool)},
+    )
+
+
 def tool_scope_exprs(tool: str) -> list[ast.Expr]:
     """Predicates scoping new-SDK $mcp_tool_call events to one effective tool.
 
     `tool` is bound as an ast.Constant, never string-interpolated.
     """
-    return [
-        parse_expr(
-            "{EFFECTIVE_TOOL_SQL} = {tool}",
-            placeholders={"EFFECTIVE_TOOL_SQL": parse_expr(EFFECTIVE_TOOL_SQL), "tool": ast.Constant(value=tool)},
-        ),
-        parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}),
-    ]
+    return [effective_tool_expr(tool), mcp_source_expr()]
 
 
 def shared_filter_exprs(
