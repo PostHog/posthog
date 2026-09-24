@@ -869,6 +869,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         actions.clearConversation()
                         return
                     }
+                    // A row editor keeps its text in the component until the user saves, so sending now
+                    // would carry the row as it stood before the edit. Wait, as the drain does.
+                    if (values.queueEditing) {
+                        lemonToast.info('Save or cancel your edit first')
+                        return
+                    }
                     // A finished run can't drain the queue — `canSend` is false for the rest of its life —
                     // so the staged rows ride along into the run this send starts. Leaving them behind
                     // stranded them on screen, promising a delivery nothing would ever make.

@@ -897,6 +897,30 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([])
     })
 
+    it('waits for an open row editor before a terminal send carries the rows', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('half-written')
+        setStatus('completed')
+        stream.actions.handleTerminalStatus({ status: 'completed' })
+        logic.actions.setQueueEditing(true)
+
+        logic.actions.setComposerFormValues({ draft: 'and now this' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        // Sending would have carried the row as it stood before the edit the user is still typing.
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'half-written' }])
+
+        logic.actions.setQueueEditing(false)
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ pending_user_message: 'half-written\n\nand now this' }),
+            expect.anything()
+        )
+    })
+
     it('waits for an open row editor before draining on turn completion', async () => {
         setThinking(true)
         logic.actions.enqueueMessage('half-written')
