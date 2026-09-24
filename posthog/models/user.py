@@ -52,6 +52,7 @@ class Notifications(TypedDict, total=False):
         float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
     )
     project_api_key_exposed: bool
+    ai_evaluation_disabled: bool  # One email each time an AI observability evaluation is auto-disabled
     materialized_view_sync_failed: bool
     materialized_view_sync_failed_daily: bool  # One digest a day summarizing failing views
     materialized_view_sync_failed_immediate: bool  # One email each time a view starts failing
@@ -78,6 +79,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
+    "ai_evaluation_disabled": True,  # Auto-disabled evaluation emails enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
     "materialized_view_sync_failed_daily": True,  # Digest is the default delivery once failures are turned on
     "materialized_view_sync_failed_immediate": False,
