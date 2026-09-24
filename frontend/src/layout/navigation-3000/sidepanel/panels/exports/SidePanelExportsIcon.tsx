@@ -6,10 +6,10 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
 
-export const SidePanelExportsIcon = (): JSX.Element => {
+export const SidePanelExportsIcon = (props: { className?: string }): JSX.Element => {
     const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
     return (
-        <IconWithCount count={freshUndownloadedExports.length}>
+        <IconWithCount count={freshUndownloadedExports.length} {...props}>
             <IconDownload />
         </IconWithCount>
     )
