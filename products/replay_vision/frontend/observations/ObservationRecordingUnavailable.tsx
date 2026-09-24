@@ -30,8 +30,13 @@ export function ObservationRecordingUnavailable({ observation }: { observation: 
                     can still read it and rate it.
                 </span>
             </div>
-            <Link to={urls.settings('project-replay', 'replay-retention')} className="text-sm">
-                Review recording retention
+            <Link
+                to={urls.settings('project-replay', 'replay-retention')}
+                target="_blank"
+                targetBlankIcon
+                className="text-sm"
+            >
+                Manage replay data retention
             </Link>
         </div>
     )
