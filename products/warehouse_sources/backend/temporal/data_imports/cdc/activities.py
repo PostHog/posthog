@@ -90,7 +90,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     captures_to_buffer,
     consolidated_resource_name,
-    has_batches_in_flight,
+    has_queued_batches,
     snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -1518,7 +1518,8 @@ class CDCExtractActivity:
             clear_deferred_runs = True
         self._pause_schema_schedule(schema)
         stopping = cancel_running_sync(schema)
-        if stopping is not None or has_batches_in_flight(schema):
+        # The queue alone, because deferred runs flush only after a hand-over, which the pause prevents.
+        if stopping is not None or has_queued_batches(schema):
             self._defer_reset(schema, clear_deferred_runs=clear_deferred_runs, stopping_workflow_id=stopping)
             return False
         # The re-seeding snapshot starts after this run, so it covers every change this run read.

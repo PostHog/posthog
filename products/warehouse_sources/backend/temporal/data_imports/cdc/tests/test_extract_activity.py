@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import cancel_running_sync
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_queued_batches
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
@@ -172,7 +173,7 @@ def _stub_sync_type_config_merge():
             return_value=None,
         ),
         patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_batches_in_flight",
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_queued_batches",
             return_value=False,
         ),
         patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
@@ -3885,31 +3886,41 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", None, False, "waits"),
+            ("sync_still_stopping", None, None, {}, "waits"),
             (
                 "sync_closed_with_batches_still_loading",
                 RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
-                True,
+                30.0,
+                {},
                 "waits",
             ),
             (
                 "sync_closed_and_nothing_queued",
                 RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
-                False,
+                None,
+                {},
                 "resets",
             ),
-            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), False, "raises"),
+            (
+                "deferred_runs_left_and_nothing_queued",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                None,
+                {"cdc_deferred_runs": [{"run_uuid": "r1"}]},
+                "resets",
+            ),
+            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), None, {}, "raises"),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.ExternalDataJob")
     def test_a_reset_stops_the_tables_running_sync_first(
-        self, _name, cancel_error, batches_in_flight, outcome, MockJob, mock_purge
+        self, _name, cancel_error, oldest_queued_batch_age, config, outcome, MockJob, mock_purge
     ):
         # A snapshot that started before a repeated reset missed the changes the reset drops, so it
         # must not reach its hand-over.
         source = _make_source()
         schema = _make_schema("users", cdc_mode="snapshot", source=source)
+        schema.sync_type_config.update(config)
         act = _make_extract_activity(source)
         running = MockJob.objects.filter.return_value.exclude.return_value.exclude.return_value
         running.order_by.return_value.first.return_value = MagicMock(workflow_id="users-snapshot")
@@ -3925,8 +3936,13 @@ class TestBufferedIngressCapture:
             ) as cancel,
             patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule") as pause,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_batches_in_flight",
-                return_value=batches_in_flight,
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_queued_batches",
+                has_queued_batches,
+            ),
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.psycopg"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.BatchQueue.get_oldest_non_terminal_batch_age_seconds",
+                return_value=oldest_queued_batch_age,
             ),
         ):
             if outcome == "raises":
