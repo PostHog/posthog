@@ -40,8 +40,6 @@ export type RequestProperties = {
     featureFlagOverrides?: string | undefined
     // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
     excludeTools?: string[] | undefined
-    // End user IP that the Hono runtime resolved (see hono/client-ip.ts) and signs onto each API
-    // call. The Worker never sets it, because it forwards the IP to Hono in its own headers.
     clientIp?: string | undefined
 }
 

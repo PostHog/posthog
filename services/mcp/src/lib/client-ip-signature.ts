@@ -17,7 +17,6 @@ export const EDGE_CLIENT_IP_HEADERS: SignedClientIpHeaderNames = {
     signature: 'x-posthog-edge-client-ip-signature',
 }
 
-// Read by ActivityLoggingMiddleware in posthog/middleware.py.
 export const MCP_CLIENT_IP_HEADERS: SignedClientIpHeaderNames = {
     ip: 'x-posthog-mcp-client-ip',
     timestamp: 'x-posthog-mcp-client-ip-timestamp',
@@ -78,7 +77,6 @@ export async function signedClientIpHeaders(
     }
 }
 
-/** The caller checks that the IP itself is well formed. */
 export async function verifySignedClientIp(
     ip: string | null,
     timestamp: string | null,

@@ -11,11 +11,8 @@ export interface ResolvedClientIp {
 }
 
 /**
- * A request from the Cloudflare Worker carries the IP that the Worker signed. The ingress saw only
- * a Cloudflare address for it, so an edge signature that fails to verify gives no IP rather than a
- * fallback to X-Forwarded-For. A request without edge headers came straight through the ingress,
- * and Envoy writes the rightmost X-Forwarded-For entry. It does so whether it replaces the header
- * or appends to it, so a client cannot forge that entry.
+ * A failed edge signature gives no IP, because the ingress saw only a Cloudflare address for Worker
+ * traffic. Envoy writes the rightmost X-Forwarded-For entry, so a client cannot forge it.
  */
 export async function resolveClientIp(
     headers: Headers,

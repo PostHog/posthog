@@ -187,7 +187,6 @@ export interface ApiConfig {
     taskId?: string | undefined
     /** One tool call's stated intent, forwarded as `x-posthog-intent`. Set it through `withIntent`. */
     intent?: string | undefined
-    /** Only the Hono runtime sets these. The API records the signed IP in the activity log. */
     clientIp?: string | undefined
     clientIpSigningKeys?: string[] | undefined
 }
