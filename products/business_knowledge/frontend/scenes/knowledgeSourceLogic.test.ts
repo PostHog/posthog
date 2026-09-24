@@ -94,6 +94,8 @@ describe('knowledgeSourceLogic', () => {
         const pushSpy = jest.spyOn(router.actions, 'push')
 
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.editSource.text).toBe('Refund within 30 days.')
+        expect(logic.values.editSourceChanged).toBe(false)
 
         logic.actions.setEditSourceValues({
             name: 'Updated policy',
@@ -110,6 +112,7 @@ describe('knowledgeSourceLogic', () => {
             expect.objectContaining({ name: 'Updated policy', text: 'Refund within 60 days.' })
         )
         expect(logic.values.editSource.text).toBe('Refund within 60 days.')
+        expect(logic.values.editSourceChanged).toBe(false)
         expect(pushSpy).not.toHaveBeenCalled()
         expect(mockedApi.getSource).toHaveBeenCalled()
         expect(mockedApi.getSourceDocuments).not.toHaveBeenCalled()
@@ -141,6 +144,7 @@ describe('knowledgeSourceLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.editUrlSourceChanged).toBe(false)
 
         logic.actions.setEditUrlSourceValue('name', 'Draft name')
 
@@ -149,6 +153,7 @@ describe('knowledgeSourceLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.editUrlSource.name).toBe('Draft name')
+        expect(logic.values.editUrlSourceChanged).toBe(true)
         expect(mockedApi.getSourceDocuments).toHaveBeenCalledWith(SOURCE_ID)
         expect(logic.values.sourceDocumentsLoaded).toBe(true)
     })
