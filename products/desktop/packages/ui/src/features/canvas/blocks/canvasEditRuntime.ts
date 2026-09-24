@@ -235,12 +235,15 @@ export function installCanvasEditing(
     };
   };
 
+  let openBlock: Element | null = null;
+
   const candidateOf = (start: Element | null): HTMLElement | null => {
     let element: Element | null = start;
     while (element && element !== document.body) {
       const blockRoot = element.closest("[data-ph-block]");
       if (
         blockRoot instanceof HTMLElement &&
+        blockRoot !== openBlock &&
         blockRoot.hasAttribute("data-ph-src")
       )
         return blockRoot;
@@ -453,7 +456,7 @@ export function installCanvasEditing(
     return fallback;
   };
 
-  const dropTarget = (
+  const findDropTarget = (
     x: number,
     y: number,
     exclude: string | null,
@@ -537,6 +540,21 @@ export function installCanvasEditing(
       },
       indicator,
     };
+  };
+
+  const dropTarget = (
+    x: number,
+    y: number,
+    exclude: string | null,
+    coarse: boolean,
+  ) => {
+    const rootElement = document.getElementById("root")?.firstElementChild;
+    openBlock = rootElement?.hasAttribute("data-ph-block") ? rootElement : null;
+    try {
+      return findDropTarget(x, y, exclude, coarse);
+    } finally {
+      openBlock = null;
+    }
   };
 
   const showLine = (

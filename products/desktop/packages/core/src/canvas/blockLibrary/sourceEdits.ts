@@ -545,5 +545,5 @@ export function placeableTarget(
   if (!root || root.file !== target.file) return true;
   if (target.start === root.start && target.end === root.end)
     return target.place === "inside";
-  return target.start > root.start && target.end < root.end;
+  return !(target.start <= root.start && target.end >= root.end);
 }
