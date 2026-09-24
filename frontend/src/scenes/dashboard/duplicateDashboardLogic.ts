@@ -33,10 +33,10 @@ export interface duplicateDashboardLogicValues {
     duplicateDashboardHasErrors: boolean
     duplicateDashboardManualErrors: Record<string, any>
     duplicateDashboardModalVisible: boolean
-    duplicateRequestId: number | null
     duplicateDashboardTouched: boolean
     duplicateDashboardTouches: Record<string, boolean>
     duplicateDashboardValidationErrors: DeepPartialMap<DuplicateDashboardForm, ValidationErrorType>
+    duplicateRequestId: number | null
     isDuplicateDashboardSubmitting: boolean
     isDuplicateDashboardValid: boolean
     showDuplicateDashboardErrors: boolean
@@ -48,7 +48,6 @@ export interface duplicateDashboardLogicActions {
         dashboardId: number
         insightIds: number[]
     } // insightsModel
-    setDuplicateRequestId: (id: number | null) => { id: number | null }
     hideDuplicateDashboardModal: () => {
         value: true
     }
@@ -67,6 +66,9 @@ export interface duplicateDashboardLogicActions {
     }
     setDuplicateDashboardValues: (values: DeepPartial<DuplicateDashboardForm>) => {
         values: DeepPartial<DuplicateDashboardForm>
+    }
+    setDuplicateRequestId: (id: number | null) => {
+        id: number | null
     }
     showDuplicateDashboardModal: (
         id: number,

@@ -265,6 +265,9 @@ export interface sceneLogicActions {
     hideInviteModal: () => {
         value: true
     } // inviteLogic
+    homepageSaved: (tab: SceneTab | null) => {
+        tab: SceneTab | null
+    }
     loadScene: (
         sceneId: string,
         sceneKey: string | undefined,
@@ -304,14 +307,15 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
     }
-    homepageSaved: (tab: SceneTab | null) => { tab: SceneTab | null }
-    setHomepageSaving: (saving: boolean) => { saving: boolean }
     setHomepage: (
         tab: SceneTab | null,
         homepageSource?: 'dashboards list'
     ) => {
-        tab: SceneTab | null
         homepageSource: 'dashboards list' | undefined
+        tab: SceneTab | null
+    }
+    setHomepageSaving: (saving: boolean) => {
+        saving: boolean
     }
     setScene: (
         sceneId: string,
