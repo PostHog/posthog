@@ -282,17 +282,24 @@ def _parse_display_name(frontmatter: dict, skill_file: Path, *, is_scout: bool) 
 
 
 def _parse_structured_output_schema(
-    frontmatter: dict, skill_dir: Path, skill_file: Path, *, is_scout: bool
+    frontmatter: dict, files: list[CanonicalSkillFile], skill_file: Path, *, is_scout: bool
 ) -> dict | None:
     """Read the optional `scout-structured-output-schema` frontmatter value — the record contract
     a measurement scout ships, seeded onto its config so the structured-output channel is on from
     the first run.
 
-    The value is a path to a bundled file rather than the schema itself: a JSON Schema is a
-    document, not a frontmatter scalar, and the run prompt renders it verbatim anyway. The path
-    must sit under one of `_ALLOWED_BUNDLE_SUBDIRS`, which is what folds the schema into the
-    content hash — a schema edit then reaches every team the way a body edit does, instead of
-    being invisible to the sync.
+    The value names a bundled file rather than carrying the schema itself: a JSON Schema is a
+    document, not a frontmatter scalar. It is resolved against the already-read bundle, so the
+    schema file is read once, is covered by the same size and path caps as every other bundled
+    file, and cannot name anything outside `_ALLOWED_BUNDLE_SUBDIRS` — "not in the bundle" is the
+    one error, and there is no second path to keep in step with the first.
+
+    Being a bundled file also puts the schema in the content hash, so editing one bumps the skill
+    version and reaches each team's skill row like a body edit. That is the file, not the contract
+    the record endpoint enforces: that is the config column, seeded once and never overwritten (see
+    `config_registry.reconcile_canonical_structured_output_schemas`). A team already running the
+    scout keeps the schema it was seeded, so changing a shipped schema for existing teams needs a
+    migration rather than a frontmatter edit.
 
     Validated here with the same `validate_structured_output_schema` the config API uses, so a
     broken canonical schema fails the harness sync once rather than failing every run of the
@@ -312,26 +319,22 @@ def _parse_structured_output_schema(
         raise CanonicalSkillParseError(
             f"SKILL.md frontmatter 'scout-structured-output-schema' must be a non-empty string: {skill_file}"
         )
-    parts = Path(rel_path).parts
-    if not parts or parts[0] not in _ALLOWED_BUNDLE_SUBDIRS:
+    bundled = next((f for f in files if f.path == rel_path), None)
+    if bundled is None:
         raise CanonicalSkillParseError(
-            f"SKILL.md frontmatter 'scout-structured-output-schema' must point inside "
+            f"SKILL.md frontmatter 'scout-structured-output-schema' must name a bundled file under "
             f"{', '.join(f'{subdir}/' for subdir in _ALLOWED_BUNDLE_SUBDIRS)} so the schema rides in "
             f"the skill bundle and its content hash: got {rel_path!r} in {skill_file}"
         )
-    schema_file = skill_dir / rel_path
-    # `resolve()` on both sides so a `..` segment inside an allowed prefix cannot climb out.
-    if not schema_file.resolve().is_relative_to(skill_dir.resolve()) or not schema_file.is_file():
-        raise CanonicalSkillParseError(
-            f"SKILL.md frontmatter 'scout-structured-output-schema' names a file that is not in the "
-            f"skill directory: {rel_path!r} in {skill_file}"
-        )
     try:
-        schema = json.loads(schema_file.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise CanonicalSkillParseError(f"Structured-output schema is not valid JSON: {schema_file}: {error}") from error
-    # Deferred: `tools.structured_output` reaches the capture path, which pulls in
-    # `posthog.tasks`, which imports this module back through the signals billing helpers.
+        schema = json.loads(bundled.content)
+    except json.JSONDecodeError as error:
+        raise CanonicalSkillParseError(
+            f"Structured-output schema '{rel_path}' is not valid JSON: {skill_file}: {error}"
+        ) from error
+    # Deferred: importing this reaches `tools/__init__`, whose report-check imports run through
+    # billing and `posthog.tasks`, which imports this module back through the signals billing
+    # helpers.
     from products.signals.backend.scout_harness.tools.structured_output import (  # noqa: PLC0415 — breaks a circular import
         StructuredOutputSchemaError,
         validate_structured_output_schema,
@@ -340,7 +343,9 @@ def _parse_structured_output_schema(
     try:
         return validate_structured_output_schema(schema)
     except StructuredOutputSchemaError as error:
-        raise CanonicalSkillParseError(f"Structured-output schema is invalid: {schema_file}: {error}") from error
+        raise CanonicalSkillParseError(
+            f"Structured-output schema '{rel_path}' is invalid: {skill_file}: {error}"
+        ) from error
 
 
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
@@ -406,7 +411,6 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
     role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
     display_name = _parse_display_name(frontmatter, skill_file, is_scout=is_scout)
-    structured_output_schema = _parse_structured_output_schema(frontmatter, skill_dir, skill_file, is_scout=is_scout)
     # A malformed marker is raised as a parse error like every other frontmatter fault, so the
     # callers that degrade to an empty fleet keep one failure mode rather than two.
     try:
@@ -449,6 +453,9 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         raise CanonicalSkillParseError(
             f"Canonical skill has {len(files)} bundled files, exceeding the {_MAX_SKILL_FILE_COUNT} limit: {skill_dir}"
         )
+
+    # After the bundle, because the schema is resolved out of it rather than read again.
+    structured_output_schema = _parse_structured_output_schema(frontmatter, files, skill_file, is_scout=is_scout)
 
     return CanonicalSkill(
         name=name,
@@ -718,8 +725,9 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     Deliberately excludes `config_tags`, `role`, and `display_name`: the hash is compared against
     `_compute_row_hash` over the team's `LLMSkill` row, which stores none of them (all three shape
     the config instead), so folding them in here would make every seeded row read as diverged
-    forever. The structured-output schema shapes the config too, but it is covered here anyway
-    because it is a bundled file — which is why `_parse_structured_output_schema` insists on one.
+    forever. The structured-output schema is covered anyway, because it is a bundled file — which
+    is what keeps each team's copy of the file current, though not the config column the record
+    endpoint reads from (see `_parse_structured_output_schema`).
     """
     payload = {
         "description": canonical.description,

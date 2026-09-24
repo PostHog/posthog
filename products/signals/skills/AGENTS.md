@@ -98,9 +98,11 @@ It sits outside the canonical content hash for the same reason tags do.
 
 Frontmatter also carries the optional **`scout-structured-output-schema`** — a path to a bundled JSON Schema file describing one record the scout writes through `scout-record-output`, seeded onto `SignalScoutConfig.structured_output_schema`.
 The schema's presence is what switches the structured-output channel on, so a measurement scout records its series from its first run instead of waiting for someone to paste a schema into the config API.
-It is a path rather than inline YAML because a JSON Schema is a document, and it must point inside `references/` or `scripts/` so the schema rides in the canonical content hash — a schema edit then reaches every team the way a body edit does.
+It is a path rather than inline YAML because a JSON Schema is a document, and it must name a file in the skill bundle (`references/` or `scripts/`) so the schema is read once, under the same caps as every other bundled file, and rides the canonical content hash.
 The harness validates it at discovery with the same `validate_structured_output_schema` the config API uses, so a broken schema fails the sync once instead of failing every run.
 Like the display name, it is reconciled onto rows seeded earlier but only where the column is still null, so a team that edited its schema owns it from then on.
+That cuts both ways: the config column is what the record endpoint enforces, and nothing overwrites it, so editing a shipped schema updates each team's copy of the *file* but leaves every already-seeded config on the schema it was given.
+Changing a schema teams already run needs a migration, not a frontmatter edit.
 `signals-scout-mcp-tool-calls` is the one that ships with it.
 
 Frontmatter also carries the optional **`scout-role`** value, which is `specialist` unless a scout says otherwise.

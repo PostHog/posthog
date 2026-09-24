@@ -29,6 +29,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.tools.structured_output import (
+    InvalidStructuredOutputError,
+    StructuredOutputRecord,
+    _validate_records,
+)
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 _SCHEMA_JSON = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
@@ -651,9 +656,10 @@ class TestStructuredOutputSchemaFrontmatter:
         [
             ("scout-structured-output-schema:", None, "must be a non-empty string"),
             ("scout-structured-output-schema: 17", None, "must be a non-empty string"),
-            ("scout-structured-output-schema: out.schema.json", None, "must point inside"),
-            ("scout-structured-output-schema: ../out.schema.json", None, "must point inside"),
-            ("scout-structured-output-schema: references/missing.json", None, "not in the skill directory"),
+            ("scout-structured-output-schema: out.schema.json", None, "must name a bundled file"),
+            ("scout-structured-output-schema: ../out.schema.json", None, "must name a bundled file"),
+            ("scout-structured-output-schema: references/../SKILL.md", None, "must name a bundled file"),
+            ("scout-structured-output-schema: references/missing.json", None, "must name a bundled file"),
             ("scout-structured-output-schema: references/out.schema.json", "{not json", "not valid JSON"),
             ("scout-structured-output-schema: references/out.schema.json", '{"type": "array"}', "is invalid"),
             (
@@ -667,7 +673,9 @@ class TestStructuredOutputSchemaFrontmatter:
         self, tmp_path: Path, schema_yaml: str, schema_content: str | None, expected_error: str
     ) -> None:
         # A schema that does not survive validation must fail the harness sync once, rather than
-        # seeding a contract that fails every record call of every run on every team.
+        # seeding a contract that fails every record call of every run on every team. A path that
+        # is not a bundled file fails the same way whether it is outside the bundle dirs, an
+        # escape, or simply absent: the bundle is the only place the schema is looked for.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
@@ -705,14 +713,12 @@ class TestShippedStructuredOutputSchemas:
     enforces. Discovery already rejects an invalid schema; these pin what the valid one accepts."""
 
     def test_mcp_tool_calls_schema_accepts_one_record_of_each_kind(self) -> None:
-        # The record shape is split across three files — the schema, the skill body's Record
-        # metrics step, and the dashboard recipe. Renaming a field in one and not the others is
-        # the regression: every run's whole batch fails validation and the series stops.
-        from jsonschema import Draft202012Validator
-
+        # Validated through the endpoint's own `_validate_records`, not a fresh validator: the
+        # endpoint resolves references through a no-retrieval registry and applies its own size
+        # caps, so a schema that only passes a bare validator can still fail every real record
+        # call — and validation is all-or-nothing, so one rejected record loses the whole batch.
         schema = canonical_structured_output_schema_for("signals-scout-mcp-tool-calls")
         assert schema is not None
-        validator = Draft202012Validator(schema)
 
         rollup = {
             "mcp_record_kind": "category_rollup",
@@ -743,13 +749,16 @@ class TestShippedStructuredOutputSchemas:
             "mcp_calls_per_session": 2.94,
             "mcp_share_pct_prior_window": 45.1,
         }
-        assert validator.is_valid(rollup)
-        assert validator.is_valid(share)
+        _validate_records([StructuredOutputRecord(payload=rollup), StructuredOutputRecord(payload=share)], schema)
         # Closed on both branches: a stray field is a typo nobody would otherwise see, and a
         # payload that satisfies both branches would make the discriminator meaningless.
-        assert not validator.is_valid({**rollup, "mcp_unexpected": 1})
-        assert not validator.is_valid({**share, "mcp_report_action": "authored"})
-        assert not validator.is_valid({**rollup, "mcp_report_action": "filed"})
+        for rejected in (
+            {**rollup, "mcp_unexpected": 1},
+            {**share, "mcp_report_action": "authored"},
+            {**rollup, "mcp_report_action": "filed"},
+        ):
+            with pytest.raises(InvalidStructuredOutputError):
+                _validate_records([StructuredOutputRecord(payload=rejected)], schema)
 
 
 class TestDeprecationFrontmatter:
@@ -1550,32 +1559,24 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert dict(named)["signals-scout-mcp-tool-calls"] == "MCP tool calls"
         assert all(display_name for _, display_name in named)
 
-    def test_real_fleet_structured_output_schema_lands_on_the_seeded_config(self) -> None:
+    def test_real_fleet_seeds_the_structured_output_schema_and_backfills_it_but_never_a_team_edit(self) -> None:
         # The schema's presence on the config is what switches the record channel on, so a dropped
-        # frontmatter key or a broken seed means the scout records nothing and nobody notices.
-        seed_canonical_skills(self.team)
-        register_missing_configs(self.team.id)
-
-        recording = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-mcp-tool-calls")
-        assert recording.structured_output_schema == canonical_structured_output_schema_for(
-            "signals-scout-mcp-tool-calls"
-        )
-        quiet = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-general")
-        assert quiet.structured_output_schema is None
-
-    def test_reconcile_fills_a_null_schema_but_never_overwrites_a_team_edit(self) -> None:
-        # Every config of this scout predates the frontmatter key, so the backfill is the only way
-        # they acquire a schema — and it runs on every tick, so it must lose to a team's own schema
-        # forever.
+        # frontmatter key means the scout records nothing and nobody notices. Every config of this
+        # scout predates the key, so the backfill is the only way they acquire one — and it runs on
+        # every tick, so it must lose to a team's own schema forever.
         seed_canonical_skills(self.team)
         register_missing_configs(self.team.id)
         configs = SignalScoutConfig.all_teams.filter(team=self.team)
-        team_schema = {"type": "object", "properties": {"ours": {"type": "string"}}}
+        canonical_schema = canonical_structured_output_schema_for("signals-scout-mcp-tool-calls")
+
+        assert configs.get(skill_name="signals-scout-mcp-tool-calls").structured_output_schema == canonical_schema
+        assert configs.get(skill_name="signals-scout-general").structured_output_schema is None
+
         configs.filter(skill_name="signals-scout-mcp-tool-calls").update(structured_output_schema=None)
-
         register_missing_configs(self.team.id)
-        assert configs.get(skill_name="signals-scout-mcp-tool-calls").structured_output_schema is not None
+        assert configs.get(skill_name="signals-scout-mcp-tool-calls").structured_output_schema == canonical_schema
 
+        team_schema = {"type": "object", "properties": {"ours": {"type": "string"}}}
         configs.filter(skill_name="signals-scout-mcp-tool-calls").update(structured_output_schema=team_schema)
         register_missing_configs(self.team.id)
         assert configs.get(skill_name="signals-scout-mcp-tool-calls").structured_output_schema == team_schema
