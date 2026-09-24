@@ -7,6 +7,7 @@ from uuid import uuid4
 from django.http import HttpResponse, StreamingHttpResponse
 
 import httpx
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -30,6 +31,8 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
+
+logger = structlog.get_logger(__name__)
 
 
 class TerminalAIMessage(BaseModel):
@@ -87,7 +90,10 @@ def _stream_generation(url: str, headers: dict[str, str], body: str) -> Iterator
                     402: "PostHog AI has reached its spending limit. Check your billing settings.",
                     429: "PostHog AI is busy. Wait a moment and try again.",
                 }.get(response.status_code, "PostHog AI could not complete the request. Try again in a moment.")
-    except httpx.HTTPError:
+                logger.warning("terminal_ai_gateway_request_failed", status=response.status_code)
+    except httpx.HTTPError as exc:
+        # The exception class, not its text: an httpx message can carry the gateway URL.
+        logger.warning("terminal_ai_gateway_transport_failed", error=type(exc).__name__)
         message = "The connection to PostHog AI failed. Try again in a moment."
     error = {"type": "error", "error": {"type": "api_error", "message": message}}
     yield f"event: error\ndata: {json.dumps(error)}\n\n".encode()

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import cast
 
 from posthog.test.base import APIBaseTest
@@ -12,6 +13,16 @@ from parameterized import parameterized
 
 from posthog.models import Organization, PersonalAPIKey, Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+UPSTREAM_DIAGNOSTICS = "private upstream diagnostics"
+
+
+def _rejecting_handler(_: httpx.Request) -> httpx.Response:
+    return httpx.Response(503, text=UPSTREAM_DIAGNOSTICS)
+
+
+def _unreachable_handler(_: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError(UPSTREAM_DIAGNOSTICS)
 
 
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.test/v1", AI_GATEWAY_API_KEY="phs_test_only")
@@ -117,13 +128,22 @@ class TestTerminalAI(APIBaseTest):
         assert response.status_code == 400
         stream.assert_not_called()
 
-    def test_gateway_errors_do_not_expose_upstream_details(self) -> None:
-        client = httpx.Client(
-            transport=httpx.MockTransport(lambda _: httpx.Response(503, text="private upstream diagnostics"))
-        )
+    @parameterized.expand(
+        [
+            ("rejected", _rejecting_handler, "terminal_ai_gateway_request_failed"),
+            ("unreachable", _unreachable_handler, "terminal_ai_gateway_transport_failed"),
+        ]
+    )
+    def test_gateway_errors_stay_private_and_are_logged(
+        self, _name: str, handler: Callable[[httpx.Request], httpx.Response], event: str
+    ) -> None:
+        client = httpx.Client(transport=httpx.MockTransport(handler))
         with patch("products.posthog_ai.backend.presentation.terminal_ai.httpx.Client", return_value=client):
-            response = self.client.post(self.url, self.body, format="json")
-            body = b"".join(cast(StreamingHttpResponse, response))
+            with patch("products.posthog_ai.backend.presentation.terminal_ai.logger") as logger:
+                response = self.client.post(self.url, self.body, format="json")
+                body = b"".join(cast(StreamingHttpResponse, response))
         assert b"event: error" in body
         assert b"Try again" in body
-        assert b"private upstream diagnostics" not in body
+        assert UPSTREAM_DIAGNOSTICS.encode() not in body
+        assert logger.warning.call_args[0][0] == event
+        assert UPSTREAM_DIAGNOSTICS not in str(logger.warning.call_args)
