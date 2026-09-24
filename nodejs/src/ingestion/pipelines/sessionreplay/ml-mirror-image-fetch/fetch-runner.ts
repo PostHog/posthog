@@ -217,25 +217,28 @@ export class FetchRunner implements FetchPass {
                 lease.release()
                 signalSlotReleased()
             }
-            const work = this.processLease(
-                lease,
-                stored,
-                configurationItems,
-                configurationPolicy,
-                deadlineMs,
-                republishBatch,
-                passState,
-                releaseRegistrableDomainSlot
-            )
-                .then((attempt) => {
-                    attempts.push(attempt)
-                })
-                .catch((error: unknown) => {
+            const work = (async (): Promise<void> => {
+                try {
+                    attempts.push(
+                        await this.processLease(
+                            lease,
+                            stored,
+                            configurationItems,
+                            configurationPolicy,
+                            deadlineMs,
+                            republishBatch,
+                            passState,
+                            releaseRegistrableDomainSlot
+                        )
+                    )
+                } catch (error) {
                     passState.failure ??= { error }
                     queue.abort()
                     throw error
-                })
-                .finally(releaseRegistrableDomainSlot)
+                } finally {
+                    releaseRegistrableDomainSlot()
+                }
+            })()
             leaseWork.push(work)
             await Promise.race([slotReleased, work.catch(() => undefined)])
         }
