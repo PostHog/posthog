@@ -114403,6 +114403,18 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type TerminalAiCreateParams = {
+    format?: TerminalAiCreateFormat;
+    };
+
+    export type TerminalAiCreateFormat = typeof TerminalAiCreateFormat[keyof typeof TerminalAiCreateFormat];
+
+
+    export const TerminalAiCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type TracingSpansAttributesRetrieveParams = {
     /**
      * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.

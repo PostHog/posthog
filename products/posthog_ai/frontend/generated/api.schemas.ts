@@ -771,3 +771,14 @@ export type CoreMemoryListParams = {
      */
     offset?: number
 }
+
+export type TerminalAiCreateParams = {
+    format?: TerminalAiCreateFormat
+}
+
+export type TerminalAiCreateFormat = (typeof TerminalAiCreateFormat)[keyof typeof TerminalAiCreateFormat]
+
+export const TerminalAiCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const

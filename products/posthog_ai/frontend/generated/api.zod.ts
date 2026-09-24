@@ -240,6 +240,9 @@ export const DocsSearchBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Stream a terminal model response through PostHog AI. Requires organization approval for AI data processing. SDK consumers must use getTerminalAiCreateUrl() with streaming fetch. The generated JSON client buffers the response and cannot parse SSE.
+ */
 export const terminalAiCreateBodyMessagesMax = 1000
 
 export const terminalAiCreateBodyMaxTokensMax = 8192

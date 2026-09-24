@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Literal, cast
 from uuid import uuid4
 
+from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
 
 import httpx
@@ -12,6 +13,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
+from pydantic_core import PydanticSerializationError
 from rest_framework.exceptions import (
     APIException,
     PermissionDenied,
@@ -28,8 +30,10 @@ from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_co
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 logger = structlog.get_logger(__name__)
@@ -103,11 +107,24 @@ class TerminalAIViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "conversation"
     authentication_classes = [SessionAuthentication]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
+    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
-    @extend_schema(request=TerminalAIRequest, responses={(200, "text/event-stream"): OpenApiTypes.STR})
+    @extend_schema(
+        request=TerminalAIRequest,
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
+        description=(
+            "Stream a terminal model response through PostHog AI. Requires organization approval for AI data processing. "
+            "SDK consumers must use getTerminalAiCreateUrl() with streaming fetch. "
+            "The generated JSON client buffers the response and cannot parse SSE."
+        ),
+    )
     def create(self, request: Request, **kwargs: object) -> HttpResponse | StreamingHttpResponse:
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             raise PermissionDenied("Sign in to use PostHog AI in the terminal.")
+        if self.team.organization.is_ai_data_processing_approved is not True:
+            raise PermissionDenied(
+                "Enable AI data processing in organization settings to use PostHog AI in the terminal."
+            )
         user = cast(User, request.user)
         if not feature_enabled_or_false(
             "posthog-terminal",
@@ -120,11 +137,17 @@ class TerminalAIViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise TerminalAIUnavailable()
-        if len(json.dumps(request.data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 1024 * 1024:
+        try:
+            content_length = int(request.META.get("CONTENT_LENGTH") or 0)
+        except (TypeError, ValueError):
+            raise RequestValidationError("Invalid request size. Start a new pi session.")
+        if content_length > 1024 * 1024:
             raise RequestValidationError("The conversation exceeds 1 MiB. Start a new pi session.")
         try:
+            if len(json.dumps(request.data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 1024 * 1024:
+                raise RequestValidationError("The conversation exceeds 1 MiB. Start a new pi session.")
             body = TerminalAIRequest.model_validate(request.data).model_dump_json(exclude_none=True)
-        except ValidationError:
+        except (ValidationError, UnicodeEncodeError, PydanticSerializationError):
             raise RequestValidationError("Invalid model request. Use pi's PostHog provider.")
         # Keep the gateway credential server-side; derive attribution and policy headers from the authenticated session.
         headers = (
@@ -143,6 +166,8 @@ class TerminalAIViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             headers["X-PostHog-Billable"] = "false"
         if is_privacy_mode_enabled(self.team):
             headers["X-PostHog-Privacy-Mode"] = "true"
+        stream = _stream_generation(f"{gateway.url.rstrip('/')}/messages", headers, body)
         return sse_streaming_response(
-            _stream_generation(f"{gateway.url.rstrip('/')}/messages", headers, body), endpoint="terminal_ai"
+            SyncIterableToAsync(stream) if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream,
+            endpoint="terminal_ai",
         )

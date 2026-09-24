@@ -1,5 +1,5 @@
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import cast
 
 from posthog.test.base import APIBaseTest
@@ -9,6 +9,7 @@ from django.http import StreamingHttpResponse
 from django.test import override_settings
 
 import httpx
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models import Organization, PersonalAPIKey, Team
@@ -47,7 +48,15 @@ class TestTerminalAI(APIBaseTest):
         }
 
     @parameterized.expand(
-        [("anonymous", 401), ("api_key", 403), ("other_project", 403), ("flag_disabled", 403), ("quota", 402)]
+        [
+            ("anonymous", 401),
+            ("api_key", 403),
+            ("other_project", 403),
+            ("flag_disabled", 403),
+            ("consent_denied", 403),
+            ("consent_unset", 403),
+            ("quota", 402),
+        ]
     )
     def test_access_denied_before_gateway_call(self, scenario: str, expected_status: int) -> None:
         if scenario == "anonymous":
@@ -67,6 +76,9 @@ class TestTerminalAI(APIBaseTest):
             self.url = f"/api/projects/{team.id}/terminal_ai/"
         elif scenario == "flag_disabled":
             self.enabled.return_value = False
+        elif scenario in ("consent_denied", "consent_unset"):
+            self.organization.is_ai_data_processing_approved = False if scenario == "consent_denied" else None
+            self.organization.save(update_fields=["is_ai_data_processing_approved"])
         else:
             self.limited.return_value = True
         with patch("products.posthog_ai.backend.presentation.terminal_ai._stream_generation") as stream:
@@ -75,11 +87,18 @@ class TestTerminalAI(APIBaseTest):
         stream.assert_not_called()
 
     @parameterized.expand(
-        [("model", "unapproved-model"), ("max_tokens", 100000), ("extra_headers", {"x-api-key": "fake"})]
+        [
+            ("model", "unapproved-model"),
+            ("max_tokens", 100000),
+            ("extra_headers", {"x-api-key": "fake"}),
+            ("messages", [{"role": "user", "content": "\ud800"}]),
+        ]
     )
     def test_invalid_requests_do_not_reach_gateway(self, key: str, value: object) -> None:
         with patch("products.posthog_ai.backend.presentation.terminal_ai._stream_generation") as stream:
-            response = self.client.post(self.url, {**self.body, key: value}, format="json")
+            response = self.client.post(
+                self.url, json.dumps({**self.body, key: value}), content_type="application/json"
+            )
         assert response.status_code == 400
         stream.assert_not_called()
 
@@ -106,7 +125,12 @@ class TestTerminalAI(APIBaseTest):
             patch("products.posthog_ai.backend.presentation.terminal_ai.httpx.Client", return_value=client),
             patch("products.posthog_ai.backend.presentation.terminal_ai.is_impersonated_session", return_value=True),
         ):
-            response = self.client.post(self.url, self.body, format="json")
+            response = self.client.post(
+                self.url,
+                json.dumps(self.body, ensure_ascii=False),
+                content_type="application/json",
+                HTTP_ACCEPT="text/event-stream",
+            )
             assert response.status_code == 200
             assert b"".join(cast(StreamingHttpResponse, response)) == event
         assert len(requests) == 1
@@ -121,10 +145,15 @@ class TestTerminalAI(APIBaseTest):
         assert json.loads(request.content)["model"] == model
         assert json.loads(request.content)["messages"] == self.body["messages"]
 
-    def test_oversized_unicode_request_does_not_reach_gateway(self) -> None:
-        self.body["messages"] = [{"role": "user", "content": "🌍" * (256 * 1024)}]
+    @parameterized.expand([("unicode",), ("whitespace",)])
+    def test_oversized_request_does_not_reach_gateway(self, scenario: str) -> None:
+        if scenario == "unicode":
+            self.body["messages"] = [{"role": "user", "content": "🌍" * (256 * 1024)}]
+        payload = json.dumps(self.body, ensure_ascii=False)
+        if scenario == "whitespace":
+            payload += " " * (1024 * 1024)
         with patch("products.posthog_ai.backend.presentation.terminal_ai._stream_generation") as stream:
-            response = self.client.post(self.url, self.body, format="json")
+            response = self.client.post(self.url, payload, content_type="application/json")
         assert response.status_code == 400
         stream.assert_not_called()
 
@@ -147,3 +176,27 @@ class TestTerminalAI(APIBaseTest):
         assert UPSTREAM_DIAGNOSTICS.encode() not in body
         assert logger.warning.call_args[0][0] == event
         assert UPSTREAM_DIAGNOSTICS not in str(logger.warning.call_args)
+        assert "phs_test_only" not in str(logger.warning.call_args)
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
+    def test_asgi_delivers_first_chunk_before_upstream_finishes(self) -> None:
+        finished = False
+
+        def stream() -> Iterator[bytes]:
+            nonlocal finished
+            yield b"data: first\n\n"
+            finished = True
+
+        with patch("products.posthog_ai.backend.presentation.terminal_ai._stream_generation", return_value=stream()):
+            response = cast(StreamingHttpResponse, self.client.post(self.url, self.body, format="json"))
+        assert response.status_code == 200
+
+        async def consume() -> None:
+            iterator = aiter(response)
+            assert await anext(iterator) == b"data: first\n\n"
+            assert not finished
+            with self.assertRaises(StopAsyncIteration):
+                await anext(iterator)
+            assert finished
+
+        async_to_sync(consume)()
