@@ -279,6 +279,7 @@ const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
 
 export const workflowEditorStoryDecorator = mswDecorator({
     get: {
+        '/api/projects/:team_id/hog_flow_templates/': { count: 0, results: [] },
         // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
         '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
             200,
