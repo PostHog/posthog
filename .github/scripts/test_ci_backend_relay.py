@@ -109,8 +109,15 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
             [],
             [run(1, "success", prs=())],
             [run(10, "success", prs=())],
-            (relay.Phase.FINISHED, "success"),
-            id="plain name from an older revision, no pull request listed",
+            (relay.Phase.ABSENT, ""),
+            id="plain name without a pull request cannot identify the event",
+        ),
+        pytest.param(
+            [],
+            [run(1, "success", workflow="earlier"), run(2, "success", workflow="later")],
+            [run(10, "success", workflow="later")],
+            (relay.Phase.ABSENT, ""),
+            id="plain names from two workflows cannot identify the event",
         ),
         pytest.param(
             [],

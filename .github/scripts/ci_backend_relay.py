@@ -111,19 +111,14 @@ def locate_wait(
     """The wait check of the Depot run that belongs to this event.
 
     Depot reads the workflow from the pull request's merge ref, which GitHub refreshes lazily,
-    so a run can come from a revision whose wait job name carries no event. Only when no check
-    carries this event's name, a plain-named check that started after the event and lists this
-    pull request, or none, stands in for it.
+    so a run can come from a revision whose wait job name carries no event. Accept an old
+    plain-named check only when its PR association and workflow ID identify one run.
     """
     if event_waits:
         return newest_live(event_waits)
-    return newest_live(
-        [
-            run
-            for run in plain_waits
-            if run.started_at >= event_at and (not run.pull_requests or pr_number in run.pull_requests)
-        ]
-    )
+    legacy = [run for run in plain_waits if run.started_at >= event_at and pr_number in run.pull_requests]
+    workflows = {run.depot_workflow for run in legacy}
+    return newest_live(legacy) if len(workflows) == 1 and None not in workflows else None
 
 
 def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
