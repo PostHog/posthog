@@ -68353,6 +68353,11 @@ export namespace Schemas {
       readonly is_impersonated_reason: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at: string | null;
+      /**
+         * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+         * @nullable
+         */
+      readonly fresh_reauth_expires_at: string | null;
       readonly team: TeamBasic;
       readonly organization: Organization;
       readonly organizations: readonly OrganizationBasic[];
@@ -77697,6 +77702,11 @@ export namespace Schemas {
       readonly is_impersonated_reason?: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at?: string | null;
+      /**
+         * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+         * @nullable
+         */
+      readonly fresh_reauth_expires_at?: string | null;
       readonly team?: TeamBasic;
       readonly organization?: Organization;
       readonly organizations?: readonly OrganizationBasic[];
