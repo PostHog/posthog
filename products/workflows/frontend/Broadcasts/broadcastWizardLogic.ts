@@ -814,7 +814,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.draftAutosaved(saved)
             } catch (error: any) {
                 if (error?.status === 409) {
-                    actions.applyExternalEdit(await hogFlowsRetrieve(projectId, broadcastId))
+                    const fresh = await hogFlowsRetrieve(projectId, broadcastId).catch(() => null)
+                    if (fresh) {
+                        actions.applyExternalEdit(fresh)
+                    } else {
+                        lemonToast.error(
+                            "Couldn't load the latest version of the broadcast. Reload the page to see it."
+                        )
+                    }
                 }
                 // Otherwise Continue saves the same state and reports the failure there.
             } finally {
@@ -853,8 +860,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             await breakpoint(200)
-            const fresh = await hogFlowsRetrieve(String(values.currentProjectId), broadcast.id)
+            const fresh = await hogFlowsRetrieve(String(values.currentProjectId), broadcast.id).catch(() => null)
             breakpoint()
+            if (!fresh) {
+                lemonToast.error("Couldn't load the latest version of the broadcast. Reload the page to see it.")
+                return
+            }
             actions.applyExternalEdit(fresh)
         },
         setSendAtFromPicker: ({ pickerDate }) => {
