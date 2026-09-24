@@ -20,10 +20,6 @@ logger = structlog.get_logger(__name__)
 class CrossTeamSessionIdConflict(Exception):
     """Another team already holds the recording row for this session_id."""
 
-    def __init__(self, session_id: str) -> None:
-        super().__init__(f"session_id {session_id} already belongs to another team")
-        self.session_id = session_id
-
 
 def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -> Person | None:
     from posthog.personhog_client.caller_tag import personhog_caller_tag
