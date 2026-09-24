@@ -560,6 +560,10 @@ _GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
 # hide the other matches.
 _COMPLETE_EMAIL_TERM = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# The email property keys that `PersonStrategy.filter_conditions` searches. Keep the two lists in
+# step, or an email hit hides a person the fuzzy search finds and that person gets no tag.
+_EMAIL_PROPERTY_KEYS = ("email", "Email")
+
 
 def _is_canonical_uuid(value: str) -> bool:
     # Only the dashed form counts, so the fast path answers the same terms the fuzzy search
@@ -600,7 +604,7 @@ def _search_match_fields(search: str, person: SerializedPerson, known_fields: Co
 
     Two people often share one display name, for example when an address is one person's
     distinct ID and another person's email property, so the name alone cannot tell them apart.
-    The check is the fuzzy search's: case-insensitive substring over the same four fields.
+    The check is the fuzzy search's: case-insensitive substring over the same fields.
     `known_fields` carries what the identifier lookup established, because the hydrated distinct
     IDs are capped and the one that matched can sit past the cap.
     """
@@ -608,7 +612,10 @@ def _search_match_fields(search: str, person: SerializedPerson, known_fields: Co
     properties = person["properties"]
     checks = (
         (PersonSearchMatchField.DISTINCT_ID, any(needle in did.lower() for did in person["distinct_ids"])),
-        (PersonSearchMatchField.EMAIL, needle in str(properties.get("email") or "").lower()),
+        (
+            PersonSearchMatchField.EMAIL,
+            any(needle in str(properties.get(key) or "").lower() for key in _EMAIL_PROPERTY_KEYS),
+        ),
         (PersonSearchMatchField.NAME, needle in str(properties.get("name") or "").lower()),
         (PersonSearchMatchField.ID, needle in str(person["id"]).lower()),
     )
@@ -825,7 +832,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         exact_hits=exact_hits,
                     )
                 if email_property_search:
-                    # One predicate joins the identifier hit to the email arm of the fuzzy search, so
+                    # One predicate joins the identifier hit to the email arms of the fuzzy search, so
                     # every page and the total come from one query. The identifier arms of the fuzzy
                     # search stay out, because the distinct ID scan they need is what makes it slow.
                     identifier_hit = " or ".join(f"id = toUUID('{person_uuid}')" for person_uuid in exact_hits)
@@ -833,7 +840,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "type": "OR",
                         "values": [
                             {"type": "hogql", "key": identifier_hit},
-                            {"type": "person", "key": "email", "value": search, "operator": "icontains"},
+                            *(
+                                {"type": "person", "key": key, "value": search, "operator": "icontains"}
+                                for key in _EMAIL_PROPERTY_KEYS
+                            ),
                         ],
                     }
                     order_by = [f"({identifier_hit}) DESC", *order_by]

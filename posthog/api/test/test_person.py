@@ -1,5 +1,6 @@
 import json
 import functools
+from datetime import timedelta
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
@@ -266,6 +267,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             properties={"email": "abe@example.com"},
             immediate=True,
         )
+        by_title_cased_property = _create_person(
+            team=self.team,
+            distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e60"],
+            properties={"Email": "abe@example.com"},
+            created_at=timezone.now() - timedelta(days=1),
+            immediate=True,
+        )
         _create_person(
             team=self.team, distinct_ids=["zoe@example.com"], properties={"email": "zoe@example.com"}, immediate=True
         )
@@ -277,9 +285,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # The identifier hit leads, and holding the address as a property too lists it once.
         self.assertEqual(
             [(result["id"], result["matched_fields"]) for result in response.json()["results"]],
-            [(str(by_distinct_id.uuid), ["distinct_id", "email"]), (str(by_property.uuid), ["email"])],
+            [
+                (str(by_distinct_id.uuid), ["distinct_id", "email"]),
+                (str(by_property.uuid), ["email"]),
+                (str(by_title_cased_property.uuid), ["email"]),
+            ],
         )
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["count"], 3)
         self.assertIsNone(response.json()["next"])
         # The identifier hit answered the ID arms of the fuzzy search, so the page and count queries
         # read the email property and never scan the team's distinct IDs.
@@ -290,20 +302,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         for query in person_queries:
             self.assertNotIn("person_distinct_id2", query)
 
-        # One person per page: the hit fills the first page on its own and the property match
-        # follows on the next, so following `next` repeats nobody and skips nobody.
+        # One person per page: the hit fills the first page on its own and the property matches
+        # follow, so following `next` repeats nobody and skips nobody.
         listed: list[str] = []
         next_url: Optional[str] = "/api/person/?search=abe@example.com&limit=1&include_total=true"
         while next_url:
             with self.capture_select_queries() as clickhouse_queries:
                 response = self.client.get(next_url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["count"], 2)
+            self.assertEqual(response.json()["count"], 3)
             listed.extend(result["id"] for result in response.json()["results"])
             for query in clickhouse_queries:
                 self.assertNotIn("person_distinct_id2", query)
             next_url = response.json()["next"]
-        self.assertEqual(listed, [str(by_distinct_id.uuid), str(by_property.uuid)])
+        self.assertEqual(listed, [str(by_distinct_id.uuid), str(by_property.uuid), str(by_title_cased_property.uuid)])
 
     def test_search_by_email_tags_the_distinct_id_hit_past_the_hydration_cap(self) -> None:
         _create_person(team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True)
