@@ -143,7 +143,8 @@ describe('planCssGroups', () => {
             ['src/scenes/SceneExtra.scss'],
         ])
         // Ranks follow the entry stylesheet's order, so the loader can place a lazy group among others
-        // whatever order scenes load them in, even though the groups it belongs to are non-adjacent.
+        // whatever order scenes load them in, even though another chunk's group (Shared.scss) sits
+        // between this chunk's own two groups (Scene.scss and SceneExtra.scss).
         const [sceneGroup, sharedGroup, extraGroup] = lazyGroupsByEntry.get('dist/Scene-C.js')
         expect([rankOfGroup.get(sceneGroup), rankOfGroup.get(sharedGroup), rankOfGroup.get(extraGroup)]).toEqual([
             3, 4, 5,
@@ -165,7 +166,8 @@ describe('cssPrelude', () => {
         const win: Record<string, unknown> = { [CSS_LOAD_GLOBAL]: loadCss }
         const importMeta = hasImportMetaResolve ? { resolve: (specifier: string) => `resolved:${specifier}` } : {}
         // `import.meta` is only valid inside a module, so a plain Function body can't reference it
-        // directly: stub it in as a parameter instead, the way this loader runs as a classic script.
+        // directly: stub it in as a parameter instead. In production this prelude runs inside an
+        // ES module chunk, loaded via dynamic import, which a plain Function body can't replicate.
         const body = cssPrelude(groupNames, rankOfGroup).replace(/import\.meta/g, 'importMeta')
         try {
             await new Function('window', 'importMeta', `return (async () => { ${body} })()`)(win, importMeta)
@@ -194,21 +196,19 @@ describe('cssPrelude', () => {
         ])
     })
 
-    it('throws a ChunkLoadError when the stylesheets do not load', async () => {
-        const { error } = await runPrelude(['lazy-a'], new Map([['lazy-a', 0]]), {
-            loadCss: () => Promise.resolve(false),
-        })
+    it.each([
+        { loadResult: true, expectedErrorName: undefined },
+        { loadResult: false, expectedErrorName: 'ChunkLoadError' },
+    ])(
+        'throws a ChunkLoadError only when the stylesheets fail to load (loadCss resolves $loadResult)',
+        async ({ loadResult, expectedErrorName }) => {
+            const { error } = await runPrelude(['lazy-a'], new Map([['lazy-a', 0]]), {
+                loadCss: () => Promise.resolve(loadResult),
+            })
 
-        expect(error?.name).toBe('ChunkLoadError')
-    })
-
-    it('does not throw when the stylesheets load', async () => {
-        const { error } = await runPrelude(['lazy-a'], new Map([['lazy-a', 0]]), {
-            loadCss: () => Promise.resolve(true),
-        })
-
-        expect(error).toBeUndefined()
-    })
+            expect(error?.name).toBe(expectedErrorName)
+        }
+    )
 
     // A browser without import.meta.resolve cannot look up group URLs, so the prelude asks for the
     // full stylesheet instead of resolving anything.

@@ -226,7 +226,8 @@ export function stableCssLoaderScript(eagerFiles, fullCssFile, fullCssFileFallba
                     return loadFullStylesheet();
                 }
                 if (fullStylesheet) {
-                    // A full load from an earlier fallback is still in flight: wait for it, since a split link inserted now could land after it and reorder the cascade.
+                    // A full load from an earlier fallback is still in flight: wait for it, since a
+                    // split link inserted now could land after it and reorder the cascade.
                     return fullStylesheet.then(function (applied) {
                         return applied ? true : loadEntries(entries);
                     });
