@@ -55,11 +55,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 
 SYNCED_AT_COLUMN = "_ph_synced_at"
 
-# Replicated tables deduplicate inserts by default. A single-node server only does with this set.
-# A retry resends every chunk of a staged batch, so the window must hold all of them. A staged batch
-# holds about 200 MiB of Arrow in chunks of `DEFAULT_BATCH_ROWS` rows, so 10,000 chunks need rows
-# under half a byte wide.
+# Set as both the replicated and the non-replicated window. A single-node server deduplicates inserts only
+# with the second, and the first's default differs by server version, including on ClickHouse Cloud. A retry
+# resends every chunk of a staged batch, so the window must hold all of them. A staged batch holds about
+# 200 MiB of Arrow in chunks of `DEFAULT_BATCH_ROWS` rows, so 10,000 chunks need rows under half a byte wide.
 DEDUPLICATION_WINDOW = 10_000
+_DEDUPLICATION_SETTINGS = (
+    f"non_replicated_deduplication_window = {DEDUPLICATION_WINDOW}, "
+    f"replicated_deduplication_window = {DEDUPLICATION_WINDOW}"
+)
 
 # A server that does not know this setting falls back to its default instead of refusing to connect.
 SESSION_SETTINGS = {"date_time_overflow_behavior": "saturate"}
@@ -265,13 +269,10 @@ class ClickHouseDestinationWriter:
             # Source primary keys arrive as nullable columns, which a sorting key refuses by default.
             engine = (
                 f"ENGINE = ReplacingMergeTree({backquote_clickhouse_identifier(SYNCED_AT_COLUMN)}) ORDER BY ({order_by}) "
-                f"SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = {DEDUPLICATION_WINDOW}"
+                f"SETTINGS allow_nullable_key = 1, {_DEDUPLICATION_SETTINGS}"
             )
         else:
-            engine = (
-                "ENGINE = MergeTree ORDER BY tuple() "
-                f"SETTINGS non_replicated_deduplication_window = {DEDUPLICATION_WINDOW}"
-            )
+            engine = f"ENGINE = MergeTree ORDER BY tuple() SETTINGS {_DEDUPLICATION_SETTINGS}"
 
         # Marked in the same statement, so a run that stops never leaves a table it cannot claim.
         client.command(
