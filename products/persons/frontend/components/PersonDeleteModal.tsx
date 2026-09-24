@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -13,16 +12,18 @@ import { asDisplay } from '../person-utils'
 const DELETE_CONFIRMATION_TEXT = 'delete'
 
 export function PersonDeleteModal(): JSX.Element | null {
-    const { personDeleteModal, deleteConfirmationText } = useValues(personDeleteModalLogic)
-    const [alsoDeleteEvents, setAlsoDeleteEvents] = useState(false)
-    const [alsoDeleteRecordings, setAlsoDeleteRecordings] = useState(false)
-    const { deletePerson, showPersonDeleteModal, setDeleteConfirmationText } = useActions(personDeleteModalLogic)
+    const { personDeleteModal, deleteConfirmationText, alsoDeleteEvents, alsoDeleteRecordings, deletedPersonLoading } =
+        useValues(personDeleteModalLogic)
+    const {
+        deletePerson,
+        showPersonDeleteModal,
+        setDeleteConfirmationText,
+        setAlsoDeleteEvents,
+        setAlsoDeleteRecordings,
+    } = useActions(personDeleteModalLogic)
 
     const handleClose = (): void => {
         showPersonDeleteModal(null)
-        setDeleteConfirmationText('')
-        setAlsoDeleteEvents(false)
-        setAlsoDeleteRecordings(false)
     }
 
     return (
@@ -83,10 +84,13 @@ export function PersonDeleteModal(): JSX.Element | null {
                 <LemonButton
                     type="primary"
                     status="danger"
+                    loading={deletedPersonLoading}
                     disabledReason={
-                        !matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
-                            ? 'Please type the correct confirmation text'
-                            : undefined
+                        deletedPersonLoading
+                            ? 'Deleting the person...'
+                            : !matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
+                              ? 'Please type the correct confirmation text'
+                              : undefined
                     }
                     onClick={() =>
                         deletePerson(personDeleteModal as PersonType, alsoDeleteEvents, alsoDeleteRecordings)
