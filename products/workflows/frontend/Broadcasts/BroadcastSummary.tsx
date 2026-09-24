@@ -1,28 +1,238 @@
-import { useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconExternal, IconLetter } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
+import { EmailViewerModal } from '../Workflows/EmailViewerModal'
+import type { MessageAsset } from '../Workflows/messageAssetsApi'
+import { broadcastSentLogic } from './broadcastSentLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 
-const BATCH_JOB_STATUS_TAG: Record<string, 'success' | 'default' | 'warning' | 'danger' | 'muted'> = {
+const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
     queued: 'warning',
     active: 'warning',
     completed: 'success',
     cancelled: 'muted',
     failed: 'danger',
+}
+
+const SEND_STATUS_TAG: Record<string, LemonTagType> = {
+    sent: 'default',
+    delivered: 'success',
+    opened: 'success',
+    clicked: 'success',
+    bounced: 'danger',
+    failed: 'danger',
+    unsubscribed: 'warning',
+    spam: 'danger',
+}
+
+/**
+ * The recipients of one run. Each run binds its own broadcastSentLogic (keyed on the run id), so
+ * expanding a second run loads that run's sends instead of replacing the first one's.
+ */
+function RunRecipients({ workflowId, runId }: { workflowId: string; runId: string }): JSX.Element {
+    return (
+        <div className="bg-surface-secondary border-t px-4 py-3 w-0 min-w-full">
+            <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId }}>
+                <RunRecipientsTable workflowId={workflowId} />
+            </BindLogic>
+        </div>
+    )
+}
+
+function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element {
+    const {
+        filteredSends,
+        sendsLoading,
+        sendsFailed,
+        statusFilter,
+        statuses,
+        selectedSend,
+        recipientCount,
+        recipientSearch,
+        hasMoreRecipients,
+    } = useValues(broadcastSentLogic)
+    const { loadSends, setStatusFilter, selectInvocation, setRecipientSearch } = useActions(broadcastSentLogic)
+
+    useEffect(() => {
+        loadSends()
+    }, [loadSends])
+
+    const columns: LemonTableColumns<MessageAsset> = [
+        {
+            title: 'Sent',
+            key: 'sent_at',
+            render: (_, row) => <TZLabel time={row.sent_at} />,
+        },
+        {
+            title: 'Subject',
+            key: 'subject',
+            render: (_, row) => <span>{row.subject || '-'}</span>,
+        },
+        {
+            title: 'Recipient',
+            key: 'recipient',
+            render: (_, row) => <span className="font-mono text-xs">{row.recipient}</span>,
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            width: 0,
+            render: (_, row) => (
+                <LemonTag type={SEND_STATUS_TAG[row.status] ?? 'default'}>
+                    {capitalizeFirstLetter(row.status || 'unknown')}
+                </LemonTag>
+            ),
+        },
+        {
+            title: '',
+            key: 'actions',
+            width: 0,
+            render: (_, row) => (
+                <div className="flex justify-end whitespace-nowrap">
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconLetter />}
+                        onClick={() => selectInvocation(row.invocation_id)}
+                        data-attr="broadcast-view-recipient-email"
+                    >
+                        View email
+                    </LemonButton>
+                </div>
+            ),
+        },
+    ]
+
+    if (!sendsLoading && recipientCount === 0 && !recipientSearch && !statusFilter) {
+        return (
+            <span className="text-sm text-muted">
+                {sendsFailed
+                    ? "Couldn't load recipients. Refresh the page to try again."
+                    : 'No sends recorded for this run yet.'}
+            </span>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold whitespace-nowrap">
+                    {sendsLoading && recipientCount === 0
+                        ? 'Loading recipients'
+                        : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
+                              recipientCount === 1 ? 'recipient' : 'recipients'
+                          }${recipientSearch ? ' matching' : ''}`}
+                </span>
+                {statusFilter ? (
+                    <span className="text-sm text-muted">· showing {humanFriendlyNumber(filteredSends.length)}</span>
+                ) : null}
+                <LemonDivider vertical />
+                <LemonInput
+                    size="small"
+                    type="search"
+                    placeholder="Search by email or subject"
+                    value={recipientSearch}
+                    onChange={setRecipientSearch}
+                    className="w-full min-w-40 max-w-64 flex-1"
+                    data-attr="broadcast-sent-search"
+                />
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted whitespace-nowrap">Filter by</span>
+                    <LemonSelect
+                        size="small"
+                        value={statusFilter}
+                        onChange={(value) => setStatusFilter(value)}
+                        data-attr="broadcast-sent-status-filter"
+                        options={[
+                            { value: null, label: 'All statuses' },
+                            ...statuses.map((status) => ({ value: status, label: capitalizeFirstLetter(status) })),
+                        ]}
+                    />
+                </div>
+            </div>
+            <LemonTable
+                dataSource={filteredSends}
+                loading={sendsLoading}
+                rowKey="invocation_id"
+                columns={columns}
+                nouns={['recipient', 'recipients']}
+                emptyState={
+                    sendsFailed
+                        ? "Couldn't load recipients. Refresh the page to try again."
+                        : recipientSearch || statusFilter
+                          ? 'No recipients match. Clear the search or filter to see everyone.'
+                          : 'No sends recorded for this run yet.'
+                }
+            />
+            {selectedSend ? (
+                <EmailViewerModal
+                    workflowId={workflowId}
+                    invocationId={selectedSend.invocation_id}
+                    actionId={selectedSend.action_id}
+                    isOpen
+                    onClose={() => selectInvocation(null)}
+                    title={`Email sent to ${selectedSend.recipient}`}
+                    description={selectedSend.subject}
+                />
+            ) : null}
+        </div>
+    )
+}
+
+function RunsTable({
+    workflowId,
+    batchJobs,
+    batchJobsLoading,
+    columns,
+    latestRunId,
+}: {
+    workflowId: string
+    batchJobs: HogFlowBatchJobApi[]
+    batchJobsLoading: boolean
+    columns: LemonTableColumns<HogFlowBatchJobApi>
+    latestRunId: string | null
+}): JSX.Element {
+    // The latest run is what a sender opens this page to read, so it starts expanded. Runs load after
+    // mount, so null means "not touched yet" and follows whichever run is latest once they arrive.
+    const [expandedRunIds, setExpandedRunIds] = useState<string[] | null>(null)
+    const expanded = expandedRunIds ?? (latestRunId ? [latestRunId] : [])
+
+    return (
+        <LemonTable
+            dataSource={batchJobs}
+            loading={batchJobsLoading}
+            rowKey="id"
+            columns={columns}
+            nouns={['run', 'runs']}
+            expandable={{
+                expandedRowRender: (job) => <RunRecipients workflowId={workflowId} runId={job.id} />,
+                rowExpandable: (job) => !!job.id,
+                // A table inside a table runs out of room first. Dropping the indent cell gives the
+                // recipients back the width the toggle column would otherwise take.
+                noIndent: true,
+                isRowExpanded: (job) => (expanded.includes(job.id) ? 1 : 0),
+                onRowExpand: (job) => setExpandedRunIds([...expanded, job.id]),
+                onRowCollapse: (job) => setExpandedRunIds(expanded.filter((id) => id !== job.id)),
+            }}
+            emptyState="No runs yet. Scheduled broadcasts appear here after they send."
+        />
+    )
 }
 
 export function BroadcastSummary(): JSX.Element {
@@ -132,13 +342,12 @@ export function BroadcastSummary(): JSX.Element {
 
                 <div className="flex flex-col gap-2">
                     <h2 className="m-0 text-lg font-semibold">Runs</h2>
-                    <LemonTable
-                        dataSource={batchJobs}
-                        loading={batchJobsLoading}
-                        rowKey="id"
+                    <RunsTable
+                        workflowId={broadcastId ?? ''}
+                        batchJobs={batchJobs}
+                        batchJobsLoading={batchJobsLoading}
                         columns={batchJobColumns}
-                        nouns={['run', 'runs']}
-                        emptyState="No runs yet. Scheduled broadcasts appear here after they send."
+                        latestRunId={latestBatchJobId ?? null}
                     />
                 </div>
             </div>
