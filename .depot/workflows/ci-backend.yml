@@ -1069,17 +1069,10 @@ jobs:
                       schema_modes='[false]'
                       echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                   fi
-                  # Experiments reads flags from $feature/<key> properties. The native-JSON table keeps
-                  # them in the $feature_flags map, which HogQL does not read yet, so it runs legacy-only.
                   include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
                       $matrix[] as $entry
                       | $schema_modes[] as $new_events_schema
-                      | select(
-                          ($new_events_schema | not)
-                          or ([($entry.legs // [{"filters": ($entry.filters // "")}])[].filters]
-                              | any(contains("products-experiments")) | not)
-                        )
                       | $entry + {"new-events-schema": $new_events_schema}
                     ]
                   ')
