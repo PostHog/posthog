@@ -2816,7 +2816,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
             "object": {"resource": "dashboard", "resource_id": str(self.dashboard.id), "access_level": "viewer"},
         }[scope]
         res = self._put(subject, {**body, **self._subject(subject)})
-        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
 
         expected_resource_id = {"project": str(self.team.id), "resource": None, "object": str(self.dashboard.id)}[scope]
         row = AccessControl.objects.get(team=self.team, resource=body["resource"])
@@ -2825,26 +2825,22 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         assert str(row.organization_member_id or "") == self._subject(subject).get("member_id", "")
         assert str(row.role_id or "") == self._subject(subject).get("role_id", "")
         assert res.json() == {
-            "outcome": "created",
-            "rule": {
-                "resource": body["resource"],
-                "resource_id": expected_resource_id,
-                "access_level": body["access_level"],
-                "member_id": self._subject(subject).get("member_id"),
-                "role_id": self._subject(subject).get("role_id"),
-            },
+            "resource": body["resource"],
+            "resource_id": expected_resource_id,
+            "access_level": body["access_level"],
+            "member_id": self._subject(subject).get("member_id"),
+            "role_id": self._subject(subject).get("role_id"),
         }
 
-    def test_null_level_clears_the_rule_then_is_a_noop(self):
+    def test_null_level_clears_the_rule_and_clearing_again_is_idempotent(self):
         body = {"resource": "dashboard", "access_level": "viewer", **self._subject("member")}
-        assert self._put("member", body).json()["outcome"] == "created"
-        assert self._put("member", {**body, "access_level": "editor"}).json()["outcome"] == "updated"
+        assert self._put("member", body).status_code == status.HTTP_201_CREATED
+        assert self._put("member", {**body, "access_level": "editor"}).status_code == status.HTTP_200_OK
 
         res = self._put("member", {**body, "access_level": None})
-        assert res.status_code == status.HTTP_200_OK, res.json()
-        assert res.json() == {"outcome": "cleared", "rule": None}
+        assert res.status_code == status.HTTP_204_NO_CONTENT
         assert not AccessControl.objects.filter(team=self.team, resource="dashboard").exists()
-        assert self._put("member", {**body, "access_level": None}).json()["outcome"] == "noop"
+        assert self._put("member", {**body, "access_level": None}).status_code == status.HTTP_204_NO_CONTENT
 
         entry = self.client.get(
             f"/api/projects/@current/access_control_members?member_id={self.colleague_membership.id}"
@@ -2939,24 +2935,23 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         )
 
     @parameterized.expand([("default",), ("member",), ("role",)])
-    def test_property_rule_per_subject_sets_clears_and_noops(self, subject):
+    def test_property_rule_per_subject_sets_and_clears(self, subject):
         prop = self._property_definition()
         body = {"resource": "property_definition", "resource_id": str(prop.id), **self._subject(subject)}
 
         res = self._put(subject, {**body, "access_level": "none"})
-        assert res.status_code == status.HTTP_200_OK, res.json()
-        assert res.json()["outcome"] == "created"
-        assert res.json()["rule"]["access_level"] == "none"
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        assert res.json()["access_level"] == "none"
         row = PropertyAccessControl.objects.get(team=self.team, property_definition=prop)
         assert str(row.organization_member_id or "") == self._subject(subject).get("member_id", "")
         assert str(row.role_id or "") == self._subject(subject).get("role_id", "")
 
-        assert self._put(subject, {**body, "access_level": "read"}).json()["outcome"] == "updated"
-        assert self._put(subject, {**body, "access_level": None}).json() == {"outcome": "cleared", "rule": None}
+        assert self._put(subject, {**body, "access_level": "read"}).status_code == status.HTTP_200_OK
+        assert self._put(subject, {**body, "access_level": None}).status_code == status.HTTP_204_NO_CONTENT
         assert not PropertyAccessControl.objects.filter(team=self.team).exists()
-        assert self._put(subject, {**body, "access_level": None}).json()["outcome"] == "noop"
+        assert self._put(subject, {**body, "access_level": None}).status_code == status.HTTP_204_NO_CONTENT
 
-    def test_property_rule_clear_that_loses_a_race_is_a_noop(self):
+    def test_property_rule_clear_that_loses_a_race_is_still_a_204(self):
         prop = self._property_definition()
         body = {"resource": "property_definition", "resource_id": str(prop.id), "access_level": None}
         # The rule vanishes between the request and the delete, as a concurrent clear would make it
@@ -2965,8 +2960,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
             side_effect=PropertyAccessControlRuleNotFoundError,
         ):
             res = self._put("default", body)
-        assert res.status_code == status.HTTP_200_OK, res.json()
-        assert res.json() == {"outcome": "noop", "rule": None}
+        assert res.status_code == status.HTTP_204_NO_CONTENT
 
     def test_property_rule_validation(self):
         prop = self._property_definition()

@@ -68,7 +68,7 @@ tools:
             `resource_id`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level
             `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property
             (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or
-            `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. Read
+            `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read
             access-control-defaults-get first and tell the user the current and the new level before you ask for
             confirmation. Requires human typed confirmation.
         agent_note: >
@@ -205,7 +205,7 @@ tools:
             id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`,
             `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource:
             property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's
-            rule, so they fall back to their role rules or the default. When several people need the same change, prefer
+            rule, so they fall back to their role rules or the default. An empty result means the rule is cleared. When several people need the same change, prefer
             a role rule. Read access-control-members-list with `member_id` first and tell the user the current and the
             new level before you ask for confirmation. Requires human typed confirmation.
         agent_note: >
@@ -346,7 +346,7 @@ tools:
             member's own rule wins over it. The scope is the project (`resource: project` with the project id as
             `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`,
             `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`,
-            level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. Role rules are
+            level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are
             enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell
             the user the current and the new level before you ask for confirmation. Requires human typed confirmation.
         agent_note: |

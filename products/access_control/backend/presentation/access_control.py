@@ -22,7 +22,6 @@ from posthog.synthetic_user import SyntheticUser
 from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_CHOICES,
     RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
-    RuleWriteOutcomeValue,
 )
 from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
@@ -251,8 +250,10 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
 @frozen
 class RuleWriteResult:
-    outcome: RuleWriteOutcomeValue
+    """The row a write left behind, or None when it cleared the rule. `created` is False on an update or a clear."""
+
     rule: AccessControl | None
+    created: bool
 
 
 def apply_access_control_rule(
@@ -278,11 +279,11 @@ def apply_access_control_rule(
 
     if params["access_level"] is None:
         if instance is None:
-            return RuleWriteResult(outcome="noop", rule=None)
+            return RuleWriteResult(rule=None, created=False)
         instance.delete()
         # Drop the preloaded access-control snapshot so later reads this request are fresh.
         user_access_control._clear_cache()
-        return RuleWriteResult(outcome="cleared", rule=None)
+        return RuleWriteResult(rule=None, created=False)
 
     if instance:
         serializer = build_serializer(instance)
@@ -292,7 +293,7 @@ def apply_access_control_rule(
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
 
-    return RuleWriteResult(outcome="updated" if instance else "created", rule=rule)
+    return RuleWriteResult(rule=rule, created=instance is None)
 
 
 def upsert_access_control(

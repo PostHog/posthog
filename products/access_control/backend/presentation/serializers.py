@@ -12,7 +12,6 @@ from posthog.models.organization import OrganizationMembership
 
 from ..facade import contracts
 from ..facade.contracts import PropertyAccessLevel
-from ..facade.enums import RULE_WRITE_OUTCOME_CHOICES
 from ..facade.user_access_control import RULE_RESOURCE_CHOICES
 from .access_control import ResolvedAccessSerializer
 
@@ -339,15 +338,4 @@ class AccessControlStoredRuleSerializer(serializers.Serializer):
     )
     role_id = serializers.UUIDField(
         allow_null=True, help_text="The role the rule is for. Null unless it is a role rule."
-    )
-
-
-class AccessControlRuleWriteResponseSerializer(serializers.Serializer):
-    outcome = serializers.ChoiceField(
-        choices=RULE_WRITE_OUTCOME_CHOICES,
-        help_text="What the write did: `created` or `updated` a rule, `cleared` an existing rule, or `noop` when "
-        "asked to clear a rule that did not exist.",
-    )
-    rule = AccessControlStoredRuleSerializer(
-        allow_null=True, help_text="The rule as stored after the write. Null when the rule was cleared or absent."
     )
