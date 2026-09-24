@@ -1,7 +1,7 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { isTransientServerError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils/async'
+import { delay, retryWithBackoff } from 'lib/utils/async'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
@@ -202,25 +202,23 @@ async function executeQuery<N extends DataNode>(
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
 
-        let response
-        for (let attempt = 1; ; attempt++) {
-            try {
-                response = await api.query(queryNode, {
+        const response = await retryWithBackoff(
+            () =>
+                api.query(queryNode, {
                     requestOptions: methodOptions,
                     clientQueryId: queryId,
                     refresh: refreshParam,
                     filtersOverride,
                     variablesOverride,
                     limitContext,
-                })
-                break
-            } catch (e: any) {
-                if (attempt >= TRANSIENT_SUBMIT_ATTEMPTS || !isTransientServerError(e)) {
-                    throw e
-                }
-                await delay(TRANSIENT_SUBMIT_DELAY_MS * attempt, methodOptions?.signal)
+                }),
+            {
+                maxAttempts: TRANSIENT_SUBMIT_ATTEMPTS,
+                initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
+                signal: methodOptions?.signal,
+                shouldRetry: isTransientServerError,
             }
-        }
+        )
 
         if (response.detail) {
             throw new Error(response.detail)
