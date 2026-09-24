@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
     DATA_SELECTOR,
+    INDICATOR_CODE_REJECTED_PREFIX,
     MAX_INDICATOR_CODES,
     WorldBankPaginator,
     WorldBankResumeConfig,
@@ -342,6 +343,24 @@ class TestWorldBankSourceTransport:
         assert "World Bank source misconfigured" in str(excinfo.value)
         manager.load_state.assert_not_called()
 
+    def test_indicator_data_names_the_code_the_observation_path_refuses(self) -> None:
+        # The path answers 400 for a code it can't resolve, and the request is identical on every
+        # attempt. Unclassified it escapes as a raw HTTPError, which spends the activity's whole
+        # retry budget and reads as a PostHog defect rather than a code the user has to change.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with pytest.raises(ValueError) as excinfo:
+            self._drive(
+                "indicator_data",
+                manager,
+                [_http_response([{"message": [{"id": "120", "key": "Invalid value"}]}], status_code=400)],
+                indicator_codes=["NOT.A.CODE"],
+            )
+
+        assert INDICATOR_CODE_REJECTED_PREFIX in str(excinfo.value)
+        assert "NOT.A.CODE" in str(excinfo.value)
+
 
 class TestValidateCredentials:
     def _validate(self, codes: list[str], responses: list[Response]) -> tuple[bool, Optional[str]]:
@@ -365,26 +384,39 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None and str(MAX_INDICATOR_CODES) in error
 
-    def test_accepts_known_codes(self) -> None:
-        ok, error = self._validate(
-            ["SP.POP.TOTL"], [_http_response(_payload([{"id": "SP.POP.TOTL", "name": "Population, total"}]))]
-        )
+    def test_probes_the_endpoint_the_sync_walks(self) -> None:
+        # The indicator catalog is a wider set than the observation path, so a catalog probe
+        # passes codes the sync then fails on.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank.make_tracked_session"
+        ) as MockSession:
+            MockSession.return_value.get.return_value = _http_response(_payload([{"date": "2024", "value": 1}]))
+            ok, error = validate_credentials(["SP.POP.TOTL"], "v2")
 
         assert (ok, error) == (True, None)
+        assert (
+            MockSession.return_value.get.call_args.args[0]
+            == "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL"
+        )
 
-    def test_names_the_codes_that_do_not_exist(self) -> None:
-        # An unknown code answers HTTP 200 with a single-element error envelope, so a status check
-        # alone would let it through and the sync would fail later instead.
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            # The path answers either shape for a code it can't serve, and a code the catalog
+            # lists but that carries no observations comes back as an empty row list.
+            _http_response([{"message": [{"id": "120", "key": "Invalid value"}]}], status_code=400),
+            _http_response([{"message": [{"id": "120", "key": "Invalid value"}]}]),
+            _http_response(_payload(None)),
+        ],
+    )
+    def test_names_the_codes_the_api_cannot_serve(self, refusal: Response) -> None:
         ok, error = self._validate(
             ["SP.POP.TOTL", "NOT.A.CODE"],
-            [
-                _http_response(_payload([{"id": "SP.POP.TOTL"}])),
-                _http_response([{"message": [{"id": "120", "key": "Invalid value"}]}]),
-            ],
+            [_http_response(_payload([{"date": "2024", "value": 1}])), refusal],
         )
 
         assert ok is False
-        assert error == "These indicator codes were not found: NOT.A.CODE."
+        assert error == "The World Bank Indicators API has no data for these codes: NOT.A.CODE."
 
     @pytest.mark.parametrize("status_code", [403, 429, 500, 503])
     def test_reports_an_unreachable_api(self, status_code: int) -> None:

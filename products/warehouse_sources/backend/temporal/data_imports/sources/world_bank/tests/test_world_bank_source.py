@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
+    INDICATOR_CODE_REJECTED_PREFIX,
     MAX_INDICATOR_CODES,
     world_bank_source,
 )
@@ -112,6 +113,15 @@ class TestWorldBankSource:
             )
 
         assert error_message_matches(str(excinfo.value), self.source.get_non_retryable_errors().keys())
+
+    def test_non_retryable_error_keeps_the_code_a_refused_request_names(self) -> None:
+        # The raise names the offending code, so the entry carries no curated message: a friendly
+        # one would replace that text with wording that can't say which code to change.
+        raised = f"{INDICATOR_CODE_REJECTED_PREFIX} NOT.A.CODE. Remove it from this source."
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert error_message_matches(raised, non_retryable_errors.keys())
+        assert non_retryable_errors[INDICATOR_CODE_REJECTED_PREFIX] is None
 
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_for_pipeline_plumbs_the_endpoint_through(self, endpoint: str) -> None:
