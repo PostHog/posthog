@@ -11,16 +11,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.logs.backend.models import MAX_ENABLED_METRIC_RULES, LogsMetricRule
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
-
-VALID_FILTER_GROUP = {
-    "type": "AND",
-    "values": [
-        {
-            "type": "AND",
-            "values": [{"key": "service.name", "operator": "exact", "value": "api", "type": "log_attribute"}],
-        }
-    ],
-}
+from products.logs.backend.test.metric_rule_fixtures import VALID_FILTER_GROUP
 
 
 class TestLogsMetricRulesAPI(APIBaseTest):
