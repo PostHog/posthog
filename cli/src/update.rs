@@ -90,6 +90,13 @@ fn receipt_path() -> Option<PathBuf> {
 /// the binary currently executing. Trusting it first would "update" a copy that
 /// is not the one on PATH, and report success having changed nothing.
 pub fn detect_install_method() -> InstallMethod {
+    // The rule guards against trusting current_exe for a security decision.
+    // This one is not: it picks which message to print, and whether to run the
+    // official installer over the caller's own install. A caller who forges the
+    // path gets their own CLI reinstalled from releases.posthog.com, which is
+    // what the command does anyway. No privilege boundary and no other user is
+    // involved.
+    // nosemgrep: rust.lang.security.current-exe.current-exe
     let Ok(exe) = std::env::current_exe() else {
         return InstallMethod::Unknown;
     };
