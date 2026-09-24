@@ -899,16 +899,39 @@ class Task(DeletedMetaFields, models.Model):
         """PR URL last announced to this task's Slack thread, if any."""
         return (self.state or {}).get(SLACK_NOTIFIED_PR_URL_STATE_KEY)
 
-    def mark_slack_pr_notified(self, pr_url: str) -> None:
-        """Record ``pr_url`` as the PR announced to the task's Slack thread. Row-locked
-        merge so it doesn't clobber other keys in the shared state bag."""
+    @classmethod
+    def mutate_state_atomic(
+        cls,
+        task_id: str | uuid.UUID,
+        mutator: Callable[[dict[str, Any]], None],
+        *,
+        team_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Apply a state mutation while holding a row lock on the task.
+
+        Several writers share the task's state bag, so a locked read keeps one writer from
+        clobbering the keys of another. Skips the save when the mutator changes nothing. Raises
+        ``Task.DoesNotExist`` when the task is missing.
+        """
         with transaction.atomic():
-            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
-            state = dict(task.state or {})
+            # NO KEY UPDATE does not wait on the KEY SHARE lock that every task run write takes on this row.
+            tasks = cls.objects.select_for_update(no_key=True).only("id", "state")
+            locked_task = (tasks.filter(team_id=team_id) if team_id is not None else tasks).get(id=task_id)
+            current = locked_task.state or {}
+            state = dict(current)
+            mutator(state)
+            if state != current:
+                locked_task.state = state
+                locked_task.save(update_fields=["state", "updated_at"])
+            return state
+
+    def mark_slack_pr_notified(self, pr_url: str) -> None:
+        """Record ``pr_url`` as the PR announced to the task's Slack thread."""
+
+        def _mutate(state: dict[str, Any]) -> None:
             state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
-            task.state = state
-            task.save(update_fields=["state", "updated_at"])
-        self.state = state
+
+        self.state = Task.mutate_state_atomic(self.id, _mutate)
 
     def claim_slack_pr_closed_notification(self, pr_url: str, *, merged: bool) -> bool:
         """Record that the task's Slack thread is told ``pr_url`` merged or closed, and say whether to post.
@@ -937,29 +960,27 @@ class Task(DeletedMetaFields, models.Model):
 
     def mark_pr_ready_email_queued(self, pr_url: str, *, queued_at: datetime | None = None) -> bool:
         """Record that this task's PR-ready email task was queued, preserving other state keys."""
-        with transaction.atomic():
-            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
-            state = dict(task.state or {})
+        queued = False
+
+        def _mutate(state: dict[str, Any]) -> None:
+            nonlocal queued
             if state.get(PR_READY_EMAIL_QUEUED_AT_STATE_KEY) or state.get(PR_READY_EMAIL_SENT_AT_STATE_KEY):
-                self.state = state
-                return False
+                return
             state[PR_READY_EMAIL_QUEUED_AT_STATE_KEY] = (queued_at or django_timezone.now()).isoformat()
             state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
-            task.state = state
-            task.save(update_fields=["state", "updated_at"])
-        self.state = state
-        return True
+            queued = True
+
+        self.state = Task.mutate_state_atomic(self.id, _mutate)
+        return queued
 
     def mark_pr_ready_email_sent(self, pr_url: str, *, sent_at: datetime | None = None) -> None:
         """Record confirmed PR-ready email delivery, preserving other state keys."""
-        with transaction.atomic():
-            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
-            state = dict(task.state or {})
+
+        def _mutate(state: dict[str, Any]) -> None:
             state[PR_READY_EMAIL_SENT_AT_STATE_KEY] = (sent_at or django_timezone.now()).isoformat()
             state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
-            task.state = state
-            task.save(update_fields=["state", "updated_at"])
-        self.state = state
+
+        self.state = Task.mutate_state_atomic(self.id, _mutate)
 
     def soft_delete(self, capture_fn: Callable[..., None] | None = None):
         deleted_at = django_timezone.now()
@@ -3171,8 +3192,9 @@ class TaskRun(models.Model):
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
 
-    def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(
+    def publish_stream_event(self, event: dict[str, Any]) -> str | None:
+        """The stream id of the live write, or ``None`` when it was skipped or failed."""
+        return publish_task_run_stream_event(
             str(self.id),
             event,
             run_uses_dedicated_stream(self.state),
@@ -3182,6 +3204,14 @@ class TaskRun(models.Model):
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())
+
+    def build_notification_event(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        """A server-originated notification in the ACP envelope agent-server frames use."""
+        return {
+            "type": "notification",
+            "timestamp": django_timezone.now().isoformat(),
+            "notification": {"jsonrpc": "2.0", "method": method, "params": params},
+        }
 
     def emit_console_event(self, level: LogLevel, message: str) -> None:
         """Emit a console-style log event in ACP notification format."""
