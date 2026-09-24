@@ -136,9 +136,9 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
 
     forms(({ actions }) => ({
         confirmOrganization: {
-            options: {
-                showErrorsOnTouch: true,
-            },
+            // Do not turn on kea-forms' showErrorsOnTouch here. It counts a blur as interaction, so
+            // the empty organization name box goes red as soon as the person tabs past it, before
+            // they have submitted anything.
             defaults: {
                 organization_name: '',
                 first_name: '',

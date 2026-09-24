@@ -72,14 +72,22 @@ describe('confirmOrganizationLogic', () => {
             expect(logic.values.confirmOrganizationValidationErrors.organization_name).toEqual(expectedError)
         })
 
-        it('shows the organization name error on touch, before any submit', () => {
+        it('keeps the fields clean until a submit, then shows every error', async () => {
+            // A blur marks the field touched. On its own that is not interaction, so nothing goes red
+            logic.actions.touchConfirmOrganizationField('organization_name')
             expect(logic.values.confirmOrganizationErrors).toEqual({})
 
-            logic.actions.touchConfirmOrganizationField('organization_name')
-            expect(logic.values.confirmOrganizationErrors).toEqual({ organization_name: ORGANIZATION_NAME_ERROR })
+            await expectLogic(logic, () => {
+                logic.actions.submitConfirmOrganization()
+            }).toFinishAllListeners()
+
+            expect(logic.values.confirmOrganizationErrors).toEqual({
+                first_name: 'Please enter your name',
+                organization_name: ORGANIZATION_NAME_ERROR,
+            })
 
             logic.actions.setConfirmOrganizationValue('organization_name', 'Spikes Inc')
-            expect(logic.values.confirmOrganizationErrors).toEqual({})
+            expect(logic.values.confirmOrganizationErrors).toEqual({ first_name: 'Please enter your name' })
         })
 
         it('puts an API error on the field it names, and lets the next attempt through', async () => {

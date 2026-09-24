@@ -33,6 +33,13 @@ describe('ConfirmOrganization', () => {
         cleanup()
     })
 
+    it('leaves the organization name input clean until the person submits', async () => {
+        await userEvent.click(screen.getByLabelText('Organization name'))
+        await userEvent.tab()
+
+        expect(screen.queryByText(/You can use your own name/)).not.toBeInTheDocument()
+    })
+
     it('points a failed submit at the organization name input', async () => {
         await userEvent.click(screen.getByText('Create organization'))
 
