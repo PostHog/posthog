@@ -1,5 +1,7 @@
 // @posthog/workflows cannot express everything in this workflow. Review these before you push:
 // - Pass-through steps: send_sms (Send SMS), split (Split traffic), wait_for_office_hours (Wait for office hours).
+// - split: The arm "1" of "Split traffic" has no edge. Add a step to it before you push.
+// - split: The branch arm 1 of "Split traffic" has no steps, so it is dropped. A person who matches it continues after the branch either way.
 
 import { onEvent, path, step, workflow } from '@posthog/workflows'
 

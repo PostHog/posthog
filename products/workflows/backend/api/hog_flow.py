@@ -187,7 +187,11 @@ from products.workflows.backend.services.code_ownership import (
     check_write,
     is_mcp_transport_request,
 )
-from products.workflows.backend.services.code_renderer import render_workflow_code
+from products.workflows.backend.services.code_renderer import (
+    WorkflowTooLargeToRender,
+    branch_arm_count,
+    render_workflow_code,
+)
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -2966,6 +2970,38 @@ class HogFlowCodeRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f'The `config.conditions` of step "{step["id"]}" must be a list.')
         return actions
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        edges = attrs.get("edges")
+        if edges is None:
+            return attrs
+        # A body may send edges without actions, so an edge can leave a step the workflow stores.
+        actions = attrs.get("actions")
+        if actions is None:
+            actions = self.context.get("stored_actions") or []
+        arm_counts = {
+            action["id"]: branch_arm_count(action)
+            for action in actions
+            if isinstance(action, dict) and isinstance(action.get("id"), str)
+        }
+        for position, edge in enumerate(edges):
+            kind = edge.get("type")
+            if kind not in HogFlowEdgeType.values:
+                raise serializers.ValidationError({"edges": f"Edge {position} needs the type continue or branch."})
+            if kind != HogFlowEdgeType.BRANCH:
+                continue
+            index = edge.get("index")
+            arms = arm_counts.get(edge.get("from"), 0)
+            if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < arms:
+                raise serializers.ValidationError(
+                    {
+                        "edges": (
+                            f'Edge {position} is branch {index!r} of "{edge.get("from")}", which has {arms} branch '
+                            f"arm(s). A branch edge needs an index from 0 to one less than the arm count."
+                        )
+                    }
+                )
+        return attrs
+
 
 class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
@@ -5499,7 +5535,9 @@ class HogFlowViewSet(
         data = self.get_serializer(self.get_object()).data
         definition = {**data, **(data.get("draft") or {})}
         if request.method == "POST":
-            unsaved = HogFlowCodeRequestSerializer(data=request.data)
+            unsaved = HogFlowCodeRequestSerializer(
+                data=request.data, context={"stored_actions": definition.get("actions")}
+            )
             unsaved.is_valid(raise_exception=True)
             posted = dict(unsaved.validated_data)
             if "actions" in posted:
@@ -5511,6 +5549,8 @@ class HogFlowViewSet(
             rendered = render_workflow_code(definition)
         except RecursionError:
             raise exceptions.ValidationError("The workflow is nested too deeply to render as code.")
+        except WorkflowTooLargeToRender as error:
+            raise exceptions.ValidationError(f"{error} It is too large to render as code.")
         return Response(
             HogFlowCodeSerializer(
                 {

@@ -42,6 +42,13 @@ _SDK_EXIT_CONDITIONS = frozenset({"exit_only_at_end", "exit_on_trigger_not_match
 _DEFAULT_EXIT_CONDITION = "exit_only_at_end"
 _HOISTABLE_TYPES = frozenset({"delay", "function", "function_email"})
 
+# The render walks every action, edge and branch arm once, and a request or a stored row can hold
+# any count of them. These caps are far above what the editor builds, and keep one render from
+# holding a web worker.
+MAX_ACTIONS = 1000
+MAX_EDGES = 2000
+MAX_BRANCH_ARMS = 100
+
 _IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 # The same pattern and caps `emit.ts` checks, so a wait the push would refuse is warned about here.
 _DURATION = re.compile(r"^(?P<amount>[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?P<unit>[dhms])$")
@@ -68,8 +75,44 @@ class RenderedWorkflowCode:
     warnings: tuple[CodeWarning, ...]
 
 
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def branch_arm_count(action: dict[str, Any]) -> int:
+    """How many `branch` edges the step's type reads, which are the indexes `0..count - 1`."""
+    kind = action.get("type")
+    config = _dict(action.get("config"))
+    if kind == "conditional_branch":
+        return len(_list(config.get("conditions")))
+    if kind == "random_cohort_branch":
+        return len(_list(config.get("cohorts")))
+    if kind == "wait_until_condition":
+        return 1
+    return 0
+
+
+class WorkflowTooLargeToRender(ValueError):
+    pass
+
+
 def render_workflow_code(definition: dict[str, Any]) -> RenderedWorkflowCode:
-    """Renders a workflow definition, in the shape the read API returns, as SDK source."""
+    """Renders a workflow definition, in the shape the read API returns, as SDK source.
+
+    Raises `WorkflowTooLargeToRender` before any walk when the definition is over `MAX_ACTIONS`,
+    `MAX_EDGES` or `MAX_BRANCH_ARMS`.
+    """
+    actions = _list(definition.get("actions"))
+    if len(actions) > MAX_ACTIONS:
+        raise WorkflowTooLargeToRender(f"The workflow has more than {MAX_ACTIONS} steps.")
+    if len(_list(definition.get("edges"))) > MAX_EDGES:
+        raise WorkflowTooLargeToRender(f"The workflow has more than {MAX_EDGES} edges.")
+    if any(isinstance(action, dict) and branch_arm_count(action) > MAX_BRANCH_ARMS for action in actions):
+        raise WorkflowTooLargeToRender(f"A step of the workflow has more than {MAX_BRANCH_ARMS} branch arms.")
     return _Renderer(definition).render()
 
 
@@ -221,14 +264,6 @@ def _json_lines(value: Any) -> tuple[str, ...]:
     return tuple(json.dumps(value, indent=4, ensure_ascii=False).splitlines())
 
 
-def _dict(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def _list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
 def _is_set(value: Any) -> bool:
     """Whether a stored field carries a value the editor's defaults do not: `""`, `[]`, `{}`, None and
     whitespace all count as unset, and so does a container that holds nothing but those."""
@@ -298,6 +333,7 @@ class _Renderer:
         )
         self.continue_to: dict[str, str] = {}
         self.branch_to: dict[str, dict[int, str]] = {}
+        stray_branches: dict[str, int] = {}
         edges = definition.get("edges")
         for edge in edges if isinstance(edges, list) else []:
             if (
@@ -307,9 +343,18 @@ class _Renderer:
             ):
                 continue
             if edge.get("type") == "branch" and isinstance(edge.get("index"), int):
-                self.branch_to.setdefault(edge["from"], {}).setdefault(edge["index"], edge["to"])
+                source = self.actions.get(edge["from"])
+                if source is not None and 0 <= edge["index"] < branch_arm_count(source):
+                    self.branch_to.setdefault(edge["from"], {}).setdefault(edge["index"], edge["to"])
+                elif source is not None:
+                    stray_branches[edge["from"]] = stray_branches.get(edge["from"], 0) + 1
             elif edge.get("type") == "continue":
                 self.continue_to.setdefault(edge["from"], edge["to"])
+        for action_id, count in stray_branches.items():
+            self.warn(
+                action_id,
+                f'"{self._name(self.actions[action_id])}" has {count} branch edge(s) that match no arm of the step. They are dropped.',
+            )
 
     def warn(self, action_id: str | None, message: str) -> None:
         self.warnings.append(CodeWarning(action_id=action_id, message=message))
@@ -354,10 +399,9 @@ class _Renderer:
 
     def walk_arms(self, action: dict[str, Any], rejoin: str) -> tuple[tuple[_Placement, ...], ...]:
         targets = self.branch_to.get(action["id"], {})
-        conditions = (action.get("config") or {}).get("conditions") or []
-        arm_count = len(conditions) if action.get("type") == "conditional_branch" else max(targets, default=-1) + 1
+        conditions = _list(_dict(action.get("config")).get("conditions"))
         arms: list[tuple[_Placement, ...]] = []
-        for index in range(arm_count):
+        for index in range(branch_arm_count(action)):
             condition = conditions[index] if index < len(conditions) else None
             target = targets.get(index)
             arm_name = condition.get("name") if isinstance(condition, dict) else None
