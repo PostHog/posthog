@@ -1530,13 +1530,13 @@ export class PostgresPersonRepository
     }
 
     async lockPersons(teamId: number, personIds: string[], tx?: TransactionClient): Promise<InternalPerson[]> {
-        // Ascending id order keeps concurrent merges over the same persons from deadlocking.
+        // Ascending id order, the same as the batch write's, so the two cannot deadlock on each other.
         const { rows } = await this.postgres.query<RawPerson>(
             tx ?? PostgresUse.PERSONS_WRITE,
             `SELECT ${PERSON_COLUMNS} FROM posthog_person
              WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
              ORDER BY id
-             FOR UPDATE`,
+             FOR NO KEY UPDATE`,
             [teamId, personIds],
             'lockPersons'
         )
@@ -2156,9 +2156,18 @@ export class PostgresPersonRepository
         try {
             // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
             // Note: batch column names are prefixed with 'new_' to avoid any potential confusion with table columns
+            // The rows are locked in ascending id order first, the order a merge locks them in, before the update.
             const { rows } = await this.postgres.query<RawPerson>(
                 PostgresUse.PERSONS_WRITE,
                 `
+                WITH locked AS MATERIALIZED (
+                    SELECT p.id FROM posthog_person AS p
+                    JOIN UNNEST($1::uuid[], $2::integer[]) AS ids(batch_uuid, batch_team_id)
+                      ON p.uuid = ids.batch_uuid AND p.team_id = ids.batch_team_id
+                    WHERE p.is_deleted = false
+                    ORDER BY p.id
+                    FOR NO KEY UPDATE
+                )
                 UPDATE posthog_person AS p SET
                     properties = (p.properties || batch.new_properties::jsonb) - unset.keys,
                     is_identified = p.is_identified OR batch.new_is_identified,
@@ -2178,6 +2187,7 @@ export class PostgresPersonRepository
                     SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)), ARRAY[]::text[]) AS keys
                 ) AS unset
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
+                  AND p.id IN (SELECT id FROM locked)
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
                 [uuids, teamIds, properties, isIdentified, createdAt, lastSeenAt, propertiesToUnset],

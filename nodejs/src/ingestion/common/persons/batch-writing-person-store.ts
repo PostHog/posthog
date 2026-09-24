@@ -160,17 +160,6 @@ interface CacheMetrics {
     checkCacheMisses: number
 }
 
-/** Anything the entry still has to write: property changes, or a scalar that moved since it last landed. */
-function hasPendingChanges(update: PersonUpdate): boolean {
-    return (
-        Object.keys(update.properties_to_set).length > 0 ||
-        update.properties_to_unset.length > 0 ||
-        update.is_identified !== update.original_is_identified ||
-        !update.created_at.equals(update.original_created_at) ||
-        (update.last_seen_at?.toMillis() ?? null) !== (update.original_last_seen_at?.toMillis() ?? null)
-    )
-}
-
 class BatchWritingPersonsCache {
     private personCheckCache = new Map<string, InternalPerson | null>()
     private distinctIdToPersonId = new Map<string, string>()
@@ -438,7 +427,7 @@ class BatchWritingPersonsCache {
             }
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || (!update.needs_write && !hasPendingChanges(update))) {
+            if (!update || !update.needs_write) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
                 this.deferredEvictions.delete(distinctKey)
@@ -467,7 +456,7 @@ class BatchWritingPersonsCache {
         if (personId !== undefined) {
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || (!update.needs_write && !hasPendingChanges(update))) {
+            if (!update || !update.needs_write) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
             } else {
@@ -832,12 +821,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         for (const result of results) {
             const landed = result.uuid === undefined ? undefined : recordsByUuid.get(result.uuid)
             const entry = landed === undefined ? undefined : cache.get(landed.key)
-            if (!landed || !entry || result.version === undefined) {
-                continue
-            }
-            if (result.version <= entry.version) {
-                // A newer write already settled; what this one carried is re-sent so it prunes then.
-                entry.needs_write = hasPendingChanges(entry)
+            if (!landed || !entry || result.version === undefined || result.version <= entry.version) {
                 continue
             }
             const { record } = landed
@@ -2081,8 +2065,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             }
         }
 
-        // Apply other updates (excluding properties which we handled above)
-        const fieldsToExclude = ['properties', 'properties_to_unset', 'is_identified']
+        // The row assigns its own version on the write; the merge's stands in only for that statement.
+        const fieldsToExclude = ['properties', 'properties_to_unset', 'is_identified', 'version']
         if (!allowCreatedAtUpdate) {
             fieldsToExclude.push('created_at')
         }

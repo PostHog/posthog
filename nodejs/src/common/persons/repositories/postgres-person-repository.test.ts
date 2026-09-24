@@ -363,6 +363,77 @@ describe('PostgresPersonRepository', () => {
             expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
         })
 
+        it('updatePersonsBatch locks its rows in ascending id order before it touches any of them', async () => {
+            const first = await createTestPerson(team.id, 'lock-order-first')
+            const second = await createTestPerson(team.id, 'lock-order-second')
+            expect(Number(first.id)).toBeLessThan(Number(second.id))
+            // Rewriting the first row places its tuple after the second's, so a scan in
+            // physical order would reach the higher id first.
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_person SET version = version + 1 WHERE id = $1',
+                [first.id],
+                'lockOrderReorder'
+            )
+
+            // A merge holds the lower id, the way lockPersons takes it, while the batch write arrives
+            // with the higher id first. Ordered locking blocks the write on the lower id and leaves
+            // the higher one free; join-order locking would have taken the higher one already.
+            let markLocked!: () => void
+            let releaseHold!: () => void
+            const locked = new Promise<void>((resolve) => (markLocked = resolve))
+            const held = new Promise<void>((resolve) => (releaseHold = resolve))
+            const holder = postgres.transaction(PostgresUse.PERSONS_WRITE, 'lockOrderHold', async (tx) => {
+                await postgres.query(
+                    tx,
+                    'SELECT id FROM posthog_person WHERE id = $1 FOR NO KEY UPDATE',
+                    [first.id],
+                    'lockOrderHold'
+                )
+                markLocked()
+                await held
+            })
+            await locked
+            const waitingOnLock = async (): Promise<boolean> => {
+                const { rows } = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT 1 FROM pg_stat_activity
+                     WHERE wait_event_type = 'Lock' AND query LIKE '%<updatePersonsBatch>%'`,
+                    [],
+                    'lockOrderProbe'
+                )
+                return rows.length > 0
+            }
+            try {
+                const writing = repository.updatePersonsBatch([
+                    buildPersonUpdate(second, 'lock-order-second', second.version),
+                    buildPersonUpdate(first, 'lock-order-first', first.version),
+                ])
+                for (let attempt = 0; !(await waitingOnLock()); attempt++) {
+                    expect(attempt).toBeLessThan(500)
+                    await new Promise((resolve) => setTimeout(resolve, 10))
+                }
+
+                await expect(
+                    postgres.query(
+                        PostgresUse.PERSONS_WRITE,
+                        'SELECT id FROM posthog_person WHERE id = $1 FOR UPDATE NOWAIT',
+                        [second.id],
+                        'lockOrderProbe'
+                    )
+                ).resolves.toBeDefined()
+
+                releaseHold()
+                await holder
+                const results = await writing
+                expect(results.get(first.uuid)).toMatchObject({ success: true })
+                expect(results.get(second.uuid)).toMatchObject({ success: true })
+            } finally {
+                releaseHold()
+                await holder
+            }
+        })
+
         it('updatePersonsBatch sanitizes null bytes in unset keys the same way as set keys', async () => {
             const person = await createTestPerson(team.id, 'batch-null-byte-did')
             const nullByteKey = 'bad\u0000key'

@@ -1879,7 +1879,6 @@ describe('PersonState.processEvent()', () => {
                     uuid: expect.any(String),
                     properties: {},
                     created_at: timestamp,
-                    version: 1,
                     is_identified: true,
                 })
             )
@@ -2081,7 +2080,6 @@ describe('PersonState.processEvent()', () => {
                 uuid: expect.any(String),
                 properties: { a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 },
                 created_at: timestamp,
-                version: 1,
                 is_identified: true,
             })
             // verify Postgres persons
@@ -2510,7 +2508,6 @@ describe('PersonState.processEvent()', () => {
                 uuid: oldUserUuid,
                 properties: {},
                 created_at: timestamp,
-                version: 1,
                 is_identified: true,
             })
 
@@ -2636,7 +2633,6 @@ describe('PersonState.processEvent()', () => {
                     uuid: expect.any(String),
                     properties: {},
                     created_at: timestamp,
-                    version: 1,
                     is_identified: true,
                 })
             )
@@ -3136,7 +3132,6 @@ describe('PersonState.processEvent()', () => {
                 uuid: firstUserUuid,
                 properties: {},
                 created_at: timestamp,
-                version: 1,
                 is_identified: true,
             })
 

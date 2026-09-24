@@ -3063,41 +3063,37 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.updatePersonsBatch.mock.calls[2][0][0].properties_to_set).toEqual({ plan: 'free' })
         })
 
-        it('a write whose fold is skipped leaves what it carried to the next flush', async () => {
+        it('an entry evicted during the write and read back stale gets the landed write folded in', async () => {
             const personStore = getPersonsStore()
             await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { a: '1' }, [], {}, 'distinct_id_1')
-
-            // The second write lands first (version 2) but answers after the first (version 3).
-            const releaseFirst = holdNextWrite(3)
-            const first = personStore.flush()
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { b: '2' }, [], {}, 'distinct_id_1')
-            const releaseSecond = holdNextWrite(2)
-            const second = personStore.flush()
-            releaseFirst()
-            await first
-            releaseSecond()
-            await second
-            await personStore.flush()
-
-            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(3)
-            expect(mockRepo.updatePersonsBatch.mock.calls[2][0][0].properties_to_set).toEqual({ b: '2' })
-        })
-
-        it('an entry with a write in flight outlives its batch until the write lands', async () => {
-            const personStore = getPersonsStore()
-            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'free' }, [], {}, 'distinct_id_1')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { x: '1' }, [], {}, 'distinct_id_1')
 
             const release = holdNextWrite(2)
             const flushing = personStore.flush()
             personStore.releaseBatch(0)
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeDefined()
-
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
+            // The row is read back before the write lands.
+            mockRepo.fetchPerson.mockResolvedValueOnce({ ...person, properties: { x: 'stale' } })
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 1)
             release()
             await flushing
 
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
+            const entry = personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)
+            expect(entry?.properties).toEqual(expect.objectContaining({ x: '1' }))
+            expect(entry?.version).toBe(2)
+        })
+
+        it("a merge's version on a fresh entry does not keep its landing from settling", async () => {
+            const personStore = getPersonsStore()
+            await personStore.updatePersonForMerge(person, { properties: { m: '1' }, version: 99 }, 'distinct_id_1', 0)
+
+            // The row assigns its own version, one past the row's, whatever the merge stamped.
+            nextWriteLands(person.version + 1)
+            await personStore.flush()
+
+            const entry = personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)
+            expect(entry?.properties_to_set).toEqual({})
+            expect(entry?.version).toBe(person.version + 1)
         })
 
         it.each([
