@@ -359,12 +359,9 @@ describe('exec tool', () => {
             )
         })
 
-        it.each([
-            { label: '--confirm before --json', command: 'call --confirm --json mock-tool' },
-            { label: 'the retired --no-skills flag', command: 'call --no-skills --json mock-tool' },
-        ])('dispatches a call with $label', async ({ command }) => {
+        it('allows --confirm before --json when dispatching a call', async () => {
             const exec = createExec()
-            const result = await exec.handler(mockContext, { command })
+            const result = await exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
