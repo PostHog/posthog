@@ -262,6 +262,7 @@ rules:
                               |Loop
                               |LoopFire
                               |NotebookWidgetInstance
+                              |NotebookWidgetSnapshot
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -351,6 +352,7 @@ rules:
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportSlackThread
+                              |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -410,6 +412,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
                               |UserInterview
@@ -683,6 +686,7 @@ rules:
                         |LoopFire
                         |LoopTrigger
                         |NotebookWidgetInstance
+                        |NotebookWidgetSnapshot
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptDependency
@@ -769,6 +773,7 @@ rules:
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportSlackThread
+                        |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
@@ -827,6 +832,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
                         |UserInterview
@@ -1266,6 +1272,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
                               |InsightViewed
@@ -1340,6 +1347,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
                         |InsightViewed

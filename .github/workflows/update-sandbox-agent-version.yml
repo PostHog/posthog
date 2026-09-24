@@ -9,6 +9,10 @@ on:
                 description: 'Agent version to pin. Defaults to the npm "latest" dist-tag.'
                 required: false
                 type: string
+            slack_thread_ts:
+                description: 'Slack thread of the release post to reply in. The release workflow sets it.'
+                required: false
+                type: string
 
 permissions:
     contents: read
@@ -25,6 +29,7 @@ jobs:
         env:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
             BRANCH_PREFIX: chore/bump-sandbox-agent-version-
+            SLACK_CHANNEL: 'C0C3FBES5ST'
             AGENT_PATHS: products/desktop/packages/agent products/desktop/packages/enricher products/desktop/packages/git products/desktop/packages/harness products/desktop/packages/shared
 
         steps:
@@ -128,6 +133,8 @@ jobs:
                   {
                     echo "action=$action"
                     echo "stale_prs=${stale_prs# }"
+                    echo "current_pr=$current_pr"
+                    echo "declined_by=${declined_by:-}"
                   } >> "$GITHUB_OUTPUT"
 
             - name: Wait for npm to serve the version
@@ -282,6 +289,57 @@ jobs:
                     --label "automated" --label "dependencies" --label "skip-agent-review")
                   echo "Created $pr_url"
                   echo "number=${pr_url##*/}" >> "$GITHUB_OUTPUT"
+                  echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+            - name: Post the bump PR in the release thread
+              id: slack-opened-reply
+              if: steps.state.outputs.action == 'bump' && inputs.slack_thread_ts != ''
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      thread_ts: "${{ inputs.slack_thread_ts }}"
+                      unfurl_links: false
+                      text: ":twisted_rightwards_arrows: Sandbox bump PR <${{ steps.pr.outputs.url }}|#${{ steps.pr.outputs.number }}> opened: `${{ steps.resolve.outputs.pinned }}` to `${{ steps.resolve.outputs.latest }}`. It merges on its own once the image smoke passes."
+
+            # A nightly or manual run has no release thread, so the PR post starts one.
+            - name: Post the bump PR as a new thread
+              id: slack-opened-parent
+              if: steps.state.outputs.action == 'bump' && inputs.slack_thread_ts == ''
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: ":twisted_rightwards_arrows: *@posthog/agent ${{ steps.resolve.outputs.latest }}*: sandbox bump PR <${{ steps.pr.outputs.url }}|#${{ steps.pr.outputs.number }}> opened, from `${{ steps.resolve.outputs.pinned }}`. It merges on its own once the image smoke passes."
+
+            - name: Resolve the Slack thread
+              id: thread
+              if: ${{ !cancelled() }}
+              env:
+                  INPUT_TS: ${{ inputs.slack_thread_ts }}
+                  PARENT_TS: ${{ steps.slack-opened-parent.outputs.ts }}
+              run: |
+                  ts="${INPUT_TS:-$PARENT_TS}"
+                  echo "ts=$ts" >> "$GITHUB_OUTPUT"
+                  printf '%s' "$ts" > .sandbox-agent-slack-thread
+
+            # cd-sandbox-base-image.yml restores this on the merge commit to post that the version is live.
+            - name: Cache the Slack thread for the merge notice
+              if: github.ref == 'refs/heads/master' && steps.state.outputs.action == 'bump' && steps.thread.outputs.ts != ''
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .sandbox-agent-slack-thread
+                  key: sandbox-agent-slack-${{ steps.resolve.outputs.latest }}
 
             - name: Wait for the image smoke on the bump commit
               id: smoke
@@ -314,6 +372,7 @@ jobs:
                   permission-pull-requests: write
 
             - name: Approve and enqueue the bump
+              id: enqueue
               if: steps.state.outputs.action == 'bump'
               env:
                   GH_TOKEN: ${{ steps.releaser-token.outputs.token }}
@@ -331,3 +390,61 @@ jobs:
                     -f commit_id="$SHA" \
                     -f body="Automated approval: the sandbox image built from this commit passed the agent smoke on both architectures." >/dev/null
                   gh pr comment "$PR" --body '/trunk merge'
+
+            - name: Describe the outcome for Slack
+              id: outcome
+              if: ${{ !cancelled() && steps.thread.outputs.ts != '' }}
+              env:
+                  ACTION: ${{ steps.state.outputs.action }}
+                  ENQUEUE: ${{ steps.enqueue.outcome }}
+                  SMOKE: ${{ steps.smoke.outputs.conclusion }}
+                  PR_URL: ${{ steps.pr.outputs.url }}
+                  PR_NUMBER: ${{ steps.pr.outputs.number }}
+                  LATEST: ${{ steps.resolve.outputs.latest }}
+                  PINNED: ${{ steps.resolve.outputs.pinned }}
+                  CURRENT_PR: ${{ steps.state.outputs.current_pr }}
+                  DECLINED_BY: ${{ steps.state.outputs.declined_by }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+              run: |
+                  pr="<${PR_URL}|#${PR_NUMBER}>"
+                  case "$ACTION" in
+                    bump)
+                      if [ "$ENQUEUE" = "success" ]; then
+                        text=":white_check_mark: The image built from ${pr} passed the smoke on amd64 and arm64. Approved and added to the merge queue."
+                      elif [ -n "$SMOKE" ] && [ "$SMOKE" != "success" ]; then
+                        text=":red_circle: Sandbox Base Image Pass concluded \`${SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
+                      elif [ -n "$PR_NUMBER" ]; then
+                        text=":red_circle: The bump run failed before ${pr} reached the merge queue. <${RUN_URL}|View run>"
+                      else
+                        text=":red_circle: The bump run failed before it opened a PR. <${RUN_URL}|View run>"
+                      fi
+                      ;;
+                    noop)
+                      text=":information_source: The sandbox pin is already at \`${LATEST}\`, so no bump PR was opened."
+                      ;;
+                    declined)
+                      text=":no_entry_sign: ${DECLINED_BY} closed the bump PR for \`${LATEST}\` without merging, so the sandbox pin stays at \`${PINNED}\`."
+                      ;;
+                    current)
+                      text=":information_source: <${REPO_URL}/pull/${CURRENT_PR}|#${CURRENT_PR}> already proposes \`${LATEST}\`."
+                      ;;
+                    *)
+                      text=":red_circle: The bump run failed before it opened a PR. <${RUN_URL}|View run>"
+                      ;;
+                  esac
+                  echo "text=$text" >> "$GITHUB_OUTPUT"
+
+            - name: Post the outcome in the Slack thread
+              if: ${{ !cancelled() && steps.outcome.outputs.text != '' }}
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      thread_ts: "${{ steps.thread.outputs.ts }}"
+                      unfurl_links: false
+                      text: "${{ steps.outcome.outputs.text }}"

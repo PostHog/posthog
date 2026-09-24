@@ -48,7 +48,11 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_succeeded_activity,
     upload_video_to_gemini_activity,
 )
-from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_WORKFLOW_NAME
+from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_WORKFLOW_NAME,
+    STATE_ACTIVITY_RETRY,
+    STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+)
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -58,6 +62,7 @@ from products.replay_vision.backend.temporal.errors import (
     ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.media_types import (
+    MEDIA_WORKFLOW_EXECUTION_TIMEOUT,
     MEDIA_WORKFLOW_NAME,
     ObservationMediaInputs,
     build_media_workflow_id,
@@ -91,16 +96,6 @@ from products.replay_vision.backend.temporal.types import (
     UploadedVideo,
     UploadVideoToGeminiInputs,
 )
-
-_STATE_ACTIVITY_RETRY = common.RetryPolicy(
-    initial_interval=dt.timedelta(seconds=1),
-    maximum_interval=dt.timedelta(seconds=10),
-    maximum_attempts=5,
-)
-
-# Bounds each state write's whole retry chain, backoff included, so the failure path provably fits inside
-# APPLY_SCANNER_EXECUTION_TIMEOUT (see the arithmetic on that constant).
-_STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
 
 # Create's `ValueError` paths (scanner missing, user not in org) won't recover on retry, and the
 # re-raised `IntegrityError`s (FK / CHECK violations; the unique-violation case is handled inside
@@ -301,7 +296,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 backfill_id=inputs.backfill_id,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
-            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_CREATE_OBSERVATION_RETRY,
         )
         if not create_result.was_created or create_result.observation_id is None:
@@ -317,8 +312,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 mark_observation_running_activity,
                 MarkObservationRunningInputs(observation_id=observation_id),
                 start_to_close_timeout=dt.timedelta(seconds=30),
-                schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
-                retry_policy=_STATE_ACTIVITY_RETRY,
+                schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+                retry_policy=STATE_ACTIVITY_RETRY,
             )
             self._advance_phase("fetching")
             asset_result = await self._fetch_and_ensure_asset(inputs, observation_id)
@@ -418,16 +413,16 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     ),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
-                schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
-                retry_policy=_STATE_ACTIVITY_RETRY,
+                schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+                retry_policy=STATE_ACTIVITY_RETRY,
             )
             try:
                 await wf.execute_activity(
                     emit_observation_event_activity,
                     EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
                     start_to_close_timeout=dt.timedelta(seconds=30),
-                    schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
-                    retry_policy=_STATE_ACTIVITY_RETRY,
+                    schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+                    retry_policy=STATE_ACTIVITY_RETRY,
                 )
             except Exception:
                 wf.logger.exception("Event emission failed for succeeded observation %s", observation_id)
@@ -477,7 +472,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             ensure_session_asset_activity,
             EnsureSessionAssetInputs(team_id=inputs.team_id, session_id=inputs.session_id),
             start_to_close_timeout=dt.timedelta(seconds=30),
-            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_ENSURE_ASSET_RETRY,
         )
         if wf.patched("replay-vision-session-network-2026-09"):
@@ -600,11 +595,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 ),
                 id=build_media_workflow_id(observation_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                # A retried observation reuses its id, and the run it supersedes has long closed.
+                # A retried observation reuses its id, so the render it supersedes must not block this one once
+                # it has closed, whatever it closed as. A run still open keeps the id and this start fails, which
+                # is what we want: that run is already rendering this observation.
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
-                retry_policy=common.RetryPolicy(maximum_attempts=2),
-                execution_timeout=dt.timedelta(minutes=20),
+                # The execution timeout spans every attempt and the thumbnail's own retries fill it, so a second run has no time left.
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=MEDIA_WORKFLOW_EXECUTION_TIMEOUT,
             )
         except Exception:
             wf.logger.exception("Media rendering could not be started for observation %s", observation_id)
@@ -618,8 +616,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 error_reason=_encode_reason(kind, message),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
-            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
-            retry_policy=_STATE_ACTIVITY_RETRY,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            retry_policy=STATE_ACTIVITY_RETRY,
         )
 
     async def _mark_ineligible(self, observation_id: UUID, scanner_type: ScannerType, kind: str, message: str) -> None:
@@ -631,8 +629,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 error_reason=_encode_reason(kind, message),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
-            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
-            retry_policy=_STATE_ACTIVITY_RETRY,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            retry_policy=STATE_ACTIVITY_RETRY,
         )
 
     async def _apply_scanner_side_effects(

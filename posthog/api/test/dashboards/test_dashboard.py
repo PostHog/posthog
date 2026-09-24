@@ -483,6 +483,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             unseen_id,
         ]
 
+    @parameterized.expand(
+        [
+            ("default order", {}),
+            ("pinned only", {"pinned": "true"}),
+            ("search", {"search": "Tied"}),
+        ]
+    )
+    def test_list_dashboards_pages_tied_rows_without_gaps_or_repeats(self, _name: str, query_params: dict) -> None:
+        tied_ids = [self.dashboard_api.create_dashboard({"name": "Tied", "pinned": True})[0] for _ in range(5)]
+
+        paged_ids: list[int] = []
+        for offset in range(0, len(tied_ids), 2):
+            response = self.dashboard_api.list_dashboards(
+                parent="environment",
+                query_params={**query_params, "limit": 2, "offset": offset},
+            )
+            paged_ids.extend(dashboard["id"] for dashboard in response["results"])
+
+        assert paged_ids == sorted(tied_ids)
+
     def test_list_includes_folder_from_filesystem(self):
         filed_id, _ = self.dashboard_api.create_dashboard(
             {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}

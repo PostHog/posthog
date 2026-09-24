@@ -38,3 +38,8 @@ tasks.0120_backfill_canvas_search_documents
 # Fills the generic tag pointer in batches of 10,000 rows, so the run never holds one transaction open.
 # Re-running is a no-op: each UPDATE only touches rows whose content_type_id is still NULL.
 posthog.1370_backfill_taggeditem_generic_pointer
+# Fills the actionability cache for reports judged before the columns existed, in id-ordered
+# batches so no single transaction locks the whole backlog. Re-running is a no-op: a pass only
+# selects reports that still hold no cached judgment, and each value is recomputed from the
+# artefact log.
+signals.0154_backfill_report_actionability
