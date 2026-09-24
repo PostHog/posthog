@@ -190,7 +190,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                         configuration,
                         globals: createExampleEvent(
                             currentTeamId ?? undefined,
-                            template.name || 'Test email',
+                            configuration.name,
                             '$pageview',
                             recipientEmail
                         ),
