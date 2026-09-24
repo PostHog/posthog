@@ -24,7 +24,10 @@ concurrency:
 jobs:
     update-sandbox-agent-version:
         runs-on: ubuntu-24.04
-        timeout-minutes: 100
+        timeout-minutes: 125
+        permissions:
+            contents: read
+            packages: read
 
         env:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
@@ -58,6 +61,7 @@ jobs:
                   sparse-checkout: |
                       products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                       .github/actions/wait-for-check
+                      .github/actions/sandbox-agent-gateway-smoke
                   sparse-checkout-cone-mode: false
 
             - name: Resolve the published agent version
@@ -270,7 +274,7 @@ jobs:
 
                   - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`.
 
-                  The sandbox image workflow builds this image and smokes \`${LATEST}\` on both architectures. When that check passes, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
+                  The sandbox image workflow builds this image and smokes \`${LATEST}\` on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
 
                   BODY
                     cat delta.md
@@ -278,7 +282,7 @@ jobs:
 
                   ## How did you test this code?
 
-                  The sandbox image CD workflow builds this PR's image on both architectures, checks that the installed \`@posthog/agent\` matches the pin, and runs the \`agent-server\` entrypoint. That covers packaging and dependency resolution. The agent's own test suite ran before the release was published.
+                  The sandbox image CD workflow builds this PR's image on both architectures, checks that the installed \`@posthog/agent\` matches the pin, and runs the \`agent-server\` entrypoint. That covers packaging and dependency resolution. This workflow then drives one Claude turn and one Codex turn from the image through the US Go ai-gateway, on the default models and efforts, and needs both to read a file with a tool. The agent's own test suite ran before the release was published.
                   BODY
                   } > body.md
                   pr_url=$(gh pr create \
@@ -362,6 +366,64 @@ jobs:
                   echo "::error::Sandbox Base Image Pass concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
                   exit 1
 
+            - name: Smoke the agent on the Go ai-gateway
+              id: gateway-smoke
+              if: steps.state.outputs.action == 'bump'
+              timeout-minutes: 25
+              uses: ./.github/actions/sandbox-agent-gateway-smoke
+              with:
+                  image: ghcr.io/posthog/posthog-sandbox-base:${{ steps.commit.outputs.commit-hash }}
+                  mint-key: ${{ secrets.AGENT_SMOKE_AI_GATEWAY_MINT_KEY }}
+                  registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Stop when the gateway smoke did not pass
+              if: ${{ !cancelled() && steps.state.outputs.action == 'bump' && steps.gateway-smoke.outputs.result != 'pass' }}
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RESULT: ${{ steps.gateway-smoke.outputs.result }}
+                  SUMMARY_FILE: ${{ steps.gateway-smoke.outputs.summary-file }}
+                  PR: ${{ steps.pr.outputs.number }}
+              run: |
+                  if [ -f "$SUMMARY_FILE" ]; then
+                    gh pr comment "$PR" --body-file "$SUMMARY_FILE"
+                  fi
+                  echo "::error::The gateway smoke reported ${RESULT:-no result}, so PR #$PR waits for a person"
+                  exit 1
+
+            # The nightly run catches a gateway deploy that breaks the pinned agent.
+            - name: Smoke the pinned agent on the Go ai-gateway
+              id: nightly-smoke
+              if: github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action)
+              timeout-minutes: 25
+              uses: ./.github/actions/sandbox-agent-gateway-smoke
+              with:
+                  image: ghcr.io/posthog/posthog-sandbox-base:master
+                  agent-version: ${{ steps.resolve.outputs.pinned }}
+                  mint-key: ${{ secrets.AGENT_SMOKE_AI_GATEWAY_MINT_KEY }}
+                  registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Post the nightly smoke failure
+              id: nightly-failure
+              if: ${{ !cancelled() && github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action) && steps.nightly-smoke.outputs.result != 'pass' && steps.nightly-smoke.outputs.result != 'unavailable' }}
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: ":red_circle: The nightly Go ai-gateway smoke reported `${{ steps.nightly-smoke.outputs.result || 'no result' }}` for @posthog/agent ${{ steps.resolve.outputs.pinned }} on `posthog-sandbox-base:master`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+
+            - name: Fail when the nightly smoke did not pass
+              if: ${{ !cancelled() && github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action) && steps.nightly-smoke.outputs.result != 'pass' && steps.nightly-smoke.outputs.result != 'unavailable' }}
+              env:
+                  RESULT: ${{ steps.nightly-smoke.outputs.result }}
+              run: |
+                  echo "::error::The nightly gateway smoke reported ${RESULT:-no result} for the pinned agent"
+                  exit 1
+
             - name: Get release approval token
               id: releaser-token
               if: steps.state.outputs.action == 'bump'
@@ -388,7 +450,7 @@ jobs:
                   gh api "repos/${REPO}/pulls/${PR}/reviews" \
                     -f event=APPROVE \
                     -f commit_id="$SHA" \
-                    -f body="Automated approval: the sandbox image built from this commit passed the agent smoke on both architectures." >/dev/null
+                    -f body="Automated approval: the sandbox image built from this commit passed the agent smoke on both architectures and one Claude and one Codex turn on the Go ai-gateway." >/dev/null
                   gh pr comment "$PR" --body '/trunk merge'
 
             - name: Describe the outcome for Slack
@@ -398,6 +460,7 @@ jobs:
                   ACTION: ${{ steps.state.outputs.action }}
                   ENQUEUE: ${{ steps.enqueue.outcome }}
                   SMOKE: ${{ steps.smoke.outputs.conclusion }}
+                  GATEWAY_SMOKE: ${{ steps.gateway-smoke.outputs.result }}
                   PR_URL: ${{ steps.pr.outputs.url }}
                   PR_NUMBER: ${{ steps.pr.outputs.number }}
                   LATEST: ${{ steps.resolve.outputs.latest }}
@@ -411,9 +474,11 @@ jobs:
                   case "$ACTION" in
                     bump)
                       if [ "$ENQUEUE" = "success" ]; then
-                        text=":white_check_mark: The image built from ${pr} passed the smoke on amd64 and arm64. Approved and added to the merge queue."
+                        text=":white_check_mark: The image built from ${pr} passed the smoke on amd64 and arm64 and on the Go ai-gateway. Approved and added to the merge queue."
                       elif [ -n "$SMOKE" ] && [ "$SMOKE" != "success" ]; then
                         text=":red_circle: Sandbox Base Image Pass concluded \`${SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
+                      elif [ -n "$GATEWAY_SMOKE" ] && [ "$GATEWAY_SMOKE" != "pass" ]; then
+                        text=":red_circle: The Go ai-gateway smoke reported \`${GATEWAY_SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
                       elif [ -n "$PR_NUMBER" ]; then
                         text=":red_circle: The bump run failed before ${pr} reached the merge queue. <${RUN_URL}|View run>"
                       else
