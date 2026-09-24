@@ -100,64 +100,14 @@ export function SessionRecordingView({ recording }: { recording: SessionRecordin
     const errors = recording.console_error_count ?? 0
     const warns = recording.console_warn_count ?? 0
     const logs = recording.console_log_count ?? 0
-    const userDisplay = userRowDisplayValue(recording)
-
     return (
         <div className="p-4">
             <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold">Session Recording</span>
-                        {recording.ongoing ? (
-                            <Badge variant="warning">Live</Badge>
-                        ) : (
-                            <Badge variant="success">{formatDuration(recording.recording_duration)}</Badge>
-                        )}
-                        {recording.viewed !== undefined && (
-                            <Badge variant={recording.viewed ? 'default' : 'success'}>
-                                {recording.viewed ? 'Viewed' : 'New'}
-                            </Badge>
-                        )}
-                        {recording.snapshot_source && <Badge>{recording.snapshot_source}</Badge>}
-                    </div>
-                    <span className="text-xs font-mono text-muted-foreground">{recording.id}</span>
-                </div>
+                <RecordingHeader recording={recording} />
 
                 <Card>
                     <CardContent>
-                        <DescriptionList
-                            items={[
-                                {
-                                    label: 'Started',
-                                    value: recording.start_time ? formatStartedUtc(recording.start_time) : '\u2014',
-                                },
-                                { label: 'Active time', value: formatDuration(recording.active_seconds) },
-                                ...(recording.start_url
-                                    ? [
-                                          {
-                                              label: 'Start URL',
-                                              value: (
-                                                  <span className="block truncate" title={recording.start_url}>
-                                                      {recording.start_url}
-                                                  </span>
-                                              ),
-                                          },
-                                      ]
-                                    : []),
-                                ...(userDisplay
-                                    ? [
-                                          {
-                                              label: 'User',
-                                              value: (
-                                                  <span className="block truncate" title={userDisplay}>
-                                                      {userDisplay}
-                                                  </span>
-                                              ),
-                                          },
-                                      ]
-                                    : []),
-                            ]}
-                        />
+                        <RecordingMetadata recording={recording} />
                     </CardContent>
                 </Card>
 
@@ -185,6 +135,68 @@ export function SessionRecordingView({ recording }: { recording: SessionRecordin
                 </Card>
             </div>
         </div>
+    )
+}
+
+function RecordingHeader({ recording }: { recording: SessionRecordingData }): ReactElement {
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-lg font-semibold">Session Recording</span>
+                {recording.ongoing ? (
+                    <Badge variant="warning">Live</Badge>
+                ) : (
+                    <Badge variant="success">{formatDuration(recording.recording_duration)}</Badge>
+                )}
+                {recording.viewed !== undefined && (
+                    <Badge variant={recording.viewed ? 'default' : 'success'}>
+                        {recording.viewed ? 'Viewed' : 'New'}
+                    </Badge>
+                )}
+                {recording.snapshot_source && <Badge>{recording.snapshot_source}</Badge>}
+            </div>
+            <span className="text-xs font-mono text-muted-foreground">{recording.id}</span>
+        </div>
+    )
+}
+
+function RecordingMetadata({ recording }: { recording: SessionRecordingData }): ReactElement {
+    const userDisplay = userRowDisplayValue(recording)
+
+    return (
+        <DescriptionList
+            items={[
+                {
+                    label: 'Started',
+                    value: recording.start_time ? formatStartedUtc(recording.start_time) : '\u2014',
+                },
+                { label: 'Active time', value: formatDuration(recording.active_seconds) },
+                ...(recording.start_url
+                    ? [
+                          {
+                              label: 'Start URL',
+                              value: (
+                                  <span className="block truncate" title={recording.start_url}>
+                                      {recording.start_url}
+                                  </span>
+                              ),
+                          },
+                      ]
+                    : []),
+                ...(userDisplay
+                    ? [
+                          {
+                              label: 'User',
+                              value: (
+                                  <span className="block truncate" title={userDisplay}>
+                                      {userDisplay}
+                                  </span>
+                              ),
+                          },
+                      ]
+                    : []),
+            ]}
+        />
     )
 }
 
