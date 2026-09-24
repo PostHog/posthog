@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from io import BytesIO
@@ -1260,11 +1261,13 @@ def _producer_with_known_table_name(producer: CDPProducer) -> CDPProducer:
     return producer
 
 
-async def _produce_staged_rows(producer: CDPProducer, rows: list[dict], *, produce_raises: bool = False) -> list[dict]:
+async def _produce_staged_rows(
+    producer: CDPProducer, rows: list[dict], *, produce_raises: bool = False, delivery_fails: bool = False
+) -> list[dict]:
     """Stage `rows` as one chunk, run a whole produce cycle, and return the rows it produced.
 
-    With `produce_raises`, the Kafka produce raises on every call, mirroring a run whose delivery
-    fails after the row is read.
+    With `produce_raises`, the Kafka produce raises on every call. With `delivery_fails`, the produce
+    returns a delivery that Kafka later reports as failed, the way a real produce does.
     """
     parquet_buffer = BytesIO()
     pq.write_table(pa.Table.from_pylist(rows), parquet_buffer, compression="zstd")
@@ -1273,9 +1276,17 @@ async def _produce_staged_rows(producer: CDPProducer, rows: list[dict], *, produ
     mock_s3_client = MagicMock()
     mock_s3_client._ls = mock.AsyncMock(return_value=[{"Key": "chunk_0.parquet", "type": "file"}])
 
+    def _delivery(**_kwargs: object) -> asyncio.Future[None]:
+        delivery: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        if delivery_fails:
+            delivery.set_exception(Exception("Message timed out"))
+        else:
+            delivery.set_result(None)
+        return delivery
+
     mock_kafka_producer = MagicMock()
     mock_kafka_producer.produce = mock.AsyncMock(
-        side_effect=Exception("Kafka connection failed") if produce_raises else None
+        side_effect=Exception("Kafka connection failed") if produce_raises else _delivery
     )
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
@@ -1336,14 +1347,24 @@ async def test_what_a_later_view_run_produces(runs, produced_by_the_last_run):
     assert produced == produced_by_the_last_run
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        # A produce that raises is caught and the file dropped.
+        {"produce_raises": True},
+        # A produce only queues the row. Kafka reports a failed delivery later, on the future it returns.
+        {"delivery_fails": True},
+    ],
+    ids=["produce raises", "delivery fails"],
+)
 @pytest.mark.asyncio
-async def test_a_view_row_whose_produce_failed_is_produced_on_the_next_run():
-    # A produce that raises is caught and the file dropped, so the row never reached a subscriber.
-    # Recording it as produced would suppress it next run, silently losing the trigger for good.
+async def test_a_view_row_whose_produce_failed_is_produced_on_the_next_run(failure):
+    # The row never reached a subscriber. Recording it as produced would suppress it next run,
+    # silently losing the trigger for good.
     view_id = str(uuid.uuid4())
     rows = [{"id": 1, "total": 5}]
 
-    await _produce_staged_rows(_view_producer_for_id(view_id), rows, produce_raises=True)
+    await _produce_staged_rows(_view_producer_for_id(view_id), rows, **failure)
 
     assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == rows
 

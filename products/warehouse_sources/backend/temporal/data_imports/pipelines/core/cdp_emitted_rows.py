@@ -21,7 +21,9 @@ holding a lock across the whole produce loop, which runs for as long as the rows
 Kafka, and a lock that expires under that would give the same interleaving with more to go wrong.
 """
 
+import asyncio
 from itertools import batched
+from typing import Any
 
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
@@ -65,6 +67,7 @@ class EmittedRowStore:
         self._logger = logger
         self._previous: set[str] = set()
         self._current: set[str] = set()
+        self._pending_deliveries: list[tuple[str, asyncio.Future[Any]]] = []
         self._enabled = key is not None
         self._at_limit = False
 
@@ -84,8 +87,8 @@ class EmittedRowStore:
 
         A repeat is recorded now: an earlier run delivered it, and keeping it in the record is what
         holds a row on the boundary suppressed across many runs. A row that is not a repeat is
-        recorded only once it is produced, through record_produced, so a row whose produce fails is
-        not remembered as delivered.
+        recorded only once Kafka confirms its delivery, through record_on_delivery, so a row no
+        subscriber received is not remembered as delivered.
         """
         if not self._enabled:
             return False
@@ -96,8 +99,30 @@ class EmittedRowStore:
 
         return False
 
+    def record_on_delivery(self, event_id: str, delivery: asyncio.Future[Any]) -> None:
+        """Hold a produced row until record_delivered reads its delivery result.
+
+        produce() only queues the row. Kafka reports a failed delivery later, on this future, so a
+        row recorded at produce time could be one that no subscriber received.
+        """
+        if not self._enabled:
+            return
+
+        self._pending_deliveries.append((event_id, delivery))
+
+    def record_delivered(self) -> None:
+        """Record the held rows whose delivery Kafka confirmed, and drop the rest.
+
+        Call it after a file's rows are flushed, or after the file fails. A row with no confirmed
+        delivery at that point is not recorded, so the worst case is one more trigger next run.
+        """
+        for event_id, delivery in self._pending_deliveries:
+            if delivery.done() and not delivery.cancelled() and delivery.exception() is None:
+                self.record_produced(event_id)
+        self._pending_deliveries.clear()
+
     def record_produced(self, event_id: str) -> None:
-        """Remember a row this run produced, called only after its produce succeeds."""
+        """Remember a row this run delivered."""
         if not self._enabled:
             return
 

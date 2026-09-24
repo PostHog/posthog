@@ -362,15 +362,12 @@ class CDPProducer:
                                     "event_id": event_id,
                                     "properties": row,
                                 }
-                                await kafka_producer.produce(
+                                delivery = await kafka_producer.produce(
                                     topic=KAFKA_DWH_CDP_RAW_TABLE,
                                     data=row_as_props,
                                     value_serializer=self._serialize_json,
                                 )
-                                # Recorded only after produce succeeds. A produce that raises is
-                                # caught below and the file is dropped, so a row not delivered must
-                                # not be remembered as produced, or the next run would suppress it.
-                                emitted_rows.record_produced(event_id)
+                                emitted_rows.record_on_delivery(event_id, delivery)
                                 row_index += 1
 
                     await kafka_producer.flush()
@@ -381,6 +378,9 @@ class CDPProducer:
                     capture_exception(e)
                     await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
                 finally:
+                    # A row is remembered only once Kafka confirms it, or the next run would
+                    # suppress a row that no subscriber received.
+                    emitted_rows.record_delivered()
                     # TODO(Gilbert09): have better row tracking so we can retry from a particular row
                     if row_index:
                         CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
