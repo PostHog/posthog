@@ -20,12 +20,13 @@ describe('pixel template', () => {
         },
     }
 
-    it('should respond with a 1x1 pixel', async () => {
+    it('should respond with a 1x1 pixel and keep credentials out of the event and the log', async () => {
         const response = await tester.invoke(
             {
                 event: '{request.query.ph_event}',
                 distinct_id: 'hardcoded',
                 properties: { query_params: '{request.query}' },
+                debug: true,
             },
             {
                 request: {
@@ -33,7 +34,14 @@ describe('pixel template', () => {
                     body: {},
                     stringBody: '',
                     headers: {},
-                    query: { ph_event: 'the event', other: 'other', params: '2' },
+                    query: {
+                        ph_event: 'the event',
+                        other: 'other',
+                        params: '2',
+                        api_key: 'secret-key',
+                        'x-api-key': 'secret-dashed',
+                        access_token: 'secret-token',
+                    },
                     ip: '127.0.0.1',
                 },
             }
@@ -60,6 +68,10 @@ describe('pixel template', () => {
             ]
         `
         )
+        expect(response.logs.map((x) => x.message)).toEqual([
+            `Incoming request:, {"ph_event":"the event","other":"other","params":"2"}`,
+            expect.stringContaining('Function completed'),
+        ])
         expect(response.execResult).toEqual(GOOD_RESPONSE)
     })
 
@@ -83,6 +95,10 @@ describe('pixel template', () => {
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(true)
         expect(response.capturedPostHogEvents).toEqual([])
+        expect(response.logs.map((x) => x.message)).toEqual([
+            'No event captured because the event name or the distinct ID is empty. By default they come from the ph_event and ph_distinct_id query parameters.',
+            expect.stringContaining('Function completed'),
+        ])
         expect(response.execResult).toEqual(GOOD_RESPONSE)
     })
 })
