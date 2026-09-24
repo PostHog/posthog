@@ -23,8 +23,6 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
     )
 
     const liveVersion = originalWorkflow?.version
-    // The revision list does not return the source each revision records, so only the live version
-    // can show the ref of the push that produced it.
     const liveSource = isCodeManaged ? workflowSource(originalWorkflow) : null
 
     return (
@@ -120,8 +118,6 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                                         onClick={() => restoreRevision(revision.version)}
                                         loading={restoringVersion === revision.version}
                                         disabledReason={
-                                            // A restore stages a draft, which the API refuses on a
-                                            // workflow a repository owns.
                                             workflowSaveDisabledReason ??
                                             (revision.version === liveVersion
                                                 ? 'This is the live version'
