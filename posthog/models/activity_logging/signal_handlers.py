@@ -20,7 +20,11 @@ from prometheus_client import Counter
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
+from posthog.helpers.impersonation import (
+    get_original_user_from_session,
+    get_original_user_id_from_session,
+    is_impersonated,
+)
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
@@ -49,6 +53,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
+from posthog.session.activity import session_activity_credential
 from posthog.session.models import Session
 from posthog.utils import get_ip_address, get_short_user_agent
 
@@ -140,6 +145,20 @@ def _determine_login_method(request, was_impersonated):
     return login_method
 
 
+def _record_current_session_credential(request: HttpRequest, *, impersonated_by_id: int | None = None) -> None:
+    """Record the session that the login leaves behind.
+
+    The session resolver of `ActivityLoggingMiddleware` does not cover a login. A fresh sign-in was
+    anonymous when the middleware ran, so the middleware set no resolver. A login that switches
+    users fails the resolver's user check, so the resolver returns no credential.
+    """
+    if not activity_storage.is_request_scoped():
+        return
+    activity_storage.set_credential(
+        session_activity_credential(request, impersonated_by_id or get_original_user_id_from_session(request))
+    )
+
+
 def log_login_activity(
     user,
     request: HttpRequest,
@@ -160,6 +179,11 @@ def log_login_activity(
     if organization_id is None:
         logger.info("Skipping login activity log - user has no organization", user_id=user.id)
         return
+
+    # `login_as` fires `user_logged_in` before it stores the staff user in the session, so on the
+    # row that starts an impersonation only the detected staff user can name the impersonator.
+    impersonated_by_id = log_user.pk if was_impersonated and log_user is not None and log_user.pk != user.pk else None
+    _record_current_session_credential(request, impersonated_by_id=impersonated_by_id)
 
     log_activity(
         organization_id=organization_id,

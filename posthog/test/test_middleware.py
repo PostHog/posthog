@@ -1157,6 +1157,17 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 
         self.login_as_other_user()
 
+        start = ActivityLog.objects.filter(scope="User", activity="logged_in", item_id=str(self.other_user.id)).latest(
+            "created_at"
+        )
+        assert (
+            start.user_id,
+            start.was_impersonated,
+            start.credential_type,
+            start.credential_id,
+            start.impersonated_by_id,
+        ) == (self.user.id, True, "session", None, self.user.id)
+
         # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
