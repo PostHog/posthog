@@ -3,15 +3,24 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { passkeySettingsLogic } from './passkeySettingsLogic'
+import { type RegistrationStep, passkeySettingsLogic } from './passkeySettingsLogic'
 
-function RegistrationBanners(): JSX.Element | null {
-    const { registrationStep, error } = useValues(passkeySettingsLogic)
-    const { clearError } = useActions(passkeySettingsLogic)
-
-    if (!error && registrationStep !== 'complete' && registrationStep !== 'verifying') {
-        return null
+// A passkey that awaits verification cannot sign the user in yet, and a second registration would
+// replace it as the one the banner offers to verify. So hold the add controls until the user either
+// verifies that passkey or dismisses the prompt.
+function getAddDisabledReason(registrationStep: RegistrationStep): string | undefined {
+    if (registrationStep === 'registering' || registrationStep === 'verifying') {
+        return 'Registration in progress...'
     }
+    if (registrationStep === 'awaiting_verification') {
+        return 'Verify your new passkey first'
+    }
+    return undefined
+}
+
+function RegistrationBanners(): JSX.Element {
+    const { registrationStep, pendingVerificationId, error } = useValues(passkeySettingsLogic)
+    const { clearError, verifyPasskey, dismissVerificationPrompt } = useActions(passkeySettingsLogic)
 
     return (
         <>
@@ -21,13 +30,25 @@ function RegistrationBanners(): JSX.Element | null {
                 </LemonBanner>
             )}
 
-            {registrationStep === 'complete' && (
-                <LemonBanner type="success">Passkey added and verified successfully!</LemonBanner>
+            {registrationStep === 'complete' && <LemonBanner type="success">Passkey added and verified.</LemonBanner>}
+
+            {registrationStep === 'awaiting_verification' && pendingVerificationId !== null && (
+                <LemonBanner
+                    type="info"
+                    onClose={dismissVerificationPrompt}
+                    action={{
+                        children: 'Verify passkey',
+                        onClick: () => verifyPasskey(pendingVerificationId),
+                        'data-attr': 'verify-new-passkey',
+                    }}
+                >
+                    Your passkey is saved. Verify it now to use it for sign-in.
+                </LemonBanner>
             )}
 
             {registrationStep === 'verifying' && (
                 <LemonBanner type="info" icon={<Spinner />}>
-                    Please verify your passkey to complete registration...
+                    Waiting for your passkey...
                 </LemonBanner>
             )}
         </>
@@ -43,6 +64,7 @@ export function PasskeyAddFormEmpty(): JSX.Element {
     }
 
     const isRegistering = registrationStep === 'registering' || registrationStep === 'verifying'
+    const addDisabledReason = getAddDisabledReason(registrationStep)
 
     return (
         <div className="flex flex-col items-start space-y-4">
@@ -59,7 +81,7 @@ export function PasskeyAddFormEmpty(): JSX.Element {
                     type="primary"
                     onClick={handleAddPasskey}
                     loading={isRegistering}
-                    disabledReason={isRegistering ? 'Registration in progress...' : undefined}
+                    disabledReason={addDisabledReason}
                 >
                     {registrationStep === 'verifying' ? 'Verifying...' : 'Add passkey'}
                 </LemonButton>
@@ -81,6 +103,7 @@ export function PasskeyAddForm(): JSX.Element {
     }
 
     const isRegistering = registrationStep === 'registering' || registrationStep === 'verifying'
+    const addDisabledReason = getAddDisabledReason(registrationStep)
 
     return (
         <div className="space-y-4">
@@ -93,7 +116,7 @@ export function PasskeyAddForm(): JSX.Element {
                         placeholder="Passkey name (optional)"
                         value={newPasskeyLabel}
                         onChange={setNewPasskeyLabel}
-                        disabled={isRegistering}
+                        disabled={!!addDisabledReason}
                         onPressEnter={handleAddPasskey}
                         maxLength={200}
                     />
@@ -102,7 +125,7 @@ export function PasskeyAddForm(): JSX.Element {
                     type="primary"
                     onClick={handleAddPasskey}
                     loading={isRegistering}
-                    disabledReason={isRegistering ? 'Registration in progress...' : undefined}
+                    disabledReason={addDisabledReason}
                 >
                     {registrationStep === 'verifying' ? 'Verifying...' : 'Add passkey'}
                 </LemonButton>
