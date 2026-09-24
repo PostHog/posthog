@@ -87,7 +87,13 @@ async function postQuery(
     },
   );
   if (!response.ok) {
-    throw new Error(`Query failed (${response.status})`);
+    const detail = await response
+      .json()
+      .then((error: { detail?: unknown }) =>
+        typeof error.detail === "string" ? error.detail : null,
+      )
+      .catch(() => null);
+    throw new Error(detail ?? `Query failed (${response.status})`);
   }
   const body = (await response.json()) as HogQLResponse;
   if (body.error) throw new Error(body.error);

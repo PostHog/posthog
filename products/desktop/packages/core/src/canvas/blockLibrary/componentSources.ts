@@ -53,7 +53,7 @@ export function Metric(props: MetricProps) {
   const points = (spark.data?.results?.[0]?.data ?? []).map((point: number, index: number) => ({ index, value: Number(point) }));
   return (
     <Card {...blockRoot("Metric", props)} className="shrink-0 group relative flex min-w-0 flex-col">
-      <QueryButton className="absolute top-3 right-3" query={query} hogql={value?.data?.hogql} />
+      <QueryButton className="absolute top-3 right-3 rounded-md bg-card" query={query} hogql={value?.data?.hogql} />
       <CardContent className="flex flex-1 flex-col gap-1">
         <span className="truncate text-sm font-medium text-muted-foreground" title={title || eventName(event)}>{title || eventName(event)}</span>
         <BlockDescription text={description} />
@@ -862,7 +862,7 @@ export function Goal(props: GoalProps) {
       })}
       className="group relative flex min-w-0 shrink-0 flex-col"
     >
-      <QueryButton className="absolute top-3 right-3" query={query} hogql={result?.data?.hogql} />
+      <QueryButton className="absolute top-3 right-3 rounded-md bg-card" query={query} hogql={result?.data?.hogql} />
       <CardContent className="flex flex-1 flex-col gap-2">
         <span className="truncate text-sm font-medium text-muted-foreground">{title || eventName(event) + " goal"}</span>
         <BlockDescription text={description} />

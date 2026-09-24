@@ -198,6 +198,7 @@ export function installCanvasEditing(
   let hovered: HTMLElement | null = null;
   let selected: HTMLElement | null = null;
   let selectedBlockId: string | null = null;
+  let selectedSource: { key: string; block: string | null } | null = null;
   let dragOrigin: { x: number; y: number; element: HTMLElement } | null = null;
   let frame = 0;
 
@@ -368,9 +369,20 @@ export function installCanvasEditing(
     frame = requestAnimationFrame(paint);
   };
 
-  const select = (element: HTMLElement | null) => {
+  const remember = (element: HTMLElement | null) => {
     selected = element;
     selectedBlockId = element?.getAttribute("data-ph-block-id") ?? null;
+    const source = element ? parseSource(element) : null;
+    selectedSource = source
+      ? {
+          key: `${source.file}|${source.start}`,
+          block: element?.getAttribute("data-ph-block") ?? null,
+        }
+      : null;
+  };
+
+  const select = (element: HTMLElement | null) => {
+    remember(element);
     post({
       type: "canvas-edit-select",
       element: element ? describe(element) : null,
@@ -839,23 +851,27 @@ export function installCanvasEditing(
         : null,
     });
     const id = focusBlockId ?? selectedBlockId;
+    const sourceAt = (key: string) =>
+      document.querySelector(`[data-ph-src^="${CSS.escape(`${key}|`)}"]`);
+    const previous = selectedSource ? sourceAt(selectedSource.key) : null;
+    const sameBlock =
+      previous?.getAttribute("data-ph-block") === selectedSource?.block;
     const bySource = focusSource
-      ? document.querySelector(
-          `[data-ph-src^="${CSS.escape(`${focusSource}|`)}"]`,
-        )
-      : null;
+      ? sourceAt(focusSource)
+      : sameBlock
+        ? previous
+        : null;
     const element = id
       ? document.querySelector(`[data-ph-block-id="${CSS.escape(id)}"]`)
       : bySource;
     if (element instanceof HTMLElement) {
-      selected = element;
+      remember(element);
       post({ type: "canvas-edit-select", element: describe(element) });
       const arrived =
         !!focusBlockId && !focusSource && !previousRects.has(focusBlockId);
       if (arrived) land(element);
     } else {
-      selected = null;
-      selectedBlockId = null;
+      remember(null);
       post({ type: "canvas-edit-select", element: null });
     }
   };
@@ -916,8 +932,7 @@ export function installCanvasEditing(
         return true;
       }
       if (message.type === "canvas-edit-deselect") {
-        selected = null;
-        selectedBlockId = null;
+        remember(null);
         return true;
       }
       return false;
