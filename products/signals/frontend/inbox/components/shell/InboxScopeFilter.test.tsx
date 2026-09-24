@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
@@ -16,16 +16,38 @@ jest.mock('lib/components/MemberSelect', () => ({
     MemberSelect: ({
         options,
         children,
+        defaultLabel,
+        extraOptions = [],
+        onChange,
+        onSelectOption,
     }: {
         options: { uuid: string; name: string; trailing?: string }[]
         children: () => JSX.Element
+        defaultLabel: string
+        extraOptions?: { label: string; onClick: () => void }[]
+        onChange: () => void
+        onSelectOption: (uuid: string, label: string) => void
     }) => (
         <>
             {children()}
             <ul>
+                {extraOptions.map((option) => (
+                    <li key={option.label}>
+                        <button type="button" role="menuitem" onClick={option.onClick}>
+                            {option.label}
+                        </button>
+                    </li>
+                ))}
+                <li>
+                    <button type="button" role="menuitem" onClick={onChange}>
+                        {defaultLabel}
+                    </button>
+                </li>
                 {options.map((person) => (
                     <li key={person.uuid}>
-                        {person.name} {person.trailing}
+                        <button type="button" role="menuitem" onClick={() => onSelectOption(person.uuid, person.name)}>
+                            {person.name} {person.trailing}
+                        </button>
                     </li>
                 ))}
             </ul>
@@ -77,13 +99,17 @@ describe('InboxScopeFilter', () => {
         expect(screen.queryByLabelText('Report scope: Ada')).toBeNull()
     })
 
-    // "For you" resolves to whoever opens the link, so a URL that opens to *your* reports for a
-    // teammate can only come from your own roster row. Hiding that row as a duplicate of "For you"
-    // makes your view the one scope nobody can share.
-    it('keeps the signed-in user in the roster so their scope can be shared by URL', async () => {
+    it('uses the signed-in user row to select For you without a duplicate menu item', async () => {
         inboxFiltersLogic.mount()
         render(<InboxScopeFilter />)
 
-        await waitFor(() => expect(screen.getByText(`${MOCK_DEFAULT_USER.first_name} (you)`)).toBeInTheDocument())
+        const ownRow = await screen.findByRole('menuitem', { name: `${MOCK_DEFAULT_USER.first_name} (you)` })
+        expect(screen.queryByRole('menuitem', { name: 'For you' })).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Entire project' }))
+        await waitFor(() => expect(screen.getByLabelText('Report scope: Entire project')).toBeInTheDocument())
+
+        fireEvent.click(ownRow)
+        await waitFor(() => expect(screen.getByLabelText('Report scope: For you')).toBeInTheDocument())
     })
 })
