@@ -86,6 +86,7 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    ReverseProxyCheckApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
@@ -2464,6 +2465,20 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getPropertyDefinitionsSeenTogetherRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReverseProxyCheckRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/reverse_proxy/check/`
+}
+
+export const reverseProxyCheckRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReverseProxyCheckApi> => {
+    return apiMutator<ReverseProxyCheckApi>(getReverseProxyCheckRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -15,6 +15,7 @@ from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
+from posthog.api.reverse_proxy_check import ReverseProxyCheckViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
@@ -186,6 +187,13 @@ projects_router.register(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "project_ingestion_warnings",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"reverse_proxy",
+    ReverseProxyCheckViewSet,
+    "project_reverse_proxy",
     ["team_id"],
 )
 

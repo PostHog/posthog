@@ -5217,6 +5217,8 @@ export interface AppContext {
     has_pageview: boolean
     has_screen: boolean
     has_person_email: boolean
+    /** The server's cached reverse proxy check for current_team. Absent when the server has no cached answer. */
+    has_reverse_proxy?: boolean
     /**
      * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
