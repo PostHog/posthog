@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from prometheus_client import REGISTRY
+from rest_framework.exceptions import APIException
+
 from posthog.api.utils import ServiceRequest
 
 from products.approvals.backend.decorators import _create_change_request
@@ -16,11 +19,8 @@ from products.feature_flags.backend.api.feature_flag import FeatureFlagSerialize
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-class TestApprovalGateFailsClosed(APIBaseTest):
-    """The gate must derive team/org from the serializer instance when the
-    context lacks get_team/get_organization callables, instead of silently
-    skipping the approval workflow (fail-closed, not fail-open)."""
+class _ApprovalGateFixtures(APIBaseTest):
+    """Shared fixtures for gating a feature flag save behind an approval policy."""
 
     def _create_disabled_flag(self) -> FeatureFlag:
         return FeatureFlag.objects.create(
@@ -54,6 +54,13 @@ class TestApprovalGateFailsClosed(APIBaseTest):
         serializer = FeatureFlagSerializer(instance=flag, data=data, partial=True, context=context)
         serializer.is_valid()
         return serializer
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestApprovalGateFailsClosed(_ApprovalGateFixtures):
+    """The gate must derive team/org from the serializer instance when the
+    context lacks get_team/get_organization callables, instead of silently
+    skipping the approval workflow (fail-closed, not fail-open)."""
 
     def test_gate_blocks_when_context_lacks_org_and_team_callables(self, _mock_enabled):
         flag = self._create_disabled_flag()
@@ -195,3 +202,49 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         stored = change_request.intent["full_request_data"]["last_called_at"]
         assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
         assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestChangeRequestCreateFailureCounter(_ApprovalGateFixtures):
+    def _failures(self, action: str, error_type: str) -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "posthog_approvals_change_request_create_failures_total",
+                {"action": action, "error_type": error_type},
+            )
+            or 0.0
+        )
+
+    def _gated_serializer(self) -> FeatureFlagSerializer:
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        return self._serializer(
+            flag,
+            {"active": True},
+            {
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "get_organization": lambda: self.organization,
+            },
+        )
+
+    def test_failed_change_request_insert_increments_the_counter(self, _mock_enabled):
+        serializer = self._gated_serializer()
+        before = self._failures("feature_flag.enable", "TypeError")
+
+        # Patching the ORM boundary rather than _create_change_request keeps the helper's
+        # own display-data, expiry and JSON-safe steps in the path, so the no-row assertion
+        # below covers code that actually runs.
+        with patch.object(
+            ChangeRequest.objects,
+            "create",
+            side_effect=TypeError("Object of type datetime is not JSON serializable"),
+        ):
+            with self.assertRaises(APIException):
+                serializer.save()
+
+        assert self._failures("feature_flag.enable", "TypeError") == before + 1
+        assert ChangeRequest.objects.count() == 0
