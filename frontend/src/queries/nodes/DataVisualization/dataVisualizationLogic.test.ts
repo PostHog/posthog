@@ -722,7 +722,7 @@ describe('dataVisualizationLogic', () => {
 })
 
 describe('formatDataWithSettings', () => {
-    it.each<[string, number, AxisSeriesSettings | undefined, string | null]>([
+    it.each<[string, number, AxisSeriesSettings | undefined, string]>([
         ['rounds to an explicit zero decimal places', 51.12967032967033, { formatting: { decimalPlaces: 0 } }, '51'],
         [
             'rounds to zero decimal places under the none style',
