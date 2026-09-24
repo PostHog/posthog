@@ -213,26 +213,41 @@ function isThoughtItem(item: ConversationItem): boolean {
 function isTurnDecided(
   turnContext: TurnContext,
   erroredTurns: Set<TurnContext>,
+  supersededTurns: Set<TurnContext>,
 ): boolean {
   // A cloud turn that errors out never gets a `turn_completed` event, so `turnComplete`
   // alone would leave a finished chart stuck collapsed forever.
-  return turnContext.turnComplete || erroredTurns.has(turnContext);
+  if (erroredTurns.has(turnContext)) return true;
+  if (!turnContext.turnComplete) return false;
+  // An implicit turn is marked `turnComplete` the moment it opens, so trust that only once
+  // a later turn has taken its place and it can no longer grow.
+  return turnContext.isImplicit ? supersededTurns.has(turnContext) : true;
 }
 
 function lastRenderableIdsByTurn(
   items: ConversationItem[],
 ): Map<TurnContext, string> {
   const erroredTurns = new Set<TurnContext>();
-  for (const item of items) {
-    if (isSessionUpdateItem(item) && item.update.sessionUpdate === "error") {
+  const lastIndexByTurn = new Map<TurnContext, number>();
+  items.forEach((item, index) => {
+    if (!isSessionUpdateItem(item)) return;
+    lastIndexByTurn.set(item.turnContext, index);
+    if (item.update.sessionUpdate === "error") {
       erroredTurns.add(item.turnContext);
     }
-  }
+  });
+  const supersededTurns = new Set(
+    [...lastIndexByTurn]
+      .filter(([, lastIndex]) => lastIndex < items.length - 1)
+      .map(([turnContext]) => turnContext),
+  );
 
   const out = new Map<TurnContext, string>();
   for (const item of items) {
     if (!isToolCallItem(item)) continue;
-    if (!isTurnDecided(item.turnContext, erroredTurns)) continue;
+    if (!isTurnDecided(item.turnContext, erroredTurns, supersededTurns)) {
+      continue;
+    }
     if (!hasUiAppResult(item)) continue;
     out.set(item.turnContext, item.id);
   }

@@ -275,6 +275,73 @@ describe("groupToolRuns", () => {
     expect(out[1]).toMatchObject({ id: "chart-1" });
   });
 
+  it("keeps every chart grouped while an implicit turn is still growing", () => {
+    // An implicit (promptless) turn is marked turnComplete the instant it opens, so it
+    // must not be trusted as a "done" signal on its own while nothing has superseded it.
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const out = groupToolRuns([chart("chart-1"), chart("chart-2")]);
+
+    expect(out.map((row) => row.type)).toEqual(["tool_group"]);
+  });
+
+  it("stands the last chart alone once a later turn supersedes the implicit one", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const out = groupToolRuns([
+      chart("chart-1"),
+      chart("chart-2"),
+      toolItem("next-turn"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "session_update",
+      "session_update",
+      "session_update",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart-2" });
+  });
+
   it("still groups an MCP tool call whose result has no UI app", () => {
     const execCall = toolItem("exec", {
       toolCallId: "exec",
