@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # Valid property types for feature flags (from validate_filters in api/feature_flag.py)
@@ -42,9 +43,18 @@ class Command(BaseCommand):
 
         fixed_count = 0
         unfixable_count = 0
+        skipped_count = 0
         flags_to_update = []
 
         for flag in flags.iterator():
+            if detect_config_format(flag.filters).kind != "v1":
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  Flag id={flag.id} team_id={flag.team_id} key='{flag.key}': config format is not 1, skipped"
+                    )
+                )
+                skipped_count += 1
+                continue
             filters = flag.filters or {}
             groups = filters.get("groups", [])
             modified = False
@@ -81,7 +91,9 @@ class Command(BaseCommand):
             FeatureFlag.objects.bulk_update(flags_to_update, ["filters"])
             self.stdout.write(self.style.SUCCESS(f"  Saved {len(flags_to_update)} flags"))
 
-        self.stdout.write(f"Completed ({mode}): {fixed_count} properties fixed, {unfixable_count} unfixable")
+        self.stdout.write(
+            f"Completed ({mode}): {fixed_count} properties fixed, {unfixable_count} unfixable, {skipped_count} flags skipped"
+        )
 
         if not live_run and fixed_count > 0:
             self.stdout.write(self.style.NOTICE("Run with --live-run to apply changes"))

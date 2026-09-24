@@ -516,3 +516,14 @@ class TestAuditFlagFilters(BaseTest):
         output = out.getvalue()
         assert "Cache-write round-trip divergences (0 flags, 0 compared by the verifier):" in output
         assert "not enforcement violations" not in output
+
+    def test_other_config_formats_are_skipped_not_validated(self) -> None:
+        self._create_flag("v2", {"version": 2, "rules": []})
+        self._create_flag("structural", {"groups": [{"properties": [{"type": "person"}]}]})
+
+        report = self._run()
+
+        assert report["scanned"] == 2
+        assert report["skipped_unsupported_config_format"] == 1
+        assert report["flags_with_violations"] == 1
+        assert [entry["key"] for entry in report["unknown_keys"]] == []

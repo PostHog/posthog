@@ -6,6 +6,7 @@ import structlog
 from cryptography.fernet import InvalidToken
 
 from products.feature_flags.backend.encrypted_flag_payloads import FlagPayloadCodec, flag_payload_codec
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +41,9 @@ class Command(BaseCommand):
         scanned = updated = skipped = 0
         for flag in self._get_flags(team_id, limit).iterator(chunk_size=batch_size):
             scanned += 1
+            if self._skip_unsupported(flag):
+                skipped += 1
+                continue
             try:
                 changed = self._reencrypt(flag.pk, codec) if live_run else self._needs_reencrypt(flag, codec)
             except InvalidToken as e:
@@ -59,6 +63,13 @@ class Command(BaseCommand):
         verb = "re-encrypted" if live_run else "would re-encrypt"
         self.stdout.write(f"Done. scanned={scanned} {verb}={updated} skipped={skipped}")
 
+    def _skip_unsupported(self, flag: FeatureFlag) -> bool:
+        """Only config format 1 stores ``payloads``; never touch a document in another format."""
+        if detect_config_format(flag.filters).kind == "v1":
+            return False
+        logger.warning("reencrypt_flag_payloads.skip_unsupported_config", flag_id=flag.id, team_id=flag.team_id)
+        return True
+
     def _needs_reencrypt(self, flag: FeatureFlag, codec: FlagPayloadCodec) -> bool:
         """Dry-run check on the streamed snapshot: would this flag's payloads be rotated?"""
         payloads = (flag.filters or {}).get("payloads") or {}
@@ -72,7 +83,9 @@ class Command(BaseCommand):
         other filter fields between the scan and the write would be silently lost.
         """
         with transaction.atomic():
-            flag = FeatureFlag.objects.select_for_update().only("id", "filters").get(pk=flag_pk)
+            flag = FeatureFlag.objects.select_for_update().only("id", "team_id", "filters").get(pk=flag_pk)
+            if self._skip_unsupported(flag):
+                return False
             filters = flag.filters or {}
             rotated = self._rotate_payloads(filters.get("payloads") or {}, codec)
             if rotated is None:

@@ -4,8 +4,10 @@ from django.core.management import call_command
 from django.test import override_settings
 
 from cryptography.fernet import InvalidToken
+from structlog.testing import capture_logs
 
 from posthog.management.commands.reencrypt_flag_payloads import Command
+from posthog.models import Team
 
 from products.feature_flags.backend.encrypted_flag_payloads import (
     FlagPayloadCodec,
@@ -113,3 +115,26 @@ class TestReencryptFlagPayloads(BaseTest):
         assert flag.filters["groups"] == [{"properties": [{"key": "x", "value": "y"}]}]
         new_token = flag.filters["payloads"]["true"].encode("utf-8")
         assert _codec(NEW_KEY).decrypt(new_token).decode("utf-8") == PAYLOAD
+
+    def test_skips_other_config_formats_and_still_rotates_v1_rows(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        token = _codec(OLD_KEY).encrypt(PAYLOAD.encode("utf-8")).decode("utf-8")
+        unsupported = FeatureFlag.objects.create(
+            team=other_team,
+            key="v2-flag",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"version": 2, "rules": [], "payloads": {"true": token}},
+        )
+        v1_flag = self._make_flag("rc-flag", encrypt_with=OLD_KEY)
+
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]), capture_logs() as logs:
+            call_command("reencrypt_flag_payloads", "--live-run")
+
+        unsupported.refresh_from_db()
+        assert unsupported.filters == {"version": 2, "rules": [], "payloads": {"true": token}}
+        v1_flag.refresh_from_db()
+        assert _codec(NEW_KEY).decrypt(v1_flag.filters["payloads"]["true"].encode("utf-8")).decode("utf-8") == PAYLOAD
+        skips = [log for log in logs if log["event"] == "reencrypt_flag_payloads.skip_unsupported_config"]
+        assert [(log["flag_id"], log["team_id"]) for log in skips] == [(unsupported.id, other_team.id)]
