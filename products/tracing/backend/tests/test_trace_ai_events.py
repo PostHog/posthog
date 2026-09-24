@@ -53,7 +53,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         )
         return event_uuid
 
-    def test_lists_the_traces_ai_events_in_the_window_earliest_first(self) -> None:
+    def test_lists_the_traces_ai_events_in_the_window_earliest_start_first(self) -> None:
         generation = self._create_ai_event(
             TRACE_A,
             timestamp="2026-06-02T08:00:05Z",
@@ -79,8 +79,9 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         results = json.loads(response.content)["results"]
-        assert [row["uuid"] for row in results] == [span, generation]
-        assert results[1] == {
+        # The generation is stamped after the span but started before it, so it sorts first.
+        assert [row["uuid"] for row in results] == [generation, span]
+        assert results[0] == {
             "uuid": generation,
             "event": "$ai_generation",
             "started_at": "2026-06-02T08:00:00.500000Z",
@@ -96,7 +97,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
             "total_cost_usd": 0.0071,
             "is_error": True,
         }
-        assert results[0]["is_error"] is False
+        assert results[1]["is_error"] is False
 
     @parameterized.expand(
         [

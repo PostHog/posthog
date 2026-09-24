@@ -102765,7 +102765,7 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceAiEventsResponse {
-      /** AI events in the trace, earliest stamped first. */
+      /** AI events in the trace, earliest start first. */
       results: _TracingTraceAiEvent[];
     }
 

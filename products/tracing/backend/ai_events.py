@@ -1,5 +1,4 @@
-import math
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -24,8 +23,7 @@ AI_EVENT_KINDS = ["$ai_generation", "$ai_span", "$ai_embedding"]
 # gateway stamp it when the call finished. The source marker tells the two apart.
 OTEL_INGESTION_SOURCE = "otel"
 
-# `$ai_latency` is sender-controlled. Past this a value is junk rather than a slow call, and a
-# huge one overflows the datetime arithmetic below.
+# `$ai_latency` is sender-controlled. Past this a value is junk rather than a slow call.
 MAX_LATENCY_SECONDS = 7 * 24 * 60 * 60
 
 
@@ -62,31 +60,37 @@ def fetch_trace_ai_events(
     The requesting user is passed through so property access rules mask restricted AI columns for
     that user rather than falling back to the team default.
     """
+    # `$ai_latency` is sender-controlled, so the same guard that keeps a junk value out of the
+    # response keeps it out of the start-time arithmetic. The start is computed in the query
+    # because the order and the row cap have to follow it, not the stamped time.
     query = parse_select(
         """
         SELECT
             uuid,
             any(event) AS event_name,
-            any(timestamp) AS stamped_at,
-            any(properties.$ai_ingestion_source) AS ingestion_source,
             any(trace_id) AS ai_trace_id,
             any(span_id) AS ai_span_id,
             any(parent_id) AS ai_parent_id,
             any(span_name) AS span_name,
-            any(latency) AS latency_seconds,
+            any(if(isFinite(latency) AND latency >= 0 AND latency <= {max_latency}, latency, NULL)) AS latency_seconds,
             any(model) AS model,
             any(provider) AS provider,
             any(input_tokens) AS input_tokens,
             any(output_tokens) AS output_tokens,
             any(total_cost_usd) AS total_cost_usd,
-            any(is_error) AS is_error
+            any(is_error) AS is_error,
+            any(if(
+                properties.$ai_ingestion_source = {otel_source} OR NOT isFinite(latency) OR latency < 0 OR latency > {max_latency},
+                timestamp,
+                fromUnixTimestamp64Milli(toUnixTimestamp64Milli(timestamp) - toInt(latency * 1000))
+            )) AS started_at
         FROM posthog.ai_events
         WHERE trace_id IN {trace_ids}
           AND event IN {events}
           AND timestamp >= {date_from}
           AND timestamp <= {date_to}
         GROUP BY uuid
-        ORDER BY stamped_at ASC
+        ORDER BY started_at ASC
         LIMIT {limit}
         """,
         placeholders={
@@ -96,15 +100,17 @@ def fetch_trace_ai_events(
             "trace_ids": ast.Constant(value=_stored_trace_id_forms(trace_id)),
             "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=date_to),
+            "otel_source": ast.Constant(value=OTEL_INGESTION_SOURCE),
+            "max_latency": ast.Constant(value=MAX_LATENCY_SECONDS),
             # Explicit, because HogQL caps a select without a LIMIT at 100 rows.
             "limit": ast.Constant(value=MAX_AI_EVENTS_PER_TRACE),
         },
     )
     response = execute_hogql_query(query=query, team=team, user=user, query_type="TracingTraceAiEventsQuery")
-    # The SELECT aliases differ from the column names they aggregate, because an alias equal to
-    # a column name shadows it in WHERE and ClickHouse then rejects the aggregate there.
+    # The event alias differs from the column it aggregates, because an alias equal to a column
+    # name shadows it in WHERE and ClickHouse then rejects the aggregate there.
     columns = [{"event_name": "event"}.get(c, c) for c in response.columns or []]
-    return [_to_trace_ai_event(dict(zip(columns, row))) for row in response.results or []]
+    return [TraceAiEvent(**dict(zip(columns, row))) for row in response.results or []]
 
 
 def _stored_trace_id_forms(trace_id: str) -> list[str]:
@@ -113,19 +119,3 @@ def _stored_trace_id_forms(trace_id: str) -> list[str]:
         return [hex_form, str(UUID(hex=hex_form))]
     except ValueError:
         return [hex_form]
-
-
-def _usable_latency(value: float | None) -> float | None:
-    if value is None or not math.isfinite(value) or value < 0 or value > MAX_LATENCY_SECONDS:
-        return None
-    return value
-
-
-def _to_trace_ai_event(row: dict) -> TraceAiEvent:
-    stamped_at: datetime = row.pop("stamped_at")
-    ingestion_source = row.pop("ingestion_source")
-    latency = _usable_latency(row.pop("latency_seconds"))
-    started_at = stamped_at
-    if ingestion_source != OTEL_INGESTION_SOURCE and latency:
-        started_at = stamped_at - timedelta(seconds=latency)
-    return TraceAiEvent(started_at=started_at, latency_seconds=latency, **row)

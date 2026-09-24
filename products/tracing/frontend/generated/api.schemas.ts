@@ -949,7 +949,7 @@ export interface _TracingTraceAiEventApi {
 }
 
 export interface _TracingTraceAiEventsResponseApi {
-    /** AI events in the trace, earliest stamped first. */
+    /** AI events in the trace, earliest start first. */
     results: _TracingTraceAiEventApi[]
 }
 

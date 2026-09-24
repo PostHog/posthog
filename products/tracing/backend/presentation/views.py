@@ -860,7 +860,7 @@ class _TracingTraceAiEventSerializer(serializers.Serializer):
 
 
 class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
-    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest stamped first.")
+    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest start first.")
 
 
 class _TracingSparklineRowSerializer(serializers.Serializer):
