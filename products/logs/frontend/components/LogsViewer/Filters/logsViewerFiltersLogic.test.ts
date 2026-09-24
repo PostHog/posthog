@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
+
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
@@ -10,7 +12,7 @@ import {
     facetSelection,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 
-import { logsViewerFiltersLogic } from './logsViewerFiltersLogic'
+import { logsViewerFiltersLogic, normalizeFilterGroup } from './logsViewerFiltersLogic'
 
 describe('logsViewerFiltersLogic', () => {
     let logic: ReturnType<typeof logsViewerFiltersLogic.build>
@@ -45,6 +47,129 @@ describe('logsViewerFiltersLogic', () => {
             }).toFinishAllListeners()
 
             expect((logic.values.filters as any)[key]).toEqual(value)
+        })
+    })
+
+    // A filterGroup arrives from URL params, saved views, alert rules and metric deep links, so a
+    // group that is not in the viewer's two-level shape is input, not a bug. Before it was repaired,
+    // the first entry was cast to a group and the whole scene fell over on `values.length`.
+    describe('normalizeFilterGroup', () => {
+        const messageFilter = {
+            key: 'message',
+            type: PropertyFilterType.Log,
+            operator: PropertyOperator.IContains,
+            value: ['boom'],
+        }
+
+        it.each([
+            ['null', null],
+            ['a string', 'AND'],
+            ['an array', []],
+            ['an object with no type', { values: [] }],
+            ['a group with no values', { type: FilterLogicalOperator.And }],
+        ])('falls back to the default group for %s', (_name, input) => {
+            expect(normalizeFilterGroup(input)).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
+        })
+
+        it('wraps a one-level group so the filters survive', () => {
+            expect(normalizeFilterGroup({ type: FilterLogicalOperator.And, values: [messageFilter] })).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }],
+            })
+        })
+
+        it.each([
+            ['a primitive in the outer group', { type: FilterLogicalOperator.And, values: ['boom'] }],
+            [
+                'a primitive in the inner group',
+                { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: [42] }] },
+            ],
+        ])('drops %s', (_name, input) => {
+            expect(normalizeFilterGroup(input)).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
+        })
+
+        it.each([
+            [
+                'the outer group',
+                { type: FilterLogicalOperator.And, values: [null, messageFilter] },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }],
+                },
+            ],
+            [
+                'the inner group',
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter, null] }],
+                },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }],
+                },
+            ],
+        ])('drops an empty entry from %s', (_name, input, expected) => {
+            expect(normalizeFilterGroup(input)).toEqual(expected)
+        })
+
+        it('flattens a filter beside the inner group into it when the operators agree', () => {
+            const other = {
+                key: 'service_name',
+                type: PropertyFilterType.Log,
+                operator: PropertyOperator.Exact,
+                value: ['api'],
+            }
+            expect(
+                normalizeFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }, other],
+                })
+            ).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [messageFilter, other] }],
+            })
+        })
+
+        // Flattening an OR inner group under the outer AND would change what the filter matches, and
+        // the UI shows only the inner group, so keep neither reading — fall back to the default.
+        it('rejects a filter beside the inner group when the operators differ', () => {
+            const other = {
+                key: 'service_name',
+                type: PropertyFilterType.Log,
+                operator: PropertyOperator.Exact,
+                value: ['api'],
+            }
+            expect(
+                normalizeFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.Or, values: [messageFilter] }, other],
+                })
+            ).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
+        })
+
+        // Wrapping the filters in an AND group would quietly turn `a OR b` into `a AND b`.
+        it('keeps the outer operator when wrapping a one-level group', () => {
+            expect(normalizeFilterGroup({ type: FilterLogicalOperator.Or, values: [messageFilter] })).toEqual({
+                type: FilterLogicalOperator.Or,
+                values: [{ type: FilterLogicalOperator.Or, values: [messageFilter] }],
+            })
+        })
+
+        it('falls back to the default group for an inner group whose values are not an array', () => {
+            expect(
+                normalizeFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: null }],
+                })
+            ).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
+        })
+
+        it('leaves a two-level group as it is', () => {
+            const group = {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }],
+            }
+            expect(normalizeFilterGroup(group)).toEqual(group)
         })
     })
 
@@ -169,6 +294,24 @@ describe('logsViewerFiltersLogic', () => {
                 type: FilterLogicalOperator.And,
                 values: [{ type: FilterLogicalOperator.And, values: [] }],
             })
+        })
+
+        it('repairs a one-level group so its filters reach the chips', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'service_name',
+                            type: PropertyFilterType.Log,
+                            operator: PropertyOperator.Exact,
+                            value: ['api'],
+                        },
+                    ],
+                } as UniversalFiltersGroup)
+            }).toFinishAllListeners()
+
+            expect(selectedServices()).toEqual(['api'])
         })
     })
 

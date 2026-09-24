@@ -36,6 +36,7 @@ import {
     DEFAULT_DATE_RANGE,
     isValidSeverityLevel,
     logsViewerFiltersLogic,
+    normalizeFilterGroup,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { GROUPABLE_COLUMN_KEYS } from 'products/logs/frontend/components/LogsViewer/groupBySource'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
@@ -328,8 +329,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
             if (params.filterGroup) {
                 try {
-                    const filterGroup =
+                    const filterGroup = normalizeFilterGroup(
                         typeof params.filterGroup === 'string' ? JSON.parse(params.filterGroup) : params.filterGroup
+                    )
                     if (!equal(filterGroup, values.filters.filterGroup)) {
                         filtersFromUrl.filterGroup = filterGroup
                         hasFilterChanges = true
