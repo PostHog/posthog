@@ -24,11 +24,20 @@ export interface BlockMetadataBatcherOptions {
     maxBytes?: number
 }
 
+/** Bytes toward the byte limit for each buffer, so a failed flush puts back only the bytes of the buffers it puts back. */
+interface BufferedBytes {
+    encryptedIndex: number
+    encrypted: number
+    rows: number
+}
+
+const noBufferedBytes = (): BufferedBytes => ({ encryptedIndex: 0, encrypted: 0, rows: 0 })
+
 export class BlockMetadataBatcher {
     private encrypted: MlEncryptedEnvelope[] = []
     private encryptedIndex: EncryptedReplayIndex[] = []
     private buffer: MlBlockMetadataRow[] = []
-    private bufferedBytes = 0
+    private bufferedBytes = noBufferedBytes()
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private lastFlushMs: number
     private flushQueue: Promise<void> = Promise.resolve()
@@ -54,8 +63,12 @@ export class BlockMetadataBatcher {
                   return { message, original: message, key: undefined, invalid: undefined }
               })
         // Counted after the key read, so a flush that starts during the read cannot take these bytes without their rows.
-        for (const message of messages) {
-            this.bufferedBytes += message.value?.length ?? 0
+        for (const { original, key } of decoded) {
+            if (key) {
+                this.bufferedBytes.encrypted += original.value?.length ?? 0
+            } else {
+                this.bufferedBytes.rows += original.value?.length ?? 0
+            }
         }
         MlParquetSinkMetrics.incRowsRejected('key_missing', messages.length - decoded.length)
         let encryptedRows = 0
@@ -80,7 +93,10 @@ export class BlockMetadataBatcher {
                     encryptedRows++
                     const index = encryptReplayIndex(selected, key)
                     this.encryptedIndex.push(...index)
-                    this.bufferedBytes += index.reduce((size, item) => size + JSON.stringify(item.envelope).length, 0)
+                    this.bufferedBytes.encryptedIndex += index.reduce(
+                        (size, item) => size + JSON.stringify(item.envelope).length,
+                        0
+                    )
                 } else {
                     MlParquetSinkMetrics.incRowsRejected('invalid')
                 }
@@ -104,9 +120,10 @@ export class BlockMetadataBatcher {
     }
 
     private shouldFlush(nowMs: number): boolean {
+        const bufferedBytes = this.bufferedBytes.encryptedIndex + this.bufferedBytes.encrypted + this.bufferedBytes.rows
         if (
             this.buffer.length + this.encrypted.length >= this.options.maxRows ||
-            this.bufferedBytes >= (this.options.maxBytes ?? 32 * 1024 * 1024)
+            bufferedBytes >= (this.options.maxBytes ?? 32 * 1024 * 1024)
         ) {
             return true
         }
@@ -139,7 +156,7 @@ export class BlockMetadataBatcher {
         this.encrypted = []
         this.buffer = []
         this.pendingOffsets = new Map()
-        this.bufferedBytes = 0
+        this.bufferedBytes = noBufferedBytes()
         const wroteObject = rows.length > 0 || encrypted.length > 0
         try {
             if (encryptedIndex.length > 0) {
@@ -162,10 +179,18 @@ export class BlockMetadataBatcher {
                 MlParquetSinkMetrics.incFlush(wroteObject ? 'written' : 'empty')
             }
         } catch (error) {
-            this.encryptedIndex = encryptedIndex.concat(this.encryptedIndex)
-            this.encrypted = encrypted.concat(this.encrypted)
-            this.buffer = rows.concat(this.buffer)
-            this.bufferedBytes += bytes
+            if (encryptedIndex.length > 0) {
+                this.encryptedIndex = encryptedIndex.concat(this.encryptedIndex)
+                this.bufferedBytes.encryptedIndex += bytes.encryptedIndex
+            }
+            if (encrypted.length > 0) {
+                this.encrypted = encrypted.concat(this.encrypted)
+                this.bufferedBytes.encrypted += bytes.encrypted
+            }
+            if (rows.length > 0) {
+                this.buffer = rows.concat(this.buffer)
+                this.bufferedBytes.rows += bytes.rows
+            }
             for (const [partition, offset] of offsets) {
                 // A newer offset for the partition stays, because the next flush stores it only after writing every row it covers.
                 if (!this.pendingOffsets.has(partition)) {

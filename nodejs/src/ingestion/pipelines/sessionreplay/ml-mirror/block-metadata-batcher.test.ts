@@ -110,17 +110,34 @@ describe('BlockMetadataBatcher', () => {
         expect(offsets.offsetsStore).not.toHaveBeenCalled()
     })
 
-    it('keeps the offsets for the next flush when storing them fails, without writing the rows again', async () => {
+    it('keeps the offsets for the next flush when storing them fails, without writing or counting the rows again', async () => {
         offsets.offsetsStore.mockImplementationOnce(() => {
             throw new Error('Local: Erroneous state')
         })
-        const batcher = makeBatcher(60_000, 1)
-        await expect(batcher.handleBatch([msg(0)], 0)).rejects.toThrow('Local: Erroneous state')
+        const batcher = new BlockMetadataBatcher(
+            store,
+            offsets,
+            { flushIntervalMs: 60_000, maxRows: 1_000, maxBytes: msg(0).value!.length * 2 },
+            0
+        )
+        await expect(batcher.handleBatch([msg(0), msg(1)], 0)).rejects.toThrow('Local: Erroneous state')
 
-        await batcher.flush(1)
+        await batcher.handleBatch([msg(2, 1)], 0)
         expect(store.write).toHaveBeenCalledTimes(1)
-        const stored = [{ topic: 'ml_block_metadata', partition: 0, offset: 1 }]
-        expect(offsets.offsetsStore.mock.calls).toEqual([[stored], [stored]])
+        await batcher.flush(1)
+        expect(store.write.mock.calls.map(([rows]) => rows.map((stored) => stored.session_id))).toEqual([
+            ['s0', 's1'],
+            ['s2'],
+        ])
+        expect(offsets.offsetsStore.mock.calls).toEqual([
+            [[{ topic: 'ml_block_metadata', partition: 0, offset: 2 }]],
+            [
+                [
+                    { topic: 'ml_block_metadata', partition: 0, offset: 2 },
+                    { topic: 'ml_block_metadata', partition: 1, offset: 3 },
+                ],
+            ],
+        ])
     })
 
     it('counts the bytes of a batch whose key read overlaps a flush toward the flush that takes its rows', async () => {
