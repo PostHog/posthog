@@ -17,6 +17,8 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowCodeApi,
+    HogFlowCodeRequestApi,
     HogFlowInvocationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
@@ -477,6 +479,42 @@ export const hogFlowsBatchJobsCancelCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getHogFlowsCodeRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/code/`
+}
+
+export const hogFlowsCodeRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowCodeApi> => {
+    return apiMutator<HogFlowCodeApi>(getHogFlowsCodeRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsCodeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/code/`
+}
+
+/**
+ * Renders the workflow in the body as @posthog/workflows source and stores nothing. A field the body omits keeps its stored value.
+ */
+export const hogFlowsCodeCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowCodeRequestApi?: HogFlowCodeRequestApi,
+    options?: RequestInit
+): Promise<HogFlowCodeApi> => {
+    return apiMutator<HogFlowCodeApi>(getHogFlowsCodeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowCodeRequestApi),
+    })
 }
 
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {

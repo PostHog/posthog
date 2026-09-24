@@ -51,6 +51,9 @@ tools:
     hog-flows-bulk-delete-create:
         operation: hog_flows_bulk_delete_create
         enabled: false
+    hog-flows-code-create:
+        operation: hog_flows_code_create
+        enabled: false
     hog-flows-create:
         operation: hog_flows_create
         enabled: false
@@ -167,6 +170,13 @@ tools:
             workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
+        exclude_params:
+            # Only a push may claim a workflow for code or say where its file lives; the API refuses
+            # either from an agent, so offering the fields only invites a failed call.
+            - managed_by
+            - source_repository
+            - source_path
+            - source_ref
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
@@ -202,6 +212,29 @@ tools:
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running.
         ui_app: workflow
+    workflows-get-code:
+        operation: hog_flows_code_retrieve
+        enabled: true
+        feature_flag: workflows-get-code
+        feature_flag_behavior: enable
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        param_overrides:
+            id:
+                input_schema: WorkflowCodeIdSchema
+        enrich_url: '{params.id}/workflow'
+        title: Get workflow as code
+        description: >
+            Get a workflow as source code, where id is the workflow's UUID. Returns TypeScript source written
+            against @posthog/workflows, ready to load with the posthog-workflows CLI. The source renders what the
+            visual editor shows: the staged draft when one exists, otherwise the live config. Read `warnings` first.
+            It lists everything the source can't express, one entry per loss, with action_id naming the affected
+            step (null when the warning is about the whole workflow). The same list opens the file as a comment, so
+            it stays visible even if you only copy out the code.
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true
@@ -482,6 +515,12 @@ tools:
             - status
             - actions
             - edges
+            # An agent must not be able to release a workflow a repository owns and then edit it, and
+            # it cannot know where the file lives either. The API refuses both anyway.
+            - managed_by
+            - source_repository
+            - source_path
+            - source_ref
         ui_app: workflow
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update

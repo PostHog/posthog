@@ -471,8 +471,8 @@ def get_event_source(request) -> EventSource:
         return EventSource.POSTHOG_CODE
     # The CLI is the one consumer honored without a first-party OAuth application behind it:
     # it authenticates with a personal API key, so there is no application to vouch for it.
-    # Mis-declaring as the CLI only mislabels analytics — `cli` is already in
-    # AGENT_EVENT_SOURCES, so it buys no extra write latitude.
+    # Both branches below are client-declared, so this classification is a claim rather than proof.
+    # A caller that reads it for anything but analytics has to say what makes the claim safe there.
     if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
         return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":

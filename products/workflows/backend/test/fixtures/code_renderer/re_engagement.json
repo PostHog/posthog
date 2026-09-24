@@ -1,0 +1,201 @@
+{
+    "id": "0198e2c6-c4d8-7b6a-9f21-7e3c5d8a0b19",
+    "key": "re-engagement",
+    "name": "Re-engagement",
+    "description": "",
+    "version": 8,
+    "status": "active",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "trial started",
+                    "name": "trial started",
+                    "type": "events",
+                    "order": 0,
+                    "properties": []
+                }
+            ],
+            "properties": [],
+            "filter_test_accounts": false
+        }
+    },
+    "exit_condition": "exit_only_at_end",
+    "variables": [],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "trial started",
+                            "name": "trial started",
+                            "type": "events",
+                            "order": 0,
+                            "properties": []
+                        }
+                    ],
+                    "properties": [],
+                    "filter_test_accounts": false
+                }
+            }
+        },
+        {
+            "id": "wait_for_a_click",
+            "name": "Wait for a click",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$autocapture",
+                                "name": "$autocapture",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ]
+                    }
+                },
+                "max_wait_duration": "3d"
+            }
+        },
+        {
+            "id": "text_them",
+            "name": "Text them",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "function_sms",
+            "config": {
+                "template_id": "template-twilio",
+                "inputs": {
+                    "to": {
+                        "value": "{person.properties.phone}",
+                        "order": 0
+                    },
+                    "body": {
+                        "value": "Your trial ends soon. Come back and finish setup.",
+                        "order": 1
+                    }
+                },
+                "message_category_type": "marketing"
+            }
+        },
+        {
+            "id": "nudge_by_email",
+            "name": "Nudge by email",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "from": {
+                                "integrationId": 7,
+                                "integrationIds": [7]
+                            },
+                            "to": {
+                                "email": "{person.properties.email}"
+                            },
+                            "subject": "Your trial ends soon",
+                            "text": "Come back and finish setup.",
+                            "html": "<p>Come back and finish setup.</p>",
+                            "design": {
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 1
+                                },
+                                "schemaVersion": 16,
+                                "body": {
+                                    "id": "body-1",
+                                    "headers": [],
+                                    "footers": [],
+                                    "rows": [
+                                        {
+                                            "id": "row-1",
+                                            "cells": [1],
+                                            "columns": [
+                                                {
+                                                    "id": "column-1",
+                                                    "contents": [
+                                                        {
+                                                            "id": "text-1",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p>Come back and finish setup.</p>",
+                                                                "fontSize": "16px"
+                                                            }
+                                                        }
+                                                    ],
+                                                    "values": {}
+                                                }
+                                            ],
+                                            "values": {}
+                                        }
+                                    ],
+                                    "values": {}
+                                }
+                            }
+                        },
+                        "order": 0
+                    }
+                }
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Done"
+            }
+        }
+    ],
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "wait_for_a_click",
+            "type": "continue"
+        },
+        {
+            "from": "wait_for_a_click",
+            "to": "text_them",
+            "type": "continue"
+        },
+        {
+            "from": "wait_for_a_click",
+            "to": "nudge_by_email",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "text_them",
+            "to": "nudge_by_email",
+            "type": "continue"
+        },
+        {
+            "from": "nudge_by_email",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ]
+}

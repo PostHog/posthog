@@ -342,6 +342,87 @@ For anything emitted after the run has ended — a webhook, a callback — the v
 
 Building a version picker? The list of versions that have metrics is `{flow.version} ∪ {revision versions}`, not just the revisions endpoint. A workflow that has never been edited has zero `HogFlowRevision` rows but still reports metrics under `<flow id>/1`.
 
+## Pushing a workflow from CI
+
+A CI job that pushes a workflow definition authenticates with the project's secret API key (`phs_...`, sent as `Authorization: Bearer`), not with a personal API key.
+A personal key stops working when its owner leaves the project; the project key does not.
+Mint the key in project settings and give it the `hog_flow:write` scope.
+A job that only compares the file against the project needs `hog_flow:read`.
+The `hog_flows` endpoint accepts the key for `list`, `retrieve`, `create`, `update` and `partial_update` only.
+Through `create` and `update` the key can do what a personal key with `hog_flow:write` can: set `status`, so it can activate or archive a workflow, and replace the live graph of an active workflow when the request does not send `stage_draft`.
+The delete, bulk delete, publish, discard, restore and invocation actions refuse it.
+A write made with the key has no user behind it: `created_by` is null on the workflow and on its revisions, and the activity log records a system row whose trigger names the key by label.
+A workflow the key creates cannot contain a "Create AI task" step, because that step runs as the workflow's creator.
+
+## Code-managed workflows
+
+A workflow can be owned by a file in a repository instead of by this app.
+`HogFlow.managed_by` holds that: `code` means a repository owns the content, and `gui` (which is also what `NULL` means) means this API does.
+
+Four more columns record where the file is and how the workflow first appeared.
+`created_via` is stamped from the request in `HogFlowSerializer.create`, never taken from the payload.
+`source_repository`, `source_path` and `source_ref` hold the source in parts rather than as a URL, because the backend cannot know whether a host is GitHub, GitLab or self-hosted.
+Nothing writes the three source columns yet; the CLI that pushes workflows does.
+The row keeps only the latest push, so each revision records the source fields its version was pushed with in its `content`.
+Restoring a revision copies only the content fields into the draft, so a publish never moves the recorded source.
+
+### What the API allows on a code-managed workflow
+
+`check_write` in `backend/services/code_ownership.py` holds the rule, and every write path asks it.
+`HogFlowViewSet.check_object_permissions` asks it for each detail action, and the locked re-read inside each write asks again.
+`bulk_delete` asks for each row, because it is `detail=False` and never calls `get_object()`.
+`HogFlowSerializer.create` and `update` ask as well, which covers a create.
+The rule is an allow-list over the action and the whole payload, not over a set of field names.
+
+A request that `is_code_managed_writer` accepts may write anything. That is the client that pushes the file.
+Every other caller, including the editor and every MCP surface, may do exactly two things:
+
+- `PATCH` `status` on its own, so enable, disable and archive keep working without a deploy.
+- `PATCH` `managed_by` on its own, which hands the workflow back to the UI.
+
+The operational actions stay open as well: `rerun`, `run`, `invocations`, `cancel_invocations`, `batch_jobs`, `cancel_batch_job` and `resume_email_sending`.
+So does `code` on `POST`, because it renders the body as source and stores nothing. That is how the editor turns unsaved edits into the file to commit.
+`schedules` and `schedule_detail` stay open too, because the app owns a schedule's cadence.
+`onSchedule()` in a workflow file declares a schedule trigger but no cadence, so a person sets the cadence in the app after the first push.
+
+Everything else is refused with a 403 that names the recorded file, with `why` and `fix` in `extra`.
+On any workflow, a request from another caller that sets `managed_by: code` or changes a source field gets the same 403 with the code `immutable`.
+
+Three costs of that rule, all deliberate:
+
+- **A push can re-enable what a person disabled.** `status` lives in the source file, so the next push resolves any disagreement between the file and the UI.
+- **Archiving is allowed.** It is a `status` write, and the file cannot express "unarchive" without a push.
+- **The lock is a rule of the REST API.** A management command, a Celery task or the Django admin writes a code-managed row like any other. The admin shows `managed_by` read-only so a staff editor can at least see it.
+
+### What the editor does
+
+A person can edit a code-managed workflow in the editor like any other workflow: the canvas, the step panels, the name and the description.
+The edits stay in the editor and are never sent to the API, because only a push changes the content.
+
+In `workflowLogic`:
+
+- `isCodeManaged` says whether a repository owns the workflow.
+- `workflowSaveDisabledReason` and `canSaveWorkflow` carry code ownership only. The auto-save, publish, discard and "Restore as draft" read them.
+  The access level is not part of them. A viewer edits any workflow in the editor as before, and the API refuses the save.
+  The `saveWorkflow` loader also throws before a content `PATCH` on a code-managed workflow, as a backstop for a path that does not check.
+
+Enable and disable still work, because they send a status-only `PATCH`.
+Unsaved edits do not block them on a code-managed workflow, and the edits stay in the form after the status save.
+When a push lands while someone has edits, the editor shows the reload or keep banner rather than reloading on its own.
+
+The schedule is the one part of a code-managed workflow that the editor saves.
+A manual save writes a staged schedule change for a workflow the app owns.
+A code-managed workflow has no manual save, so the schedule picker shows a "Save schedule" button that dispatches `saveSchedule`.
+That writes only the schedule, and edits to the graph stay in the form.
+
+On the workflow scene, a code-managed workflow has no save button and no draft actions.
+A primary **Copy code** button takes the save button's place, with a help icon that names the file and says to commit the copied code there and push.
+It posts the editor's current state to `code`, so the copied file includes the unsaved edits.
+A workflow this app owns keeps **Save**, with a secondary **Copy code** button among the other actions.
+`CodeManagedTag` renders the badge beside the title and in the list.
+`CodeManagedSource` renders one line below the title with the file, the repository and the ref of the last push, linked through `GitMetadataParser` for GitHub and GitLab and plain text for any other host.
+The versions table adds a "Source" column that shows that ref on the live version.
+
 ## Common pitfalls
 
 - **Forgot the side-effect import**: triggers/actions must be imported by their `index.ts`, and async functions must be imported by nodejs/src/cdp/async-functions/index.ts.

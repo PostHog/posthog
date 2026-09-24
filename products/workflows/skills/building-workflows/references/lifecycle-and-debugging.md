@@ -15,6 +15,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-discard-draft` — throw the staged draft away; live config untouched. Idempotent.
 - `workflows-archive` — retire a workflow.
 - `workflows-get` — full definition: trigger, edges, actions, exit condition, variables, staged `draft`/`draft_updated_at` (null when nothing staged), and read-only `schedules` (any recurring schedules attached to the workflow; there's no separate list-schedules tool).
+- `workflows-get-code` — the workflow as `@posthog/workflows` TypeScript source, ready to load with the `posthog-workflows` CLI. Renders the staged draft when one exists, otherwise the live config. It uses typed helpers where they are lossless and `step(...)` or `trigger(...)` pass-through helpers for loose action and trigger shapes. Read `warnings` first: it lists what the source still cannot carry, and the same list opens the file as a comment.
 - `workflows-list` — all workflows with name, status, version, trigger, timestamps.
 
 **Test & inspect**

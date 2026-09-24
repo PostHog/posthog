@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
@@ -32,7 +32,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework import exceptions, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
@@ -70,8 +70,8 @@ from posthog.api.hog_invocation_results import (
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import log_activity_from_viewset
-from posthog.auth import InternalAPIAuthentication
+from posthog.api.utils import ACTIVITY_TYPES, log_activity_from_viewset
+from posthog.auth import InternalAPIAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
@@ -83,8 +83,15 @@ from posthog.cdp.validation import (
 )
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
-from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
-from posthog.models import Team
+from posthog.event_usage import (
+    AGENT_EVENT_SOURCES,
+    EventSource,
+    get_event_source,
+    is_wizard_self_driving_program,
+    report_user_action,
+)
+from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Detail, Trigger, changes_between, log_activity
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -96,6 +103,7 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -172,6 +180,18 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
+from products.workflows.backend.services.code_ownership import (
+    SOURCE_FIELDS,
+    OwnershipRefusal,
+    RefusalKind,
+    check_write,
+    is_mcp_transport_request,
+)
+from products.workflows.backend.services.code_renderer import (
+    WorkflowTooLargeToRender,
+    branch_arm_count,
+    render_workflow_code,
+)
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -215,6 +235,55 @@ DRAFT_CONTENT_FIELDS = (
     "abort_action",
     "variables",
 )
+
+
+class CodeManagedWorkflowError(exceptions.PermissionDenied):
+    """Refusal of a write that code ownership forbids. `extra` is drf-exceptions-hog's channel
+    for anything beyond `detail`."""
+
+    default_code = "immutable"
+    # A plain PermissionDenied renders as `authentication_error`, which reads as "log in again". This
+    # refusal is about the state of the row, not about who is asking.
+    default_type = "invalid_request"
+
+    def __init__(self, refusal: OwnershipRefusal) -> None:
+        super().__init__(detail=refusal.detail, code="immutable")
+        self.extra: dict[str, Optional[str]] = {"why": refusal.why, "fix": refusal.fix}
+        if refusal.kind == RefusalKind.MANAGED_BY_CODE:
+            self.extra["source_repository"] = refusal.source_repository
+            self.extra["source_path"] = refusal.source_path
+
+
+# Which attribution each transport earns a new workflow. Copied in shape from the warehouse table
+# map rather than imported, because that one answers for another product's enum. A CLI push lands on
+# `api`: it pushes over REST with a personal or project secret API key, so `api` is what it actually
+# is, and `managed_by` with the source fields already records that a push wrote it. Anything
+# without a surface of its own is a plain API caller.
+_EVENT_SOURCE_TO_CREATED_VIA: Final[dict[EventSource, str]] = {
+    EventSource.WEB: HogFlow.CreatedVia.WEB,
+    EventSource.WIZARD: HogFlow.CreatedVia.WIZARD,
+    EventSource.POSTHOG_CODE: HogFlow.CreatedVia.SELF_DRIVING,
+    EventSource.DESKTOP: HogFlow.CreatedVia.SELF_DRIVING,
+    EventSource.MOBILE: HogFlow.CreatedVia.SELF_DRIVING,
+    EventSource.SELF_DRIVING: HogFlow.CreatedVia.SELF_DRIVING,
+    EventSource.MCP: HogFlow.CreatedVia.MCP,
+    EventSource.SLACK: HogFlow.CreatedVia.MCP,
+    EventSource.POSTHOG_AI: HogFlow.CreatedVia.MCP,
+}
+
+
+def resolve_workflow_created_via(request: Request) -> str:
+    """Attribute a new workflow to the surface the request came from.
+
+    Read from the transport rather than from the body, so no caller can label its own workflows as
+    web- or wizard-created.
+    """
+    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(get_event_source(request), HogFlow.CreatedVia.API)
+    # Every wizard program shares the `posthog/wizard` user-agent, so only the marker it adds to that
+    # UA separates a self-driving run from a plain setup.
+    if created_via == HogFlow.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
+        return HogFlow.CreatedVia.SELF_DRIVING
+    return created_via
 
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
@@ -314,7 +383,11 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def snapshot_flow_content(flow: HogFlow) -> dict:
+def _stored_values(flow: HogFlow) -> dict[str, Any]:
+    return {field.attname: getattr(flow, field.attname) for field in HogFlow._meta.concrete_fields}
+
+
+def snapshot_flow_content(flow: HogFlow, template_cache: Optional["TemplateCache"] = None) -> dict:
     snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
     # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
     # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
@@ -324,8 +397,9 @@ def snapshot_flow_content(flow: HogFlow) -> dict:
             snapshot[field] = []
     # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
     # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
+    # secrets. New rows are already stripped, so this is a no-op for them. Every create takes a
+    # snapshot, so resolve each template once rather than once per action.
+    return strip_content_secrets(snapshot, {} if template_cache is None else template_cache)
 
 
 # --- Secret function-action inputs -------------------------------------------------------------
@@ -1201,9 +1275,12 @@ class HogFlowActionSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=200, help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
+    # Optional action keys carry default=None so a create stores the same keys the response echoes.
+    # Otherwise the editor's first resave of a new workflow compares unequal and bumps a phantom v2.
     on_error = serializers.ChoiceField(
         choices=["continue", "abort"],
         required=False,
+        default=None,
         allow_null=True,
         help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
@@ -1283,6 +1360,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     output_variable = serializers.JSONField(
         required=False,
+        default=None,
         allow_null=True,
         help_text="Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.",
     )
@@ -1354,6 +1432,15 @@ class HogFlowActionSerializer(serializers.Serializer):
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
         chosen connectors, model and repository are actually usable, and the parallel-run
         limit is sane - so a misconfigured step fails here instead of only when it fires."""
+        # The step fires as the workflow's creator. A project secret API key has no user, so a flow
+        # it creates would pass every check here and then fail on each fire with "no owner".
+        request = self.context.get("request")
+        if self.context.get("workflow_owner_id") is None and isinstance(getattr(request, "user", None), SyntheticUser):
+            raise serializers.ValidationError(
+                "A workflow created with a project secret API key cannot contain a Create AI task step, because "
+                "the step runs as the workflow's creator and the key has no user. Create the workflow with a "
+                "personal API key or in the app, then push updates with the project key."
+            )
         connectors = (inputs.get("connectors") or {}).get("value")
         if connectors:
             get_team = self.context.get("get_team")
@@ -2764,6 +2851,177 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
     )
 
 
+class HogFlowCodeWarningSerializer(serializers.Serializer):
+    action_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The id of the step the warning is about, or null when it is about the workflow as a whole.",
+    )
+    message = serializers.CharField(
+        read_only=True,
+        help_text="What the source does not carry, and what to do about it before a push.",
+    )
+
+
+class HogFlowCodeSerializer(serializers.Serializer):
+    language = serializers.CharField(read_only=True, help_text="The language of `code`. Always `typescript`.")
+    code = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The workflow as @posthog/workflows source: one file that exports the workflow, ready to load "
+            "with the CLI. It opens with the warnings as a comment."
+        ),
+    )
+    warnings = HogFlowCodeWarningSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Everything the SDK cannot express, one entry per loss. Empty when the source carries the whole workflow."
+        ),
+    )
+
+
+# The request fields below are typed like the stored workflow for codegen, but only their outer shape
+# is checked at runtime. The editor holds half-finished steps that a save accepts as a lenient draft,
+# so a copy must not refuse them. The renderer reads every nested value defensively.
+class _JSONObjectListField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
+        value = super().to_internal_value(data)
+        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+            raise serializers.ValidationError("Expected a list of objects.")
+        return value
+
+
+class _JSONObjectField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Expected an object.")
+        return value
+
+
+@extend_schema_field(serializers.ListField(child=HogFlowActionSerializer()))
+class _HogFlowCodeActionsField(_JSONObjectListField):
+    pass
+
+
+@extend_schema_field(serializers.ListField(child=HogFlowEdgeSerializer()))
+class _HogFlowCodeEdgesField(_JSONObjectListField):
+    pass
+
+
+@extend_schema_field(HogFlowConversionSerializer)
+class _HogFlowCodeConversionField(_JSONObjectField):
+    pass
+
+
+@extend_schema_field(HogFlowMaskingSerializer)
+class _HogFlowCodeMaskingField(_JSONObjectField):
+    pass
+
+
+@extend_schema_field(HogFlowEmailSendingRateLimitSerializer)
+class _HogFlowCodeRateLimitField(_JSONObjectField):
+    pass
+
+
+class HogFlowCodeVariableSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The name steps use to read the variable.")
+    type = serializers.CharField(
+        help_text="string, number or boolean. A variable of another type is left out of the code with a warning."
+    )
+    default = serializers.JSONField(required=False, allow_null=True, help_text="The value the variable starts with.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False, allow_blank=True, help_text="Display name of the variable."
+    )
+
+
+@extend_schema_field(serializers.ListField(child=HogFlowCodeVariableSerializer()))
+class _HogFlowCodeVariablesField(_JSONObjectListField):
+    pass
+
+
+class HogFlowCodeRequestSerializer(serializers.Serializer):
+    """The workflow as the editor holds it. Every field is optional, and an omitted field keeps the stored value."""
+
+    name = serializers.CharField(required=False, allow_null=True, allow_blank=True, help_text="Workflow name.")
+    description = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, help_text="Workflow description."
+    )
+    actions = _HogFlowCodeActionsField(
+        required=False,
+        help_text=(
+            "Every step of the workflow, the trigger and the exit included. Each step needs a text `id` and a "
+            "text `type`. A secret input is never rendered as its value, even when this body carries it."
+        ),
+    )
+    edges = _HogFlowCodeEdgesField(required=False, help_text="The edges that connect the steps.")
+    variables = _HogFlowCodeVariablesField(required=False, help_text="Workflow variables.")
+    conversion = _HogFlowCodeConversionField(
+        required=False, allow_null=True, help_text="Conversion goal. The code cannot declare one, so it adds a warning."
+    )
+    exit_condition = serializers.ChoiceField(
+        choices=HogFlow.ExitCondition.choices, required=False, help_text="When a person leaves the workflow."
+    )
+    trigger_masking = _HogFlowCodeMaskingField(
+        required=False,
+        allow_null=True,
+        help_text="Dedup or throttle on the trigger. The code cannot declare it, so it adds a warning.",
+    )
+    email_sending_rate_limit = _HogFlowCodeRateLimitField(
+        required=False,
+        allow_null=True,
+        help_text="Email pacing for the workflow. The code cannot declare it, so it adds a warning.",
+    )
+
+    def validate_actions(self, actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for index, step in enumerate(actions):
+            if not isinstance(step.get("id"), str) or not isinstance(step.get("type"), str):
+                raise serializers.ValidationError(f"Step {index} needs a text `id` and a text `type`.")
+            config = step.get("config")
+            if config is None:
+                continue
+            if not isinstance(config, dict):
+                raise serializers.ValidationError(f'The `config` of step "{step["id"]}" must be an object.')
+            if config.get("inputs") is not None and not isinstance(config["inputs"], dict):
+                raise serializers.ValidationError(f'The `config.inputs` of step "{step["id"]}" must be an object.')
+            if config.get("conditions") is not None and not isinstance(config["conditions"], list):
+                raise serializers.ValidationError(f'The `config.conditions` of step "{step["id"]}" must be a list.')
+        return actions
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        edges = attrs.get("edges")
+        if edges is None:
+            return attrs
+        # A body may send edges without actions, so an edge can leave a step the workflow stores.
+        actions = attrs.get("actions")
+        if actions is None:
+            actions = self.context.get("stored_actions") or []
+        arm_counts = {
+            action["id"]: branch_arm_count(action)
+            for action in actions
+            if isinstance(action, dict) and isinstance(action.get("id"), str)
+        }
+        for position, edge in enumerate(edges):
+            kind = edge.get("type")
+            if kind not in HogFlowEdgeType.values:
+                raise serializers.ValidationError({"edges": f"Edge {position} needs the type continue or branch."})
+            if kind != HogFlowEdgeType.BRANCH:
+                continue
+            index = edge.get("index")
+            arms = arm_counts.get(edge.get("from"), 0)
+            if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < arms:
+                raise serializers.ValidationError(
+                    {
+                        "edges": (
+                            f'Edge {position} is branch {index!r} of "{edge.get("from")}", which has {arms} branch '
+                            f"arm(s). A branch edge needs an index from 0 to one less than the arm count."
+                        )
+                    }
+                )
+        return attrs
+
+
 class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
 
@@ -2826,11 +3084,17 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         model = HogFlow
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
             "status",
             "origin_product",
+            "managed_by",
+            "created_via",
+            "source_repository",
+            "source_path",
+            "source_ref",
             "created_at",
             "created_by",
             "updated_at",
@@ -2891,11 +3155,14 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
     class Meta(HogFlowMinimalSerializer.Meta):
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
             "status",
             "origin_product",
+            # So an agent listing workflows can see which ones it must not edit before it tries.
+            "managed_by",
             "created_at",
             "created_by",
             "updated_at",
@@ -2906,12 +3173,79 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=400,
+        trim_whitespace=False,
+        help_text=(
+            "Client-chosen identifier, unique within this environment. Set only when creating a workflow. "
+            "Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only."
+        ),
+    )
     origin_product = serializers.ChoiceField(
         choices=HogFlow.OriginProduct.choices,
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
         "creating a workflow. Filter the list with `?origin_product=`.",
+    )
+    managed_by = serializers.ChoiceField(
+        choices=HogFlow.ManagedBy.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, "
+            "and every content write is refused unless it comes from the client that pushes the file. "
+            "`gui` (the default, and what null means) means this API owns it. To hand a code-managed "
+            "workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it "
+            "alongside any other field is refused."
+        ),
+    )
+    # Read-only rather than writable-and-stripped: the value is resolved from the request, so a caller
+    # that could send it would only ever be ignored, and a read-only field cannot be claimed at all.
+    created_via = serializers.ChoiceField(
+        choices=HogFlow.CreatedVia.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI "
+            "push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own "
+            "surfaces. Resolved from the request on create, never from the payload, and never changed "
+            "afterwards. Null on workflows created before this field existed."
+        ),
+    )
+    source_repository = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Repository that holds this workflow's file, as the pushing client resolved it from the git "
+            "remote (e.g. `github.com/acme/flows`). Stored as given: the host may be GitHub, GitLab or "
+            "self-hosted. Null unless a push wrote it."
+        ),
+    )
+    source_path = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Repository-relative path of the pushed file (e.g. `workflows/welcome.ts`). A push compares the "
+            "path it was given against this one, so a copied file cannot overwrite the wrong workflow. "
+            "Null unless a push wrote it."
+        ),
+    )
+    source_ref = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Commit sha or branch of the last push, so a link can point at the revision that produced what "
+            "you see. Overwritten by every push. Null unless a push wrote it."
+        ),
     )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
@@ -3160,11 +3494,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         model = HogFlow
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
             "status",
             "origin_product",
+            "managed_by",
+            "created_via",
+            "source_repository",
+            "source_path",
+            "source_ref",
             "created_at",
             "created_by",
             "updated_at",
@@ -3196,6 +3536,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_by",
             "updated_at",
             "trigger",  # Derived from the trigger action in the actions array
+            "created_via",  # Resolved from the request in create(), never from the payload
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
@@ -3369,18 +3710,64 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             return
         validated_data["encrypted_inputs"] = strip_secrets_from_content(validated_data, template_cache={})
 
+    def validate_key(self, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", value):
+            raise serializers.ValidationError(
+                "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
+                code="invalid_key",
+            )
+
+        # As a nested field (the `configuration` override on test invocations) DRF never binds
+        # `self.instance`, so fall back to the flow passed in via context. Without it a keyed
+        # workflow reads its own key as taken and every test run on it fails.
+        instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+        taken = HogFlow.objects.filter(team_id=self.context["team_id"], key=value)
+        if instance is not None:
+            taken = taken.exclude(pk=instance.pk)
+        if taken.exists():
+            raise serializers.ValidationError("There is already a workflow with this key.", code="unique")
+
+        return value
+
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
         team_id = self.context["team_id"]
-        validated_data["created_by"] = request.user
+        validated_data["created_by"] = _actor(request)
         validated_data["team_id"] = team_id
+        validated_data["created_via"] = resolve_workflow_created_via(request)
+        self._enforce_code_ownership(action="create", stored=None)
         self._strip_secret_inputs(validated_data)
 
-        return super().create(validated_data=validated_data)
+        try:
+            return super().create(validated_data=validated_data)
+        except IntegrityError as exc:
+            # A concurrent create can slip past the unlocked validate_key read, so the constraint
+            # is the authoritative guard. Translate its violation into the same field error.
+            if "unique_key_for_team" in str(exc):
+                raise serializers.ValidationError(
+                    {"key": [exceptions.ErrorDetail("There is already a workflow with this key.", code="unique")]}
+                ) from exc
+            raise
 
     def update(self, instance, validated_data):
+        self._enforce_code_ownership(action="update", stored=instance)
         self._strip_secret_inputs(validated_data)
         return super().update(instance, validated_data)
+
+    def _enforce_code_ownership(self, *, action: str, stored: Optional[HogFlow]) -> None:
+        # Checked on save rather than in validate(), because the test-run endpoint validates a whole
+        # workflow as its `configuration` and saves nothing. The editor sends a code-managed workflow
+        # there as it loaded it, with `managed_by: code`.
+        request = self.context.get("request")
+        # The lock is a rule of the REST API, and a facade caller saves without a request.
+        if request is None:
+            return
+        refusal = check_write(request, action=action, stored=stored, payload=getattr(self, "initial_data", None))
+        if refusal is not None:
+            raise CodeManagedWorkflowError(refusal)
 
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
@@ -3389,6 +3776,11 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
         read_only=True,
         allow_null=True,
         help_text="Product surface that owns this workflow. This value cannot change after creation.",
+    )
+    key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Client-chosen identifier, unique within this environment. This value cannot change after creation.",
     )
 
     def validate(self, data: dict) -> dict:
@@ -3400,6 +3792,11 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
             and submitted_origin_product != instance.origin_product
         ):
             raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
+        # A PATCH that moves a key would be adoption by the back door, so only a repeat of the
+        # stored value passes.
+        submitted_key = self.initial_data.get("key", serializers.empty)
+        if instance is not None and submitted_key is not serializers.empty and submitted_key != instance.key:
+            raise serializers.ValidationError({"key": "key is set on create and cannot change."})
         return super().validate(data)
 
 
@@ -3783,6 +4180,15 @@ class HogFlowRevisionBasicSerializer(serializers.ModelSerializer):
 
 
 class HogFlowRevisionSerializer(HogFlowRevisionBasicSerializer):
+    content = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. A version "
+            "that a push produced also records `source_repository`, `source_path` and `source_ref`, the file and "
+            "commit it came from. Restoring a version copies only the content fields."
+        ),
+    )
+
     class Meta(HogFlowRevisionBasicSerializer.Meta):
         fields = [*HogFlowRevisionBasicSerializer.Meta.fields, "content"]
         read_only_fields = fields
@@ -3843,12 +4249,48 @@ class HogFlowFilterSet(FilterSet):
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
+        fields = ["id", "key", "created_at", "updated_at", "status", "origin_product"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
     default_limit = 100
     max_limit = 500
+
+
+# Names the project secret API key on the audit row of a write it made, because the row has no user.
+PSAK_TRIGGER_JOB_TYPE = "project_secret_api_key"
+
+
+def _actor(request: Request) -> Optional[User]:
+    # A project secret API key authenticates as a synthetic user with no row behind it, so a
+    # `created_by` column stores None for it instead of a made-up user.
+    user = request.user
+    return user if isinstance(user, User) else None
+
+
+class HogFlowBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Same scope and rate as the default BurstRateThrottle, so session and personal-key callers see
+    # no change. The PSAK-aware base also counts project secret API key requests, which the default
+    # throttles let through because they only key on a personal API key.
+    scope = "burst"
+    rate = "480/minute"
+
+
+class HogFlowSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "sustained"
+    rate = "4800/hour"
+
+
+class HogFlowProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # Per-project aggregate across all of the project's keys, the same size as the per-key budget,
+    # so minting more keys never multiplies a project's total capacity.
+    scope = "hog_flow_psak_team_burst"
+    rate = "480/minute"
+
+
+class HogFlowProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "hog_flow_psak_team_sustained"
+    rate = "4800/hour"
 
 
 # The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML
@@ -4003,6 +4445,7 @@ class HogFlowViewSet(
         "asset_content",
         "revisions",
         "revision_detail",
+        "code",
     ]
     scope_object_write_actions = [
         "create",
@@ -4027,6 +4470,18 @@ class HogFlowViewSet(
     pagination_class = HogFlowPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
+    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A CI job pushes a workflow file with the project's secret API key, a credential not tied to one
+    # person's account. The push resolves, reads, creates and updates workflows and nothing else, so
+    # deletes, publishing, restores and every invocation action stay session/PAT/OAuth-only.
+    psak_allowed_actions = ["list", "retrieve", "create", "update", "partial_update"]
+    throttle_classes = [
+        HogFlowBurstRateThrottle,
+        HogFlowSustainedRateThrottle,
+        HogFlowProjectSecretApiKeyTeamBurstThrottle,
+        HogFlowProjectSecretApiKeyTeamSustainedThrottle,
+    ]
     log_source = "hog_flow"
     app_source = "hog_flow"
     function_kind = "hog_flow"
@@ -4082,7 +4537,7 @@ class HogFlowViewSet(
             # never exposes action config bodies (which can hold credential-like values). The web app
             # and raw API keep the full graph, which they legitimately need (e.g. client-side
             # duplication); MCP callers drill into a single workflow via retrieve instead.
-            if self.request is not None and self._is_mcp_request(self.request):
+            if self.request is not None and is_mcp_transport_request(self.request):
                 return HogFlowSummarySerializer
             return HogFlowMinimalSerializer
         if self.action in ("update", "partial_update"):
@@ -4103,6 +4558,11 @@ class HogFlowViewSet(
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
             queryset = queryset.order_by("-updated_at", "-id")
+
+            # An explicit key query always means an exact identity lookup. django-filter skips empty
+            # values, so handle the impossible empty key before the filter backend can return every row.
+            if "key" in self.request.GET and self.request.GET["key"] == "":
+                queryset = queryset.none()
 
             created_by = self.request.GET.get("created_by")
             if created_by:
@@ -4173,9 +4633,26 @@ class HogFlowViewSet(
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
 
-    @staticmethod
-    def _is_mcp_request(request: Request) -> bool:
-        return request.headers.get("x-posthog-client") == "mcp"
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        """Refuse every write that code ownership forbids.
+
+        Placed here because there is no single write chokepoint: `graph`, `action_email`, `publish`,
+        `discard_draft` and `restore_revision` never reach `perform_update`, and every detail action
+        reaches this through `get_object()`.
+        """
+        super().check_object_permissions(request, obj)
+        if request.method in permissions.SAFE_METHODS or not isinstance(obj, HogFlow):
+            return
+        self._enforce_code_ownership(request, obj)
+
+    def _enforce_code_ownership(self, request: Request, hog_flow: HogFlow) -> None:
+        """Called again on the locked row inside each mutating transaction, because a push can claim the
+        workflow between `check_object_permissions` and the lock, and the row the write lands on is
+        the one that decides.
+        """
+        refusal = check_write(request, action=self.action, stored=hog_flow, payload=request.data)
+        if refusal is not None:
+            raise CodeManagedWorkflowError(refusal)
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,
@@ -4307,6 +4784,46 @@ class HogFlowViewSet(
             ac_resource_type=self.scope_object,
         )
 
+    def _log_activity(
+        self,
+        instance: HogFlow,
+        *,
+        activity: Optional[str] = None,
+        previous: Optional[HogFlow] = None,
+        detail_type: Optional[str] = None,
+    ) -> None:
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+            log_activity_from_viewset(
+                self, instance, activity=activity, name=instance.name, previous=previous, detail_type=detail_type
+            )
+            return
+        # The shared helper hands the synthetic user to the ActivityLog user column and swallows the
+        # error, so nothing is logged. Write the row as a system row instead and name the key in the
+        # trigger, so a person can still see which credential wrote the workflow.
+        psak = authenticator.project_secret_api_key
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=None,
+                was_impersonated=False,
+                item_id=str(instance.id),
+                scope="HogFlow",
+                activity=activity or ACTIVITY_TYPES.get(self.action, ACTIVITY_TYPES["default"]),
+                detail=Detail(
+                    name=instance.name,
+                    type=detail_type,
+                    changes=changes_between("HogFlow", previous=previous, current=instance)
+                    if previous is not None
+                    else None,
+                    trigger=Trigger(job_type=PSAK_TRIGGER_JOB_TYPE, job_id=psak.id, payload={"label": psak.label}),
+                ),
+            )
+        except Exception:
+            # The row is already saved; the audit write must not fail the request, same as the shared helper.
+            logger.exception("Failed to write workflow activity for a project secret API key", flow_id=instance.id)
+
     def _report_workflow_action(self, event: str, instance: HogFlow, extra_properties: Optional[dict] = None) -> None:
         # report_user_action injects source and MCP-client properties from the request, so usage is
         # attributable per channel (web builder vs MCP vs raw API). Capture must never break the request.
@@ -4328,14 +4845,18 @@ class HogFlowViewSet(
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
     def perform_create(self, serializer):
-        if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
+        if is_mcp_transport_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
             raise exceptions.ValidationError(
                 "You can't one-shot active workflows via MCP. "
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        serializer.save()
-        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
+        with transaction.atomic():
+            serializer.save()
+            # A new workflow is already version 1, so its history starts here. Without this snapshot
+            # the history stays empty until the first content edit.
+            self._append_revision(serializer.instance, created_by=_actor(self.request))
+        self._log_activity(serializer.instance, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
         self._report_workflow_action(
@@ -4347,13 +4868,30 @@ class HogFlowViewSet(
             },
         )
 
+    def _validate_against_locked_row(self, serializer: BaseSerializer, locked: HogFlow) -> BaseSerializer:
+        """Return a serializer whose save applies this request to the row read under the lock.
+
+        DRF validated the request against the row that get_object() read before the lock. A write
+        can land between the two reads, for example a push that claims the workflow. Saving the older
+        copy would then write its stale fields back over that write. validate() also derives the
+        trigger, billable_action_types and the recovered secrets from the row it was given. So when
+        the locked row differs, the same request is validated again against it.
+        """
+        if isinstance(serializer.instance, HogFlow) and _stored_values(serializer.instance) == _stored_values(locked):
+            return serializer
+        # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; `locked` stays the pre-write state)
+        current = HogFlow.objects.get(pk=locked.pk)
+        revalidated = self.get_serializer(current, data=self.request.data, partial=serializer.partial)
+        revalidated.is_valid(raise_exception=True)
+        return revalidated
+
     def perform_update(self, serializer):
         # Guardrails for MCP/LLM callers (gated on x-posthog-client: mcp; the frontend and raw API are
         # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
-        route_to_draft = False
-        if self._is_mcp_request(self.request):
+        stages_draft_if_active = False
+        if is_mcp_transport_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
             has_non_status = bool(keys - {"status"})
@@ -4378,15 +4916,18 @@ class HogFlowViewSet(
 
             # Content edits on an active workflow stage a draft rather than landing live. Status-only
             # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
-            if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
-                route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
-        elif serializer.instance.status == HogFlow.State.ACTIVE and self.request.data.get("stage_draft"):
+            if has_non_status:
+                stages_draft_if_active = bool(keys & set(DRAFT_CONTENT_FIELDS))
+        elif self.request.data.get("stage_draft"):
             # The web builder opts into the same draft routing per request ("stage_draft" rides the
             # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
             # existing raw-API automation is unaffected.
-            route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
+            stages_draft_if_active = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
         instance_id = serializer.instance.id
+        # UpdateModelMixin renders the response from the serializer it passed in, so it has to end up
+        # holding the row this method saved.
+        response_serializer = serializer
 
         # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
         # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -4405,26 +4946,29 @@ class HogFlowViewSet(
                 # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
                 before_update = HogFlow.objects.select_for_update().get(pk=instance_id)
             except HogFlow.DoesNotExist:
-                before_update = None
+                # Saving the serializer's copy now would insert the deleted row again.
+                raise exceptions.NotFound()
+
+            self._enforce_code_ownership(self.request, before_update)
+            serializer = self._validate_against_locked_row(serializer, before_update)
+            route_to_draft = stages_draft_if_active and before_update.status == HogFlow.State.ACTIVE
 
             # Draft edits race against other draft edits, not against the live row (which they don't
             # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
-            guard_timestamp = before_update.updated_at if before_update else None
-            if route_to_draft and before_update and before_update.draft_updated_at:
+            guard_timestamp = before_update.updated_at
+            if route_to_draft and before_update.draft_updated_at:
                 guard_timestamp = before_update.draft_updated_at
             # The web builder sends "includes_staged_draft" (raw body, like "stage_draft") when a save on
             # a non-active workflow carries the staged draft merged into it. The draft is only cleared on
             # that explicit signal, so an API caller that resends live content never loses a draft.
             clears_staged_draft = (
                 not route_to_draft
-                and before_update is not None
                 and before_update.status != HogFlow.State.ACTIVE
                 and before_update.draft is not None
                 and bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys()
             )
             if clears_staged_draft:
-                assert before_update is not None
                 # A revision restore writes the draft without moving the live stamp, so fence on the newer one.
                 if before_update.draft_updated_at and (
                     guard_timestamp is None or before_update.draft_updated_at > guard_timestamp
@@ -4434,7 +4978,6 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
 
             if route_to_draft:
-                assert before_update is not None
                 self._write_draft(serializer.instance, before_update, serializer.validated_data)
                 # Metadata in the same payload still applies live. Content (and the fields validate()
                 # derives from it — trigger, billable_action_types) must not leak onto the live row:
@@ -4459,32 +5002,26 @@ class HogFlowViewSet(
                     serializer.validated_data.update(remaining)
                     serializer.save()
             else:
-                bump = False
-                if before_update is not None:
-                    self._refresh_action_redirects(
-                        serializer.instance, before_update, serializer.validated_data.get("actions")
-                    )
-                    bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
+                self._refresh_action_redirects(
+                    serializer.instance, before_update, serializer.validated_data.get("actions")
+                )
+                bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
                 if clears_staged_draft:
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
                 else:
                     serializer.save()
                 if bump:
-                    assert before_update is not None
                     self._append_revisions(serializer.instance, before_update)
 
+        response_serializer.instance = serializer.instance
         if not route_to_draft:
             self._maybe_reschedule_timing_edits(before_update, serializer.instance)
             self._pause_schedules_on_audience_change(before_update, serializer.instance)
-        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
+        self._log_activity(serializer.instance, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
         # PostHog capture for hog_flow activated (draft -> active)
-        if (
-            before_update
-            and before_update.status == HogFlow.State.DRAFT
-            and serializer.instance.status == HogFlow.State.ACTIVE
-        ):
+        if before_update.status == HogFlow.State.DRAFT and serializer.instance.status == HogFlow.State.ACTIVE:
             self._report_workflow_action(
                 "hog_flow_activated",
                 serializer.instance,
@@ -4500,10 +5037,12 @@ class HogFlowViewSet(
         # usage event fires only after commit. delete() nulls the pk, so stash it for the event.
         flow_id = instance.id
         with transaction.atomic():
-            log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
-            instance.delete()
-        instance.id = flow_id
-        self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
+            locked = HogFlow.objects.select_for_update().get(pk=flow_id)
+            self._enforce_code_ownership(self.request, locked)
+            self._log_activity(locked, activity="deleted")
+            locked.delete()
+        locked.id = flow_id
+        self._report_workflow_action("hog_flow_deleted", locked, {"via": "destroy"})
 
     def _refresh_action_redirects(self, target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
         # Skip-forward for deleted steps: refresh the redirect map whenever a live graph write is about
@@ -4541,23 +5080,24 @@ class HogFlowViewSet(
         return True
 
     def _append_revisions(self, instance: HogFlow, before: HogFlow) -> None:
-        # Must run inside the same transaction as the content write it snapshots. On the first
-        # tracked write, also snapshot the outgoing live content so the state before any tracked
-        # change is always available to roll back to (there's no backfill).
+        # Must run inside the same transaction as the content write it snapshots. A workflow created
+        # before creates wrote revisions has no rows yet: on its first tracked write, also snapshot
+        # the outgoing live content so the state before any tracked change is always available to
+        # roll back to (there's no backfill).
         if not HogFlowRevision.objects.filter(hog_flow=instance).exists():
-            HogFlowRevision.objects.create(
-                team_id=self.team_id,
-                hog_flow=instance,
-                version=before.version,
-                content=snapshot_flow_content(before),
-                created_by=None,
-            )
+            self._append_revision(before, created_by=None)
+        self._append_revision(instance, created_by=_actor(self.request))
+
+    def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
+        # The source fields name the file and commit that produced this version. The row keeps only
+        # the latest push, so the revision is the one place that remembers them.
+        provenance = {field: getattr(flow, field) for field in SOURCE_FIELDS if getattr(flow, field)}
         HogFlowRevision.objects.create(
             team_id=self.team_id,
-            hog_flow=instance,
-            version=instance.version,
-            content=snapshot_flow_content(instance),
-            created_by=self.request.user if self.request.user.is_authenticated else None,
+            hog_flow=flow,
+            version=flow.version,
+            content={**snapshot_flow_content(flow), **provenance},
+            created_by=created_by,
         )
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
@@ -4596,8 +5136,9 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._enforce_code_ownership(request, locked)
 
-            route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
+            route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
             # Optimistic concurrency, mirroring perform_update: the graph endpoint is the only MCP
             # path that writes graph content, so it carries the base_updated_at staleness contract.
@@ -4685,7 +5226,7 @@ class HogFlowViewSet(
         # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
-            predicts_draft = self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE
+            predicts_draft = is_mcp_transport_request(request) and instance.status == HogFlow.State.ACTIVE
             if predicts_draft and instance.draft:
                 render_base = list(instance.draft.get("actions") or [])
             else:
@@ -4695,8 +5236,9 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._enforce_code_ownership(request, locked)
 
-            route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
+            route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
             # Same staleness contract as /graph: draft edits race against other draft edits, so the
             # baseline is the draft's timestamp once one exists.
@@ -4943,6 +5485,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._enforce_code_ownership(request, locked)
             if not locked.draft:
                 raise exceptions.ValidationError("This workflow has no staged draft to publish.")
             if previewed_value != _publish_confirm_value(locked):
@@ -4992,6 +5535,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._enforce_code_ownership(request, locked)
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = None
@@ -5021,6 +5565,50 @@ class HogFlowViewSet(
         queryset = HogFlowRevision.objects.filter(hog_flow=instance).order_by("-version").select_related("created_by")
         page = self.paginate_queryset(queryset)
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
+
+    @extend_schema(methods=["GET"], operation_id="hog_flows_code_retrieve", responses={200: HogFlowCodeSerializer})
+    @extend_schema(
+        methods=["POST"],
+        operation_id="hog_flows_code_create",
+        request=HogFlowCodeRequestSerializer,
+        responses={200: HogFlowCodeSerializer},
+        description=(
+            "Renders the workflow in the body as @posthog/workflows source and stores nothing. A field the body "
+            "omits keeps its stored value."
+        ),
+    )
+    @action(detail=True, methods=["GET", "POST"], filter_backends=[], url_path="code")
+    def code(self, request: Request, *args, **kwargs) -> Response:
+        # Renders what the editor shows: the staged draft when one exists, else the live definition.
+        # The serializer output is the input on purpose, so secrets arrive already masked.
+        data = self.get_serializer(self.get_object()).data
+        definition = {**data, **(data.get("draft") or {})}
+        if request.method == "POST":
+            unsaved = HogFlowCodeRequestSerializer(
+                data=request.data, context={"stored_actions": definition.get("actions")}
+            )
+            unsaved.is_valid(raise_exception=True)
+            posted = dict(unsaved.validated_data)
+            if "actions" in posted:
+                # A body can carry a secret in plaintext. Mask it the way a read masks a stored
+                # secret, so the source names the secret and never prints its value.
+                posted["actions"] = mask_secret_action_inputs(deepcopy(posted["actions"]), {}, {})
+            definition.update(posted)
+        try:
+            rendered = render_workflow_code(definition)
+        except RecursionError:
+            raise exceptions.ValidationError("The workflow is nested too deeply to render as code.")
+        except WorkflowTooLargeToRender as error:
+            raise exceptions.ValidationError(f"{error} It is too large to render as code.")
+        return Response(
+            HogFlowCodeSerializer(
+                {
+                    "language": "typescript",
+                    "code": rendered.code,
+                    "warnings": [dataclasses.asdict(warning) for warning in rendered.warnings],
+                }
+            ).data
+        )
 
     @extend_schema(
         parameters=[OpenApiParameter("version", int, OpenApiParameter.PATH, description="Workflow version to fetch.")],
@@ -5054,6 +5642,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._enforce_code_ownership(request, locked)
             try:
                 revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=int(version or 0))
             except HogFlowRevision.DoesNotExist:
@@ -5072,7 +5661,9 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            locked.draft = dict(revision.content)
+            # Only the content fields: the source fields describe the push that produced the revision,
+            # and publishing them from a draft would rewrite where the workflow says it comes from.
+            locked.draft = {field: value for field, value in revision.content.items() if field in DRAFT_CONTENT_FIELDS}
             locked.draft_updated_at = timezone.now()
             # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
             # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
@@ -5451,18 +6042,32 @@ class HogFlowViewSet(
             if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
         ]
 
+        # bulk_delete is detail=False, so it never calls get_object() and the code-managed guard in
+        # check_object_permissions never runs for it. Without this the lock is bypassable one archived
+        # row at a time. Refuse the whole request rather than skipping the locked rows, so the caller
+        # cannot mistake a partial delete for a complete one.
+        for flow in deletable:
+            self._enforce_code_ownership(request, flow)
+
         # Hard deletes must leave a trail, same as the single destroy path. Lock the rows so the
         # audit entries match exactly what this request deletes (a concurrently removed row gets no
         # entry), and share the delete's transaction so a failed delete rolls its audit rows back.
         # Usage events fire only after commit.
         with transaction.atomic():
-            deleted_ids = set(
+            locked_rows = list(
                 self.get_queryset()
                 .select_for_update()
                 .filter(id__in=[flow.id for flow in deletable])
-                .values_list("id", flat=True)
+                .only("id", "managed_by", "source_repository", "source_path")
             )
-            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            # A push can claim a workflow between the check above and this lock, so the locked row is
+            # the one that decides.
+            for row in locked_rows:
+                self._enforce_code_ownership(request, row)
+            deleted_ids = {row.id for row in locked_rows}
+            # delete() also counts the cascaded rows (revisions, schedules); report workflows only.
+            _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
             deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
             for flow in deleted_flows:
                 log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)

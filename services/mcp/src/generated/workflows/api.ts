@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -20,6 +20,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
+    key: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     origin_product: zod
@@ -59,6 +60,8 @@ export const HogFlowsCreateParams = () => zod.object({
         ),
 })
 
+export const hogFlowsCreateBodyKeyMax = 400
+
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
@@ -82,6 +85,13 @@ export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDef
 
 export const HogFlowsCreateBody = () => zod
     .object({
+        key: zod
+            .string()
+            .max(hogFlowsCreateBodyKeyMax)
+            .nullish()
+            .describe(
+                'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+            ),
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
         status: zod
@@ -731,6 +741,15 @@ export const HogFlowsActionsEmailPartialUpdateBody = () => zod.object({
 })
 
 export const HogFlowsBatchJobsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const HogFlowsCodeRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()

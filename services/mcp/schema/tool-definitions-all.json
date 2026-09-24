@@ -13908,6 +13908,22 @@
             "readOnlyHint": true
         }
     },
+    "workflows-get-code": {
+        "description": "Get a workflow as source code, where id is the workflow's UUID. Returns TypeScript source written against @posthog/workflows, ready to load with the posthog-workflows CLI. The source renders what the visual editor shows: the staged draft when one exists, otherwise the live config. Read `warnings` first. It lists everything the source can't express, one entry per loss, with action_id naming the affected step (null when the warning is about the whole workflow). The same list opens the file as a comment, so it stays visible even if you only copy out the code.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow as code",
+        "title": "Get workflow as code",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-get-code",
+        "feature_flag_behavior": "enable"
+    },
     "workflows-get-email-template": {
         "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. To display a template to the user, use workflows-show-email-template instead.",
         "category": "Workflows",

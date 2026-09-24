@@ -14,8 +14,10 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
+import type { ClipboardWriteOutcome } from 'lib/utils/writeToClipboard'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
@@ -25,9 +27,11 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
-import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import { hogFlowsCodeCreate, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import type { HogFlowCodeRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
+import { codeManagedReason, isCodeManagedWorkflow } from './codeManagedWorkflow'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -67,6 +71,42 @@ export const TRIGGER_NODE_ID = 'trigger_node'
 export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+
+function canWriteWorkflowCodeWithGesture(): boolean {
+    return typeof navigator !== 'undefined' && !!navigator.clipboard?.write && typeof ClipboardItem !== 'undefined'
+}
+
+async function writeWorkflowCodeWithGesture(codePromise: Promise<string>): Promise<ClipboardWriteOutcome> {
+    try {
+        await navigator.clipboard.write([
+            new ClipboardItem({
+                'text/plain': codePromise.then((code) => new Blob([code], { type: 'text/plain' })),
+            }),
+        ])
+        return 'copied'
+    } catch {
+        return 'failed'
+    }
+}
+
+function workflowCodeRequest(workflow: HogFlow): HogFlowCodeRequestApi {
+    const { conversion } = workflow
+    return {
+        name: workflow.name,
+        description: workflow.description,
+        actions: workflow.actions,
+        edges: workflow.edges,
+        variables: workflow.variables ?? [],
+        // The editor allows a conversion event without filters, but the request type requires them.
+        conversion: conversion && {
+            ...conversion,
+            events: conversion.events?.map((event) => ({ ...event, filters: event.filters ?? {} })),
+        },
+        exit_condition: workflow.exit_condition,
+        trigger_masking: workflow.trigger_masking,
+        email_sending_rate_limit: workflow.email_sending_rate_limit,
+    }
+}
 
 export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
@@ -197,6 +237,32 @@ interface SaveContext {
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
 }
 
+/** Writes a staged schedule change and returns the schedules the workflow now has. */
+async function writePendingSchedule(
+    workflowId: string,
+    pendingSchedule: Exclude<SaveContext['pendingSchedule'], false>,
+    existingScheduleId: string | undefined,
+    configSources: { natural_language: boolean; picker: boolean }
+): Promise<HogFlowSchedule[]> {
+    if (pendingSchedule === null && existingScheduleId) {
+        await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+    } else if (pendingSchedule !== null && existingScheduleId) {
+        await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+    } else if (pendingSchedule !== null) {
+        await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+    }
+
+    if (pendingSchedule !== null) {
+        posthog.capture('workflows schedule saved', {
+            workflow_id: workflowId,
+            configured_via_picker: configSources.picker,
+            configured_via_natural_language: configSources.natural_language,
+        })
+    }
+
+    return await api.hogFlows.getHogFlowSchedules(workflowId)
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -212,6 +278,8 @@ export interface workflowLogicValues {
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
+    copyCodeDisabledReason: string | undefined
+    copyCodePending: boolean
     currentSchedule: HogFlowSchedule | null
     deferredResourceEdited: ResourceEditedEvent | null
     discardDisabledReason: string | undefined
@@ -230,6 +298,7 @@ export interface workflowLogicValues {
     isAutoSavePending: boolean
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
+    isSavingSchedule: boolean
     isSyncingExternalEdit: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
@@ -272,6 +341,9 @@ export interface workflowLogicValues {
     workflowSanitized: HogFlow
     workflowTouched: boolean
     workflowTouches: Record<string, boolean>
+    isCodeManaged: boolean
+    workflowSaveDisabledReason: string | null
+    canSaveWorkflow: boolean
     workflowUserAccessLevel: AccessControlLevel | null
     workflowValidationErrors: DeepPartialMap<HogFlow, ValidationErrorType>
 }
@@ -297,6 +369,9 @@ export interface workflowLogicActions {
         confirmToken: string
     }
     confirmResumeEmailSending: () => {
+        value: true
+    }
+    copyWorkflowCode: () => {
         value: true
     }
     discardChanges: () => {
@@ -2368,6 +2443,12 @@ export interface workflowLogicActions {
     resumeEmailSending: () => {
         value: true
     }
+    saveSchedule: () => {
+        value: true
+    }
+    saveScheduleFinished: () => {
+        value: true
+    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -2388,6 +2469,9 @@ export interface workflowLogicActions {
     }
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
+    }
+    setCopyCodePending: (pending: boolean) => {
+        pending: boolean
     }
     setDeferredResourceEdited: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
@@ -2817,6 +2901,9 @@ export interface workflowLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
+        isCodeManaged: (originalWorkflow: HogFlow | null) => boolean
+        workflowSaveDisabledReason: (originalWorkflow: HogFlow | null) => string | null
+        canSaveWorkflow: (workflowSaveDisabledReason: string | null) => boolean
         currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
@@ -3000,13 +3087,16 @@ export interface workflowLogicMeta {
         publishDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: 'discard' | 'publish' | null,
+            workflowSaveDisabledReason: string | null
         ) => string | undefined
         discardDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: 'discard' | 'publish' | null,
+            workflowSaveDisabledReason: string | null
         ) => string | undefined
+        copyCodeDisabledReason: (logicProps: WorkflowLogicProps) => string | undefined
     }
 }
 
@@ -3065,6 +3155,8 @@ export const workflowLogic = kea<workflowLogicType>([
         markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
         setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
         clearAutoSavePending: true,
+        saveSchedule: true,
+        saveScheduleFinished: true,
         setExternallyEdited: (externallyEdited: boolean) => ({ externallyEdited }),
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
         setSaveBaseUpdatedAt: (updatedAt: string | null) => ({ updatedAt }),
@@ -3079,6 +3171,8 @@ export const workflowLogic = kea<workflowLogicType>([
         resumeEmailSending: true,
         confirmResumeEmailSending: true,
         setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
+        copyWorkflowCode: true,
+        setCopyCodePending: (pending: boolean) => ({ pending }),
     }),
     loaders(({ props, values, actions, cache }) => ({
         originalWorkflow: [
@@ -3188,26 +3282,38 @@ export const workflowLogic = kea<workflowLogicType>([
                                 (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
                             )
                         const isStatusTransition = isStatusSave && !!latest && updates.status !== latest.status
+                        if (values.isCodeManaged && !isStatusTransition) {
+                            // Every path that saves the form checks `canSaveWorkflow` first. This is the
+                            // backstop for a path that does not, so it fails here and not with a 403.
+                            throw new Error(values.workflowSaveDisabledReason ?? 'This workflow is managed by code.')
+                        }
                         // Content edits on an active workflow stage into its draft (publish promotes them).
                         // Metadata-only saves (rename, description) must not: staging the unchanged content
                         // would create a phantom draft identical to live.
                         const stagingDraft =
                             latest?.status === 'active' && updates.status === 'active' && contentChanged
-                        // A status transition (enable/disable) toggles the lifecycle only. The button is
-                        // disabled while the form is dirty, so content in the payload is at best a no-op
-                        // re-send of the live row and at worst (with a staged draft merged into the form)
-                        // a silent deploy of unpublished content. Metadata-only saves on active workflows
-                        // strip content the same way, so unchanged content never routes to a draft.
-                        const payload: Partial<HogFlow> =
-                            isStatusTransition || (latest?.status === 'active' && !contentChanged)
-                                ? omitWorkflowContent(updates)
-                                : { ...updates }
+                        // A status transition sends the status and nothing else, because content riding
+                        // along would silently deploy a staged draft, and because the API refuses any
+                        // payload beyond the status on a workflow a repository owns.
+                        const payload: Partial<HogFlow> = isStatusTransition
+                            ? { status: updates.status }
+                            : latest?.status === 'active' && !contentChanged
+                              ? omitWorkflowContent(updates)
+                              : { ...updates }
                         if (!isStatusSave) {
                             // A form save must not speak about the lifecycle. Otherwise one queued
                             // behind a disable carries the pre-change status and puts the workflow
                             // back, so a stopped workflow resumes running and sending.
                             delete payload.status
                         }
+                        // Provenance is server state the form only reads. The form is seeded from the
+                        // whole loaded workflow, so without this every save would send it back and
+                        // read as a claim about who owns the workflow and where its file is.
+                        delete payload.managed_by
+                        delete payload.created_via
+                        delete payload.source_repository
+                        delete payload.source_path
+                        delete payload.source_ref
                         const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
                         // baseline follows the routing: the draft's own stamp once one is staged.
@@ -3408,6 +3514,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => (!enabled ? false : _),
             },
         ],
+        isSavingSchedule: [
+            false as boolean,
+            {
+                saveSchedule: () => true,
+                saveScheduleFinished: () => false,
+            },
+        ],
         autoSaveEnabled: [
             true as boolean,
             {
@@ -3482,6 +3595,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 setResumeEmailSendingPending: (_, { pending }) => pending,
             },
         ],
+        copyCodePending: [
+            false,
+            {
+                setCopyCodePending: (_, { pending }) => pending,
+            },
+        ],
         // A resource_edited event parked while our own save/reload was in flight. Replayed once the
         // flight settles, so a genuine external edit landing in that window is reconciled instead of
         // dropped. Latest event wins: the comparison is against timestamps, so older ones are moot.
@@ -3501,6 +3620,23 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): AccessControlLevel | null =>
                 originalWorkflow?.user_access_level ?? null,
+        ],
+        isCodeManaged: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => isCodeManagedWorkflow(originalWorkflow),
+        ],
+        // Why the form cannot be written to the API: the auto-save, the save button, the draft
+        // actions and a revision restore all read it. A status-only save does not, because the API
+        // accepts one on a code-managed workflow. The access level is not a reason here, because the
+        // API already refuses a save from a viewer and the editor shows that refusal.
+        workflowSaveDisabledReason: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): string | null =>
+                isCodeManagedWorkflow(originalWorkflow) ? codeManagedReason(originalWorkflow) : null,
+        ],
+        canSaveWorkflow: [
+            (s) => [s.workflowSaveDisabledReason],
+            (workflowSaveDisabledReason: string | null): boolean => !workflowSaveDisabledReason,
         ],
         currentSchedule: [
             (s) => [s.schedules],
@@ -3835,19 +3971,27 @@ export const workflowLogic = kea<workflowLogicType>([
         // once a draft exists would move the save button on the first auto-save, which is the jump
         // this editor is meant to stop. A live workflow can always be published into, so the button
         // is honest when idle: it says there is nothing staged yet.
+        // A code-managed workflow has no draft cycle here, because only a push changes what runs.
         showDraftActions: [
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): boolean =>
-                originalWorkflow?.status === 'active' && !!originalWorkflow?.id,
+                originalWorkflow?.status === 'active' &&
+                !!originalWorkflow?.id &&
+                !isCodeManagedWorkflow(originalWorkflow),
         ],
 
         publishDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowSaveDisabledReason],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: 'publish' | 'discard' | null,
+                workflowSaveDisabledReason: string | null
             ): string | undefined => {
+                // The API refuses publish on a workflow a repository owns, so say so rather than 403.
+                if (workflowSaveDisabledReason) {
+                    return workflowSaveDisabledReason
+                }
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
                 }
@@ -3861,12 +4005,16 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         discardDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowSaveDisabledReason],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: 'publish' | 'discard' | null,
+                workflowSaveDisabledReason: string | null
             ): string | undefined => {
+                if (workflowSaveDisabledReason) {
+                    return workflowSaveDisabledReason
+                }
                 if (draftActionPending === 'publish') {
                     return 'Publishing is in progress'
                 }
@@ -3876,6 +4024,17 @@ export const workflowLogic = kea<workflowLogicType>([
                     return 'Save or clear your changes first'
                 }
                 return hasStagedDraft ? undefined : 'No changes staged to discard'
+            },
+        ],
+
+        copyCodeDisabledReason: [
+            (s) => [s.logicProps],
+            (logicProps: WorkflowLogicProps): string | undefined => {
+                // The code endpoint is a detail route, so a workflow needs an id before it can render.
+                if (!logicProps.id || logicProps.id === 'new') {
+                    return 'Save the workflow first'
+                }
+                return undefined
             },
         ],
     }),
@@ -3947,9 +4106,13 @@ export const workflowLogic = kea<workflowLogicType>([
             // a few seconds old, so reconcile silently instead of interrupting with a conflict
             // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
             // schedule change, which only a manual save persists), the buffer can hold real work,
-            // so the banner lets the user choose.
+            // so the banner lets the user choose. A code-managed workflow never flushes, so a push
+            // that lands while someone edits it asks before it replaces their edits.
             const autoSaveCanFlush =
-                values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
+                values.canSaveWorkflow &&
+                values.autoSaveEnabled &&
+                !values.autoSaveBlockedByValidation &&
+                values.pendingSchedule === false
             if (values.hasUnsavedChanges && !autoSaveCanFlush) {
                 actions.setExternallyEdited(true)
             } else {
@@ -4036,6 +4199,44 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.loadWorkflow()
             }
         },
+        copyWorkflowCode: async () => {
+            if (!props.id || props.id === 'new' || values.copyCodePending) {
+                return
+            }
+            actions.setCopyCodePending(true)
+            const codeResponse = hogFlowsCodeCreate(
+                String(values.currentProjectId),
+                props.id,
+                workflowCodeRequest(values.workflow)
+            )
+            const gestureWrite = canWriteWorkflowCodeWithGesture()
+                ? writeWorkflowCodeWithGesture(codeResponse.then(({ code }) => code))
+                : null
+            try {
+                const [{ code, warnings }, gestureWriteOutcome] = await Promise.all([codeResponse, gestureWrite])
+                const copied =
+                    gestureWriteOutcome === null
+                        ? await copyToClipboard(code, 'workflow code', { silent: warnings.length > 0 })
+                        : gestureWriteOutcome === 'copied'
+                if (!copied) {
+                    lemonToast.error('Could not copy the workflow code. Please try again.')
+                    return
+                }
+                if (warnings.length > 0) {
+                    lemonToast.warning(
+                        warnings.length === 1
+                            ? 'Copied the workflow code. 1 part of this workflow cannot be expressed in code. It is listed at the top of the file.'
+                            : `Copied the workflow code. ${warnings.length} parts of this workflow cannot be expressed in code. They are listed at the top of the file.`
+                    )
+                } else if (gestureWriteOutcome !== null) {
+                    lemonToast.info('Copied workflow code to clipboard')
+                }
+            } catch {
+                lemonToast.error('Could not copy the workflow code. Please try again.')
+            } finally {
+                actions.setCopyCodePending(false)
+            }
+        },
         discardDraft: () => {
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
@@ -4091,7 +4292,9 @@ export const workflowLogic = kea<workflowLogicType>([
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
             const merged = { ...values.workflow, ...workflow }
-            if (merged.status === 'active' && values.workflowHasActionErrors) {
+            // Enabling a code-managed workflow runs the pushed content, not the unsaved edits in the
+            // form, so errors in those edits must not block it.
+            if (merged.status === 'active' && values.workflowHasActionErrors && !values.isCodeManaged) {
                 lemonToast.error('Fix all errors before enabling')
                 return
             }
@@ -4149,27 +4352,19 @@ export const workflowLogic = kea<workflowLogicType>([
                 // reset the reducers, so the live value no longer describes what the user staged.
                 const pendingSchedule = saveContext ? saveContext.pendingSchedule : values.pendingSchedule
                 const existingScheduleId = values.currentSchedule?.id
-                const hasScheduleChanges = pendingSchedule !== false && !!workflowId
+                // A code-managed workflow saves its schedule only through `saveSchedule`. The only
+                // manual save it has is a status change, which must not also write a schedule the
+                // user has not saved.
+                const hasScheduleChanges = pendingSchedule !== false && !!workflowId && !values.isCodeManaged
 
                 if (hasScheduleChanges) {
                     try {
-                        if (pendingSchedule === null && existingScheduleId) {
-                            await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
-                        } else if (pendingSchedule !== null && existingScheduleId) {
-                            await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
-                        } else if (pendingSchedule !== null) {
-                            await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
-                        }
-
-                        if (pendingSchedule !== null) {
-                            posthog.capture('workflows schedule saved', {
-                                workflow_id: workflowId,
-                                configured_via_picker: values.scheduleConfigSources.picker,
-                                configured_via_natural_language: values.scheduleConfigSources.natural_language,
-                            })
-                        }
-
-                        const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
+                        const schedules = await writePendingSchedule(
+                            workflowId,
+                            pendingSchedule,
+                            existingScheduleId,
+                            values.scheduleConfigSources
+                        )
                         actions.setSchedules(schedules)
                     } catch (e) {
                         console.error('Failed to save schedule', e)
@@ -4243,7 +4438,10 @@ export const workflowLogic = kea<workflowLogicType>([
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             const editedDuringSave =
                 cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
-            const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
+            // A code-managed workflow only saves its status, so the form still holds edits the save
+            // did not send. The reset below would drop them.
+            const keepUnsentEdits = values.isCodeManaged && values.workflowChanged
+            const editsDuringSave = editedDuringSave || keepUnsentEdits ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
             if (editsDuringSave) {
@@ -4274,6 +4472,31 @@ export const workflowLogic = kea<workflowLogicType>([
                     children: 'Cancel',
                 },
             })
+        },
+        // A code-managed workflow has no save for its form, but the app owns its schedule, so the
+        // schedule saves on its own. `setSchedules` rebaselines only the schedule, so edits to the
+        // graph stay in the form.
+        saveSchedule: async () => {
+            const workflowId = values.originalWorkflow?.id
+            const pendingSchedule = values.pendingSchedule
+            try {
+                if (!workflowId || pendingSchedule === false) {
+                    return
+                }
+                const schedules = await writePendingSchedule(
+                    workflowId,
+                    pendingSchedule,
+                    values.currentSchedule?.id,
+                    values.scheduleConfigSources
+                )
+                actions.setSchedules(schedules)
+                lemonToast.success('Schedule saved')
+            } catch (e) {
+                console.error('Failed to save schedule', e)
+                lemonToast.error('The schedule could not be saved. Please try again.')
+            } finally {
+                actions.saveScheduleFinished()
+            }
         },
         setWorkflowInfo: async ({ workflow }) => {
             actions.setWorkflowValues(workflow)
@@ -4330,12 +4553,22 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         autoSaveWorkflow: async (_, breakpoint) => {
+            // A code-managed workflow must not fire a PATCH that only the backend would refuse, so its
+            // edits stay in the form. This runs before the debounce, so the editor does not show a
+            // pending save for 3 seconds.
+            if (!values.canSaveWorkflow) {
+                actions.clearAutoSavePending()
+                return
+            }
+
             await breakpoint(3000)
 
             // Active workflows auto-save too: their content edits route into the staged draft
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =
                 !values.autoSaveEnabled ||
+                // The ownership can change while the debounce waits.
+                !values.canSaveWorkflow ||
                 !props.id ||
                 props.id === 'new' ||
                 !!props.editTemplateId ||
