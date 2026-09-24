@@ -207,7 +207,7 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
             declared_repo_channel[repo_config.repository] = routing.declared_channel
 
     try:
-        channels_by_name = fetch_channel_map(integration)
+        channels_by_name = fetch_channel_map(integration, source="stamphog")
     except Exception as e:
         raise RoutingUnavailable(f"could not list Slack channels for team {team_id}: {e}") from e
 
