@@ -43,6 +43,21 @@ describe('GitMetadataParser', () => {
                 remote_url: 'git.example.com/team/flows',
                 expected: undefined,
             },
+            {
+                description: 'should keep every subgroup of a gitlab HTTPS URL',
+                remote_url: 'https://gitlab.com/company/marketing/workflows.git',
+                expected: 'https://gitlab.com/company/marketing/workflows/-/commit/commit-sha',
+            },
+            {
+                description: 'should stop a gitlab project path at a page within the project',
+                remote_url: 'https://gitlab.com/group/project/-/tree/main',
+                expected: 'https://gitlab.com/group/project/-/commit/commit-sha',
+            },
+            {
+                description: 'should keep only the owner and repository of a github URL with a longer path',
+                remote_url: 'https://github.com/user/repo/tree/main',
+                expected: 'https://github.com/user/repo/commit/commit-sha',
+            },
         ])('$description', ({ remote_url, expected }) => {
             const result = GitMetadataParser.getCommitLink(remote_url, 'commit-sha')
             expect(result).toBe(expected)
@@ -95,6 +110,13 @@ describe('GitMetadataParser', () => {
                 ref: 'feature/flows',
                 path: 'workflows/welcome.ts',
                 expected: 'https://gitlab.com/group/project/-/blob/feature/flows/workflows/welcome.ts',
+            },
+            {
+                description: 'links a file in a nested gitlab namespace',
+                remote_url: 'gitlab.com/company/marketing/workflows',
+                ref: 'main',
+                path: 'workflows/welcome.ts',
+                expected: 'https://gitlab.com/company/marketing/workflows/-/blob/main/workflows/welcome.ts',
             },
             {
                 description: 'drops a leading ./ and escapes reserved characters in the path',

@@ -178,15 +178,22 @@ export class GitMetadataParser {
             return undefined
         }
 
+        const [provider, providerUrl] = this.parseDomain(domain)
         const owner = pathParts[0]
-        let repository = pathParts[1]
+        let repository = provider === 'gitlab' ? this.gitlabProjectPath(pathParts.slice(1)) : pathParts[1]
         if (repository.endsWith('.git')) {
             repository = repository.slice(0, -4)
         }
 
-        const [provider, providerUrl] = this.parseDomain(domain)
-
         return { provider, owner, repository, providerUrl }
+    }
+
+    // A GitLab project can sit in nested subgroups, so every part up to the `-` that starts a page
+    // within the project belongs to its path. Keeping only the first part would link a parent group.
+    private static gitlabProjectPath(partsAfterOwner: string[]): string {
+        const pageStart = partsAfterOwner.indexOf('-')
+        const projectParts = pageStart === -1 ? partsAfterOwner : partsAfterOwner.slice(0, pageStart)
+        return projectParts.filter(Boolean).join('/')
     }
 
     private static parseSchemelessRemoteUrl(remoteUrl: string): ParsedRemoteUrl | undefined {
