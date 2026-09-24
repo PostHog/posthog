@@ -1,13 +1,14 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from posthog.models.scoping import team_scope
 
 from products.alerts.backend.facade.contracts import PlatformAlertOutcome, PlatformAlertUpsert, SourceKind
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, upsert_configuration
-from products.alerts.backend.models import PlatformAlertConfiguration
+from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
 class TestPlatformAlertLifecycle(APIBaseTest):
@@ -93,8 +94,15 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             ]
             return check.state, check.snooze_until
 
-        copy(snoozed_until)
+        with time_machine.travel(self.cutoff, tick=False):
+            copy(snoozed_until)
         assert snooze_seen_by_check() == ("snoozed", snoozed_until)
 
         copy(None)
         assert snooze_seen_by_check() == ("not_firing", None)
+
+        with team_scope(self.team.id):
+            PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(state="firing")
+        expired = self.cutoff - timedelta(hours=1)
+        copy(expired)
+        assert snooze_seen_by_check() == ("firing", expired)

@@ -9,6 +9,7 @@ from datetime import datetime
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from products.alerts.backend.facade.contracts import PlatformAlertCheck, PlatformAlertOutcome, PlatformAlertUpsert
 from products.alerts.backend.facade.scheduling import (
@@ -190,7 +191,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
         # Logs-style evaluation honors `snooze_until` only while the state is SNOOZED.
-        if upsert.snooze_until is not None:
+        if upsert.snooze_until is not None and upsert.snooze_until > timezone.now():
             alert.state = PlatformAlert.State.SNOOZED
         elif alert.state == PlatformAlert.State.SNOOZED:
             alert.state = PlatformAlert.State.NOT_FIRING
