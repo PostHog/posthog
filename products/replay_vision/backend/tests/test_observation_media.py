@@ -24,6 +24,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.activities.observation_media import (
+    _pick_video_time_s,
     finalize_observation_thumbnail_activity,
     prepare_observation_thumbnail_activity,
 )
@@ -105,32 +106,18 @@ class TestObservationMedia(BaseTest):
 
     @parameterized.expand(
         [
-            ("citation_wins", {"summary_segments": [{"kind": "chip", "timestamp_ms": 12_000}]}, [(40, 60)], None, 12.0),
-            ("signal_midpoint", {"summary_segments": [{"kind": "text", "value": "no chip"}]}, [(40, 60)], None, 50.0),
-            ("quarter_of_the_video", {}, [], None, 25.0),
-            ("pick_at_the_start_skips_the_unstyled_frames", {}, [], 0, 3.0),
-            ("pick_past_the_end_skips_the_unloading_frames", {}, [], 500, 97.0),
-            (
-                "citation_at_the_start_skips_them_too",
-                {"summary_segments": [{"kind": "chip", "timestamp_ms": 0}]},
-                [],
-                None,
-                3.0,
-            ),
+            ("citation_wins", {"summary_segments": [{"kind": "chip", "timestamp_ms": 12_000}]}, [(40, 60)], 12.0),
+            ("signal_midpoint", {"summary_segments": [{"kind": "text", "value": "no chip"}]}, [(40, 60)], 50.0),
+            ("quarter_of_the_video", {}, [], 25.0),
         ]
     )
     def test_thumbnail_moment(
-        self,
-        _name: str,
-        model_output: dict[str, Any],
-        signals: list[tuple[int, int]],
-        thumbnail_video_s: int | None,
-        expected_s: float,
+        self, _name: str, model_output: dict[str, Any], signals: list[tuple[int, int]], expected_s: float
     ) -> None:
         self.observation.scanner_result = {"model_output": model_output}
         self.observation.save(update_fields=["scanner_result"])
 
-        prepared = self._prepare(signal_video_times=signals, thumbnail_video_s=thumbnail_video_s)
+        prepared = self._prepare(signal_video_times=signals)
 
         assert prepared.activity_input.video_time_s == expected_s
         assert prepared.video_start_ms == int(expected_s * 1000)
@@ -297,3 +284,21 @@ class TestObservationMediaSerialization(BaseTest):
         assert [entry["id"] for entry in media] == [ready.id]
         assert media[0]["asset_id"] == ready.asset_id
         assert media[0]["video_start_ms"] == 1000
+
+
+@pytest.mark.parametrize(
+    "thumbnail_video_s,model_output,duration_s,expected_s",
+    [
+        (0, None, 100.0, 3.0),
+        (500, None, 100.0, 97.0),
+        (None, {"summary_segments": [{"kind": "chip", "timestamp_ms": 0}]}, 100.0, 3.0),
+        (1, None, 4.0, 2.0),
+    ],
+)
+def test_the_thumbnail_moment_stays_off_the_unstyled_edges_of_the_video(
+    thumbnail_video_s: int | None, model_output: dict[str, Any] | None, duration_s: float, expected_s: float
+) -> None:
+    inputs = ObservationMediaInputs(
+        team_id=1, observation_id=uuid7(), session_id="s", analysis_asset_id=1, thumbnail_video_s=thumbnail_video_s
+    )
+    assert _pick_video_time_s(inputs, model_output, None, duration_s) == expected_s
