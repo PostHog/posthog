@@ -15,6 +15,7 @@ import {
   RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
+import type { SpanContext } from "@opentelemetry/api";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
@@ -508,6 +509,7 @@ export class AgentServer {
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
+  private stampedRunTraceId: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
@@ -1129,6 +1131,12 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
+      // An abort during initialization leaves the root span open with no session
+      // to carry it, and the caller exits the process as soon as this returns.
+      await withTimeout(
+        this.initializingTelemetry?.shutdown() ?? Promise.resolve(),
+        5_000,
+      );
     } finally {
       this.server?.close();
       this.server = null;
@@ -1144,6 +1152,10 @@ export class AgentServer {
    * the multi-hour inactivity timeout. Best-effort and self-contained so it can
    * run from a process-level handler with no session context.
    */
+  private get agentVersion(): string {
+    return this.config.version ?? packageJson.version;
+  }
+
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
@@ -1163,6 +1175,7 @@ export class AgentServer {
         {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
+          state: { agent_version: this.agentVersion },
         },
       );
     } catch (updateError) {
@@ -1557,7 +1570,7 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          const turnTraceId = this.promptResultTraceId(result);
+          const turnTraceId = this.turnTraceId(result);
           this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
@@ -1860,9 +1873,9 @@ export class AgentServer {
           },
         },
       });
-      await telemetry?.shutdown();
       throw error;
     } finally {
+      await this.initializingTelemetry?.shutdown();
       await this.cleanupInitializingConnection();
       this.initializingConnection = null;
       this.initializingTelemetry = undefined;
@@ -1981,7 +1994,15 @@ export class AgentServer {
 
     const runtimeAdapter = this.getRuntimeAdapter();
 
+    const telemetry = this.createRunTelemetry(
+      payload,
+      deviceInfo,
+      runtimeAdapter,
+    );
+    this.initializingTelemetry = telemetry;
+
     const gatewayEnv = this.configureEnvironment({
+      runSpanContext: telemetry?.getRunSpanContext(),
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
@@ -2004,6 +2025,11 @@ export class AgentServer {
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
     });
+
+    // Only that stamped header makes the run id a trace the generations land
+    // in. Unconditional so a re-init on this instance drops a stale run's id.
+    this.stampedRunTraceId =
+      gatewayEnv.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
       // Authed so this cache-warm matches the session's own authed fetch
@@ -2083,13 +2109,6 @@ export class AgentServer {
       userAgent: `posthog/cloud.hog.dev; version: ${this.config.version ?? packageJson.version}`,
     });
 
-    const telemetry = this.createRunTelemetry(
-      payload,
-      deviceInfo,
-      runtimeAdapter,
-    );
-    this.initializingTelemetry = telemetry;
-
     const logWriter = new SessionLogWriter({
       posthogAPI,
       logger: new Logger({ debug: true, prefix: "[SessionLogWriter]" }),
@@ -2124,6 +2143,7 @@ export class AgentServer {
       eventIdSource: this.nextEventId,
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
+      stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
@@ -2444,9 +2464,12 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
-        ...(isBenjaminEnabled() && {
-          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
-        }),
+        state: {
+          agent_version: this.agentVersion,
+          ...(isBenjaminEnabled() && {
+            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+          }),
+        },
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -2940,7 +2963,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -3336,7 +3359,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -4596,6 +4619,7 @@ export class AgentServer {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
         error_message: persistedErrorMessage,
+        state: { agent_version: this.agentVersion },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {
@@ -4649,6 +4673,7 @@ export class AgentServer {
   }
 
   private configureEnvironment({
+    runSpanContext,
     isInternal = false,
     originProduct,
     signalReportId,
@@ -4666,6 +4691,7 @@ export class AgentServer {
     prewarmed,
     executionEnvironment,
   }: {
+    runSpanContext?: SpanContext;
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
@@ -4723,6 +4749,9 @@ export class AgentServer {
     // path sets them as `model_providers.posthog.http_headers` instead, so we
     // also expose the record form below.
     const gatewayProperties = {
+      // Gateway headers live for the session, so correlate with its enclosing run.
+      task_run_trace_id: runSpanContext?.traceId,
+      task_run_span_id: runSpanContext?.spanId,
       task_origin_product: originProduct,
       task_internal: isInternal,
       signal_report_id: signalReportId,
@@ -4767,6 +4796,13 @@ export class AgentServer {
       // so it rides the OpenAI record; the Claude path has no tier concept.
       if (this.config.serviceTier) {
         openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
+      }
+      // Codex sends no trace header, so the gateway stamps a fresh id per
+      // request and a run's generations each land in a trace of one. Codex-only:
+      // this header outranks `traceparent`, so setting it for Claude would
+      // replace the per-turn ids its CLI mints with one id for the whole run.
+      if (taskRunId && runtimeAdapter === "codex") {
+        openaiCustomHeaders["X-PostHog-Trace-Id"] = taskRunId;
       }
     } else {
       customHeaders = buildPosthogScopedPropertyHeaderLines(
@@ -5584,11 +5620,12 @@ export class AgentServer {
     this.broadcastEvent(event);
   }
 
-  /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
-  private promptResultTraceId(result: PromptResponse): string | null {
+  /** The turn's gateway trace id: the one the Claude adapter reports via
+   * `PromptResponse._meta`, else the run id the codex headers stamped. */
+  private turnTraceId(result: PromptResponse): string | null {
     const traceId = (result._meta as { traceId?: unknown } | undefined)
       ?.traceId;
-    return typeof traceId === "string" ? traceId : null;
+    return typeof traceId === "string" ? traceId : this.stampedRunTraceId;
   }
 
   private broadcastTurnComplete(

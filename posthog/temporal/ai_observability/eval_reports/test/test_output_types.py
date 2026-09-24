@@ -9,6 +9,31 @@ from posthog.temporal.ai_observability.eval_reports.output_types import (
 
 
 class TestOutcomeDefinitions(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("gte", 6, "fail"),
+            ("gte", 7, "pass"),
+            ("gte", 8, "pass"),
+            ("lte", 6, "pass"),
+            ("lte", 7, "pass"),
+            ("lte", 8, "fail"),
+        ]
+    )
+    def test_numeric_passing_rule(self, operator, score, outcome):
+        definition = get_outcome_definition(
+            "numeric", output_config={"passing_rule": {"operator": operator, "threshold": 7}}
+        )
+        self.assertEqual(definition.label_for(score), outcome)
+        self.assertEqual(definition.label_for(None, applicable=False), "na")
+        self.assertIsNone(definition.label_for(True))
+        self.assertIsNone(definition.label_for(float("nan")))
+        self.assertIn("{numeric_threshold}", definition.outcome_predicates["pass"])
+        self.assertEqual(definition.query_placeholders["numeric_threshold"].value, 7)
+
+    def test_numeric_without_rule_has_no_pass_fail(self):
+        definition = get_outcome_definition("numeric")
+        self.assertIsNone(definition.label_for(0))
+
     def test_absent_polarity_keeps_true_as_the_pass(self):
         definition = get_outcome_definition("boolean")
         self.assertIn("properties.$ai_evaluation_result = true", definition.outcome_predicates["pass"])
@@ -48,13 +73,13 @@ class TestOutcomeDefinitions(SimpleTestCase):
         self.assertEqual(definition.label_for(0), "fail")
 
     def test_supported_types_are_derived_from_the_builders(self):
-        self.assertEqual(set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES), {"boolean", "sentiment"})
+        self.assertEqual(set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES), {"boolean", "sentiment", "numeric"})
         for output_type in SUPPORTED_EVAL_REPORT_OUTPUT_TYPES:
             self.assertIsNotNone(get_outcome_definition(output_type))
 
     def test_unsupported_type_raises(self):
         with self.assertRaises(ValueError):
-            get_outcome_definition("numeric")
+            get_outcome_definition("unsupported")
 
 
 class TestReportPromptPolarity(SimpleTestCase):

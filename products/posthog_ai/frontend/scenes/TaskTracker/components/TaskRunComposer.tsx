@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type MutableRefObject, type RefObject, useEffect } from 'react'
+import { type MutableRefObject, type RefObject, useEffect, useMemo } from 'react'
 
 import { projectLogic } from 'scenes/projectLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -11,7 +11,7 @@ import { runInteractionLogic, type RunInteractionLogicProps } from 'products/pos
 import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
-import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { getRuntimeAdapterForModel, pickerModels } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
@@ -50,6 +50,7 @@ export function TaskRunComposer({
         cancellationState,
     } = useValues(runInteractionLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
+    const offeredModels = useMemo(() => pickerModels(catalogue, selectedModel), [catalogue, selectedModel])
     const { user } = useValues(userLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
@@ -149,7 +150,7 @@ export function TaskRunComposer({
                                 modes={getModesForRuntimeAdapter(composerAdapter)}
                             />
                             <ComposerModelEffortPickers
-                                models={catalogue}
+                                models={offeredModels}
                                 selectedModel={selectedModel}
                                 defaultModel={defaultModel}
                                 isDefaultModelLoading={myConfigLoading}

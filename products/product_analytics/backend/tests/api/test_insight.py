@@ -17,7 +17,9 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, PropertyMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1006,6 +1008,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         result_ids = [r["id"] for r in response.json()["results"]]
         assert result_ids.index(newer.id) < result_ids.index(older.id), (
             "explicit order=-id should override relevance ranking and put newer insight first"
+        )
+
+    def test_list_without_order_sorts_by_last_modified_at_descending(self):
+        now = timezone.now()
+        older = Insight.objects.create(
+            name="older",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=1,
+            last_modified_at=now - timedelta(days=2),
+        )
+        newer = Insight.objects.create(
+            name="newer",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=2,
+            last_modified_at=now - timedelta(days=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids.index(newer.id) < result_ids.index(older.id), (
+            "the default list order must be newest-modified first, not the vestigial `order` column"
         )
 
     def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
@@ -3101,6 +3128,23 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
         self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
+
+    def test_soft_delete_locks_the_insight_before_removing_its_alerts(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
+        AlertConfiguration.objects.create(team=self.team, insight_id=insight_id, name="alert")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock_index = next(
+            i for i, q in enumerate(sql) if q.startswith('SELECT "posthog_dashboarditem"') and "FOR NO KEY UPDATE" in q
+        )
+        delete_index = next(
+            i for i, q in enumerate(sql) if q.startswith("DELETE") and "posthog_alertconfiguration" in q
+        )
+        self.assertLess(lock_index, delete_index)
 
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
