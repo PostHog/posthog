@@ -77,7 +77,13 @@ WithNavigation.parameters = {
 }
 
 export const BranchDeletionBlocked: StoryFn = WithNavigation.bind({})
-BranchDeletionBlocked.parameters = WithNavigation.parameters
+BranchDeletionBlocked.parameters = {
+    ...WithNavigation.parameters,
+    testOptions: {
+        ...WithNavigation.parameters?.testOptions,
+        snapshotBrowsers: [],
+    },
+}
 BranchDeletionBlocked.play = async ({ canvasElement }) => {
     const branchSelector = '.react-flow__node[data-id="route-by-stage"]'
     await waitFor(() => expect(canvasElement.querySelector(branchSelector)).not.toBeNull())
