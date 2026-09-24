@@ -10694,19 +10694,20 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
         description=("Exclude internal and test users by applying the team's test-account filter."),
     )
     kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
-    metric: WebVitalsMetric = Field(
-        ...,
+    metric: WebVitalsMetric | None = Field(
+        default=WebVitalsMetric.LCP,
         description=(
-            "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP`"
+            "Which Core Web Vital to break down by: `LCP` (load, ms), `INP`"
             " (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP`"
-            " (first paint, ms)."
+            " (first paint, ms). Defaults to `LCP` when omitted."
         ),
     )
-    percentile: WebVitalsPercentile = Field(
-        ...,
+    percentile: WebVitalsPercentile | None = Field(
+        default=WebVitalsPercentile.P75,
         description=(
-            "Required. Percentile to aggregate each page's samples at. Use `p75` unless"
-            " the user asks otherwise — the Google bands are defined at p75."
+            "Percentile to aggregate each page's samples at. Defaults to `p75` — the"
+            " percentile the Google bands are defined at. `p90` / `p99` show the slow"
+            " tail."
         ),
     )
     properties: list[EventPropertyFilter | PersonPropertyFilter] | None = Field(
@@ -10718,14 +10719,14 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
             " isolate mobile."
         ),
     )
-    thresholds: list[float] = Field(
-        ...,
+    thresholds: list[float] | None = Field(
+        default=None,
         description=(
-            "Required. `[good, poor]` band boundaries for the chosen metric. Values"
-            " below `good` are good, above `poor` are poor, in between need"
-            " improvement. Use the standard Google thresholds unless the user supplies"
-            " their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP"
-            " `[1800, 3000]`."
+            "`[good, poor]` band boundaries for the chosen metric. Values below `good`"
+            " are good, above `poor` are poor, in between need improvement. When"
+            " omitted, the standard Google thresholds for `metric` apply: LCP `[2500,"
+            " 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`. Only set"
+            " this to use your own bands."
         ),
         max_length=2,
         min_length=2,
@@ -25939,16 +25940,16 @@ class AssistantWebStatsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdownBy: WebStatsBreakdown = Field(
-        ...,
+    breakdownBy: WebStatsBreakdown | None = Field(
+        default=WebStatsBreakdown.PAGE,
         description=(
-            "Required. Property to break down the table by. The full enum covers"
-            " path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`),"
-            " marketing/source (UTM source/medium/campaign/term/content, channel,"
-            " referring domain), audience/device (browser, OS, device type, viewport),"
-            " and geography (country, region, city, timezone, language). Path-style"
-            " breakdowns pair naturally with `includeBounceRate` /"
-            " `includeAvgTimeOnPage`."
+            "Property to break down the table by. Defaults to `Page` — the top-pages"
+            " table — when omitted. The full enum covers path-style (`Page`,"
+            " `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM"
+            " source/medium/campaign/term/content, channel, referring domain),"
+            " audience/device (browser, OS, device type, viewport), and geography"
+            " (country, region, city, timezone, language). Path-style breakdowns pair"
+            " naturally with `includeBounceRate` / `includeAvgTimeOnPage`."
         ),
     )
     compareFilter: CompareFilter | None = Field(

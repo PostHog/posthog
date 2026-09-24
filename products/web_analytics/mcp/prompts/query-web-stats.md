@@ -23,7 +23,7 @@ Use `query-paths` for navigation between arbitrary events when you don't need bo
 
 # Inputs
 
-Same filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.
+Every input is optional. Same filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy`, `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days and default `breakdownBy` is `Page`, so `{}` returns the top pages of the last week.
 
 Performance hints:
 
@@ -32,7 +32,13 @@ Performance hints:
 
 Use `read-data-schema` to validate property names/values when needed.
 
-# Example
+# Examples
+
+Top pages, last 7 days — the smallest call that returns data:
+
+```json
+{}
+```
 
 Top 20 pages by bounce rate, last 7 days:
 

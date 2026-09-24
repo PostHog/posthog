@@ -590,8 +590,10 @@ const non_negative_integer = z.coerce.number().int().min(0)
 
 const AssistantWebStatsTableQuery = z.object({
     breakdownBy: WebStatsBreakdown.describe(
-        'Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.'
-    ),
+        'Property to break down the table by. Defaults to `Page` — the top-pages table — when omitted. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.'
+    )
+        .default('Page')
+        .optional(),
     compareFilter: CompareFilter.describe(
         'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
     ).optional(),
@@ -668,11 +670,15 @@ const AssistantWebVitalsPathBreakdownQuery = z.object({
         .optional(),
     kind: z.literal('WebVitalsPathBreakdownQuery').default('WebVitalsPathBreakdownQuery'),
     metric: WebVitalsMetric.describe(
-        'Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).'
-    ),
+        'Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms). Defaults to `LCP` when omitted.'
+    )
+        .default('LCP')
+        .optional(),
     percentile: WebVitalsPercentile.describe(
-        "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75."
-    ),
+        "Percentile to aggregate each page's samples at. Defaults to `p75` — the percentile the Google bands are defined at. `p90` / `p99` show the slow tail."
+    )
+        .default('p75')
+        .optional(),
     properties: z
         .array(z.union([EventPropertyFilter, PersonPropertyFilter]))
         .describe(
@@ -685,8 +691,9 @@ const AssistantWebVitalsPathBreakdownQuery = z.object({
         .min(2)
         .max(2)
         .describe(
-            'Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.'
-        ),
+            '`[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. When omitted, the standard Google thresholds for `metric` apply: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`. Only set this to use your own bands.'
+        )
+        .optional(),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {

@@ -52,12 +52,14 @@
             "type": "string"
         },
         "metric": {
-            "description": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).",
+            "default": "LCP",
+            "description": "Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms). Defaults to `LCP` when omitted.",
             "enum": ["INP", "LCP", "CLS", "FCP"],
             "type": "string"
         },
         "percentile": {
-            "description": "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75.",
+            "default": "p75",
+            "description": "Percentile to aggregate each page's samples at. Defaults to `p75` — the percentile the Google bands are defined at. `p90` / `p99` show the slow tail.",
             "enum": ["p75", "p90", "p99"],
             "type": "string"
         },
@@ -266,7 +268,7 @@
             "type": "array"
         },
         "thresholds": {
-            "description": "Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.",
+            "description": "`[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. When omitted, the standard Google thresholds for `metric` apply: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`. Only set this to use your own bands.",
             "items": {
                 "type": "number"
             },
@@ -275,6 +277,5 @@
             "type": "array"
         }
     },
-    "required": ["metric", "percentile", "thresholds"],
     "type": "object"
 }
