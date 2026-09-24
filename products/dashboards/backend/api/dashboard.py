@@ -152,11 +152,8 @@ from products.dashboards.backend.widget_access import (
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
-from products.dashboards.backend.widget_create import prepare_widget_tile_create
-from products.dashboards.backend.widget_layouts import (
-    collect_dashboard_sm_layouts_for_dashboard,
-    stack_widget_layout_at_bottom,
-)
+from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
+from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
@@ -3574,43 +3571,13 @@ class DashboardsViewSet(
         existing_sm_layouts: builtins.list[dict[str, Any]] | None = None,
         pending_sm_layouts: builtins.list[dict[str, Any]] | None = None,
     ) -> DashboardTile:
-        widget_type = payload["widget_type"]
-        config = payload["config"]
-        normalized_widget_type, validated_config = prepare_widget_tile_create(
-            team=self.team,
-            widget_type=widget_type,
-            config=config,
+        return create_widget_tile(
+            dashboard=dashboard,
             user=user,
             user_access_control=user_access_control,
-        )
-        _check_dashboard_widget_count_limit(dashboard=dashboard, user=user)
-        layouts = payload.get("layouts")
-        if layouts is None:
-            layouts = stack_widget_layout_at_bottom(
-                widget_type=normalized_widget_type,
-                existing_sm_layouts=existing_sm_layouts or [],
-                pending_sm_layouts=pending_sm_layouts,
-            )
-        tile_defaults: dict[str, Any] = {
-            "layouts": layouts,
-        }
-        if "show_description" in payload:
-            tile_defaults["show_description"] = payload["show_description"]
-
-        widget = DashboardWidget.objects.create(
-            team_id=self.team_id,
-            widget_type=normalized_widget_type,
-            name=payload.get("name") or None,
-            description=payload.get("description", ""),
-            config=validated_config,
-            created_by=user,
-            last_modified_by=user,
-        )
-        return DashboardTile.objects.create(
-            dashboard=dashboard,
-            team_id=dashboard.team_id,
-            widget=widget,
-            **tile_defaults,
+            payload=payload,
+            existing_sm_layouts=existing_sm_layouts,
+            pending_sm_layouts=pending_sm_layouts,
         )
 
     @extend_schema(

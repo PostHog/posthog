@@ -822,6 +822,7 @@ SPECTACULAR_SETTINGS = {
             "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
             "SurveyResultsWidgetTypeEnum": ["survey_results"],
             "LogsListWidgetTypeEnum": ["logs_list"],
+            "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
         }
     ),

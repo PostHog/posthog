@@ -35,6 +35,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
     ExternalDataSchema,
     complete_schema_run,
     mark_schema_running_unless_halted,
@@ -76,10 +77,20 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
-from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
+    CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
+    cdc_qualified_table_name,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    BUFFER_LANE,
+    cancel_running_sync,
+    is_buffered_snapshot_enabled,
+    snapshot_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    captures_to_buffer,
     consolidated_resource_name,
-    serves_buffered_lane,
+    snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
@@ -121,9 +132,6 @@ CDC_MAX_EXTRACTION_ATTEMPTS = 3
 # identical one says nothing new while burying the runs that do.
 CDC_FAILURE_VISIBILITY_COOLDOWN = dt.timedelta(hours=1)
 
-# Every extraction run carries the schedule's workflow id, which is built from this prefix (see
-# _get_cdc_extraction_schedule_id). Scopes the cooldown lookup to change-capture runs.
-CDC_EXTRACTION_WORKFLOW_ID_PREFIX = "cdc-extraction-"
 
 # Shown as latest_error on prior-run jobs reconciled by _reconcile_orphaned_prior_jobs.
 CDC_ORPHANED_JOB_MESSAGE = (
@@ -263,6 +271,9 @@ class CDCExtractActivity:
         # Table names whose changes this run delivers by buffer alone — no transforms, no
         # sourcebatch dispatch. Resolved once in _setup.
         self._buffered_table_names: set[str] = set()
+        self._source_buffered = False
+        self._buffered_snapshot_flag: bool | None = None
+        self._truncated_tables: list[str] = []
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -966,11 +977,12 @@ class CDCExtractActivity:
             # events travel one lane. Deferred batches carry no position column, so nothing orders
             # them against buffered writes — mixing lanes lets an older deferred row land after a
             # newer buffered one. The consumer holds off too (has_batches_in_flight).
-            self._buffered_table_names = {
-                s.name
-                for s in self.cdc_schemas
-                if serves_buffered_lane(s) and not s.sync_type_config.get("cdc_deferred_runs")
-            }
+            self._source_buffered = True
+            for schema in self.cdc_schemas:
+                if schema.sync_type_config.get("cdc_deferred_runs"):
+                    continue
+                if captures_to_buffer(schema) or self._start_snapshot_in_buffer(schema):
+                    self._buffered_table_names.add(schema.name)
             if self._buffered_table_names:
                 self.log.info(
                     "cdc_buffered_ingress_active",
@@ -984,6 +996,35 @@ class CDCExtractActivity:
         if attempt > 1:
             metrics.get_extract_retry_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
             self.log.info("cdc_extract_retry_attempt", attempt=attempt)
+        return True
+
+    def _buffered_snapshot_enabled(self) -> bool:
+        if self._buffered_snapshot_flag is None:
+            self._buffered_snapshot_flag = is_buffered_snapshot_enabled(self.inputs.team_id, self.log)
+        return self._buffered_snapshot_flag
+
+    def _start_snapshot_in_buffer(self, schema: ExternalDataSchema) -> bool:
+        """Route a snapshotting table the buffer does not carry yet to the buffer, if the flag allows.
+
+        Only a table with no deferred runs gets here, so none of its changes since the snapshot began
+        went to the legacy lane. Its buffer is emptied first: files left from before a gap in capture,
+        such as a re-enable, must not be replayed over the snapshot.
+        """
+        if not (snapshot_can_start_in_buffer(schema) and self._buffered_snapshot_enabled()):
+            return False
+        purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema), strict=True)
+
+        def _mark_if_still_snapshotting(config: dict[str, typing.Any]) -> None:
+            # Read under the row lock. A hand-over that flipped the table to streaming after this run
+            # loaded it has already cleared the marker, and a new one would outlive the snapshot. The
+            # table's changes still belong in the buffer, which its streaming consumer now reads.
+            if config.get("cdc_mode") == "snapshot":
+                config[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+
+        self._update_schema_sync_type_config(schema, mutate=_mark_if_still_snapshotting)
+        self._schema_log(schema).info(
+            "cdc_snapshot_started_in_buffer", schema_id=str(schema.id), marked=snapshot_in_buffer(schema)
+        )
         return True
 
     def _delete_own_schedule(self) -> None:
@@ -1330,6 +1371,7 @@ class CDCExtractActivity:
                         self.last_complete_txn_end_lsn is not None
                         and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
                     ):
+                        self._handle_truncates()
                         self._confirm_position(self.last_complete_txn_end_lsn)
                         self.last_confirmed_lsn = self.last_complete_txn_end_lsn
                     self.log.info(
@@ -1387,6 +1429,7 @@ class CDCExtractActivity:
 
         commit_lsn = self.reader.last_commit_end_lsn
         if commit_lsn is not None and commit_lsn != self.last_confirmed_lsn:
+            self._handle_truncates()
             self._confirm_position(commit_lsn)
             self.last_confirmed_lsn = commit_lsn
             self.last_end_lsn = commit_lsn
@@ -1420,11 +1463,13 @@ class CDCExtractActivity:
     def _handle_truncates(self) -> list[str]:
         """Process any truncated tables observed during decoding.
 
-        Returns the list of truncated table names so the no-changes path can
-        decide whether to advance the slot.
+        Runs before every slot advance, so a failed reset or purge fails the run while the slot still
+        holds the TRUNCATE and the retry repeats it. Returns every table truncated this run, so the
+        no-changes path can decide whether to advance the slot.
         """
         truncated_tables = list(self.reader.truncated_tables)
         self.reader.clear_truncated_tables()
+        self._truncated_tables.extend(truncated_tables)
         # The decoder names a table `schema.table`, while a schema created with a source schema set is
         # stored bare, so the lookup goes through the same map as the change events.
         stored_names = self._build_event_name_map()
@@ -1437,25 +1482,47 @@ class CDCExtractActivity:
             )
             self._reset_schema_to_snapshot(trunc_schema)
             self._unpause_schema_schedule(trunc_schema)
-        return truncated_tables
+        return list(self._truncated_tables)
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
+        # A snapshot already running may have read the table before changes this reset drops, as
+        # when a retry reads a TRUNCATE again. It must not reach its hand-over. A failed cancel fails
+        # the run while the slot still holds the TRUNCATE, so the retry repeats the reset.
+        cancelled = cancel_running_sync(schema)
+        if cancelled:
+            self._schema_log(schema).info("cdc_reset_cancelled_running_sync", workflow_id=cancelled)
+        # The re-seeding snapshot starts after this run, so it covers every change this run read.
+        # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
+        if self.batcher is not None:
+            self.batcher.discard(schema.name)
+        # Purged before the marker is set, because the hand-over keeps every file of a marked schema.
+        # On a buffered source a stale file can outlive the run and be replayed, so a failed purge
+        # fails the run while the slot still holds the TRUNCATE, and the next run repeats the reset.
+        purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema), strict=self._source_buffered)
         removes = ["cdc_last_log_position"]
         if clear_deferred_runs:
             removes.append("cdc_deferred_runs")
+        updates: dict[str, typing.Any] = {"cdc_mode": "snapshot", "reset_pipeline": True}
+        # Later runs write the table's changes to the emptied buffer as an unbroken run, so the next
+        # snapshot stays in the buffer with them.
+        if schema.name in self._buffered_table_names and (
+            snapshot_in_buffer(schema) or self._buffered_snapshot_enabled()
+        ):
+            updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+        else:
+            removes.append(CDC_SNAPSHOT_LANE_KEY)
+            # The unmarked hand-over purges the buffer, so the rest of this run's changes go to
+            # deferred runs, as the next run's will.
+            self._buffered_table_names.discard(schema.name)
         # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
         # preventing pre-truncate rows from surviving a TRUNCATE or lost-slot re-snapshot.
         self._update_schema_sync_type_config(
             schema,
-            updates={"cdc_mode": "snapshot", "reset_pipeline": True},
+            updates=updates,
             removes=removes,
             extra_model_fields={"initial_sync_complete": False},
         )
-        # The reset invalidates every buffered change file: the table is wiped and
-        # re-seeded through the snapshot lane the buffer never sees, and the filename
-        # contract has no way to express that discontinuity. Best-effort purge.
-        purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema))
         if clear_deferred_runs:
             self._emit_deferred_runs_depth()
 
@@ -1578,15 +1645,18 @@ class CDCExtractActivity:
                 tracker.job.save(update_fields=["rows_synced", "status", "finished_at", "updated_at"])
 
     def _advance_slot_after_run(self) -> None:
-        """Advance the slot to the last LSN if the final flush moved past the last incremental advance.
+        """Advance the slot past everything this run read, once the final flush has landed.
 
-        Intermediate micro-batches already advanced the slot incrementally inside the
-        read loop, so this only fires if the final flush contained new events beyond
-        the last incremental advance.
+        A read always stops at a transaction boundary, and by now every event up to the decoder's
+        last commit is flushed. Confirming that commit rather than the last event also moves past
+        trailing transactions with no row events. A TRUNCATE on its own is one: this run already
+        handled it, and reading it again would reset the table a second time.
         """
-        if self.last_end_lsn is not None and self.last_end_lsn != self.last_confirmed_lsn:
-            self._confirm_position(self.last_end_lsn)
-            self.log.info("slot_advanced", position=self.last_end_lsn)
+        target = self.reader.last_commit_end_lsn or self.last_end_lsn
+        if target is not None and target != self.last_confirmed_lsn:
+            self._confirm_position(target)
+            self.last_end_lsn = target
+            self.log.info("slot_advanced", position=target)
 
     def _update_log_positions(self) -> None:
         """Update per-schema cdc_last_log_position (skip schemas reset to snapshot mode)."""
