@@ -14,6 +14,7 @@ ui_apps:
         description: Visual review run snapshots — diff viewer with approve/tolerate actions
         resource_domains:
             - https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/
+            - http://localhost:19000/posthog/visual_review/
 tools:
     visual-review-repos-baselines-retrieve:
         operation: visual_review_repos_baselines_retrieve

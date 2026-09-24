@@ -333,7 +333,10 @@ export const UI_APPS: Array<{
         uri: VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
         description: 'Visual review run snapshots — diff viewer with approve/tolerate actions',
         appDir: 'visual-review-snapshots',
-        resourceDomains: ['https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'],
+        resourceDomains: [
+            'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/',
+            'http://localhost:19000/posthog/visual_review/',
+        ],
     },
     {
         name: 'PostHog Workflow',
