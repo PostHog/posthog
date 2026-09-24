@@ -139,8 +139,8 @@ describe('dataNodeCollectionLogic', () => {
                     insights_fetched: 2,
                     insights_fetched_cached: 1,
                     failed_tile_count: 1,
-                    unmounted_tile_count: 0,
                     last_tile_id: 'tile-b',
+                    last_tile_kind: 'TrendsQuery',
                     last_tile_status: 'failure',
                     time_to_see_data_ms: expect.any(Number),
                     primary_interaction_id: expect.any(String),
@@ -179,6 +179,29 @@ describe('dataNodeCollectionLogic', () => {
             privateLogic.unmount()
         })
 
+        it('counts a tile once when it reloads before the load ends', () => {
+            mountTile('tile-a')
+            mountTile('tile-b')
+            logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadData('tile-b')
+            logic.actions.collectionNodeLoadDataFailure('tile-a')
+
+            logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadDataSuccess('tile-b')
+            expect(capturedLoads()).toHaveLength(0)
+
+            logic.actions.collectionNodeLoadDataSuccess('tile-a', { isCached: true })
+
+            expect(capturedLoads()).toEqual([
+                expect.objectContaining({
+                    status: 'success',
+                    insights_fetched: 2,
+                    insights_fetched_cached: 1,
+                    failed_tile_count: 0,
+                }),
+            ])
+        })
+
         it.each([
             [
                 'every loading tile unmounts',
@@ -187,6 +210,39 @@ describe('dataNodeCollectionLogic', () => {
                     logic.actions.unmountDataNode('tile-b')
                 },
                 'navigated_away',
+                2,
+                undefined,
+            ],
+            [
+                'a loading tile unmounts after its sibling finished',
+                (): void => {
+                    logic.actions.collectionNodeLoadDataSuccess('tile-b')
+                    logic.actions.unmountDataNode('tile-a')
+                    logic.actions.unmountDataNode('tile-b')
+                },
+                'navigated_away',
+                1,
+                undefined,
+            ],
+            [
+                'a tile unmounts while it reloads',
+                (): void => {
+                    logic.actions.collectionNodeLoadDataSuccess('tile-a')
+                    logic.actions.collectionNodeLoadData('tile-a')
+                    logic.actions.collectionNodeLoadDataSuccess('tile-b')
+                    logic.actions.unmountDataNode('tile-a')
+                },
+                'navigated_away',
+                1,
+                undefined,
+            ],
+            [
+                'the person refreshes',
+                (): void => {
+                    logic.actions.reloadAll()
+                },
+                'refreshed',
+                2,
                 undefined,
             ],
             [
@@ -195,9 +251,10 @@ describe('dataNodeCollectionLogic', () => {
                     window.dispatchEvent(new Event('pagehide'))
                 },
                 'left_app',
+                2,
                 { transport: 'sendBeacon' },
             ],
-        ])('reports one cancelled load when %s', (_, leave, reason, options) => {
+        ])('reports one cancelled load when %s', (_, leave, reason, stillLoading, options) => {
             mountTile('tile-a')
             mountTile('tile-b')
             logic.actions.collectionNodeLoadData('tile-a')
@@ -214,30 +271,10 @@ describe('dataNodeCollectionLogic', () => {
                     status: 'cancelled',
                     cancel_reason: reason,
                     insights_fetched: 2,
-                    tiles_still_loading: 2,
+                    tiles_still_loading: stillLoading,
                 }),
                 options
             )
-        })
-
-        it('settles when a tile unmounts mid-load and the rest have finished', () => {
-            mountTile('tile-a')
-            mountTile('tile-b')
-            logic.actions.collectionNodeLoadData('tile-a')
-            logic.actions.collectionNodeLoadData('tile-b')
-            logic.actions.collectionNodeLoadDataSuccess('tile-b')
-
-            logic.actions.unmountDataNode('tile-a')
-
-            expect(capturedLoads()).toEqual([
-                expect.objectContaining({
-                    status: 'success',
-                    insights_fetched: 2,
-                    unmounted_tile_count: 1,
-                    last_tile_id: 'tile-a',
-                    last_tile_status: 'unmounted',
-                }),
-            ])
         })
     })
 })

@@ -24,12 +24,11 @@ export interface PageLoadTimeToSeeData extends TimeToSeeDataFields {
     scene: string | null
     time_since_mount_ms: number
     failed_tile_count?: number
-    unmounted_tile_count?: number
     last_tile_id?: string | null
     last_tile_kind?: string | null
     last_tile_status?: string | null
     tiles_still_loading?: number
-    cancel_reason?: 'navigated_away' | 'left_app'
+    cancel_reason?: 'navigated_away' | 'left_app' | 'refreshed'
 }
 
 export type TimeToSeeDataPayload =
