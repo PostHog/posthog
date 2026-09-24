@@ -14,7 +14,7 @@ describe('Tool name validation', () => {
     it('shadows only the generated tools it means to', () => {
         const shadowed = Object.keys(TOOL_MAP).filter((name) => name in GENERATED_TOOL_MAP)
 
-        expect(shadowed.sort()).toEqual(['update-feature-flag'])
+        expect(shadowed.sort()).toEqual(['session-recording-get', 'update-feature-flag'])
     })
 
     it.each(Object.keys(allTools))('%s — name matches map key, length, and pattern', (mapKey) => {
