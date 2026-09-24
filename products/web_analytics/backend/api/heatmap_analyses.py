@@ -21,7 +21,6 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 
 from products.exports.backend.models.exported_asset import ExportedAsset, read_content
 from products.web_analytics.backend.api.heatmaps_api import (
-    _URL_PATTERN_CHARS,
     HeatmapsRequestSerializer,
     _heatmaps_cohort_filter_enabled,
     _heatmaps_event_filter_enabled,
@@ -61,6 +60,7 @@ class HeatmapAnalysisCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Choose a date range between one second and 90 days.")
         if date_from > timezone.now():
             raise serializers.ValidationError("Choose dates in the past.")
+        attrs["date_to"] = min(date_to, timezone.now())
         filters = HeatmapsRequestSerializer(
             data={"cohort_ids": attrs.pop("cohort_ids"), "events": attrs.pop("events")}, context=self.context
         )
@@ -216,17 +216,16 @@ class HeatmapAnalysisViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             queryset = queryset.filter(session_id=session_id)
         sources = list(queryset.select_related("asset"))
         available = SessionReplayEvents().batch_exists([source.session_id for source in sources], self.team)
-        deleted = set(
-            SessionRecording.objects.filter(team_id=self.team_id, session_id__in=available, deleted=True).values_list(
-                "session_id", flat=True
-            )
-        )
+        stored = {
+            recording.session_id: recording
+            for recording in SessionRecording.objects.filter(team_id=self.team_id, session_id__in=available)
+        }
         result: dict[str, RecordingAnalysis] = {}
         for source in sources:
-            recording = SessionRecording(team=self.team, session_id=source.session_id)
+            recording = stored.get(source.session_id) or SessionRecording(team=self.team, session_id=source.session_id)
             if (
                 not available.get(source.session_id)
-                or source.session_id in deleted
+                or recording.deleted
                 or not self.user_access_control.check_access_level_for_object(recording, "viewer")
             ):
                 continue
@@ -308,7 +307,7 @@ class HeatmapAnalysisViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if heatmap is None:
             raise exceptions.NotFound()
         url = heatmap.data_url or heatmap.url
-        if any(character in _URL_PATTERN_CHARS for character in url):
+        if "*" in url:
             raise exceptions.ValidationError("Choose a heatmap for one exact URL.")
         if not self.user_access_control.check_access_level_for_object(heatmap, "editor"):
             raise exceptions.PermissionDenied()

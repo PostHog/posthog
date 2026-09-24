@@ -55,7 +55,9 @@ export function HeatmapFilterControls({
     const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
     const eventFilterCount = selectedEventFilters(commonFilters?.events).length
     const filterCount =
-        (commonFilters?.cohort_ids?.length ?? 0) + eventFilterCount + Number(!!commonFilters?.filter_test_accounts)
+        (cohortFilterEnabled ? (commonFilters?.cohort_ids?.length ?? 0) : 0) +
+        (eventFilterEnabled ? eventFilterCount : 0) +
+        Number(!!commonFilters?.filter_test_accounts)
 
     return (
         <div className="@container/heatmap-filters">

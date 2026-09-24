@@ -19,8 +19,10 @@ class HeatmapAnalysis(TeamScopedRootMixin, UUIDTModel):
     ACTIVE_STATUSES = [Status.QUEUED, Status.PROCESSING]
     STALE_AFTER = timedelta(minutes=15)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, db_constraint=False, related_name="+"
+    )
     heatmap = models.ForeignKey("web_analytics.SavedHeatmap", on_delete=models.CASCADE, related_name="analyses")
     url = models.URLField(max_length=2000)
     date_from = models.DateTimeField()
@@ -60,10 +62,10 @@ class HeatmapAnalysis(TeamScopedRootMixin, UUIDTModel):
 
 
 class HeatmapAnalysisRecording(TeamScopedRootMixin, UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     analysis = models.ForeignKey(HeatmapAnalysis, on_delete=models.CASCADE, related_name="recordings")
     session_id = models.CharField(max_length=200)
-    asset = models.ForeignKey("exports.ExportedAsset", on_delete=models.CASCADE, related_name="heatmap_sources")
+    asset = models.ForeignKey("exports.ExportedAsset", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

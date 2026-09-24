@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -136,6 +138,16 @@ export const IframeExampleWithEventFilter: Story = {
         featureFlags: [FEATURE_FLAGS.HEATMAPS_EVENT_FILTER],
     },
     decorators: IframeExample.decorators,
+    play: async () => {
+        const toggle = await waitFor(() => {
+            const button = document.querySelector<HTMLElement>('[data-attr="heatmap-filters-toggle"]')
+            if (!button) {
+                throw new Error('Filters toggle not rendered')
+            }
+            return button
+        })
+        await userEvent.click(toggle)
+    },
 }
 
 export const New: Story = {
