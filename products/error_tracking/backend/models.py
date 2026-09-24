@@ -68,6 +68,9 @@ class ErrorTrackingIssueMergeOutcome:
     result: ErrorTrackingIssueMergeResult
     merged_issue_ids: list[UUID] = dataclasses.field(default_factory=list)
     reopened: bool = False
+    # The target's status as the merge locked it, which a concurrent write may have moved
+    # since the caller loaded the row.
+    previous_status: str | None = None
 
 
 class ErrorTrackingIssue(UUIDTModel):
@@ -115,11 +118,12 @@ class ErrorTrackingIssue(UUIDTModel):
             return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES)
 
         with transaction.atomic():
-            locked_source_statuses = _lock_merge_issues(
+            locked = _lock_merge_issues(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
-            if locked_source_statuses is None:
+            if locked is None:
                 return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.STALE_ISSUES)
+            target_status, locked_source_statuses = locked
             if not locked_source_statuses:
                 return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES)
             if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
@@ -129,7 +133,7 @@ class ErrorTrackingIssue(UUIDTModel):
 
             existing_source_issue_ids = list(locked_source_statuses)
             reopened = _target_reopens_on_merge(
-                target_status=self.status, source_statuses=locked_source_statuses.values()
+                target_status=target_status, source_statuses=locked_source_statuses.values()
             )
 
             locked_source_fingerprints = list(
@@ -159,16 +163,19 @@ class ErrorTrackingIssue(UUIDTModel):
             if reopened:
                 target_updates["status"] = ErrorTrackingIssue.Status.ACTIVE
             ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(**target_updates)
-            if reopened:
-                # Keep the in-memory row in sync so a caller can snapshot the issue for the
-                # reopened notification without reading it back.
-                self.status = ErrorTrackingIssue.Status.ACTIVE
+            # Sync the in-memory row to the locked truth, so a caller can snapshot the issue for
+            # the reopened notification without reading it back, and never reports a status a
+            # concurrent write moved before the lock.
+            self.status = ErrorTrackingIssue.Status.ACTIVE if reopened else target_status
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
             )
             return ErrorTrackingIssueMergeOutcome(
-                ErrorTrackingIssueMergeResult.MERGED, existing_source_issue_ids, reopened
+                ErrorTrackingIssueMergeResult.MERGED,
+                existing_source_issue_ids,
+                reopened,
+                previous_status=target_status,
             )
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
@@ -285,13 +292,17 @@ def _normalize_source_issue_ids(*, issue_ids: Sequence[str | UUID], target_issue
     return sorted(source_issue_ids, key=lambda issue_id: issue_id.hex)
 
 
-def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> dict[UUID, str] | None:
+def _lock_merge_issues(
+    *, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]
+) -> tuple[str, dict[UUID, str]] | None:
     """Row-lock the target and the sources that still exist, tolerating a partially stale selection.
 
     Returns None when the target issue itself is gone (nothing to merge into). Otherwise returns the
-    subset of source ids that still exist, each mapped to its locked status — sources that
-    disappeared before the lock (already merged, deleted, or lost to a concurrent merge) are dropped
-    so the merge proceeds with what remains, instead of rejecting the whole request.
+    target's locked status, and the subset of source ids that still exist mapped to their locked
+    status — sources that disappeared before the lock (already merged, deleted, or lost to a
+    concurrent merge) are dropped so the merge proceeds with what remains, instead of rejecting the
+    whole request. Every status comes from the locked row, so a write that landed between the
+    caller's read and the lock cannot be read as stale.
     """
     locked_statuses = {
         issue.id: issue.status
@@ -299,10 +310,13 @@ def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids:
         .filter(team_id=team_id, id__in=[target_issue_id, *source_issue_ids])
         .order_by("id")
     }
-    if target_issue_id not in locked_statuses:
+    target_status = locked_statuses.get(target_issue_id)
+    if target_status is None:
         return None
 
-    return {issue_id: locked_statuses[issue_id] for issue_id in source_issue_ids if issue_id in locked_statuses}
+    return target_status, {
+        issue_id: locked_statuses[issue_id] for issue_id in source_issue_ids if issue_id in locked_statuses
+    }
 
 
 def _target_reopens_on_merge(*, target_status: str, source_statuses: Iterable[str]) -> bool:

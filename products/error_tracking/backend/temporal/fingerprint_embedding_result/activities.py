@@ -33,6 +33,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 
 AUTO_MERGE_DISTANCE_THRESHOLD = 0.019
+NIL_UUID = "00000000-0000-0000-0000-000000000000"
 
 CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
     "text-embedding-3-large-3072": """
@@ -195,6 +196,17 @@ def _report_closest_fingerprint_metrics(
     )
 
 
+def _event_reference(inputs: FingerprintEmbeddingResultInputs) -> str:
+    """Name the exception that caused the reopen, for the notification id.
+
+    A nil event uuid is truthy but names nothing, so it falls back to the exception's own
+    timestamp. `timestamp` is the issue's creation time, so it is the last resort only.
+    """
+    if inputs.event_uuid and inputs.event_uuid != NIL_UUID:
+        return inputs.event_uuid
+    return inputs.event_timestamp or inputs.timestamp
+
+
 def _reopened_target(
     issue: ErrorTrackingIssue,
     *,
@@ -324,7 +336,7 @@ def merge_similar_fingerprints(
             inputs.fingerprint,
             closest_fingerprints,
             inputs.source_issue_id,
-            event_reference=inputs.event_uuid or inputs.timestamp,
+            event_reference=_event_reference(inputs),
         )
 
         return FingerprintEmbeddingMergeResult(

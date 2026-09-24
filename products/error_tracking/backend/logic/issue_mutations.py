@@ -175,7 +175,6 @@ def merge_issues(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    status_before = issue.status
     outcome = issue.merge(issue_ids=ids)
 
     if outcome.result == ErrorTrackingIssueMergeResult.MERGED:
@@ -203,12 +202,12 @@ def merge_issues(
             user=user,
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
-        if outcome.reopened:
+        if outcome.reopened and outcome.previous_status is not None:
             produce_issue_lifecycle_event_on_commit(
                 event=STATUS_CHANGE_EVENTS[issue.status],
                 issue=issue,
                 user=user,
-                extra_properties={"previous_status": status_label(status_before)},
+                extra_properties={"previous_status": status_label(outcome.previous_status)},
             )
 
     return outcome.result

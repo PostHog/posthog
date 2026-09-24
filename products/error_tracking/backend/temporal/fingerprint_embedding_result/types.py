@@ -13,6 +13,7 @@ class FingerprintEmbeddingResultInputs:
     embedding: list[float]
     source_issue_id: str | None = None
     event_uuid: str | None = None
+    event_timestamp: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
