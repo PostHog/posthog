@@ -1,9 +1,12 @@
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
 from django.db.models import Model, QuerySet
+from django.db.models.expressions import Combinable
 
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
 if TYPE_CHECKING:
     from rest_framework.viewsets import GenericViewSet
@@ -12,8 +15,12 @@ if TYPE_CHECKING:
 else:
     _GenericViewSet = object
 
+OrderingTermT = TypeVar("OrderingTermT", bound=str | Combinable)
 
-def _ordering_with_primary_key(ordering: Sequence[Any], model: type[Model]) -> tuple[Any, ...]:
+
+def _ordering_with_primary_key(
+    ordering: Sequence[OrderingTermT], model: type[Model]
+) -> tuple[OrderingTermT | str, ...]:
     primary_key = model._meta.pk.name
     if any(str(term).lstrip("-") in {"pk", primary_key} for term in ordering):
         return tuple(ordering)
@@ -57,7 +64,7 @@ class StableCursorPagination(CursorPagination):
     The cursor encodes only the first ordering field, so the tiebreaker does not change the cursor format.
     """
 
-    def get_ordering(self, request, queryset, view) -> tuple[str, ...]:
+    def get_ordering(self, request: Request, queryset: QuerySet, view: APIView) -> tuple[str, ...]:
         return _ordering_with_primary_key(super().get_ordering(request, queryset, view), queryset.model)
 
 

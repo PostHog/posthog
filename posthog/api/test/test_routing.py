@@ -95,8 +95,9 @@ def test_stable_cursor_pagination_adds_a_direction_consistent_primary_key_tiebre
 ) -> None:
     paginator = StableCursorPagination()
     paginator.ordering = ordering
+    viewset = OrderedFooViewSet(request=Request(APIRequestFactory().get("/")))
 
-    assert paginator.get_ordering(None, Annotation.objects.all(), None) == expected
+    assert paginator.get_ordering(viewset.request, Annotation.objects.all(), viewset) == expected
 
 
 def test_stable_pagination_leaves_non_queryset_results_unchanged() -> None:
