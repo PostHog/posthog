@@ -32,7 +32,7 @@ fi
 
 # Docker seeds only a new volume from the image, so a volume created by an older image may have no writable cache dir.
 if mkdir -p "$CACHE_DIR/vllm" "$CACHE_DIR/triton" 2>/dev/null && [ -w "$CACHE_DIR/vllm" ] && [ -w "$CACHE_DIR/triton" ]; then
-  export VLLM_CACHE_ROOT="$CACHE_DIR/vllm" TRITON_CACHE_DIR="$CACHE_DIR/triton"
+  export VLLM_CACHE_ROOT="${VLLM_CACHE_ROOT:-$CACHE_DIR/vllm}" TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-$CACHE_DIR/triton}"
 else
   echo "$CACHE_DIR is not writable, so the compile caches stay in the container and every new container compiles again" >&2
 fi
