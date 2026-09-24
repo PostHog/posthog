@@ -134,23 +134,39 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ permanentlyDisabled: false })
     })
 
-    it.each([
-        { name: 'an offline network failure', error: new NetworkError('offline'), captured: false },
-        {
-            name: 'a project-not-found 404',
-            error: new ApiError('not found', 404, undefined, { detail: 'Project not found.' }),
-            captured: false,
-        },
-        { name: 'a 500', error: new ApiError('boom', 500), captured: true },
-    ])('files an exception for $name only if it is actionable', async ({ error, captured }) => {
+    it('does not capture an exception for an offline network failure', async () => {
         const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-        mockLatestRetrieve.mockRejectedValue(error)
+        mockLatestRetrieve.mockRejectedValue(new NetworkError('offline'))
 
         await expectLogic(logic, () => {
             logic.actions.check()
         }).toDispatchActions(['setLastError'])
 
-        expect(captureSpy).toHaveBeenCalledTimes(captured ? 1 : 0)
+        expect(captureSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not capture an exception for a project-not-found 404', async () => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        mockLatestRetrieve.mockRejectedValue(
+            new ApiError('not found', 404, undefined, { detail: 'Project not found.' })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toDispatchActions(['setLastError'])
+
+        expect(captureSpy).not.toHaveBeenCalled()
+    })
+
+    it('captures an exception for a 500', async () => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        mockLatestRetrieve.mockRejectedValue(new ApiError('boom', 500))
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toDispatchActions(['setLastError'])
+
+        expect(captureSpy).toHaveBeenCalledTimes(1)
     })
 
     // With two programs watched, a failure on the live one plus an empty answer from the other is
