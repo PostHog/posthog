@@ -149,12 +149,12 @@ def _parse_answer(question_id: str, question: Question, raw: object) -> Answer:
         raise TypeSafeRequestFailed(f"TypeSafe returned a malformed choice for {question_id!r}")
     if confidence is None:
         raise TypeSafeRequestFailed(f"TypeSafe returned a malformed confidence for {question_id!r}")
-    probabilities: dict[str, float] = {}
-    for option, value in (_as_mapping(answer.get("probabilities")) or {}).items():
-        probability = _as_probability(value)
-        if option in question.criteria and probability is not None:
-            probabilities[option] = probability
-    return ChoiceAnswer(choice=choice, confidence=confidence, probabilities=probabilities)
+    raw_probabilities = _as_mapping(answer.get("probabilities")) or {}
+    probabilities = {option: _as_probability(raw_probabilities.get(option)) for option in question.criteria}
+    complete = {option: probability for option, probability in probabilities.items() if probability is not None}
+    if len(complete) != len(question.criteria):
+        raise TypeSafeRequestFailed(f"TypeSafe returned incomplete probabilities for {question_id!r}")
+    return ChoiceAnswer(choice=choice, confidence=confidence, probabilities=complete)
 
 
 def system_one(
@@ -209,12 +209,14 @@ def system_one(
     raw_answers = _as_mapping(body.get("answers")) if body is not None else None
     if body is None or raw_answers is None:
         raise TypeSafeRequestFailed("TypeSafe returned no answers")
-
     answered_model = body.get("model")
+    if not isinstance(answered_model, str):
+        raise TypeSafeRequestFailed("TypeSafe returned no model")
+
     usage = _as_mapping(body.get("usage")) or {}
     input_tokens = usage.get("input_tokens")
     return SystemOneResult(
-        model=answered_model if isinstance(answered_model, str) else model,
+        model=answered_model,
         answers={
             question_id: _parse_answer(question_id, question, raw_answers.get(question_id))
             for question_id, question in questions.items()

@@ -118,6 +118,16 @@ class TestTypeSafeEgress(SimpleTestCase):
                 None,
             ),
             (
+                "choice_missing_an_option_probability",
+                200,
+                _with_answer(
+                    "team",
+                    {"type": "choice", "choice": "billing", "probabilities": {"billing": 1.0}, "confidence": 1.0},
+                ),
+                None,
+            ),
+            ("missing_model", 200, json.dumps({key: value for key, value in _ANSWERS.items() if key != "model"}), None),
+            (
                 "answer_of_the_wrong_type",
                 200,
                 _with_answer("team", {"type": "noul", "noul": 0.5}),

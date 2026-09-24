@@ -64,7 +64,8 @@ An instance without one makes no request at all: `system_one` raises `TypeSafeNo
 Callers use `client.py` rather than `typesafe_request`.
 `system_one(state=..., questions=..., source=..., model=...)` sends one state with a map of `NoulQuestion` and `ChoiceQuestion` entries.
 It returns a `SystemOneResult` with one `NoulAnswer` or `ChoiceAnswer` per question id, the versioned model that answered, and the input token count.
-It raises `TypeSafeRequestFailed` on an HTTP error, on a body that lacks an answer for any question, and on a choice outside the options the caller sent.
+It raises `TypeSafeRequestFailed` on an HTTP error, and on a body that lacks the answering model or a complete answer for any question.
+A choice outside the options the caller sent, or a choice without a probability for every option, counts as incomplete.
 `model` defaults to the `jev-latest` alias. A caller that tunes thresholds against one version pins that version's id, such as `jev-1.13.0`.
 Only `POST /v1/systemone` is wired up, and score questions are not.
 
