@@ -1,4 +1,5 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS } from 'lib/scopeObjects.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
@@ -7,8 +8,6 @@ import {
     getScopeDescription,
     scopeMatchesSearch,
 } from 'lib/scopes'
-
-import { API_SCOPE_OBJECTS } from '~/types'
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -49,10 +48,17 @@ describe('API_SCOPES modal coverage', () => {
     const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
 
     it('offers or explicitly omits every scope object', () => {
-        // Guards the drift where a scope object is added to API_SCOPE_OBJECTS (mirroring a new
-        // backend scope) but its key-creation modal row is forgotten, silently hiding a grantable scope.
+        // API_SCOPE_OBJECTS is generated from posthog/scopes.py, so a new backend scope object fails
+        // here until someone offers it in the key-creation modal or gives a reason to omit it.
         const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
         expect(uncovered).toEqual([])
+    })
+
+    it('omits every internal and OAuth-hidden scope object', () => {
+        const offeredButRestricted = [...INTERNAL_API_SCOPE_OBJECTS, ...OAUTH_HIDDEN_SCOPE_OBJECTS].filter(
+            (obj) => !omitted.has(obj)
+        )
+        expect(offeredButRestricted).toEqual([])
     })
 
     it('never both offers and omits the same scope', () => {
