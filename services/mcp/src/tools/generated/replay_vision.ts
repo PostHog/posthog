@@ -221,6 +221,9 @@ const visionScannersAffectedCohortCreate = (): ToolBase<
         if (params.window_days !== undefined) {
             body['window_days'] = params.window_days
         }
+        if (params.verdict !== undefined) {
+            body['verdict'] = params.verdict
+        }
         if (params.tag !== undefined) {
             body['tag'] = params.tag
         }
@@ -410,6 +413,7 @@ const visionScannersImpactRetrieve = (): ToolBase<
                 max_score: params.max_score,
                 min_score: params.min_score,
                 tag: params.tag,
+                verdict: params.verdict,
                 window_days: params.window_days,
             },
         })
