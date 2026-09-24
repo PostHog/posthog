@@ -37,15 +37,13 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import DateRangeBounds, QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
-    HogQLDateBounds,
     mcp_query_date_range,
     shared_filter_exprs,
     validate_mcp_analytics_access,
@@ -95,8 +93,21 @@ def _category_in(categories: list[str] | None) -> list[ast.Expr]:
     ]
 
 
+def _within(date_from: ast.Expr, date_to: ast.Expr, *, exclusive_end: bool = False) -> ast.Expr:
+    return parse_expr(
+        "timestamp >= {date_from} AND timestamp < {date_to}"
+        if exclusive_end
+        else "timestamp >= {date_from} AND timestamp <= {date_to}",
+        placeholders={"date_from": date_from, "date_to": date_to},
+    )
+
+
+def _hogql_datetime(value: datetime) -> ast.Expr:
+    return ast.Call(name="toDateTime", args=[ast.Constant(value=value.strftime("%Y-%m-%d %H:%M:%S"))])
+
+
 def _named_tool_where(
-    date_range: HogQLDateBounds,
+    time_window: ast.Expr,
     categories: list[str] | None,
     team: "Team",
     properties: "Sequence[AnyPropertyFilterDiscriminated] | None" = None,
@@ -108,8 +119,7 @@ def _named_tool_where(
     """Apply tool-name filters before aggregation so non-matching events skip the percentile and distinct aggregates."""
     exprs: list[ast.Expr] = [
         parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
-        parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
-        parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
+        time_window,
         parse_expr("{tool} IS NOT NULL", placeholders={"tool": parse_expr(EFFECTIVE_TOOL_SQL)}),
         parse_expr("{tool} != ''", placeholders={"tool": parse_expr(EFFECTIVE_TOOL_SQL)}),
         *_category_in(categories),
@@ -138,23 +148,6 @@ def _named_tool_where(
     return ast.And(exprs=exprs)
 
 
-@frozen
-class _ScanRange:
-    """Bounds a combined previous+current scan: from the previous window's start to the current
-    window's end. Lets `_named_tool_where` filter the widened scan the same way it filters a
-    single window, so the per-tool query can split current vs. previous with -If combinators
-    instead of running two separate queries."""
-
-    previous_range: QueryPreviousPeriodDateRange
-    current_range: QueryDateRange
-
-    def date_from_as_hogql(self) -> ast.Expr:
-        return self.previous_range.date_from_as_hogql()
-
-    def date_to_as_hogql(self) -> ast.Expr:
-        return self.current_range.date_to_as_hogql()
-
-
 class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQueryResponse]):
     query: MCPToolQualityRowsQuery
     cached_response: CachedMCPToolQualityRowsQueryResponse
@@ -167,13 +160,20 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     @cached_property
-    def previous_query_date_range(self) -> QueryPreviousPeriodDateRange:
-        return QueryPreviousPeriodDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=None,
-            now=datetime.now(self.team.timezone_info),
-        )
+    def previous_window(self) -> DateRangeBounds:
+        """The period the Trend column compares against, as a half-open [date_from, date_to).
+
+        To-date ranges ("This month") compare against the same part of the previous unit. Every
+        other range compares against the same length of time right before the current window.
+        """
+        current_from = self.query_date_range.date_from()
+        current_to = self.query_date_range.date_to()
+        calendar = QueryPreviousPeriodDateRange(
+            date_range=self.query.dateRange, team=self.team, interval=None, now=self.query_date_range.now_with_timezone
+        ).previous_calendar_period(current_from, current_to)
+        if calendar is not None:
+            return calendar
+        return DateRangeBounds(date_from=current_from - (current_to - current_from), date_to=current_from)
 
     def to_query(
         self, *, limit_override: int | None = None, offset_override: int | None = None
@@ -188,7 +188,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         sort_direction = cast(Literal["ASC", "DESC"], self.query.sortDirection or "DESC")
 
         current_range = self.query_date_range
-        previous_range = self.previous_query_date_range
+        previous = self.previous_window
 
         query = parse_select(
             """
@@ -213,7 +213,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 SELECT
                     tool,
                     countIf(is_current) AS total_calls,
-                    countIf(is_previous) AS previous_calls,
+                    countIf(NOT is_current) AS previous_calls,
                     countIf(is_current AND is_error) AS errors,
                     round(quantileIf(0.5)(duration_ms, is_current)) AS p50_duration_ms,
                     round(quantileIf(0.95)(duration_ms, is_current)) AS p95_duration_ms,
@@ -226,7 +226,6 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     SELECT
                         {_EFFECTIVE_TOOL} AS tool,
                         timestamp >= {current_from} AS is_current,
-                        timestamp <= {previous_to} AS is_previous,
                         toBool(properties.$mcp_is_error) AS is_error,
                         toFloat(properties.$mcp_duration_ms) AS duration_ms,
                         toString(properties.$session_id) AS session_id,
@@ -245,13 +244,20 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             placeholders={
                 "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
                 "current_from": current_range.date_from_as_hogql(),
-                # A to-date range ("This month") compares against the same part of the previous
-                # unit, which ends well before the current window starts.
-                "previous_to": previous_range.date_to_as_hogql(),
                 "_min_k": ast.Constant(value=_TREND_SCORE_MIN_K),
                 "_volume_fraction": ast.Constant(value=_TREND_SCORE_VOLUME_FRACTION),
+                # Scans only the two windows, so every row outside the current one is a previous call.
                 "where": _named_tool_where(
-                    _ScanRange(previous_range=previous_range, current_range=current_range),
+                    ast.Or(
+                        exprs=[
+                            _within(
+                                _hogql_datetime(previous.date_from),
+                                _hogql_datetime(previous.date_to),
+                                exclusive_end=True,
+                            ),
+                            _within(current_range.date_from_as_hogql(), current_range.date_to_as_hogql()),
+                        ]
+                    ),
                     self.query.categories,
                     self.team,
                     self.query.properties,
@@ -365,7 +371,7 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 "_P95": parse_expr(_P95),
                 "_P99": parse_expr(_P99),
                 "where": _named_tool_where(
-                    self.query_date_range,
+                    _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
                     self.query.categories,
                     self.team,
                     self.query.properties,

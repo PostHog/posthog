@@ -96,14 +96,8 @@ function TrendCell({ totalCalls, previousCalls }: { totalCalls: number; previous
     if (previousCalls === 0) {
         return <Badge variant="info">New</Badge>
     }
-    const pctChange = ((totalCalls - previousCalls) / previousCalls) * 100
-    const sign = pctChange > 0 ? '+' : pctChange < 0 ? '-' : ''
-    return (
-        <span className="tabular-nums">
-            {sign}
-            {Math.round(Math.abs(pctChange)).toLocaleString()}%
-        </span>
-    )
+    const pctChange = Math.round(((totalCalls - previousCalls) / previousCalls) * 100)
+    return <span className="tabular-nums">{`${pctChange > 0 ? '+' : ''}${pctChange.toLocaleString()}%`}</span>
 }
 
 function SortableHead({

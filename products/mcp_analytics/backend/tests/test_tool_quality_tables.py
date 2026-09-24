@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
@@ -175,6 +176,41 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert row.users == 1
         assert row.sessions == 1
 
+    @parameterized.expand(
+        [
+            ("seven_days", "-7d", datetime(2026, 9, 17, 6, tzinfo=UTC), datetime(2026, 9, 14, tzinfo=UTC)),
+            ("fourteen_days", "-14d", datetime(2026, 9, 10, 6, tzinfo=UTC), datetime(2026, 9, 1, tzinfo=UTC)),
+            ("thirty_days", "-30d", datetime(2026, 8, 25, 6, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 9, 24, 12, tzinfo=UTC), tick=False)
+    def test_first_day_of_the_window_counts_only_as_current(
+        self, _name: str, date_from: str, first_current_day: datetime, previous_day: datetime
+    ) -> None:
+        _emit(self.team, tool_name="steady_tool", timestamp=first_current_day)
+        _emit(self.team, tool_name="steady_tool", timestamp=previous_day)
+        flush_persons_and_events()
+
+        runner = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from=date_from)), team=self.team
+        )
+        row = runner.calculate().results[0]
+
+        assert (row.total_calls, row.previous_calls) == (1, 1)
+
+    @time_machine.travel(datetime(2026, 9, 24, 12, tzinfo=UTC), tick=False)
+    def test_windows_have_the_same_length_on_the_default_range(self) -> None:
+        # -7d runs from Sep 17 00:00 to now, 180 hours. One call every hour on the half hour across
+        # 360 hours puts 180 in each window only if the previous window is also 180 hours long.
+        now = datetime(2026, 9, 24, 12, tzinfo=UTC)
+        for hour in range(360):
+            _emit(self.team, tool_name="steady_tool", timestamp=now - timedelta(hours=hour + 0.5))
+        flush_persons_and_events()
+
+        row = self._run().results[0]
+
+        assert (row.total_calls, row.previous_calls) == (180, 180)
+
     @time_machine.travel(datetime(2026, 9, 10, 12, tzinfo=UTC), tick=False)
     def test_to_date_range_compares_against_the_same_part_of_the_previous_unit(self) -> None:
         _emit(self.team, tool_name="steady_tool", timestamp=datetime(2026, 8, 5, tzinfo=UTC))
@@ -203,6 +239,27 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert response.totalCount == 1
         assert response.results[0].previous_calls == 0
 
+    @parameterized.expand(
+        [
+            # k is floored at 10 because these volumes are tiny.
+            ("growth", 2, 6, 4 / 12),
+            ("decline", 6, 2, -4 / 16),
+            ("flat", 3, 3, 0.0),
+            ("new", 0, 5, 5 / 10),
+        ]
+    )
+    def test_trend_score(self, _name: str, previous: int, current: int, expected: float) -> None:
+        now = datetime.now(tz=UTC)
+        for _ in range(previous):
+            _emit(self.team, tool_name="steady_tool", timestamp=now - timedelta(days=10))
+        for _ in range(current):
+            _emit(self.team, tool_name="steady_tool", timestamp=now)
+        flush_persons_and_events()
+
+        row = self._run().results[0]
+
+        assert row.trend_score == pytest.approx(expected)
+
     def test_sort_by_trend_score_ranks_volume_weighted_surge_above_raw_percent(self) -> None:
         # Raw percent change favours tool_a (2900% vs 900%), but tool_a's growth is 1 -> 30 calls
         # while tool_b's is a real surge, 20 -> 200. The smoothed trend_score (k floored at 10
@@ -210,8 +267,7 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         # above tool_a's tiny-volume spike: 180/30=6 vs 29/11=2.6.
         now = datetime.now(tz=UTC)
         previous_window = now - timedelta(days=10)
-        for _ in range(1):
-            _emit(self.team, tool_name="tool_a", timestamp=previous_window)
+        _emit(self.team, tool_name="tool_a", timestamp=previous_window)
         for _ in range(30):
             _emit(self.team, tool_name="tool_a", timestamp=now)
         for _ in range(20):
@@ -228,7 +284,10 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         )
         results = runner.calculate().results
 
-        assert [row.tool for row in results] == ["tool_b", "tool_a"]
+        assert [(row.tool, row.total_calls, row.previous_calls) for row in results] == [
+            ("tool_b", 200, 20),
+            ("tool_a", 30, 1),
+        ]
 
 
 class TestMCPToolQualityDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
