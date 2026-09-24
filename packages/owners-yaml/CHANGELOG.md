@@ -9,8 +9,6 @@ the GitHub Release body, so add the entry here before you cut the tag.
 
 ## 0.3.0
 
-Includes the changes prepared as 0.2.1, which was never published.
-
 ### Added
 
 - `--producer NAME` on `owners resolve` and on `python -m owners_yaml`, and a `producer` argument on `OwnersResolver`. Without it, a team that maps `notifications` per producer was never matched, so every bot fell back to the team's `slack` channel. A name the root file's `producers` list does not declare is an error, because it would silently route to the people channel. SPEC section 7.1 now defines the producer as part of a resolver request.
