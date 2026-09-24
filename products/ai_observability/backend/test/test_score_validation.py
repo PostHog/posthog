@@ -1,5 +1,7 @@
 import math
 from decimal import Decimal
+from functools import reduce
+from operator import add
 
 import unittest
 
@@ -14,7 +16,7 @@ class TestScoreValueValidation(unittest.TestCase):
             ("decimal_on_step", Decimal("0.3"), {"step": 0.1}, None),
             (
                 "decimal_off_step",
-                Decimal("0.300001"),
+                Decimal("0.3000001"),
                 {"step": 0.1},
                 "Ensure this value increments by 0.1.",
             ),
@@ -26,6 +28,15 @@ class TestScoreValueValidation(unittest.TestCase):
                 "Ensure this value increments by 3E-30.",
             ),
             ("float_rounding", 0.1 + 0.2, {"step": 0.1}, None),
+            ("float_subtraction_rounding", 1.1 - 1.0, {"step": 0.1}, None),
+            ("float_accumulated_rounding", reduce(add, [0.1] * 100), {"step": 0.1}, None),
+            ("float_at_step_tolerance", 0.3000001, {"step": 0.1}, None),
+            (
+                "float_beyond_step_tolerance",
+                math.nextafter(0.3000001, math.inf),
+                {"step": 0.1},
+                "Ensure this value increments by 0.1.",
+            ),
             ("float_off_step", 0.300001, {"step": 0.1}, "Ensure this value increments by 0.1."),
             ("float_negative_rounding", -0.1 - 0.2, {"step": 0.1}, None),
             ("float_step_from_minimum", 0.15 + 0.3, {"min": 0.15, "step": 0.1}, None),

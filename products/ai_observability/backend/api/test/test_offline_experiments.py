@@ -20,7 +20,12 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.offline_experiments import OfflineExperimentViewSet
-from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
+from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
+from products.ai_observability.backend.models.offline_evaluations import (
+    OfflineEvaluationResult,
+    OfflineExperiment,
+    OfflineExperimentItem,
+)
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 
 
@@ -72,6 +77,38 @@ class TestOfflineExperimentsAPI(APIBaseTest):
 
     def _experiment_body(self) -> dict[str, object]:
         return {"id": str(uuid4()), "name": "Answer quality", "started_at": timezone.now().isoformat()}
+
+    def _evaluation_member(self, access_level: str = "editor") -> OrganizationMembership:
+        member = User.objects.create_and_join(self.organization, "eval-member@example.com", "test-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=None,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+        return membership
+
+    def _dataset_item_version(self) -> DatasetItemVersion:
+        dataset = Dataset.objects.for_team(self.team.id).create(team=self.team, name="Questions")
+        revision = DatasetRevision.objects.for_team(self.team.id).create(team=self.team, dataset=dataset, revision=1)
+        item = DatasetItem.objects.for_team(self.team.id).create(team=self.team, dataset=dataset)
+        return DatasetItemVersion.objects.for_team(self.team.id).create(
+            team=self.team,
+            dataset=dataset,
+            dataset_item=item,
+            dataset_revision=revision,
+            version=1,
+            input="What is 2 + 2?",
+        )
 
     @parameterized.expand([("session",), ("personal_key",), ("project_key",)])
     def test_ingestion_and_both_lifecycle_actions(self, auth_kind: str) -> None:
@@ -165,25 +202,139 @@ class TestOfflineExperimentsAPI(APIBaseTest):
     def test_human_callers_require_evaluation_editor_access(
         self, _name: str, auth_kind: str, access_level: str, expected_status: int
     ) -> None:
-        member = User.objects.create_and_join(self.organization, "eval-member@example.com", "test-password")
-        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            access_level="member",
-            organization_member=None,
-        )
-        AccessControl.objects.create(
-            team=self.team,
-            resource="evaluation",
-            resource_id=None,
-            access_level=access_level,
-            organization_member=membership,
-        )
-        self._authenticate(auth_kind, user=member)
+        membership = self._evaluation_member(access_level)
+        self._authenticate(auth_kind, user=membership.user)
         response = self.client.post(self._endpoint(), self._experiment_body(), format="json")
         self.assertEqual(response.status_code, expected_status, response.data)
+
+    @parameterized.expand(
+        [
+            ("session_object_denied", "session", "viewer", "none", False),
+            ("personal_object_denied", "personal_key", "viewer", "none", False),
+            ("resource_denied", "session", "none", None, False),
+            ("session_object_viewer", "session", "none", "viewer", True),
+            ("personal_object_viewer", "personal_key", "none", "viewer", True),
+            ("project_key", "project_key", "none", "none", True),
+        ]
+    )
+    def test_references_require_viewer_access(
+        self, _name: str, auth_kind: str, resource_access: str, object_access: str | None, allowed: bool
+    ) -> None:
+        membership = self._evaluation_member()
+        dataset_version = self._dataset_item_version()
+        definition = ScoreDefinition.objects.create(team=self.team, name="Quality", kind="numeric")
+        version = definition.create_new_version(config={"min": 1, "max": 5}, created_by=self.user)
+        AccessControl.objects.create(
+            team=self.team, resource="llm_analytics", access_level=resource_access, organization_member=membership
+        )
+        if object_access is not None:
+            for resource, resource_id in (("dataset", dataset_version.dataset_id), ("llm_analytics", definition.id)):
+                AccessControl.objects.create(
+                    team=self.team,
+                    resource=resource,
+                    resource_id=str(resource_id),
+                    access_level=object_access,
+                    organization_member=membership,
+                )
+        self._authenticate(auth_kind, user=membership.user)
+        body = self._experiment_body() | {"dataset_revision_id": str(dataset_version.dataset_revision_id)}
+
+        created = self.client.post(self._endpoint(), body, format="json")
+        self.assertEqual(
+            created.status_code, status.HTTP_201_CREATED if allowed else status.HTTP_400_BAD_REQUEST, created.data
+        )
+        if not allowed:
+            missing = self.client.post(self._endpoint(), body | {"dataset_revision_id": str(uuid4())}, format="json")
+            self.assertEqual(created.data, missing.data)
+            self.assertFalse(OfflineExperiment.objects.for_team(self.team.id).exists())
+            body = self._experiment_body()
+            created = self.client.post(self._endpoint(), body, format="json")
+            self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+
+        item: dict[str, object] = {"id": str(uuid4())}
+        if allowed:
+            item["dataset_item_version_id"] = str(dataset_version.id)
+        result = {
+            "item_id": item["id"],
+            "scorer_version_id": str(version.id),
+            "status": "ok",
+            "value": 2 if allowed else 0,
+        }
+        uploaded = self.client.post(
+            self._endpoint(str(body["id"]), "upload"), {"items": [item], "results": [result]}, format="json"
+        )
+        self.assertEqual(
+            uploaded.status_code, status.HTTP_200_OK if allowed else status.HTTP_400_BAD_REQUEST, uploaded.data
+        )
+        if allowed:
+            self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).get().scorer_version_id, version.id)
+        else:
+            missing = self.client.post(
+                self._endpoint(str(body["id"]), "upload"),
+                {"items": [item], "results": [result | {"scorer_version_id": str(uuid4())}]},
+                format="json",
+            )
+            self.assertEqual(uploaded.data, missing.data)
+            self.assertFalse(OfflineExperimentItem.objects.for_team(self.team.id).exists())
+            self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand([("session",), ("personal_key",)])
+    def test_revoked_reference_access_blocks_new_data_but_allows_retries_and_completion(self, auth_kind: str) -> None:
+        membership = self._evaluation_member()
+        dataset_version = self._dataset_item_version()
+        definition = ScoreDefinition.objects.create(team=self.team, name="Correct", kind="boolean")
+        version = definition.create_new_version(config={}, created_by=self.user)
+        for resource, resource_id in (("dataset", dataset_version.dataset_id), ("llm_analytics", definition.id)):
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=str(resource_id),
+                access_level="viewer",
+                organization_member=membership,
+            )
+        self._authenticate(auth_kind, user=membership.user)
+        body = self._experiment_body() | {"dataset_revision_id": str(dataset_version.dataset_revision_id)}
+        created = self.client.post(self._endpoint(), body, format="json")
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        experiment_id = str(body["id"])
+        item = {"id": str(uuid4()), "dataset_item_version_id": str(dataset_version.id)}
+        result = {"item_id": item["id"], "scorer_version_id": str(version.id), "status": "ok", "value": True}
+        upload = {"items": [item], "results": [result]}
+        accepted = self.client.post(self._endpoint(experiment_id, "upload"), upload, format="json")
+        self.assertEqual(accepted.status_code, status.HTTP_200_OK, accepted.data)
+
+        AccessControl.objects.filter(organization_member=membership, resource__in=["dataset", "llm_analytics"]).update(
+            access_level="none"
+        )
+        create_retry = self.client.post(self._endpoint(), body, format="json")
+        self.assertEqual(create_retry.status_code, status.HTTP_200_OK, create_retry.data)
+        self.assertFalse(create_retry.data["created"])
+        upload_retry = self.client.post(self._endpoint(experiment_id, "upload"), upload, format="json")
+        self.assertEqual(upload_retry.status_code, status.HTTP_200_OK, upload_retry.data)
+        self.assertEqual(upload_retry.data["results"][0]["id"], accepted.data["results"][0]["id"])
+        self.assertFalse(upload_retry.data["results"][0]["created"])
+
+        next_version = definition.create_new_version(config={}, created_by=self.user)
+        new_result = self.client.post(
+            self._endpoint(experiment_id, "upload"),
+            {"results": [result | {"scorer_version_id": str(next_version.id)}]},
+            format="json",
+        )
+        self.assertEqual(new_result.status_code, status.HTTP_400_BAD_REQUEST, new_result.data)
+        self.assertEqual(new_result.data["attr"], "results.0.scorer_version_id")
+        new_item_id = str(uuid4())
+        new_item = self.client.post(
+            self._endpoint(experiment_id, "upload"),
+            {"items": [item | {"id": new_item_id}], "results": [result | {"item_id": new_item_id}]},
+            format="json",
+        )
+        self.assertEqual(new_item.status_code, status.HTTP_400_BAD_REQUEST, new_item.data)
+        self.assertEqual(new_item.data["attr"], "items")
+        self.assertEqual(OfflineExperimentItem.objects.for_team(self.team.id).count(), 1)
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 1)
+        completed = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
+        self.assertEqual(completed.status_code, status.HTTP_200_OK, completed.data)
+        self.assertEqual(completed.data["status"], "completed")
 
     def test_ingestion_key_cannot_manage_scorers(self) -> None:
         self._authenticate("personal_key")

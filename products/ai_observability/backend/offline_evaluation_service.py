@@ -5,7 +5,7 @@ from dataclasses import (
     fields as dataclass_fields,
 )
 from datetime import datetime, timedelta
-from typing import Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -16,7 +16,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
-from products.ai_observability.backend.models.datasets import DatasetItemVersion, DatasetRevision
+from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
@@ -25,7 +25,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
     PayloadState,
 )
-from products.ai_observability.backend.models.score_definitions import ScoreDefinitionVersion
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_fingerprint import submission_fingerprint
 from products.ai_observability.backend.offline_evaluation_types import (
     ExperimentSubmission,
@@ -34,6 +34,11 @@ from products.ai_observability.backend.offline_evaluation_types import (
     UploadSubmission,
 )
 from products.ai_observability.backend.score_validation import validate_score_value
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @frozen
@@ -152,21 +157,38 @@ def _locked_experiment(*, team_id: int, experiment_id: UUID) -> OfflineExperimen
     return experiment
 
 
-class OfflineExperimentService:
-    def __init__(self, *, team_id: int) -> None:
+class _OfflineEvaluationService:
+    def __init__(self, *, team_id: int, user_access_control: UserAccessControl | None) -> None:
         self.team_id = resolve_effective_team_id(team_id)
+        self._user_access_control = user_access_control
 
+    def _dataset_revisions(self) -> QuerySet[DatasetRevision]:
+        revisions = DatasetRevision.objects.for_team(self.team_id, canonical=True)
+        if self._user_access_control is not None:
+            datasets = self._user_access_control.filter_queryset_by_access_level(
+                Dataset.objects.for_team(self.team_id, canonical=True), include_all_if_admin=True, resource="dataset"
+            )
+            revisions = revisions.filter(dataset_id__in=datasets.values("id"))
+        return revisions
+
+    def _scorer_versions(self) -> QuerySet[ScoreDefinitionVersion]:
+        definitions = ScoreDefinition.objects.filter(team_id=self.team_id)
+        if self._user_access_control is not None:
+            definitions = self._user_access_control.filter_queryset_by_access_level(
+                definitions, include_all_if_admin=True, resource="llm_analytics"
+            )
+        # nosemgrep: idor-lookup-without-user -- Versions inherit team and caller access from their definitions.
+        return ScoreDefinitionVersion.objects.filter(definition__in=definitions)
+
+
+class OfflineExperimentService(_OfflineEvaluationService):
     def _creation_fields(self, submission: ExperimentSubmission) -> dict[str, object]:
         fields: dict[str, object] = asdict(submission)
         if submission.dataset_revision_id is None:
             if submission.dataset_source == "posthog":
                 raise OfflineEvaluationValidationError("dataset_revision_id", "Select a PostHog dataset revision.")
             return fields
-        revision = (
-            DatasetRevision.objects.for_team(self.team_id, canonical=True)
-            .filter(id=submission.dataset_revision_id)
-            .first()
-        )
+        revision = self._dataset_revisions().filter(id=submission.dataset_revision_id).first()
         if revision is None:
             raise OfflineEvaluationValidationError("dataset_revision_id", "Select an existing dataset revision.")
         for field, derived in {
@@ -226,10 +248,7 @@ class OfflineExperimentService:
         return receipt
 
 
-class OfflineEvaluationIngestionService:
-    def __init__(self, *, team_id: int) -> None:
-        self.team_id = resolve_effective_team_id(team_id)
-
+class OfflineEvaluationIngestionService(_OfflineEvaluationService):
     def _existing_results(
         self, *, experiment_id: UUID, submissions: list[ResultSubmission]
     ) -> dict[ResultIdentity, OfflineEvaluationResult]:
@@ -263,7 +282,7 @@ class OfflineEvaluationIngestionService:
         revision_id = experiment.dataset_revision_id
         if revision_id is None:
             raise OfflineEvaluationValidationError("items", "The experiment's dataset revision is no longer available.")
-        revision = DatasetRevision.objects.for_team(self.team_id, canonical=True).filter(id=revision_id).first()
+        revision = self._dataset_revisions().filter(id=revision_id).first()
         if revision is None:
             raise OfflineEvaluationValidationError("items", "The experiment's dataset revision is no longer available.")
         return {
@@ -404,10 +423,9 @@ class OfflineEvaluationIngestionService:
         dataset_versions = self._dataset_versions(experiment, new_item_submissions)
         versions = {
             version.id: version
-            # nosemgrep: idor-lookup-without-user -- Scorer versions belong to the definition's team, not their creator.
-            for version in ScoreDefinitionVersion.objects.filter(
-                id__in={result.scorer_version_id for _, result in new_results}, definition__team_id=self.team_id
-            ).select_related("definition")
+            for version in self._scorer_versions()
+            .filter(id__in={result.scorer_version_id for _, result in new_results})
+            .select_related("definition")
         }
         accepted_at = timezone.now()
         new_items = [

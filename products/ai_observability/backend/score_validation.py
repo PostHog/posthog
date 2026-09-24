@@ -28,7 +28,7 @@ def _is_float_on_step(value: float, base: Decimal, step: Decimal) -> bool:
     remainder = (Fraction(Decimal(str(value))) - Fraction(base)) % Fraction(step)
     distance = min(remainder, Fraction(step) - remainder)
     # Allow SDK arithmetic such as 0.1 + 0.2 without letting large values skip step validation.
-    tolerance = min(4 * Fraction(math.ulp(value)), Fraction(step) / 1_000_000)
+    tolerance = Fraction(step) / 1_000_000
     return distance <= tolerance
 
 

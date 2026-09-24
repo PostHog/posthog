@@ -38,13 +38,16 @@ Use the base path `/api/projects/{project_id}/ai_observability/offline_experimen
 Programmatic callers use a personal or project secret API key with `offline_evaluation_ingestion:write`.
 Project secret keys grant these operations across their project.
 Personal keys and logged-in users require evaluation editor access.
+They also require viewer access to the dataset when linking a revision or adding hosted items, and viewer access to the scorer definition when adding results.
+Missing and inaccessible references return the same validation error.
+Exact retries still acknowledge previously accepted records after reference access changes; they neither read payloads nor create new records.
 The ingestion scope grants neither stored payload reads nor scorer administration.
 Public project tokens used for event capture cannot authenticate these operations.
 
 Create scorers first, using the existing scorer API or UI, and pin their version UUIDs before submitting results.
 Older and archived versions remain valid references.
 The API validates numeric bounds and steps, boolean values, and categorical keys against the pinned configuration.
-Numeric scores use finite binary64 values; step validation allows up to four units in the last place of rounding tolerance, capped at one millionth of the configured step.
+Numeric scores use finite binary64 values; step validation allows rounding error of at most one millionth of the configured step.
 
 For example, this upload declares one item and its boolean result:
 

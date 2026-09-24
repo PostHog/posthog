@@ -58,8 +58,8 @@ class TestOfflineEvaluationService(TestCase):
         cls.other_version = other_scorer.create_new_version(config={}, created_by=None)
 
     def setUp(self) -> None:
-        self.lifecycle = OfflineExperimentService(team_id=self.team.id)
-        self.ingestion = OfflineEvaluationIngestionService(team_id=self.team.id)
+        self.lifecycle = OfflineExperimentService(team_id=self.team.id, user_access_control=None)
+        self.ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
         self.experiment_submission = ExperimentSubmission(
             id=uuid4(), name="Candidate model", started_at=timezone.now(), run_source="ci"
         )
@@ -166,9 +166,11 @@ class TestOfflineEvaluationService(TestCase):
         experiment_id = uuid4() if target == "unknown" else self.experiment.id
         team_id = self.team.id if target == "unknown" else self.other_team.id
         with self.assertRaises(OfflineEvaluationNotFound):
-            OfflineEvaluationIngestionService(team_id=team_id).upload(experiment_id, self.submission)
+            OfflineEvaluationIngestionService(team_id=team_id, user_access_control=None).upload(
+                experiment_id, self.submission
+            )
         with self.assertRaises(OfflineEvaluationNotFound):
-            OfflineExperimentService(team_id=team_id).close(experiment_id, status="failed")
+            OfflineExperimentService(team_id=team_id, user_access_control=None).close(experiment_id, status="failed")
 
     @parameterized.expand([("unknown",), ("other_experiment",), ("other_project",)])
     def test_result_cannot_reference_an_item_outside_its_experiment(self, target: str) -> None:
@@ -176,19 +178,23 @@ class TestOfflineEvaluationService(TestCase):
             self.ingestion.upload(self.experiment.id, self.submission)
         team_id = self.other_team.id if target == "other_project" else self.team.id
         experiment = (
-            OfflineExperimentService(team_id=team_id).create(replace(self.experiment_submission, id=uuid4())).experiment
+            OfflineExperimentService(team_id=team_id, user_access_control=None)
+            .create(replace(self.experiment_submission, id=uuid4()))
+            .experiment
         )
         result = (
             replace(self.result, scorer_version_id=self.other_version.id) if target == "other_project" else self.result
         )
 
         with self.assertRaises(OfflineEvaluationValidationError) as error:
-            OfflineEvaluationIngestionService(team_id=team_id).upload(experiment.id, UploadSubmission(results=[result]))
+            OfflineEvaluationIngestionService(team_id=team_id, user_access_control=None).upload(
+                experiment.id, UploadSubmission(results=[result])
+            )
         self.assertEqual(error.exception.field, "results.0.item_id")
 
     @parameterized.expand([("experiment",), ("item",)])
     def test_global_uuid_collision_returns_a_controlled_conflict(self, target: str) -> None:
-        other_lifecycle = OfflineExperimentService(team_id=self.other_team.id)
+        other_lifecycle = OfflineExperimentService(team_id=self.other_team.id, user_access_control=None)
         if target == "experiment":
             with self.assertRaises(OfflineEvaluationConflict) as error:
                 other_lifecycle.create(self.experiment_submission)
@@ -196,7 +202,7 @@ class TestOfflineEvaluationService(TestCase):
             self.ingestion.upload(self.experiment.id, self.submission)
             other_experiment = other_lifecycle.create(replace(self.experiment_submission, id=uuid4())).experiment
             with self.assertRaises(OfflineEvaluationConflict) as error:
-                OfflineEvaluationIngestionService(team_id=self.other_team.id).upload(
+                OfflineEvaluationIngestionService(team_id=self.other_team.id, user_access_control=None).upload(
                     other_experiment.id,
                     replace(self.submission, results=[replace(self.result, scorer_version_id=self.other_version.id)]),
                 )
@@ -364,8 +370,8 @@ class TestOfflineEvaluationService(TestCase):
 class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
     def setUp(self) -> None:
         _, _, self.team = Organization.objects.bootstrap(None)
-        self.lifecycle = OfflineExperimentService(team_id=self.team.id)
-        self.ingestion = OfflineEvaluationIngestionService(team_id=self.team.id)
+        self.lifecycle = OfflineExperimentService(team_id=self.team.id, user_access_control=None)
+        self.ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
         self.experiment = self.lifecycle.create(
             ExperimentSubmission(id=uuid4(), name="Concurrent upload", started_at=timezone.now())
         ).experiment

@@ -1,5 +1,5 @@
 from dataclasses import asdict
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter
@@ -14,7 +14,7 @@ from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission, is_service_auth
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_experiment_access import (
@@ -38,6 +38,9 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineExperimentService,
 )
 from products.ai_observability.backend.offline_evaluation_types import ExperimentSubmission, UploadSubmission
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 OFFLINE_UPLOAD_RESULTS = Counter(
     "aio_offline_upload_results_total", "Acknowledged offline evaluation results", labelnames=["outcome"]
@@ -143,6 +146,9 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ExperimentSubmissionSerializer
     http_method_names = ["post", "head", "options"]
 
+    def _reference_access_control(self) -> "UserAccessControl | None":
+        return None if is_service_auth(self.request) else self.user_access_control
+
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, OfflineEvaluationConflict):
             OFFLINE_UPLOAD_ERRORS.labels(outcome="conflict").inc()
@@ -172,7 +178,9 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @llma_track_latency("aio_offline_experiment_create")
     @monitor(feature=None, endpoint="aio_offline_experiment_create", method="POST")
     def create(self, request: TypedRequest[ExperimentSubmission], **kwargs: object) -> Response:
-        receipt = OfflineExperimentService(team_id=self.team_id).create(request.validated_data)
+        receipt = OfflineExperimentService(
+            team_id=self.team_id, user_access_control=self._reference_access_control()
+        ).create(request.validated_data)
         return _experiment_response(receipt, status=201 if receipt.created else 200)
 
     def _experiment_id(self) -> UUID:
@@ -187,9 +195,9 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @llma_track_latency("aio_offline_experiment_upload")
     @monitor(feature=None, endpoint="aio_offline_experiment_upload", method="POST")
     def upload(self, request: TypedRequest[UploadSubmission], **kwargs: object) -> Response:
-        receipt = OfflineEvaluationIngestionService(team_id=self.team_id).upload(
-            self._experiment_id(), request.validated_data
-        )
+        receipt = OfflineEvaluationIngestionService(
+            team_id=self.team_id, user_access_control=self._reference_access_control()
+        ).upload(self._experiment_id(), request.validated_data)
         for created in (True, False):
             OFFLINE_UPLOAD_RESULTS.labels(outcome="created" if created else "duplicate").inc(
                 sum(result.created == created for result in receipt.results)
@@ -206,7 +214,9 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_complete", method="POST")
     def complete(self, request: Request, **kwargs: object) -> Response:
         return _experiment_response(
-            OfflineExperimentService(team_id=self.team_id).close(self._experiment_id(), status="completed")
+            OfflineExperimentService(team_id=self.team_id, user_access_control=self._reference_access_control()).close(
+                self._experiment_id(), status="completed"
+            )
         )
 
     @validated_request(
@@ -219,5 +229,7 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_fail", method="POST")
     def fail(self, request: Request, **kwargs: object) -> Response:
         return _experiment_response(
-            OfflineExperimentService(team_id=self.team_id).close(self._experiment_id(), status="failed")
+            OfflineExperimentService(team_id=self.team_id, user_access_control=self._reference_access_control()).close(
+                self._experiment_id(), status="failed"
+            )
         )
