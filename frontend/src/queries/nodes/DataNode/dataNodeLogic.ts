@@ -2191,8 +2191,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
 
-        // Registering has to come first: loading below marks this node loading in the collection, and
-        // registering afterwards would clear that, hiding the node from `areAnyLoading`.
         actions.mountDataNode(props.key, {
             id: props.key,
             loadData: actions.loadData,

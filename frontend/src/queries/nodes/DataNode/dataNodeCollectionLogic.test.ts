@@ -99,7 +99,6 @@ describe('dataNodeCollectionLogic', () => {
         logic.actions.collectionNodeLoadDataSuccess('tile-a')
         await expectLogic(logic).toMatchValues({ areAnyLoading: false })
 
-        // A node starts loading before it registers, so registering must not mark it idle again
         logic.actions.collectionNodeLoadData('tile-c')
         mountTile('tile-c')
         await expectLogic(logic).toMatchValues({ areAnyLoading: true })

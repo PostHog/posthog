@@ -1268,7 +1268,6 @@ class TestQueryRunner(BaseTest):
         with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
             with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, query_id="client-abc")
-            # Cache is still fresh, so this reports through the cache-hit path instead
             with time_machine.travel(datetime(2023, 2, 4, 13, 38, 0), tick=False):
                 runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, query_id="client-abc")
 

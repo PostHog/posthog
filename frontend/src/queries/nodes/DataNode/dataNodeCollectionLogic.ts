@@ -37,7 +37,6 @@ export type DataCollectionTileStatus = 'success' | 'failure' | 'unmounted'
 interface DataCollectionLoadCycle {
     id: string
     startedAt: number
-    /** Captured when the cycle opens: navigating away flips the active scene before the tiles unmount. */
     scene: string | null
     trigger: DataCollectionLoadTrigger
     participatingTileIds: Set<string>
@@ -135,7 +134,6 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
             {} as DataNodeStatusMap,
             {
                 mountDataNode: (state, payload) => {
-                    // A node starts loading before it registers, so registering must not clear that.
                     return { ...state, [payload.id]: state[payload.id] ?? { isLoading: false, hasError: false } }
                 },
                 unmountDataNode: (state, payload) => {
@@ -170,7 +168,6 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
             outcome: Partial<PageLoadTimeToSeeData>,
             options?: CaptureOptions
         ): void => {
-            // `posthog.capture` is absent inside the toolbar bundle.
             if (!isPageCollection(props.key) || !posthog.capture) {
                 return
             }
@@ -240,7 +237,6 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
 
         return {
             reloadAll: () => {
-                // Consumed synchronously by the collectionNodeLoadData each loadData dispatches below.
                 cache.pendingTrigger = 'refresh'
                 // We want to force refresh all nodes, so we use 'force_async' to bypass cache
                 // The loadData function in each node will handle converting this to the appropriate type
@@ -303,8 +299,6 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
                 if (!cycle || !isTileInFlight(cycle, id)) {
                     return
                 }
-                // Navigating away unmounts every node before the collection itself, so abandonment has to
-                // be caught here rather than in beforeUnmount, where nothing is left to observe.
                 noteLastTile(cycle, id, 'unmounted')
                 cycle.unmountedTileIds.add(id)
                 if (values.mountedDataNodes.length === 0) {
