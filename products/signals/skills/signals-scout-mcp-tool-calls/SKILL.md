@@ -9,8 +9,10 @@ compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus execute-sql,
   read-data-schema, and the inbox tools in the MCP tools section. The SQL cookbook lives in
-  references/queries.md (read it on demand); deep-dives into
+  references/queries.md and the dashboard recipe for the recorded metrics in
+  references/metrics-dashboard.md (read both on demand); deep-dives into
   posthog:exploring-mcp-tool-quality and posthog:querying-posthog-data.
+scout-structured-output-schema: references/structured-output.schema.json
 allowed_tools:
   - emit_report
   - edit_report
@@ -58,7 +60,7 @@ MCP tool calls land on the `$mcp_tool_call` event, emitted by both PostHog's own
 | `$mcp_tool_category`                                 | hono only (exec-dispatched calls carry the _inner_ tool's category)    | the report grain: owning product team   |
 | `$mcp_mode` (`cli`/`tools`)                          | hono / CLI only                                                        | is it broken only via the exec wrapper? |
 | `input_tokens` / `output_tokens` (bare keys, no `$`) | hono only                                                              | response bloat                          |
-| `$mcp_intent` / `$mcp_intent_source`                 | sparse, opt-in (agent-supplied)                                        | tie failures to what the agent wanted   |
+| `$mcp_intent` / `$mcp_intent_source`                 | agent-supplied; near-universal on hono, absent on most external SDKs   | tie failures to what the agent wanted   |
 
 Two consequences to remember, both verified against real data:
 
@@ -101,13 +103,16 @@ Pick what the profile/probe flags as interesting and rotate across runs — don'
 | Latency             | slow tools                                                  | Tier 1 (always)                 | 4     |
 | Error class         | fix hypothesis from failure taxonomy                        | hono only                       | 3a    |
 | Error messages      | fix hypothesis from raw text                                | external SDK only               | 3b    |
-| Intent              | what the agent wanted the tool to do                        | if `pct_with_intent` ≥ ~20      | 5     |
+| Intent              | what the agent wanted the tool to do                        | default on hono; check coverage | 5     |
 | Client / mode split | universal break vs one-harness break                        | Tier 1 (client); mode hono only | 6     |
 | Observability gap   | failures with no detail → add instrumentation               | Tier 1 (always)                 | 7     |
 | Output bloat        | oversized responses                                         | hono only                       | 8     |
 | Category rollup     | problem tools grouped by owning category (the report grain) | hono / per-category mode        | 9     |
+| Session share       | tools called in a growing share of sessions ("called too much") | Tier 1 (always)             | 10    |
 
-The workflow is **detect → localize → hypothesize → group**: query 1/2/4 detect per-tool candidates using only reliable fields (each now carries a `category` column); then use whichever Tier-2 lens the probe said is available (3a or 3b, plus 5/6) to localize each cause and form the per-tool fix hypothesis; query 9 rolls candidates up to their category with category-level denominators, and one report per category carries the per-tool hypotheses. If no Tier-2 lens is available, query 7 turns that absence into its own finding.
+The workflow is **detect → localize → hypothesize → group**: query 1/2/4/10 detect per-tool candidates using only reliable fields (each now carries a `category` column); then use whichever Tier-2 lens the probe said is available (3a or 3b, plus 5/6) to localize each cause and form the per-tool fix hypothesis; query 9 rolls candidates up to their category with category-level denominators, and one report per category carries the per-tool hypotheses. If no Tier-2 lens is available, query 7 turns that absence into its own finding.
+
+**Lens 10, session share, is the "called too much" lens** and the one the other four miss: a tool the agent reaches for in a growing share of sessions is a problem even when every call succeeds, because the cost is context and latency in every session rather than a failure anyone sees. Read it as a step change, not a level — a tool that went from a small share of a source's sessions to most of them between the current and prior window, with reach across many sessions, is a report candidate under the existing bar. The fix hypothesis points at prompt or tool-description wording (the tool is being advertised too eagerly), not at the handler. It is deterministic: no judge, no sampling. A high but flat share is the tool doing its job.
 
 ## Save memory as you go
 
@@ -120,6 +125,15 @@ Encode the scope in the key prefix so future runs find it with one `text=mcp` se
 - key `addressed:mcp_analytics:<tool>` — _"<tool> 5xx fixed 2026-06-30; back to baseline."_
 - key `report:mcp_analytics:category:<category>` — _"Report `019f0a96-…` covers the insights category's problem tools (query-run, list-insights). Edit it (`append_evidence` with fresh numbers / newly-problematic tools) while the category still has problem tools and the report is live; if it was resolved and the category later regresses, that's a fresh report."_
 - key `reviewer:mcp_analytics:<category>` — _"insights MCP tools routed to `alice` (owns the insights MCP surface per human correction on report `019f…`) — reuse while that evidence stands."_ Record the **evidence**, not just the login: a memory that says only "routed to alice" is indistinguishable from a guess, and blind reuse compounds a mis-route across every future run. Set the same evidence as the reviewer's `reason` when you author.
+
+## Record metrics
+
+Before you decide anything, record what you measured. The numbers above are derived — struggle share, problem-tool counts, the regime, what you did about each category — so they exist nowhere else, and a run that files nothing still tells you a category was healthy rather than unmeasured. Records go to `scout-record-output`, validated against the schema in [`references/structured-output.schema.json`](references/structured-output.schema.json), and land as `$scout_structured_output` events you can chart.
+
+- **One `category_rollup` per category with any traffic this window, healthy ones included** (`subject` = `category:<category>`), plus one for the project-wide baseline with `mcp_category` = `all`. The unremarkable records are the denominator: without them you cannot tell a healthy category from one nobody looked at. Fill `mcp_struggle_session_pct` and `mcp_p95_duration_ms` from queries 2 and 4 when you ran them this tick, and send `null` when you did not — a rotated-out lens is missing, not zero. Set `mcp_report_action` to what you go on to do with the category (`authored`, `edited`, `skipped_live_report`, `below_bar`, `none`), so the chart shows your decisions next to the numbers that drove them.
+- **Then the `tool_session_share` records** from query 10 (`subject` = `tool:<tool>:<source>`) — the top 20 tools by session share per source. That bound keeps a run inside one or two batches and well under the per-run cap.
+- Send each kind as one batched call. Submit both kinds every run, quiet or not, and before you author, edit, or skip anything: a run that stops at "nothing to report" must still leave the series intact.
+- Leave `mcp_metrics_version` at `1`. It is what a chart filters on, so it changes only when a field's definition does.
 
 ## Decide
 
@@ -189,9 +203,10 @@ Harness-level:
 - `scout-scratchpad-search` / `-remember` / `-forget` — durable steering (regime, baselines, dedupe, report pointers).
 - `scout-runs-list` / `-runs-retrieve` — what prior runs found.
 - `scout-emit-report` / `scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
+- `scout-record-output` — submit this run's `category_rollup` and `tool_session_share` records (the schema rides in the harness prompt).
 
 Deep-dive skills baked into the sandbox: `posthog:exploring-mcp-tool-quality`, `posthog:exploring-mcp-tool-usage`, `posthog:querying-posthog-data`.
 
 ## Close out
 
-One paragraph: the regime and report grain you found, which lenses you ran, which categories you filed or edited reports for — and which tools they carried, with why (failure / struggle / latency / bloat / gap) — what you remembered, what you ruled out. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Don't write a separate "run metadata" scratchpad entry. "Looked but found nothing meaningful" is a real outcome.
+One paragraph: the regime and report grain you found, which lenses you ran, how many records you submitted and of which kinds, which categories you filed or edited reports for — and which tools they carried, with why (failure / struggle / latency / bloat / session share / gap) — what you remembered, what you ruled out. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Don't write a separate "run metadata" scratchpad entry. "Looked but found nothing meaningful" is a real outcome.

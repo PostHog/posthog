@@ -390,3 +390,78 @@ Read it:
   sanity-check, not an owning team.
 - `category_error_rate_pct` alone is not a finding — a big category dilutes a broken tool; the
   per-tool entries in `problem_tool_details` are what clears the bar.
+
+## 10. Session share — the "called too much" lens
+
+The lens the other four miss: a tool the agent reaches for in a growing share of sessions costs
+context and latency in every one of them, and every call succeeds, so failure rate, struggle,
+latency, and bloat all read it as healthy. Ranks each tool by the share of its source's sessions
+that called it at least once, against the same share over the preceding window. Deterministic —
+no judge.
+
+The surface is the bare `source` property (no `$` prefix) that the hono server stamps alongside
+the `$mcp_*` fields: `self_driving`, `mcp`, `posthog_code`, `slack`, `posthog_ai`, `wizard`, `cli`.
+It is the surface the call came from, not `$mcp_source`, which names the emitting SDK. External-SDK
+projects do not stamp it, so those rows bucket as `unknown` and the lens degrades to one
+project-wide denominator rather than breaking.
+
+Both windows come out of one 14-day scan split by `is_current`, so the current and prior share are
+measured the same way. The per-source denominator is a separate CTE joined back on `source_bucket` —
+without it each tool would be scored against its own callers and every share would read 100%.
+
+```sql
+WITH per_session AS (
+    SELECT
+        coalesce(nullIf(nullIf(toString(properties.source), ''), 'None'), 'unknown') AS source_bucket,
+        $session_id AS session,
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        any(properties.$mcp_tool_category) AS category,
+        timestamp >= now() - INTERVAL 7 DAY AS is_current,
+        count() AS calls
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND properties.$mcp_source = 'posthog_mcp_analytics'
+        AND $session_id != ''
+        AND timestamp >= now() - INTERVAL 14 DAY
+    GROUP BY source_bucket, session, tool, is_current
+),
+totals AS (
+    SELECT
+        source_bucket,
+        uniqIf(session, is_current) AS sessions_total,
+        uniqIf(session, NOT is_current) AS prior_sessions_total
+    FROM per_session
+    GROUP BY source_bucket
+)
+SELECT
+    t.source_bucket AS source,
+    t.tool AS tool,
+    any(t.category) AS category,
+    uniqIf(t.session, t.is_current) AS sessions_with_call,
+    any(d.sessions_total) AS sessions_total,
+    round(uniqIf(t.session, t.is_current) * 100.0 / nullIf(any(d.sessions_total), 0), 1) AS session_share_pct,
+    round(avgIf(t.calls, t.is_current), 2) AS calls_per_session,
+    round(uniqIf(t.session, NOT t.is_current) * 100.0 / nullIf(any(d.prior_sessions_total), 0), 1) AS share_pct_prior_window
+FROM per_session AS t
+JOIN totals AS d ON d.source_bucket = t.source_bucket
+GROUP BY source, tool
+HAVING sessions_with_call >= 20
+ORDER BY session_share_pct DESC
+LIMIT 20
+```
+
+Read it:
+
+- **The step change is the finding, not the level.** A tool that sits high and flat is doing its
+  job. A tool whose share jumped between `share_pct_prior_window` and `session_share_pct`, across
+  many sessions, is being advertised too eagerly — the fix hypothesis points at prompt or
+  tool-description wording, not the handler.
+- Keep the source split. A tool called in most sessions of one surface and almost none of another
+  localizes the cause to that surface's prompt.
+- `calls_per_session` separates "reached for once, everywhere" from "hammered" — the latter is
+  query 2's territory, and the two together say whether the tool is over-advertised or confusing.
+- **Skip bare `exec`.** The wrapper is present in nearly every session by construction, so it tops
+  this query on every project and means nothing. The same disqualifiers as everywhere else apply:
+  a share over a handful of sessions is one developer.
+- The top 20 rows per source are what the scout records as `tool_session_share`; take the limit per
+  source when one source dominates the global ordering.
