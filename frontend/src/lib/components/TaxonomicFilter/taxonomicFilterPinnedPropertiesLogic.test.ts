@@ -440,7 +440,13 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         it.each([
             {
                 description: 'strips denylisted fields and keeps everything else',
-                input: { name: 'Alice', distinct_ids: ['d1'], email: 'a@example.com', properties: { big: 'blob' } },
+                input: {
+                    name: 'Alice',
+                    distinct_ids: ['d1'],
+                    email: 'a@example.com',
+                    properties: { big: 'blob' },
+                    matched_fields: ['email'],
+                },
                 fallback: 'fallback',
                 expected: { name: 'Alice', distinct_ids: ['d1'] },
             },
