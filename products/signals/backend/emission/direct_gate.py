@@ -38,7 +38,7 @@ from products.signals.backend.emission.steering import (
     apply_steering,
     steering_from_config,
 )
-from products.signals.backend.typesafe_decision import TypesafeDecisionError
+from products.signals.backend.typesafe_decision import SignalsDecisionError
 
 logger = structlog.get_logger(__name__)
 
@@ -115,7 +115,7 @@ async def steering_filters_signal(
                 ),
                 timeout=GATE_TIMEOUT_SECONDS,
             )
-    except TypesafeDecisionError:
+    except SignalsDecisionError:
         raise
     except Exception:
         logger.exception(

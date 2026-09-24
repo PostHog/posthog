@@ -28,11 +28,7 @@ from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
-from products.signals.backend.typesafe_decision import (
-    ACTIONABILITY_THRESHOLD,
-    TypesafeDecisionError,
-    run_model_decision,
-)
+from products.signals.backend.typesafe_decision import ACTIONABILITY_THRESHOLD, SignalsDecisionError, run_model_decision
 
 logger = structlog.get_logger(__name__)
 
@@ -400,7 +396,7 @@ async def filter_actionable(
                     include_record_metadata=include_record_metadata,
                     context_fields=context_fields,
                 )
-            except TypesafeDecisionError:
+            except SignalsDecisionError:
                 raise
             except Exception:
                 logger.exception(

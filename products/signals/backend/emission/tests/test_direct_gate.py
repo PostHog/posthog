@@ -8,7 +8,7 @@ from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES
 from products.signals.backend.emission.direct_gate import steering_filters_signal
 from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.typesafe_decision import TypesafeDecisionError
+from products.signals.backend.typesafe_decision import SignalsDecisionError
 
 GATE_MODULE_PATH = "products.signals.backend.emission.direct_gate"
 FACADE_MODULE_PATH = "products.signals.backend.facade.api"
@@ -55,8 +55,8 @@ async def _run_gate(source_config: dict, *, verdict: str = "NOT_ACTIONABLE", ext
 class TestSteeringFiltersSignal:
     @pytest.mark.asyncio
     async def test_typesafe_only_failure_stops_the_gate(self):
-        with patch(f"{GATE_MODULE_PATH}.check_actionability", AsyncMock(side_effect=TypesafeDecisionError("failed"))):
-            with pytest.raises(TypesafeDecisionError):
+        with patch(f"{GATE_MODULE_PATH}.check_actionability", AsyncMock(side_effect=SignalsDecisionError("failed"))):
+            with pytest.raises(SignalsDecisionError):
                 await _run_gate({"steering": "Skip noise."})
 
     @pytest.mark.asyncio

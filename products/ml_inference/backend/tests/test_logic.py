@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 import httpx
+from pydantic import ValidationError
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
@@ -16,6 +17,7 @@ from products.ml_inference.backend.facade.contracts import (
     DecisionGatewayUnreachableError,
     DecisionQuestion,
     DecisionRequest,
+    JsonValue,
     NoulAnswer,
     ScoreAnswer,
 )
@@ -47,7 +49,7 @@ QUESTIONS = {
 }
 
 
-def _request(*, state: str | dict[str, object] = "ticket text", ai_product: str = "ml_inference") -> DecisionRequest:
+def _request(*, state: JsonValue = "ticket text", ai_product: str = "ml_inference") -> DecisionRequest:
     return DecisionRequest(team_id=42, state=state, questions=QUESTIONS, ai_product=ai_product)
 
 
@@ -55,6 +57,12 @@ def test_a_request_refuses_more_questions_than_the_cap() -> None:
     question = DecisionQuestion(type=DecisionQuestionType.NOUL, instructions="Is it?")
     with pytest.raises(ValueError, match="at most 32"):
         DecisionRequest(team_id=1, state="text", questions={f"q{i}": question for i in range(33)})
+
+
+def test_a_request_refuses_non_json_state() -> None:
+    state: Any = {"created_at": object()}
+    with pytest.raises(ValidationError):
+        DecisionRequest(team_id=1, state=state, questions=QUESTIONS)
 
 
 @pytest.mark.parametrize(
@@ -77,7 +85,7 @@ class TestDecide:
         ],
     )
     def test_posts_to_the_decision_route_off_the_gateway_origin(
-        self, gateway_url: str, state: str | dict[str, object], ai_product: str
+        self, gateway_url: str, state: JsonValue, ai_product: str
     ) -> None:
         seen: list[httpx.Request] = []
 

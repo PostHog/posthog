@@ -3,7 +3,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import perf_counter
-from typing import Generic, Literal, TypedDict, TypeVar
+from typing import Generic, Literal, TypeVar
 
 import structlog
 import posthoganalytics
@@ -12,7 +12,13 @@ from prometheus_client import Counter, Histogram
 from posthog.dataclasses import frozen
 
 from products.ml_inference.backend.facade import api as decision_api
-from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest, NoulAnswer
+from products.ml_inference.backend.facade.contracts import (
+    ChoiceAnswer,
+    DecisionQuestion,
+    DecisionRequest,
+    JsonValue,
+    NoulAnswer,
+)
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
 logger = structlog.get_logger(__name__)
@@ -67,17 +73,18 @@ T = TypeVar("T")
 
 
 @frozen
-class _ModelCallResult(Generic[T]):
+class _SignalsModelCallResult(Generic[T]):
     value: T | None
     error: Exception | None
     latency_seconds: float
 
 
-class TypesafeDecisionError(RuntimeError):
+class SignalsDecisionError(RuntimeError):
     pass
 
 
-class TypesafeResult(TypedDict):
+@frozen
+class SignalsDecision:
     probability: float
     model: str
     input_tokens: int
@@ -107,7 +114,7 @@ async def _mode(team_id: int) -> ModelMode:
     return "traditional-only"
 
 
-async def _query(team_id: int, stage: str, state: dict[str, object], instructions: str) -> TypesafeResult:
+async def _query(team_id: int, stage: str, state: dict[str, JsonValue], instructions: str) -> SignalsDecision:
     question_name = "actionable" if stage == "actionability" else "safe"
     questions = {
         question_name: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions),
@@ -143,18 +150,18 @@ async def _query(team_id: int, stage: str, state: dict[str, object], instruction
         category = category_answer.choice
         category_confidence = category_answer.confidence
     if category is not None and category not in SAFETY_CATEGORIES:
-        raise ValueError("TypeSafe returned an unknown safety category")
+        raise ValueError("Jev returned an unknown safety category")
     if category_confidence is not None and (
         not math.isfinite(category_confidence) or not 0 <= category_confidence <= 1
     ):
         raise ValueError("Jev returned an invalid safety category confidence")
-    return {
-        "probability": answer.probability,
-        "model": result.model,
-        "input_tokens": result.input_tokens,
-        "category": category,
-        "category_confidence": category_confidence,
-    }
+    return SignalsDecision(
+        probability=answer.probability,
+        model=result.model,
+        input_tokens=result.input_tokens,
+        category=category,
+        category_confidence=category_confidence,
+    )
 
 
 async def run_model_decision(
@@ -164,7 +171,7 @@ async def run_model_decision(
     primary_model: str,
     source_id: str | None,
     source_product: str | None,
-    state: dict[str, object],
+    state: dict[str, JsonValue],
     instructions: str,
     threshold: float,
     traditional: Callable[[], Awaitable[T]],
@@ -178,25 +185,25 @@ async def run_model_decision(
     if mode == "traditional-only":
         return await traditional()
 
-    async def run_traditional() -> _ModelCallResult[T]:
+    async def run_traditional() -> _SignalsModelCallResult[T]:
         started = perf_counter()
         try:
-            return _ModelCallResult(
+            return _SignalsModelCallResult(
                 value=await traditional(),
                 error=None,
                 latency_seconds=perf_counter() - started,
             )
         except Exception as error:
-            return _ModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
+            return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
 
-    async def run_typesafe() -> _ModelCallResult[TypesafeResult]:
+    async def run_typesafe() -> _SignalsModelCallResult[SignalsDecision]:
         started = perf_counter()
         try:
             result = await _query(team_id, stage, state, instructions)
-            return _ModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
+            return _SignalsModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except Exception as error:
             logger.warning("TypeSafe call failed", stage=stage, error_type=type(error).__name__)
-            return _ModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
+            return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
 
     traditional_task = asyncio.create_task(run_traditional()) if mode != "typesafe-only" else None
     typesafe_task = asyncio.create_task(run_typesafe())
@@ -210,15 +217,13 @@ async def run_model_decision(
 
     typesafe = typesafe_call.value
     typesafe_verdict = (
-        typesafe["probability"] >= threshold and typesafe["category"] in (None, "none")
-        if typesafe is not None
-        else None
+        typesafe.probability >= threshold and typesafe.category in (None, "none") if typesafe is not None else None
     )
     typesafe_decision = None
     conversion_error = None
     if typesafe_verdict is not None and typesafe is not None:
         try:
-            typesafe_decision = typesafe_result(typesafe_verdict, typesafe["category"])
+            typesafe_decision = typesafe_result(typesafe_verdict, typesafe.category)
         except Exception as error:
             conversion_error = error
             logger.warning("TypeSafe result conversion failed", stage=stage, error_type=type(error).__name__)
@@ -290,8 +295,8 @@ async def run_model_decision(
         }
         if typesafe is not None:
             disagreement = traditional_verdict != typesafe_verdict if traditional_verdict is not None else None
-            estimated_cost = typesafe["input_tokens"] * JEV_INPUT_USD_PER_MILLION / 1_000_000
-            _INPUT_TOKENS.labels(stage).inc(typesafe["input_tokens"])
+            estimated_cost = typesafe.input_tokens * JEV_INPUT_USD_PER_MILLION / 1_000_000
+            _INPUT_TOKENS.labels(stage).inc(typesafe.input_tokens)
             _ESTIMATED_COST.labels(stage).inc(estimated_cost)
             if disagreement:
                 _DISAGREEMENTS.labels(stage, str(traditional_verdict).lower(), str(typesafe_verdict).lower()).inc()
@@ -299,16 +304,16 @@ async def run_model_decision(
                 {
                     "typesafe_verdict": typesafe_verdict,
                     "disagreement": disagreement,
-                    "typesafe_probability": typesafe["probability"],
-                    "typesafe_model": typesafe["model"],
-                    "typesafe_category": typesafe["category"],
-                    "typesafe_category_confidence": typesafe["category_confidence"],
+                    "typesafe_probability": typesafe.probability,
+                    "typesafe_model": typesafe.model,
+                    "typesafe_category": typesafe.category,
+                    "typesafe_category_confidence": typesafe.category_confidence,
                     "category_disagreement": (
-                        traditional_category_value != typesafe["category"]
-                        if traditional_category_value is not None and typesafe["category"] is not None
+                        traditional_category_value != typesafe.category
+                        if traditional_category_value is not None and typesafe.category is not None
                         else None
                     ),
-                    "typesafe_input_tokens": typesafe["input_tokens"],
+                    "typesafe_input_tokens": typesafe.input_tokens,
                     "typesafe_estimated_cost_usd": estimated_cost,
                 }
             )
@@ -319,10 +324,10 @@ async def run_model_decision(
         )
     if decision_error is not None:
         if mode == "typesafe-only":
-            raise TypesafeDecisionError("TypeSafe decision failed") from decision_error
+            raise SignalsDecisionError("Signals decision failed") from decision_error
         raise decision_error
     if decision is None:
         if mode == "typesafe-only":
-            raise TypesafeDecisionError("TypeSafe decision returned no result")
+            raise SignalsDecisionError("Signals decision returned no result")
         raise RuntimeError("Model decision returned no result")
     return decision

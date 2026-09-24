@@ -8,6 +8,7 @@ from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
     DecisionGatewayError,
     DecisionResult,
+    JsonValue,
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
@@ -17,8 +18,8 @@ from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeRes
 from products.signals.backend.typesafe_decision import (
     JEV_MODEL,
     JEV_TIMEOUT_SECONDS,
-    TypesafeDecisionError,
-    TypesafeResult,
+    SignalsDecision,
+    SignalsDecisionError,
     _query,
     run_model_decision,
 )
@@ -69,7 +70,7 @@ async def _run_actionability(
 
 @pytest.mark.asyncio
 async def test_safety_requests_category_through_the_shared_gateway_client() -> None:
-    state: dict[str, object] = {"signal": "a finding"}
+    state: dict[str, JsonValue] = {"signal": "a finding"}
     with patch(
         "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
         return_value=_safety_result(),
@@ -86,8 +87,8 @@ async def test_safety_requests_category_through_the_shared_gateway_client() -> N
     assert request.questions["safe"].type == DecisionQuestionType.NOUL
     assert request.questions["category"].type == DecisionQuestionType.CHOICE
     assert decide.call_args.kwargs == {"timeout_seconds": JEV_TIMEOUT_SECONDS}
-    assert result["category"] == "secret_exfiltration"
-    assert result["category_confidence"] == 0.88
+    assert result.category == "secret_exfiltration"
+    assert result.category_confidence == 0.88
 
 
 @pytest.mark.asyncio
@@ -203,15 +204,15 @@ async def test_traditional_shadow_returns_without_waiting_for_traditional() -> N
             raise
         return False
 
-    async def typesafe_result(*_args: object) -> TypesafeResult:
+    async def typesafe_result(*_args: object) -> SignalsDecision:
         await traditional_started.wait()
-        return {
-            "probability": 0.98,
-            "model": "jevk5-fp8-0.2",
-            "input_tokens": 1000,
-            "category": None,
-            "category_confidence": None,
-        }
+        return SignalsDecision(
+            probability=0.98,
+            model="jevk5-fp8-0.2",
+            input_tokens=1000,
+            category=None,
+            category_confidence=None,
+        )
 
     with (
         patch(
@@ -264,7 +265,7 @@ async def test_typesafe_only_failure_does_not_run_traditional() -> None:
             side_effect=RuntimeError("gateway unavailable"),
         ),
     ):
-        with pytest.raises(TypesafeDecisionError, match="TypeSafe decision failed") as exc_info:
+        with pytest.raises(SignalsDecisionError, match="Signals decision failed") as exc_info:
             await _run_actionability(traditional=traditional)
 
     assert isinstance(exc_info.value.__cause__, RuntimeError)
@@ -278,14 +279,14 @@ async def test_typesafe_only_failure_stops_actionability_batch() -> None:
         patch("products.signals.backend.emission.pipeline.build_async_anthropic_client"),
         patch(
             "products.signals.backend.emission.pipeline.check_actionability",
-            AsyncMock(side_effect=TypesafeDecisionError("failed")),
+            AsyncMock(side_effect=SignalsDecisionError("failed")),
         ),
         patch("products.signals.backend.emission.pipeline.activity"),
     ):
         with pytest.raises(ExceptionGroup) as exc_info:
             await filter_actionable(MagicMock(id=1), [output], "prompt {description}", extra={})
 
-    assert any(isinstance(error, TypesafeDecisionError) for error in exc_info.value.exceptions)
+    assert any(isinstance(error, SignalsDecisionError) for error in exc_info.value.exceptions)
 
 
 @pytest.mark.asyncio
