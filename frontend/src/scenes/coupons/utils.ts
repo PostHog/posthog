@@ -1,5 +1,7 @@
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
+import type { CouponCreditStatus } from '~/types'
+
 /**
  * Extracts campaign slug from a coupon URL path.
  * Matches both `/coupons/:campaign` and `/onboarding/coupons/:campaign` patterns.
@@ -28,4 +30,21 @@ export function formatCouponCreditAmount(creditAmountUsd: string | null | undefi
         return null
     }
     return humanFriendlyCurrency(amount, Number.isInteger(amount) ? 0 : 2)
+}
+
+/**
+ * The line that tells the user about the credit from a claimed code, or null when there is nothing to say.
+ * While billing is still syncing the credit ("processing"), it must not say the credit was added.
+ */
+export function getCouponCreditMessage(
+    creditAmountUsd: string | null | undefined,
+    creditStatus: CouponCreditStatus | undefined
+): string | null {
+    const amount = formatCouponCreditAmount(creditAmountUsd)
+    if (creditStatus === 'processing') {
+        return amount
+            ? `${amount} of credit will appear on your account in a few minutes.`
+            : 'Your credit will appear on your account in a few minutes.'
+    }
+    return amount ? `${amount} of credit was added to your organization.` : null
 }

@@ -1,4 +1,4 @@
-import { formatCouponCreditAmount, parseCouponCampaign } from './utils'
+import { formatCouponCreditAmount, getCouponCreditMessage, parseCouponCampaign } from './utils'
 
 describe('coupon utils', () => {
     describe('parseCouponCampaign', () => {
@@ -50,6 +50,20 @@ describe('coupon utils', () => {
             ['', null],
         ])('formatCouponCreditAmount(%p) returns %p', (amount, expected) => {
             expect(formatCouponCreditAmount(amount)).toBe(expected)
+        })
+    })
+
+    describe('getCouponCreditMessage', () => {
+        it.each([
+            ['50.00', 'applied', '$50 of credit was added to your organization.'],
+            ['50.00', null, '$50 of credit was added to your organization.'],
+            ['50.00', undefined, '$50 of credit was added to your organization.'],
+            ['50.00', 'processing', '$50 of credit will appear on your account in a few minutes.'],
+            [null, 'processing', 'Your credit will appear on your account in a few minutes.'],
+            [null, 'applied', null],
+            [null, null, null],
+        ] as const)('getCouponCreditMessage(%p, %p) returns %p', (amount, status, expected) => {
+            expect(getCouponCreditMessage(amount, status)).toBe(expected)
         })
     })
 })

@@ -19,7 +19,7 @@ import { BillingProductV2Type } from '~/types'
 
 import { campaignConfigs } from './campaigns'
 import { couponLogic } from './couponLogic'
-import { formatCouponCreditAmount } from './utils'
+import { getCouponCreditMessage } from './utils'
 
 interface CouponRedemptionProps {
     campaign: string
@@ -69,8 +69,14 @@ export function CouponRedemption({
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
     const alreadyClaimed = getClaimedCouponForCampaign(campaign)
-    const claimedCreditAmount = formatCouponCreditAmount(claimedDetails?.credit_amount_usd)
-    const alreadyClaimedCreditAmount = formatCouponCreditAmount(alreadyClaimed?.credit_amount_usd)
+    const claimedCreditMessage = getCouponCreditMessage(
+        claimedDetails?.credit_amount_usd,
+        claimedDetails?.credit_status
+    )
+    const alreadyClaimedCreditMessage = getCouponCreditMessage(
+        alreadyClaimed?.credit_amount_usd,
+        alreadyClaimed?.credit_status
+    )
 
     if (!config) {
         return (
@@ -243,9 +249,7 @@ export function CouponRedemption({
                                     <IconCheck className="shrink-0" />
                                     <span>Coupon redeemed successfully!</span>
                                 </div>
-                                {claimedCreditAmount && (
-                                    <p className="text-muted">{`${claimedCreditAmount} of credit was added to your organization.`}</p>
-                                )}
+                                {claimedCreditMessage && <p className="text-muted">{claimedCreditMessage}</p>}
                                 <p className="text-muted">
                                     Your organization now has access to {config.name} benefits.
                                     {claimedDetails?.expires_at &&
@@ -278,8 +282,8 @@ export function CouponRedemption({
                                     <IconCheck className="shrink-0" />
                                     <span>You've already claimed this offer!</span>
                                 </div>
-                                {alreadyClaimedCreditAmount && (
-                                    <p className="text-muted">{`${alreadyClaimedCreditAmount} of credit was added to your organization.`}</p>
+                                {alreadyClaimedCreditMessage && (
+                                    <p className="text-muted">{alreadyClaimedCreditMessage}</p>
                                 )}
                                 <p className="text-muted">
                                     Your organization has already claimed {config.name} coupon.
