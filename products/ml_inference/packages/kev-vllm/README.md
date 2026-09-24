@@ -42,7 +42,13 @@ curl -s localhost:8000/pooling -H 'content-type: application/json' -d '{"model":
 
 The answer is under `data.answers`, in Kev's format for either model, with `data.probabilities_raw` alongside for parity checks. JevK5 takes at most 16 options per question and 16,384 tokens per prompt, and refuses more.
 
-Prefix caching is off for both models: vLLM does not enable it for pooling models on hybrid backbones, so every row recomputes its state. Batching across rows and requests still applies.
+### Batching
+
+vLLM's scheduler is the request pool, so this package adds none of its own. Each question becomes its own engine request, and every request waits in the engine's in-memory queue. At each step, the scheduler packs waiting rows from all callers into one forward pass, up to `--max-num-batched-tokens` tokens, and splits a row longer than the remainder across steps (chunked prefill). A row is prefill only: it finishes in the step that computes its last token, and it frees its slot in that step. A burst of requests therefore becomes a few full steps, not one step per request.
+
+- No state persists between requests. vLLM's KV and Mamba caches hold only the rows in flight. Prefix caching is off for both models, because vLLM does not enable it for pooling models on hybrid backbones. So each row computes its state again, including the rows of one request that share it.
+- `JevK5ForDecision` reads the answer from each row's last token only. A chunked row holds no hidden states between steps, and each step's readout is one matmul for all its rows.
+- vLLM's queue has no limit by default. When the queue is longer than the gateway's timeout, every request in it fails. `--max-num-queued-tokens` makes vLLM answer 503 when the prefill backlog is full, so a caller can retry elsewhere without delay. Set it to the prefill throughput multiplied by the longest wait you accept.
 
 ## Container image
 
@@ -61,6 +67,7 @@ docker run -d --restart always --gpus all --network host --shm-size 8g \
 - The host network lets s5cmd read the instance role's credentials from the metadata service, and Caddy listens on the host's `PORT`. Keep the port closed to the network and reach it over the tailnet.
 - The named volume keeps the weights across container restarts; it starts owned by the serving user (uid 10001). A host directory mounted instead must be writable by that user.
 - `DTYPE=float16` on GPUs without bf16. `MODEL_NAME` (the served name the gateway asks for, default `jevk5-0.2`), `MAX_MODEL_LEN`, `GPU_MEMORY_UTILIZATION`, `PORT` and `VLLM_PORT` override the defaults; extra arguments go to `vllm serve`.
+- `MAX_NUM_BATCHED_TOKENS` is the per-step token budget (see [Batching](#batching)). The entrypoint pins the H100's default, because vLLM would otherwise give an L4 or a T4 a much smaller one. `MAX_NUM_QUEUED_TOKENS` sets vLLM's backlog limit and is unset by default.
 - The image sets `GLOO_SOCKET_IFNAME=lo`. vLLM otherwise resolves the host name at start-up and fails with "File name too long" where a VPC's DHCP domain makes it 64 characters.
 
 `kev-vllm-checkpoint verify <dir>` is the manifest check on its own.
