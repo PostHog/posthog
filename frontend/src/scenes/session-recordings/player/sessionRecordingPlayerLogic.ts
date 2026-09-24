@@ -178,6 +178,9 @@ const RENDERED_SAMPLE_MAX = 40
 interface RenderedSampleCache {
     renderedSampleCount?: number
     lastRenderedSampleAt?: number
+    droppedFrames?: number
+    frameCount?: number
+    maxFrameTime?: number
 }
 
 // Reads the scroll offsets the player actually rendered in the replay iframe. The event-derived
@@ -223,17 +226,30 @@ function readRenderedScroll(replayer: Replayer | undefined): RenderedScrollDiagn
     }
 }
 
+// A recorded scroll replayed with behavior:'smooth' is neutralized to instant when the OS asks for
+// reduced motion, so a viewer with this setting on cannot reproduce the drift.
+function prefersReducedMotion(): boolean | null {
+    try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    } catch {
+        return null
+    }
+}
+
 // TODO: temporary diagnostic for the cross-browser rendered-scroll investigation. Emits one sample per
-// interval, tagged with the playhead so the two browsers' samples line up in time. Remove this and
-// readRenderedScroll once the cause is found.
+// interval, tagged with the playhead so the two browsers' samples line up in time. The runtime fields
+// (speed, skip-inactivity, reduced-motion, frame timing) explain why the offset is per-viewer rather
+// than per-browser. Remove this and readRenderedScroll once the cause is found.
 function captureRenderedScrollSample(args: {
     replayer: Replayer | undefined
     recordingId: string
     timestamp: number | undefined
     rrwebPlayerTime: number | null | undefined
+    speed: number | undefined
+    skippingInactivity: boolean | undefined
     cache: RenderedSampleCache
 }): void {
-    const { replayer, recordingId, timestamp, rrwebPlayerTime, cache } = args
+    const { replayer, recordingId, timestamp, rrwebPlayerTime, speed, skippingInactivity, cache } = args
     try {
         if ((cache.renderedSampleCount ?? 0) >= RENDERED_SAMPLE_MAX) {
             return
@@ -253,6 +269,13 @@ function captureRenderedScrollSample(args: {
             sample_index: cache.renderedSampleCount,
             rrweb_player_time: rrwebPlayerTime ?? null,
             current_timestamp: timestamp ?? null,
+            // Runtime knobs that explain a per-viewer, not per-browser, difference
+            player_speed: speed ?? null,
+            skipping_inactivity: skippingInactivity ?? null,
+            prefers_reduced_motion: prefersReducedMotion(),
+            dropped_frames: cache.droppedFrames ?? null,
+            frame_count: cache.frameCount ?? null,
+            max_frame_time_ms: cache.maxFrameTime ?? null,
             ...readRenderedScroll(replayer),
         })
     } catch {
@@ -3407,6 +3430,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         recordingId: props.sessionRecordingId,
                         timestamp: newTimestamp,
                         rrwebPlayerTime,
+                        speed: values.speed,
+                        skippingInactivity: values.isSkippingInactivity,
                         cache,
                     })
                 }
