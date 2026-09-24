@@ -37,9 +37,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const {
         workflow,
         originalWorkflow,
-        canEditWorkflow,
         isCodeManaged,
-        workflowSaveDisabledReason,
         hasUnsavedChanges,
         hasStagedDraft,
         draftActionPending,
@@ -197,7 +195,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 nameSuffix={<CodeManagedTag workflow={originalWorkflow} />}
                 description={workflow?.description}
                 resourceType={{ type: 'workflows' }}
-                canEdit={canEditWorkflow}
+                canEdit
                 onNameChange={(name) => setWorkflowValue('name', name)}
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
@@ -336,15 +334,13 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             onClick={submitWorkflow}
                                             loading={isWorkflowSubmitting}
                                             disabledReason={
-                                                workflowSaveDisabledReason
-                                                    ? workflowSaveDisabledReason
-                                                    : workflowHasErrors
-                                                      ? 'Some fields still need work'
-                                                      : isCreatedFromTemplate
+                                                workflowHasErrors
+                                                    ? 'Some fields still need work'
+                                                    : isCreatedFromTemplate
+                                                      ? undefined
+                                                      : hasUnsavedChanges
                                                         ? undefined
-                                                        : hasUnsavedChanges
-                                                          ? undefined
-                                                          : 'No changes to save'
+                                                        : 'No changes to save'
                                             }
                                         >
                                             {props.id === 'new'
