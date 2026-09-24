@@ -1,13 +1,9 @@
-// Mobile: no decorative backdrop; the card chrome drops away and content sits on a plain surface.
 .OnboardingDottedBg {
     background-color: var(--color-bg-surface-primary);
 }
 
-// exact same backdrop. Multi-layer background (per-layer size/repeat), not achievable via Tailwind.
-// competing against a Tailwind `bg-*` utility's cascade layer.
+// Each background layer needs independent sizing and repetition, which Tailwind cannot express.
 @media (min-width: 640px) {
-    // Experiment: posthog.com's garden look - layered greens with a soft light well behind the
-    // window, plus the same subtle dot grid in a darker green.
     .OnboardingDottedBg {
         background-color: #b5cd8f;
         background-image:
@@ -21,7 +17,6 @@
             16px 16px;
     }
 
-    // invert the dot tint there. The grid geometry (1.4px dots, 16px cell) and amber glow are unchanged.
     [theme='dark'] .OnboardingDottedBg {
         background-color: var(--color-bg-surface-tertiary);
         background-image:
@@ -30,9 +25,6 @@
     }
 }
 
-// Use-case / product cards: a translucent white wash over the cream card so the rows lift slightly
-// without reading as stark white islands (light); the secondary surface in dark. Not gated by
-// breakpoint: these are content, present at every width.
 .OnboardingProductCard {
     background-color: rgb(255 255 255 / 55%);
 }
