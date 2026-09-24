@@ -125,7 +125,10 @@ await buildInParallel(
                         entrypoints,
                         preloadManifest,
                         preludes: new Map(
-                            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [file, cssPrelude(groups)])
+                            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                                file,
+                                cssPrelude(groups, cssPlan.rankOfGroup),
+                            ])
                         ),
                         extraImports: Object.fromEntries(
                             [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])

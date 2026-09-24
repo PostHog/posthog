@@ -86,19 +86,28 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
 
     const groups = new Map()
     const groupsOfChunk = new Map()
+    // A lazy group is a run of adjacent files with the same owners, so it holds its rules in the
+    // same order as the entry stylesheet. Merging non-adjacent files would move the rules of the
+    // files between them. A run is named by its owners' identities, which do not change when code
+    // does, and by its first file, so a file added elsewhere does not rename it.
+    let previousOwnersKey = null
+    let runName = null
     for (const file of order) {
         let name
         if (boot.has(file)) {
             name = eagerLayer(file)
+            previousOwnersKey = null
         } else {
-            // Named by the identities of the chunks that import it, which do not change when code does.
             const owners = [...(ownersOfStylesheet.get(file) ?? [])]
-            name = `lazy-${shortHash(
-                owners
-                    .map((owner) => chunkIdentity(outputs[owner]))
-                    .sort()
-                    .join('\n')
-            )}`
+            const ownersKey = owners
+                .map((owner) => chunkIdentity(outputs[owner]))
+                .sort()
+                .join('\n')
+            if (ownersKey !== previousOwnersKey) {
+                runName = `lazy-${shortHash(`${ownersKey}\n${file}`)}`
+                previousOwnersKey = ownersKey
+            }
+            name = runName
             for (const owner of owners) {
                 const names = groupsOfChunk.get(owner) ?? new Set()
                 names.add(name)
@@ -150,14 +159,27 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
         throw new Error('stable css: lazy chunks need split CSS but no eager layer would define the loader')
     }
 
-    return { groups, eager, lazyGroupsByEntry }
+    // Each group's place in the entry stylesheet, so the loader can keep lazy groups in that order
+    // whatever order scenes load them in.
+    const rankOfGroup = new Map([...groups.keys()].map((name) => [name, firstRank(name)]))
+    return { groups, eager, lazyGroupsByEntry, rankOfGroup }
 }
 
 /**
  * The line a lazy entry chunk starts with: it waits for its stylesheets before any of its code
- * runs, so the chunk never renders unstyled. `import.meta.resolve` reads the URLs from the import map.
+ * runs, so the chunk never renders unstyled. `import.meta.resolve` reads each group's URL from the
+ * import map, and the group's rank tells the loader where to insert it.
+ *
+ * A browser without `import.meta.resolve` (Chromium 89 to 104 has import maps but not this) gets
+ * the full stylesheet instead. When even that fails, the chunk throws a ChunkLoadError, so the
+ * app's chunk-load recovery runs, not an unstyled scene.
  */
-export function cssPrelude(groupNames) {
-    const urls = groupNames.map((name) => `import.meta.resolve(${JSON.stringify(CSS_SPECIFIER_PREFIX + name)})`)
-    return `await window.${CSS_LOAD_GLOBAL}([${urls.join(',')}]);`
+export function cssPrelude(groupNames, rankOfGroup) {
+    const entries = groupNames.map(
+        (name) => `[import.meta.resolve(${JSON.stringify(CSS_SPECIFIER_PREFIX + name)}),${rankOfGroup.get(name)}]`
+    )
+    return (
+        `if(!(await window.${CSS_LOAD_GLOBAL}(typeof import.meta.resolve=="function"?[${entries.join(',')}]:null)))` +
+        `throw Object.assign(new Error("Stylesheets for this chunk did not load"),{name:"ChunkLoadError"});`
+    )
 }

@@ -32,6 +32,7 @@ function runLoader({
     ready: Promise<boolean>
     links: FakeLink[]
     beacons: Record<string, any>[]
+    win: Record<string, any>
 } {
     const links: FakeLink[] = []
     const beacons: Record<string, any>[] = []
@@ -45,7 +46,10 @@ function runLoader({
     }
     const doc = {
         createElement: (): FakeLink => makeLink(),
-        head: { appendChild: (link: FakeLink) => links.push(link) },
+        head: {
+            appendChild: (link: FakeLink) => links.push(link),
+            insertBefore: (link: FakeLink, before: FakeLink) => links.splice(links.indexOf(before), 0, link),
+        },
     }
     const nav = {
         sendBeacon: (_url: string, body: string) => {
@@ -61,7 +65,7 @@ function runLoader({
         { error: () => {} },
         () => Promise.resolve()
     )
-    return { ready: win.ESBUILD_CSS_READY, links, beacons }
+    return { ready: win.ESBUILD_CSS_READY, links, beacons, win }
 }
 
 /** A stylesheet that really applied has a `sheet`; a response that is not CSS fires `load` without one. */
@@ -177,5 +181,56 @@ describe('css loader script', () => {
 
         await expect(ready).resolves.toBe(true)
         expect(links).toHaveLength(splitFails ? 3 : 2)
+    })
+
+    describe('stable loader for lazy stylesheets', () => {
+        const stable = (): ReturnType<typeof runLoader> =>
+            runLoader({ script: stableCssLoaderScript(['eager-1.css'], CSS_FILE, CSS_FALLBACK) })
+        const lazyLoad = (win: any, entries: [string, number][] | null): Promise<boolean> =>
+            (win as any).ESBUILD_LOAD_CSS(entries)
+
+        // Scenes load in any order, but the cascade among their stylesheets must match the full one.
+        it('inserts lazy stylesheets in rank order whatever order they load in', () => {
+            const { links, win } = stable()
+            void lazyLoad(win, [[`${STATIC}later.css`, 20]])
+            void lazyLoad(win, [[`${STATIC}earlier.css`, 10]])
+
+            expect(links.map((link) => link.href)).toEqual([
+                `${STATIC}eager-1.css`,
+                `${STATIC}earlier.css`,
+                `${STATIC}later.css`,
+            ])
+        })
+
+        it('loads the full stylesheet when the chunk cannot resolve its groups, and nothing after it', async () => {
+            const { links, win } = stable()
+            const loaded = lazyLoad(win, null)
+
+            expect(links[links.length - 1].href).toBe(`${STATIC}${CSS_FILE}`)
+            applyStylesheet(links[links.length - 1])
+            await expect(loaded).resolves.toBe(true)
+
+            // A split stylesheet after the full one would override its later rules.
+            const linksBefore = links.length
+            await expect(lazyLoad(win, [[`${STATIC}later.css`, 99]])).resolves.toBe(true)
+            expect(links).toHaveLength(linksBefore)
+        })
+
+        // A chunk whose styles never load throws so the chunk-load recovery runs; a retry must fetch again.
+        it('resolves false when every fallback fails, and fetches again on the next attempt', async () => {
+            const { links, win } = stable()
+            const failed = lazyLoad(win, [[`${STATIC}scene.css`, 5]])
+            links[1].dispatch('error')
+            await Promise.resolve()
+            for (let attempt = 2; attempt < links.length || attempt < 5; attempt++) {
+                links[attempt]?.dispatch('error')
+                await Promise.resolve()
+            }
+            await expect(failed).resolves.toBe(false)
+
+            const linksBefore = links.length
+            void lazyLoad(win, [[`${STATIC}scene.css`, 5]])
+            expect(links.length).toBeGreaterThan(linksBefore)
+        })
     })
 })

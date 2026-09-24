@@ -106,4 +106,39 @@ describe('planCssGroups', () => {
 
         expect(() => planCssGroups(noEagerCss)).toThrow('no eager layer would define the loader')
     })
+
+    // Merging the scene's two stylesheets would move Shared.scss's rules ahead of the second one.
+    it('keeps same-owner stylesheets separate when another group sits between them', () => {
+        const interleaved = {
+            inputs: {
+                ...METAFILE.inputs,
+                'src/scenes/Scene.tsx': imports(
+                    'src/lib/Shared.tsx',
+                    'src/scenes/Scene.scss',
+                    'src/scenes/SceneExtra.scss'
+                ),
+                'src/scenes/SceneExtra.scss': imports(),
+            },
+            outputs: {
+                ...METAFILE.outputs,
+                'dist/index-A.css': {
+                    inputs: {
+                        '../common/tailwind/tailwind.css': {},
+                        'src/styles/global.scss': {},
+                        'src/lib/Button.scss': {},
+                        'src/scenes/Scene.scss': {},
+                        'src/lib/Shared.scss': {},
+                        'src/scenes/SceneExtra.scss': {},
+                    },
+                },
+            },
+        }
+        const { groups, lazyGroupsByEntry } = planCssGroups(interleaved)
+
+        expect(lazyGroupsByEntry.get('dist/Scene-C.js').map((name: string) => groups.get(name))).toEqual([
+            ['src/scenes/Scene.scss'],
+            ['src/lib/Shared.scss'],
+            ['src/scenes/SceneExtra.scss'],
+        ])
+    })
 })
