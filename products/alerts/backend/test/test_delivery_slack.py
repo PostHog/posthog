@@ -10,14 +10,14 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 
-from products.alerts.backend.delivery.message import AlertMessage
+from products.alerts.backend.delivery.message import AlertMessage, MessageDetail
 from products.alerts.backend.delivery.slack import SlackTransport, blocks_for
 from products.alerts.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts.backend.facade.contracts import AlertDestinationData, AlertEventKind
 
 MESSAGE = AlertMessage(
     headline="API errors is firing",
-    details=(("Value", "300"), ("Threshold", "above 100")),
+    details=(MessageDetail(label="Value", value="300"), MessageDetail(label="Threshold", value="above 100")),
     kind=AlertEventKind.FIRING,
 )
 

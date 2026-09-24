@@ -30,7 +30,7 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
         {"type": "header", "text": {"type": "plain_text", "text": _clip(message.headline, _HEADER_MAX_LEN)}}
     ]
     if message.details:
-        body = "\n".join(f"*{label}:* {value}" for label, value in message.details)
+        body = "\n".join(f"*{detail.label}:* {detail.value}" for detail in message.details)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body}})
     return blocks
 

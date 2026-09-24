@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from products.alerts.backend.delivery.message import build_message
+from products.alerts.backend.delivery.message import MessageDetail, build_message
 from products.alerts.backend.facade.contracts import AlertEventKind, EvaluationAnnouncement, GroupTransition
 
 CONDITION = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
@@ -33,7 +33,11 @@ class TestAlertMessage:
         message = build_message(_announcement(), _transition(AlertEventKind.FIRING))
 
         assert message.headline == "API errors is firing"
-        assert message.details == (("Value", "300"), ("Threshold", "above 100"), ("Window", "5 minutes"))
+        assert message.details == (
+            MessageDetail(label="Value", value="300"),
+            MessageDetail(label="Threshold", value="above 100"),
+            MessageDetail(label="Window", value="5 minutes"),
+        )
 
     def test_a_failed_check_states_the_reason_rather_than_a_threshold(self) -> None:
         message = build_message(
@@ -42,7 +46,10 @@ class TestAlertMessage:
         )
 
         assert message.headline == "API errors could not be checked"
-        assert message.details == (("Error", "Query is too expensive"), ("Failed checks", "3"))
+        assert message.details == (
+            MessageDetail(label="Error", value="Query is too expensive"),
+            MessageDetail(label="Failed checks", value="3"),
+        )
 
     @pytest.mark.parametrize(
         "window_minutes,expected",
@@ -52,7 +59,7 @@ class TestAlertMessage:
         condition = {**CONDITION, "window_minutes": window_minutes}
         message = build_message(_announcement(), _transition(AlertEventKind.FIRING, condition=condition))
 
-        assert ("Window", expected) in message.details
+        assert MessageDetail(label="Window", value=expected) in message.details
 
     def test_a_check_that_announces_nothing_has_no_message(self) -> None:
         with pytest.raises(ValueError):
@@ -61,4 +68,4 @@ class TestAlertMessage:
     def test_a_partial_condition_drops_the_line_it_cannot_state(self) -> None:
         message = build_message(_announcement(), _transition(AlertEventKind.FIRING, condition={}))
 
-        assert message.details == (("Value", "300"),)
+        assert message.details == (MessageDetail(label="Value", value="300"),)

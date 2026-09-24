@@ -20,15 +20,20 @@ _HEADLINES: Final[dict[AlertEventKind, str]] = {
 
 
 @frozen
-class AlertMessage:
-    """One notification, before a provider formats it.
+class MessageDetail:
+    """One labelled fact in a message. Every provider renders these the same way, as a Slack
+    section, an Adaptive Card body, or lines of markdown."""
 
-    `details` are label and value pairs because every provider renders them that way, as a
-    Slack section, an Adaptive Card body, or lines of markdown.
-    """
+    label: str
+    value: str
+
+
+@frozen
+class AlertMessage:
+    """One notification, before a provider formats it."""
 
     headline: str
-    details: tuple[tuple[str, str], ...]
+    details: tuple[MessageDetail, ...]
     kind: AlertEventKind
 
 
@@ -49,25 +54,25 @@ def _threshold(condition: dict[str, Any]) -> str | None:
     return f"{operator} {count}"
 
 
-def _breach_details(transition: GroupTransition) -> list[tuple[str, str]]:
-    details: list[tuple[str, str]] = []
+def _breach_details(transition: GroupTransition) -> list[MessageDetail]:
+    details: list[MessageDetail] = []
     if transition.value is not None:
-        details.append(("Value", _number(transition.value)))
+        details.append(MessageDetail(label="Value", value=_number(transition.value)))
     threshold = _threshold(transition.condition)
     if threshold is not None:
-        details.append(("Threshold", threshold))
+        details.append(MessageDetail(label="Threshold", value=threshold))
     window_minutes = transition.condition.get("window_minutes")
     if window_minutes:
-        details.append(("Window", _minutes(window_minutes)))
+        details.append(MessageDetail(label="Window", value=_minutes(window_minutes)))
     return details
 
 
-def _failure_details(transition: GroupTransition, consecutive_failures: int) -> list[tuple[str, str]]:
-    details: list[tuple[str, str]] = []
+def _failure_details(transition: GroupTransition, consecutive_failures: int) -> list[MessageDetail]:
+    details: list[MessageDetail] = []
     if transition.error_message:
-        details.append(("Error", transition.error_message))
+        details.append(MessageDetail(label="Error", value=transition.error_message))
     if consecutive_failures:
-        details.append(("Failed checks", str(consecutive_failures)))
+        details.append(MessageDetail(label="Failed checks", value=str(consecutive_failures)))
     return details
 
 
