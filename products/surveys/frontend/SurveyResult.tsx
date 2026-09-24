@@ -21,6 +21,8 @@ import { transformSurveyResponseRows } from 'scenes/surveys/utils'
 import { Query } from '~/queries/Query/Query'
 import { SurveyEventName, SurveyQuestionType } from '~/types'
 
+import { SurveyResponseColumnsMenu } from './components/SurveyResponseColumnsMenu'
+
 function SurveyResponsesByQuestionV2(): JSX.Element {
     const { survey } = useValues(surveyLogic)
 
@@ -99,6 +101,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         query={dataTableQuery}
                                         context={{
                                             columns: surveyColumnRenderers,
+                                            customActions: <SurveyResponseColumnsMenu key="survey-response-columns" />,
                                             expandable: {
                                                 expandedRowRender: ({ result }) => (
                                                     <SurveyResponseExpandedRow result={result} />
