@@ -11,7 +11,6 @@ from collections.abc import Set as AbstractSet
 import torch
 from vllm.config import VllmConfig
 from vllm.model_executor.layers.pooler import Pooler, PoolingParamsUpdate
-from vllm.model_executor.layers.pooler.tokwise import AllPool
 from vllm.model_executor.models.interfaces_base import default_pooling_type
 from vllm.model_executor.models.qwen3_5 import Qwen3_5ForCausalLM
 from vllm.tasks import PoolingTask
@@ -24,7 +23,6 @@ class JevK5Pooler(Pooler):
         super().__init__()
         self.lm_head = lm_head
         self.letter_token_ids = letter_token_ids
-        self.all_pool = AllPool()
 
     def get_supported_tasks(self) -> AbstractSet[PoolingTask]:
         return {"plugin"}
@@ -33,10 +31,11 @@ class JevK5Pooler(Pooler):
         return PoolingParamsUpdate()
 
     def forward(self, hidden_states: torch.Tensor, pooling_metadata: PoolingMetadata) -> PoolerOutput:
-        rows = self.all_pool(hidden_states, pooling_metadata)
+        # Rows still mid-prefill get an output too, which the model runner discards.
+        last_hidden = hidden_states[pooling_metadata.get_pooling_cursor().last_token_indices_gpu].float()
         # Read per call: the weights load after construction, and the tied lm_head shares the embedding tensor.
         letter_weights = self.lm_head.weight[self.letter_token_ids].float()
-        return [None if row is None else letter_weights @ row[-1].float() for row in rows]
+        return last_hidden @ letter_weights.T
 
 
 @default_pooling_type(seq_pooling_type="LAST", tok_pooling_type="ALL")
