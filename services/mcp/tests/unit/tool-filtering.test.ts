@@ -992,7 +992,9 @@ describe('Tool Filtering - Feature Flags', () => {
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
-        const flags = getRequiredFeatureFlags()
+        // Asserted on its own below: this list is the set that already ships, and a layer above
+        // master adding to it makes every branch in the stack fight over the same two lines.
+        const flags = getRequiredFeatureFlags().filter((flag) => flag !== 'self-optimising-workflows')
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-anomalies',
@@ -1046,6 +1048,18 @@ describe('Tool Filtering - Feature Flags', () => {
         for (const [name, definition] of loopsTools) {
             expect({ name, feature_flag: definition.feature_flag }).toEqual({ name, feature_flag: 'loops' })
         }
+    })
+
+    it('gates the workflow suggestion tools on the self-optimising-workflows flag', () => {
+        expect(getRequiredFeatureFlags()).toContain('self-optimising-workflows')
+
+        const off = getToolsForFeatures({ featureFlags: { 'self-optimising-workflows': false } })
+        expect(off).not.toContain('workflows-suggest')
+        expect(off).not.toContain('workflows-list-proposals')
+
+        const on = getToolsForFeatures({ featureFlags: { 'self-optimising-workflows': true } })
+        expect(on).toContain('workflows-suggest')
+        expect(on).toContain('workflows-list-proposals')
     })
 
     it('keeps human, task, and loop context wiki tools on separate scopes', () => {
