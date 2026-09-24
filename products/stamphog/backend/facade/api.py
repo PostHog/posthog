@@ -19,6 +19,8 @@ from django.utils import timezone
 import structlog
 
 from ..logic.review_trigger import derive_review_trigger
+from ..logic.reviewer import parse_reviewer_output
+from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from . import contracts
 from .enums import (
@@ -129,6 +131,8 @@ def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
 # either omit the key or write a populated dict, so testing for the key and testing for truthiness
 # agree — which is what lets the filter below stay in step with the derivation above it.
 _SELF_DRIVING = Q(output__has_key="inbox_review")
+# Same shape for a manual request: request_manual_review writes a populated dict or no key at all.
+_MANUAL = Q(output__has_key="manual_review")
 
 # Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
@@ -139,6 +143,7 @@ def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
     the reviewer invocation has to answer the same question before a run exists to read."""
     return derive_review_trigger(
         has_inbox_review=bool((obj.output or {}).get("inbox_review")),
+        has_manual_review=bool((obj.output or {}).get("manual_review")),
         review_mode=obj.pull_request.repo_config.review_mode,
     )
 
@@ -153,10 +158,12 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     """
     if trigger == ReviewTrigger.SELF_DRIVING:
         return qs.filter(_SELF_DRIVING)
+    if trigger == ReviewTrigger.MANUAL:
+        return qs.exclude(_SELF_DRIVING).filter(_MANUAL)
     if trigger == ReviewTrigger.LABEL:
-        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
     if trigger == ReviewTrigger.ALL:
-        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
     return qs.none()
 
 
@@ -228,6 +235,35 @@ def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO |
         ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
     )
     return _review_run_to_dto(obj) if obj is not None else None
+
+
+def _clean_reviewer_text(text: str) -> str:
+    # The same redaction the posted GitHub review gets. An MCP client can render this as markdown,
+    # which fetches images on render the way GitHub's camo proxy does.
+    return neutralize_active_markdown(scrub_credentials(text))
+
+
+def get_review_reasoning(run: contracts.ReviewRunDTO) -> contracts.ReviewReasoningDTO:
+    """The reviewer's reasoning for a run, parsed from its stored output.
+
+    This is the text stamphog posts as its GitHub review. The raw reviewer stdout it is parsed
+    from never leaves the facade. All fields are None until the reviewer has run.
+    """
+    raw = (run.output or {}).get("reviewer_raw")
+    if not isinstance(raw, str) or not raw:
+        return contracts.ReviewReasoningDTO()
+    try:
+        parsed = parse_reviewer_output(raw)
+    except (AttributeError, TypeError, ValueError):
+        # A crashed or version-skewed engine can print a malformed verdict. Retrieve must still answer.
+        logger.warning("stamphog_review_reasoning_unparseable", review_run_id=str(run.id))
+        return contracts.ReviewReasoningDTO()
+    return contracts.ReviewReasoningDTO(
+        reasoning=_clean_reviewer_text(parsed.reasoning),
+        showstoppers=[_clean_reviewer_text(item) for item in parsed.showstoppers],
+        review_body=_clean_reviewer_text(parsed.review_body),
+        change_summary=_clean_reviewer_text(parsed.change_summary),
+    )
 
 
 def create_review_run(

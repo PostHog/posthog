@@ -3,17 +3,20 @@ from pathlib import Path
 
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.llm.gateway_client import build_anthropic_client, build_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
+from posthog.models.user import User
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppProjectRoute,
+    SlackAppProjectRouteInput,
 )
 from posthog.temporal.common.utils import close_db_connections
 
@@ -25,7 +28,9 @@ from products.slack_app.backend.facade.run_preferences import (
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.prompt_templates import PromptTemplates
+from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
 
 logger = structlog.get_logger(__name__)
 
@@ -34,11 +39,17 @@ prompts = PromptTemplates(Path(__file__).parent / "prompts")
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 
+# Every classifier here shares `ai_product="slack_app_routing"`, so the captured generation
+# carries this property to say which one of them made the call. An online evaluation scopes
+# itself with it; without it a judge would grade all four.
+CLASSIFIER_PROPERTY = "slack_app_classifier"
+
 
 # The model-override and agent-directed classifiers both run on a reasoning model, which
 # draws its reasoning from the same token budget as the reply. The reply is one short JSON
 # object; the headroom is for the thinking in front of it, and a truncated turn falls back
-# to the safe answer.
+# to the safe answer. Reasoning-class is also why the cap rides on `max_completion_tokens`:
+# the chat-completions route rejects `max_tokens` outright.
 #
 # The gateway client defaults to a 600s read and two retries, which is the right shape for
 # a generation call and the wrong one here. Left unbounded these never get to fall back,
@@ -46,13 +57,21 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
 # blocking until the client itself returns.
 MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
-MODEL_OVERRIDE_MAX_TOKENS = 2048
+MODEL_OVERRIDE_MAX_COMPLETION_TOKENS = 2048
 # One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
 
+# Same shape of call as the model override, so it takes the same bounds — including the
+# cap riding on `max_completion_tokens`. The reasoning-class chat-completions route
+# rejects `max_tokens` outright, and the classifier would swallow that into its fallback.
+PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-5.6-luna"
+PROJECT_ROUTE_MAX_COMPLETION_TOKENS = 2048
+PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
+PROJECT_ROUTE_MAX_RETRIES = 1
+
 AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
-AGENT_DIRECTED_MAX_TOKENS = 2048
+AGENT_DIRECTED_MAX_COMPLETION_TOKENS = 2048
 # One call per reply in every thread the agent is working in, and its prompt carries the
 # thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
 # enough to a 10s ceiling that the tail would drop instructions rather than misread them.
@@ -177,7 +196,11 @@ def classify_task_needs_repo(
     )
     try:
         # The Go gateway refuses a Claude model on chat completions.
-        client = build_anthropic_client(product="slack_app_routing", ai_product="slack_app_routing")
+        client = build_anthropic_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "task_needs_repo"},
+        )
         response = client.messages.create(
             model=CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -290,13 +313,15 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
-            timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
-        )
+        client = build_openai_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "agent_directed"},
+        ).with_options(timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES)
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=AGENT_DIRECTED_MAX_TOKENS,
+            max_completion_tokens=AGENT_DIRECTED_MAX_COMPLETION_TOKENS,
             response_format=_agent_directed_response_format(),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
@@ -324,8 +349,9 @@ def classify_untagged_followup_activity(
     Runs the LLM + Slack thread-history fetch inside the workflow rather than
     the webhook handler so they're retriable under Temporal and don't block
     the Slack webhook's 3-second ack budget. Returns ``True`` to forward,
-    ``False`` to drop. Conservative defaults: missing mapping → drop, history
-    fetch failure → classify on text alone, classifier failure → drop.
+    ``False`` to drop. Conservative defaults: missing mapping → drop, a reply
+    that tags another app → drop, history fetch failure → classify on text
+    alone, classifier failure → drop.
     """
     from products.slack_app.backend.services.slack_messages import cached_collect_thread_messages
 
@@ -346,6 +372,19 @@ def classify_untagged_followup_activity(
 
     integration = mapping.integration
     slack = SlackIntegration(integration)
+
+    # Asked before the history fetch and the model call, because reading the reply cannot
+    # answer it.
+    addressed_bot_user_id = find_addressed_bot_user_id(slack, integration, event_text)
+    if addressed_bot_user_id:
+        logger.info(
+            "posthog_code_thread_message_addressed_to_another_app",
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+            addressed_bot_user_id=addressed_bot_user_id,
+        )
+        return False
 
     try:
         # Cached: the next activity in this workflow run (the forwarder) re-fetches the
@@ -444,13 +483,15 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
-            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
-        )
+        client = build_openai_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "model_override"},
+        ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=MODEL_OVERRIDE_MAX_TOKENS,
+            max_completion_tokens=MODEL_OVERRIDE_MAX_COMPLETION_TOKENS,
             response_format=_model_override_response_format(choices),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
@@ -525,3 +566,147 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
         reasoning_effort=override.reasoning_effort,
     )
     return override
+
+
+def _project_route_response_format(projects: list[Integration]) -> ResponseFormatJSONSchema:
+    """A strict JSON schema pinning the reply to one id from ``projects``.
+
+    The enum is what stops the classifier naming a project this mentioner cannot reach.
+    `routable_projects` bounds the list by access, and that bound only reaches the model
+    through this field.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "slack_app_project_route",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": ["integer", "null"], "enum": [*(p.team_id for p in projects), None]},
+                },
+                "required": ["project_id"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+class _ProjectRouteReply(BaseModel):
+    project_id: int | None = None
+
+
+def classify_slack_app_project_route(
+    event_text: str, projects: list[Integration], default: Integration | None = None
+) -> Integration | None:
+    """Read the project a mention asked to be answered from, out of its text.
+
+    ``default`` is the project the run is already on. It heads the list the model is
+    shown and is marked there, so that staying put is a visible choice rather than the
+    absence of one.
+
+    Returns ``None`` when the author named none, which is the overwhelming majority of
+    mentions, and on a reply this cannot parse.
+
+    A gateway failure raises instead of returning ``None``. The activity turns that into
+    the same fallback, so production behaviour is unchanged; the eval suite calls this
+    function directly, and a swallowed failure there is indistinguishable from a clean
+    "no project" — it would score a dead gateway as a pass on every negative case.
+
+    It takes the opposite rule to the model classifier: a model named as the subject of a
+    question is never an instruction, while a project named as the subject usually is
+    where the answer has to come from, because that is where the data lives. Quality on
+    that is measured by ``products/slack_app/evals/eval_project_classifier.py``.
+    """
+    # Named to the model by id rather than by a marker on its line: a team may be called
+    # anything, including whatever that marker would have been.
+    if default is not None and not any(p.id == default.id for p in projects):
+        default = None
+    prompt = prompts.render(
+        "project_route",
+        projects=format_project_candidate_list(projects, first=default),
+        default_id=default.team_id if default is not None else None,
+        event_text=event_text,
+    )
+
+    try:
+        client = build_openai_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "project_route"},
+        ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
+        response = client.chat.completions.create(
+            model=PROJECT_ROUTE_CLASSIFIER_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=PROJECT_ROUTE_MAX_COMPLETION_TOKENS,
+            response_format=_project_route_response_format(projects),
+        )
+        # Tolerant parse on top of the schema, matching the model-override classifier:
+        # the gateway does not honour a response format identically on every route.
+        parsed = extract_json_object(response.choices[0].message.content or "")
+        reply = _ProjectRouteReply.model_validate(parsed)
+    except (ValidationError, ValueError):
+        logger.info("slack_app_project_route_unusable_reply")
+        return None
+
+    if reply.project_id is None:
+        return None
+    chosen = next((p for p in projects if p.team_id == reply.project_id), None)
+    if chosen is None:
+        # The classifier was told to copy an id from the list; anything else is a
+        # hallucination or a project this mentioner cannot open.
+        logger.info("slack_app_project_route_unknown_project", requested_team_id=reply.project_id)
+    return chosen
+
+
+@activity.defn
+@close_db_connections
+def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
+    """Resolve the project a mention asked for, or ``None`` to stay on the resolved one.
+
+    The workflow calls this only for a message that opens a thread. A task, its thread
+    mapping and its run all belong to one project, so a reply cannot move the thread.
+    """
+    if not input.event_text.strip():
+        return None
+    # Cheapest gate first, and the one that answers most workspaces. Everything below is
+    # two queries and an access scan, and a workspace connected to one project has
+    # nothing to route between however they come out.
+    if Integration.objects.filter(kind="slack", integration_id=input.slack_team_id).count() < 2:
+        return None
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=input.integration_id,
+        kind="slack",
+        integration_id=input.slack_team_id,
+    )
+    user = User.objects.filter(id=input.user_id).first()
+    if user is None:
+        return None
+
+    projects = routable_projects(
+        slack_team_id=input.slack_team_id,
+        slack_user_id=input.slack_user_id,
+        user=user,
+    )
+    if not projects:
+        return None
+
+    try:
+        chosen = classify_slack_app_project_route(input.event_text, projects, default=integration)
+    except Exception:
+        # The fallback boundary: a mention we cannot classify stays on the project
+        # routing already resolved, which is what it would have done anyway.
+        logger.exception("slack_app_project_route_classify_failed")
+        return None
+    # A message naming the project the run was already going to use asked for nothing.
+    if chosen is None or chosen.id == integration.id:
+        return None
+
+    logger.info(
+        "slack_app_project_route_classified",
+        integration_id=integration.id,
+        routed_integration_id=chosen.id,
+        project_candidate_count=len(projects),
+    )
+    return SlackAppProjectRoute(integration_id=chosen.id)

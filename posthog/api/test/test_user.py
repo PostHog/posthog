@@ -392,6 +392,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token.token}"})
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is False
+        assert response.json()["is_impersonated"] is False
 
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
@@ -2667,6 +2668,42 @@ class TestToolbarAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("cloud_feature_absent", True, [], False),
+            (
+                "cloud_feature_available",
+                True,
+                [{"key": AvailableFeature.TOOLBAR_HEATMAPS, "name": AvailableFeature.TOOLBAR_HEATMAPS}],
+                True,
+            ),
+            ("self_hosted_feature_absent", False, [], True),
+        ]
+    )
+    def test_get_toolbar_entitlements_reflects_org_features(self, _name, cloud, extra_features, expected):
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            *extra_features,
+        ]
+        self.organization.save()
+
+        with self.is_cloud(cloud):
+            response = self.client.get("/api/user/toolbar_entitlements/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["entitlements"]["toolbar_heatmaps"], expected)
+
+    @parameterized.expand([("toolbar_access", status.HTTP_403_FORBIDDEN), ("session", status.HTTP_401_UNAUTHORIZED)])
+    def test_get_toolbar_entitlements_denied_without_required_access(self, missing_access: str, expected: int) -> None:
+        if missing_access == "session":
+            self.client.logout()
+        else:
+            self._deny_toolbar_access()
+
+        response = self.client.get("/api/user/toolbar_entitlements/")
+
+        self.assertEqual(response.status_code, expected)
+
     def test_redirect_to_site_allowed_with_default_access(self):
         response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
 
@@ -3533,7 +3570,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": False,
                 "has_totp": False,
@@ -3558,7 +3595,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": True,
-                "backup_codes": ["123456", "789012"],
+                "backup_codes_remaining": 2,
                 "method": "TOTP",
                 "has_passkeys": False,
                 "has_totp": True,
@@ -3590,7 +3627,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": True,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": "passkey",
                 "has_passkeys": True,
                 "has_totp": False,
@@ -3631,7 +3668,7 @@ class TestUserTwoFactor(APIBaseTest):
                 response.json(),
                 {
                     "is_enabled": True,
-                    "backup_codes": ["123456"],
+                    "backup_codes_remaining": 1,
                     "method": "TOTP",
                     "has_passkeys": True,
                     "has_totp": True,
@@ -3660,7 +3697,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": False,
                 "has_totp": False,
@@ -3692,7 +3729,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": True,
                 "has_totp": False,

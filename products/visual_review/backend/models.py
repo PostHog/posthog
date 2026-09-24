@@ -292,7 +292,20 @@ class RunSnapshot(ProductTeamModel):
             models.UniqueConstraint(fields=["run", "identifier"], name="unique_snapshot_identifier_per_run"),
         ]
         indexes = [
-            models.Index(fields=["run", "result"], name="snapshot_run_result"),
+            # Covering, so the flakiness reads (a run's rows by result, filtered on reason, team and
+            # identifier) are index-only scans instead of reads of the whole table.
+            models.Index(
+                fields=["run", "result"],
+                include=[
+                    "classification_reason",
+                    "review_state",
+                    "identifier",
+                    "diff_percentage",
+                    "tolerated_hash_match",
+                    "team_id",
+                ],
+                name="snapshot_run_result_covering",
+            ),
             models.Index(fields=["run", "review_state"], name="snapshot_run_review_state"),
             models.Index(fields=["identifier"], name="snapshot_identifier"),
             models.Index(fields=["current_hash"], name="snapshot_current_hash"),
@@ -345,6 +358,9 @@ class ToleratedHash(ProductTeamModel):
         ]
         indexes = [
             models.Index(fields=["repo", "identifier", "baseline_hash"], name="tolerated_lookup"),
+            # Recency reads (pile-ups, digest, the baselines page's windowed counts) scan only the
+            # window instead of every toleration the repo ever recorded.
+            models.Index(fields=["repo", "created_at"], name="tolerated_repo_created"),
         ]
 
     def __str__(self) -> str:
@@ -393,6 +409,11 @@ class QuarantinedIdentifier(ProductTeamModel):
         blank=True,
         related_name="originated_quarantines",
     )
+    # The default-branch head when the quarantine was lifted. A run on a commit that does not
+    # contain it still treats the identifier as quarantined: that branch forked before the lift,
+    # so it lacks what the lift relied on, such as a baseline entry that landed on the default
+    # branch. Null for a quarantine that expired on its own or was lifted before this column.
+    lifted_at_sha = models.CharField(max_length=40, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

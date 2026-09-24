@@ -127,6 +127,71 @@ class TestQueryNewRecords:
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
 
+    @pytest.mark.parametrize(
+        "source_config,expected_ids",
+        [
+            ({"linear_team_ids": ["team-1", "team-2"]}, ["team-1", "team-2"]),
+            ({"linear_team_ids": [" team-1 ", "team-2"]}, ["team-1", "team-2"]),
+            # Every one of these means "read everything": a malformed list must not apply even in part.
+            ({"linear_team_ids": []}, None),
+            ({}, None),
+            (None, None),
+            ({"linear_team_ids": "team-1"}, None),
+            ({"linear_team_ids": ["team-1", 1]}, None),
+            ({"linear_team_ids": ["team-1", " "]}, None),
+            ({"linear_team_ids": ["x" * 300]}, None),
+            ({"linear_team_ids": [f"team-{i}" for i in range(101)]}, None),
+        ],
+    )
+    def test_scope_filter_comes_from_source_config(self, source_config, expected_ids):
+        config = _make_config(scope_field="JSONExtractString(team, 'id')", scope_config_key="linear_team_ids")
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": source_config,
+                    },
+                )
+
+        query_arg = mock_parse.call_args[0][0]
+        placeholders = mock_parse.call_args.kwargs["placeholders"]
+        if expected_ids is None:
+            assert "IN {scope_ids}" not in query_arg
+            assert "scope_ids" not in placeholders
+        else:
+            assert "JSONExtractString(team, 'id') IN {scope_ids}" in query_arg
+            assert placeholders["scope_ids"] == ast.Tuple(exprs=[ast.Constant(value=i) for i in expected_ids])
+
+    def test_source_without_scope_ignores_scope_keys_in_config(self):
+        config = _make_config()
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": {"linear_team_ids": ["team-1"]},
+                    },
+                )
+
+        assert "scope_ids" not in mock_parse.call_args[0][0]
+
     def test_first_sync_uses_lookback_window(self):
         config = _make_config(partition_field="time", first_sync_lookback_days=14)
         mock_result = MagicMock()
@@ -960,7 +1025,13 @@ class TestEmitActivityTableNameResolution:
 class TestEmitActivitySourceConfigThreading:
     @pytest.mark.asyncio
     async def test_passes_team_source_config_to_pipeline(self):
-        config = _make_config(record_fetcher=lambda team, config, context: [])
+        captured_context: dict[str, Any] = {}
+
+        def capture_fetcher(team, config, context):
+            captured_context.update(context)
+            return []
+
+        config = _make_config(record_fetcher=capture_fetcher)
         team = MagicMock(id=7)
         schema = MagicMock()
         schema.table.name = "test_table"
@@ -991,3 +1062,5 @@ class TestEmitActivitySourceConfigThreading:
 
         fetch_mock.assert_awaited_once_with(team.id, config.source_product, config.source_type)
         assert run_mock.call_args.kwargs["source_config"] == {"steering": "skip chores"}
+        # The scope filter reads the blob from this context, so the handoff needs its own assertion.
+        assert captured_context["source_config"] == {"steering": "skip chores"}

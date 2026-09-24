@@ -37,10 +37,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     build_insert_select_ast,
+    channel_rules_shape_key,
+    has_channel_type_filter,
     is_constant_true,
+    with_channel_rules_key,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
-    LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
     ceil_utc_day,
@@ -49,6 +51,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     handle_stale_served,
     host_filter_expr,
     is_background_warming_request,
+    lazy_ttl_schedule,
     log_eligibility_outcome,
     test_account_filter_expr,
     web_ensure_precomputed,
@@ -170,6 +173,7 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
         if order_field == WebAnalyticsOrderByFields.BOUNCE_RATE and not query.includeBounceRate:
             raise UnsupportedOrderBy(order_field)
 
+    channel = has_channel_type_filter(runner)
     check_common_eligibility(
         team=runner.team,
         use_web_analytics_precompute=query.useWebAnalyticsPrecompute,
@@ -178,6 +182,7 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
         modifiers=query.modifiers,
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
+        allow_channel_type_filter=channel,
     )
 
 
@@ -641,6 +646,15 @@ def ensure_web_stats_paths_precomputed(
         wait_timeout = wait_budget_seconds
     else:
         wait_timeout = PATHS_USER_ENSURE_WAIT_SECONDS
+    # A channel filter resolves through the team's custom channel rules inside the
+    # INSERT, so the rules join the job hash and the shape key (see
+    # `with_channel_rules_key`); old immutable days get the longer channel hold.
+    channel = has_channel_type_filter(runner)
+    if channel:
+        if placeholders:
+            placeholders["user_filter"] = with_channel_rules_key(placeholders["user_filter"], runner)
+        modifiers = runner.modifiers
+
     return web_ensure_precomputed(
         runner=runner,
         family=_FAMILY,
@@ -648,10 +662,11 @@ def ensure_web_stats_paths_precomputed(
         insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=LAZY_TTL_SECONDS,
+        ttl_seconds=lazy_ttl_schedule(runner.team),
         table=LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",
+        shape_key_extra=channel_rules_shape_key(runner) if channel else None,
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
         wait_timeout_seconds=wait_timeout,
         modifiers=modifiers,

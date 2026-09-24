@@ -1,4 +1,5 @@
 import structlog
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -13,7 +14,28 @@ logger = structlog.get_logger(__name__)
 
 
 class DataWarehouseManagedViewSetSerializer(serializers.Serializer):
-    enabled = serializers.BooleanField(required=True)
+    enabled = serializers.BooleanField(required=True, help_text="Whether the managed viewset should exist.")
+
+
+class DataWarehouseManagedViewSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Saved query the managed viewset owns.")
+    name = serializers.CharField(help_text="Name of the saved query.")
+    created_at = serializers.DateTimeField(help_text="When the saved query was created.")
+    created_by_id = serializers.IntegerField(
+        allow_null=True, help_text="User who created the saved query, or null when the sync did."
+    )
+
+
+class DataWarehouseManagedViewSetResponseSerializer(serializers.Serializer):
+    views = DataWarehouseManagedViewSerializer(many=True, help_text="Saved queries in the managed viewset.")
+    count = serializers.IntegerField(help_text="Number of saved queries returned.")
+
+
+class DataWarehouseManagedViewSetUpdateResponseSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(help_text="State the managed viewset is now in.")
+    kind = serializers.ChoiceField(
+        choices=DataWarehouseManagedViewSetKind.choices, help_text="Managed viewset that was toggled."
+    )
 
 
 class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -25,6 +47,12 @@ class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
     lookup_url_kwarg = "kind"
     queryset = DataWarehouseManagedViewSet.objects.all()
 
+    @extend_schema(
+        responses={
+            200: DataWarehouseManagedViewSetResponseSerializer,
+            400: OpenApiResponse(description="Unknown managed viewset kind."),
+        }
+    )
     def retrieve(self, _request: Request, kind: str, *args, **kwargs) -> Response:
         """
         Get all views associated with a specific managed viewset.
@@ -54,6 +82,13 @@ class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         except DataWarehouseManagedViewSet.DoesNotExist:
             return Response({"views": [], "count": 0}, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=DataWarehouseManagedViewSetSerializer,
+        responses={
+            200: DataWarehouseManagedViewSetUpdateResponseSerializer,
+            400: OpenApiResponse(description="Unknown managed viewset kind."),
+        },
+    )
     def update(self, request: Request, kind: str, *args, **kwargs) -> Response:
         """
         Enable or disable a managed viewset by kind.

@@ -1,10 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
 import { projectTreeLogic } from './projectTreeLogic'
@@ -23,6 +29,8 @@ describe('projectTreeDataLogic', () => {
         jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValue({ count: 0, results: [] })
 
         initKeaTests()
+        panelLayoutLogic.mount()
+        panelLayoutLogic.actions.clearActivePanelIdentifier()
         logic = projectTreeDataLogic()
         unmount = logic.mount()
         await expectLogic(logic).toDispatchActions(['loadFolderSuccess'])
@@ -33,6 +41,62 @@ describe('projectTreeDataLogic', () => {
         unmount?.()
         jest.restoreAllMocks()
     })
+
+    it('initializes the home folder once when the sidebar flag arrives after mount', async () => {
+        const initialize = jest.fn(() => [200, { id: 'home', path: 'Users/Alex' }])
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': initialize } })
+        expect(logic.values.homeFolder).toBeNull()
+        await expectLogic(logic, () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+            })
+        }).toDispatchActions(['loadHomeFolderSuccess'])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+        })
+        expect(initialize).toHaveBeenCalledTimes(1)
+        expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
+        logic.actions.loadFolderSuccess(
+            'Research',
+            [{ id: 'home', path: 'Research/My work', type: 'folder' }],
+            false,
+            0
+        )
+        expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
+    })
+
+    it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
+        'renders a starred nested folder with %s contents',
+        (state) => {
+            const folder = 'Research/Ideas'
+            logic.actions.loadShortcutsSuccess([{ id: 'star-folder', path: 'Ideas', type: 'folder', ref: folder }])
+            logic.actions.loadFolderSuccess(
+                folder,
+                state === 'populated' ? [{ id: 'note', path: `${folder}/Notes`, type: 'notebook', ref: 'notes' }] : [],
+                state === 'has-more',
+                0
+            )
+            if (state === 'loading') {
+                logic.actions.loadFolderStart(folder)
+            }
+
+            const [starredFolder] = logic.values.getShortcutTreeItems('', false)
+            expect(starredFolder.id).toBe('shortcuts://Ideas')
+            expect(starredFolder.children).toHaveLength(1)
+            expect(starredFolder.children?.[0]).toMatchObject(
+                state === 'loaded'
+                    ? { name: 'Empty folder', type: 'empty-folder', disableSelect: true }
+                    : state === 'loading'
+                      ? { name: 'Loading...', type: 'loading-indicator' }
+                      : state === 'has-more'
+                        ? { name: 'Load more...' }
+                        : { name: 'Notes', record: { path: `${folder}/Notes` } }
+            )
+        }
+    )
 
     it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([
@@ -106,6 +170,149 @@ describe('projectTreeDataLogic', () => {
         expect(api.fileSystem.list).not.toHaveBeenCalled()
         projectTree.unmount()
     })
+
+    it('shares pending item lookups across tree mounts and navigation callbacks', async () => {
+        jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({ type: 'insight', ref: 'insight1' })
+        let resolveItem!: () => void
+        jest.mocked(api.fileSystem.list).mockImplementation((params) =>
+            params?.ref
+                ? new Promise((resolve) => {
+                      resolveItem = () =>
+                          resolve({
+                              count: 1,
+                              users: [],
+                              results: [{ id: 'file1', ref: 'insight1', type: 'insight', path: 'Reports/Insight' }],
+                          })
+                  })
+                : Promise.resolve({ count: 0, results: [], users: [] })
+        )
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        const pickerTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+        projectTree.mount()
+        pickerTree.mount()
+        projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        resolveItem()
+        await expectLogic(projectTree).toFinishAllListeners()
+        expect(logic.values.viableItems).toEqual(expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })]))
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        }).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 0, results: [], users: [] })
+        await expectLogic(logic, () => logic.actions.syncTypeAndRef('insight', 'insight1')).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(2)
+        pickerTree.unmount()
+        projectTree.unmount()
+    })
+
+    it('loads current insight metadata when a file consumer opens and follows navigation', async () => {
+        const currentItem = jest
+            .spyOn(projectTreeDataLogic.selectors, 'projectTreeRef')
+            .mockReturnValue({ type: 'insight', ref: 'insight1' })
+        const consumer = sceneFileLogic()
+        consumer.mount()
+        await expectLogic(consumer).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight1' })
+        currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
+        await expectLogic(consumer, () =>
+            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+        ).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight2' })
+        consumer.unmount()
+    })
+
+    it('defers ancestor folder loading until Files opens and follows the latest insight', async () => {
+        const currentItem = jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
+            type: 'insight',
+            ref: 'insight1',
+        })
+        jest.mocked(api.fileSystem.list).mockImplementation(async (params) => ({
+            count: params?.ref ? 1 : 0,
+            users: [],
+            results: params?.ref
+                ? [
+                      {
+                          id: String(params.ref),
+                          ref: String(params.ref),
+                          type: 'insight',
+                          path: params.ref === 'insight1' ? 'Unfiled/Insights/First insight' : 'Reports/Latest insight',
+                      },
+                  ]
+                : [],
+        }))
+        const projectTree = projectTreeLogic({ key: 'project-tree' })
+        projectTree.mount()
+        await expectLogic(projectTree).toFinishAllListeners()
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight1' }))
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Unfiled/Insights' }))
+        expect(logic.values.sortedItems).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })])
+        )
+
+        currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
+        await expectLogic(projectTree, () => {
+            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+        }).toFinishAllListeners()
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Reports' }))
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight2' }))
+
+        await expectLogic(projectTree, () => {
+            panelLayoutLogic.actions.setActivePanelIdentifier('Project')
+        }).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ parent: 'Reports', depth: 2, limit: 101, offset: 0 })
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Unfiled/Insights' }))
+        projectTree.unmount()
+    })
+
+    it.each(['already-open', 'folder-picker', 'explicit-reveal'] as const)(
+        'loads ancestor folders for %s',
+        async (mode) => {
+            jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
+                type: 'insight',
+                ref: 'insight1',
+            })
+            logic.actions.createSavedItem({
+                id: 'file1',
+                type: 'insight',
+                ref: 'insight1',
+                path: 'Unfiled/Insights/Insight',
+            })
+            if (mode === 'already-open') {
+                panelLayoutLogic.mount()
+                panelLayoutLogic.actions.setActivePanelIdentifier('Project')
+            }
+            const projectTree = projectTreeLogic({
+                key: mode === 'folder-picker' ? 'folder-select' : 'project-tree',
+                root: 'project://',
+            })
+            projectTree.mount()
+            await expectLogic(projectTree).toFinishAllListeners()
+            if (mode === 'explicit-reveal') {
+                expect(api.fileSystem.list).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ parent: 'Unfiled/Insights' })
+                )
+                await expectLogic(projectTree, () => {
+                    projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' })
+                }).toFinishAllListeners()
+            }
+            expect(api.fileSystem.list).toHaveBeenCalledWith({
+                parent: 'Unfiled/Insights',
+                depth: 3,
+                limit: 101,
+                offset: 0,
+            })
+            projectTree.unmount()
+        }
+    )
 
     it('loads unfiled folders when the count response reports items', async () => {
         logic.actions.createSavedItem({ id: 'saved-insight', path: 'Unfiled/Insights/Saved insight', type: 'insight' })

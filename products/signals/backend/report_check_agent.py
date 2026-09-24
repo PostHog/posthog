@@ -28,6 +28,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
+from products.signals.backend.report_check_telemetry import capture_report_check_dispatch
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
@@ -77,8 +78,37 @@ class CheckDispatchRefusal:
     retryable: bool
 
 
-def resolve_check_skill_name(config: AgentCheckConfig) -> str:
-    return config.skill_name or FALLBACK_CHECK_SKILL_NAME
+def resolve_check_skill_name(config: AgentCheckConfig, canonical_team_id: int | None = None) -> str:
+    """Which scout answers this check: the lane its author named, or the fleet's fallback scout.
+
+    Pass `canonical_team_id` to also fall back when the named lane cannot run on that project at
+    all — the scout was retired, held back, or has no live skill row. Without it the check is
+    dispatched at a lane that no longer exists, refused as `skill_withheld` or `scout_missing`, and
+    lands on the report as an errored check result: a reader is told their follow-up failed when
+    what actually happened is that PostHog stopped shipping the scout. The fallback scout re-
+    measures resolved reports for a living, so it is the right lane for a question whose original
+    one is gone.
+
+    A pause is deliberately not one of those reasons. Somebody switched that scout off on purpose,
+    and reporting the refusal is more honest than quietly running the question somewhere else.
+    """
+    skill_name = config.skill_name or FALLBACK_CHECK_SKILL_NAME
+    if canonical_team_id is None or skill_name == FALLBACK_CHECK_SKILL_NAME:
+        return skill_name
+    return skill_name if _lane_still_exists(canonical_team_id, skill_name) else FALLBACK_CHECK_SKILL_NAME
+
+
+def _lane_still_exists(canonical_team_id: int, skill_name: str) -> bool:
+    """Whether this project still has a scout of this name that PostHog has not retired."""
+    if skill_name in withheld_skills_for_team(canonical_team_id):
+        return False
+    if not LLMSkill.objects.filter(team_id=canonical_team_id, name=skill_name, is_latest=True, deleted=False).exists():
+        return False
+    return not SignalScoutConfig.all_teams.filter(
+        team_id=canonical_team_id,
+        skill_name=skill_name,
+        pause_reason=SignalScoutConfig.PauseReason.RETIRED,
+    ).exists()
 
 
 def _latest_resolution_note(report: SignalReport) -> str | None:
@@ -275,11 +305,11 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         )
         return "errored"
 
-    skill_name = resolve_check_skill_name(config)
     # The scout fleet is bound to the canonical project, while the check sits on its report's own
     # environment team, so every gate and the dispatch itself resolve the parent.
     report_team = check.report.team
     canonical_team_id = report_team.parent_team_id or report_team.id
+    skill_name = resolve_check_skill_name(config, canonical_team_id)
 
     try:
         refusal = _refuse_dispatch(skill_name, canonical_team_id)
@@ -288,6 +318,9 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         # spending an error on a flag read or a row lookup that failed.
         logger.exception("signals.report_check.agent_gates_failed", check_id=str(check.id), team_id=check.team_id)
         _defer(check, now)
+        capture_report_check_dispatch(
+            check.team, check, outcome="deferred", skill_name=skill_name, reason="gates_failed"
+        )
         return "deferred"
     if refusal is not None:
         logger.info(
@@ -300,6 +333,9 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         )
         if refusal.retryable:
             _defer(check, now)
+            capture_report_check_dispatch(
+                check.team, check, outcome="deferred", skill_name=skill_name, reason=refusal.reason
+            )
             return "deferred"
         record_check_verdict(
             check, CheckVerdict(outcome="errored", explanation=f"{check.title}: {refusal.detail}"), now=now
@@ -322,10 +358,16 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         # Another check on the same lane is still being answered. Theirs finishes, ours goes next
         # window; nothing is wrong with either check.
         _release_dispatch_claim(check, now)
+        capture_report_check_dispatch(
+            check.team, check, outcome="deferred", skill_name=skill_name, reason="workflow_already_started"
+        )
         return "deferred"
     except Exception:
         logger.exception("signals.report_check.agent_dispatch_failed", check_id=str(check.id), team_id=check.team_id)
         _release_dispatch_claim(check, now)
+        capture_report_check_dispatch(
+            check.team, check, outcome="deferred", skill_name=skill_name, reason="dispatch_failed"
+        )
         return "deferred"
 
     logger.info(
@@ -335,4 +377,5 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         skill_name=skill_name,
         workflow_id=workflow_id,
     )
+    capture_report_check_dispatch(check.team, check, outcome="dispatched", skill_name=skill_name)
     return "dispatched"

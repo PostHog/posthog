@@ -373,6 +373,7 @@ export function BatchExportConfiguration(): JSX.Element {
                         <BatchExportConfigurationFields
                             isNew={isNew}
                             formValues={configuration as BatchExportConfigurationForm}
+                            savedConfig={batchExportConfig?.destination?.config ?? null}
                             selectedIntegration={selectedIntegration}
                         />
                     </div>
@@ -400,10 +401,12 @@ export function BatchExportConfiguration(): JSX.Element {
 function BatchExportConfigurationFields({
     isNew,
     formValues,
+    savedConfig,
     selectedIntegration,
 }: {
     isNew: boolean
     formValues: BatchExportConfigurationForm
+    savedConfig: Record<string, any> | null
     selectedIntegration: IntegrationType | null
 }): JSX.Element {
     return (
@@ -412,6 +415,7 @@ function BatchExportConfigurationFields({
             <BatchExportsEditFields
                 isNew={isNew}
                 batchExportConfigForm={formValues}
+                savedConfig={savedConfig}
                 selectedIntegration={selectedIntegration}
             />
         </>

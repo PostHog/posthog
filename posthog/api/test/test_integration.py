@@ -3,12 +3,14 @@ import json
 import time
 import hashlib
 from datetime import timedelta
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.test import override_settings
@@ -17,8 +19,10 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import requests
+from fakeredis import FakeConnection
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import RedisError
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
@@ -61,6 +65,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.team_notifications.slack import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models import BatchExport, BatchExportDestination
@@ -125,6 +130,216 @@ class TestSlackIntegration:
         assert channels[0]["name"] == "a_channel"
         assert channels[3]["id"] == "CP123"
         assert channels[3]["name"] == "d_private_channel"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_keeps_only_the_fields_the_api_serves(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.return_value = {
+            "channels": [
+                {
+                    "id": "C123",
+                    "name": "a_channel",
+                    "is_private": False,
+                    "is_ext_shared": False,
+                    "topic": {"value": "x" * 200, "creator": "U1", "last_set": 1},
+                    "purpose": {"value": "y" * 400, "creator": "U1", "last_set": 1},
+                    "shared_team_ids": ["T1"],
+                    "previous_names": ["old_name"],
+                }
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert set(channels[0]) == {
+            "id",
+            "name",
+            "is_private",
+            "is_member",
+            "is_ext_shared",
+            "is_pending_ext_shared",
+            "is_shared",
+            "is_private_without_access",
+        }
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_public_channels_keeps_every_shared_flag(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.return_value = {
+            "channels": [
+                {
+                    "id": "C123",
+                    "name": "shared_with_another_org",
+                    "is_private": False,
+                    "is_ext_shared": False,
+                    "is_pending_ext_shared": False,
+                    "is_shared": True,
+                    "purpose": {"value": "z" * 400, "creator": "U1", "last_set": 1},
+                }
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+
+        channels = SlackIntegration(self.integration).list_public_channels()
+
+        # team_notifications reads all three flags to keep an internal message out of a channel
+        # shared beyond the workspace. A dropped flag reads as not shared.
+        assert is_shared_channel(channels[0])
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_follows_the_cursor_past_ten_pages(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # Slack returns fewer channels than the requested limit whenever it likes, so a workspace
+        # needs more pages than its channel count suggests. A page-count cap drops the remainder
+        # with no error, and the channel it drops reads to the user as "the app is not in it".
+        pages = 15
+
+        def conversations_list(cursor=None, **kwargs):
+            page = int(cursor or 0)
+            return {
+                "channels": [
+                    {"id": f"C{page}", "name": f"channel_{page:02d}", "is_private": False, "is_ext_shared": False}
+                ],
+                "response_metadata": {"next_cursor": str(page + 1) if page + 1 < pages else ""},
+            }
+
+        mock_client.conversations_list.side_effect = conversations_list
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert len(channels) == pages
+        assert channels[-1]["name"] == "channel_14"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_records_a_listing_it_had_to_cut_short(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # A cap that stops a listing early is the failure this whole change is about: the caller
+        # cannot tell a partial list from a complete one, so the cap has to leave a trail.
+        mock_client.conversations_list.side_effect = lambda cursor=None, **kwargs: {
+            "channels": [
+                {"id": f"C{cursor or 0}", "name": f"channel_{cursor or 0}", "is_private": False, "is_ext_shared": False}
+            ],
+            "response_metadata": {"next_cursor": str(int(cursor or 0) + 1)},
+        }
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        with patch("posthog.models.integration.slack.SLACK_LISTING_MAX_REQUESTS", 3):
+            with patch("posthog.models.integration.slack.slack_listing_truncated_counter") as mock_counter:
+                channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert len(channels) == 3
+        mock_counter.labels.assert_called_once_with(kind="channels_public_channel")
+        mock_counter.labels.return_value.inc.assert_called_once()
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_keeps_its_pages_when_slack_rate_limits_mid_walk(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # These endpoints are rate limited per workspace and the client does not retry. Raising
+        # would hand the caller no channels at all, which is worse than the short list it used to
+        # get, and nothing is cached to fall back on.
+        first_page = {
+            "channels": [{"id": "C1", "name": "a_channel", "is_private": False, "is_ext_shared": False}],
+            "response_metadata": {"next_cursor": "1"},
+        }
+        rate_limited = SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        mock_client.conversations_list.side_effect = [first_page, rate_limited]
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert [channel["id"] for channel in channels] == ["C1"]
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_keeps_the_channel_when_membership_cannot_be_proven(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # An unfinished member scan means membership is unproven, not disproven. Hiding the channel
+        # here is the same silent empty result this change exists to remove.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "C123",
+                "name": "huge_channel",
+                "is_private": False,
+                "is_ext_shared": False,
+                "num_members": 50000,
+            }
+        }
+        mock_client.conversations_members.return_value = {
+            "members": ["U1"],
+            "response_metadata": {"next_cursor": "keep-going"},
+        }
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("C123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["id"] == "C123"
+        assert channel["name"] == "huge_channel"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_masks_a_private_name_it_cannot_prove_access_to(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # Keeping the channel is about availability, not access. An unfinished scan cannot prove the
+        # connecting user is in a private channel, so the name stays masked.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "CP123",
+                "name": "secret_leadership_channel",
+                "is_private": True,
+                "is_ext_shared": False,
+                "num_members": 50000,
+            }
+        }
+        mock_client.conversations_members.return_value = {
+            "members": ["U1"],
+            "response_metadata": {"next_cursor": "keep-going"},
+        }
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("CP123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["name"] == PRIVATE_CHANNEL_WITHOUT_ACCESS
+        assert channel["is_private_without_access"] is True
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_finds_a_member_past_the_first_page(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # conversations.members returns at most 1000 ids per call whatever limit is asked for, so a
+        # bigger limit does not reach member 1001. Without following the cursor the connecting user
+        # reads as a non-member and the channel resolves to nothing.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "C123",
+                "name": "big_channel",
+                "is_private": False,
+                "is_ext_shared": False,
+                "num_members": 1500,
+            }
+        }
+        mock_client.conversations_members.side_effect = [
+            {"members": [f"U{i}" for i in range(1000)], "response_metadata": {"next_cursor": "1000"}},
+            {"members": ["test_user_id"], "response_metadata": {"next_cursor": ""}},
+        ]
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("C123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["id"] == "C123"
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_list_users_excludes_ineligible_members(self, mock_webclient_class):
@@ -245,13 +460,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -268,13 +486,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", False, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -291,13 +512,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -314,13 +538,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", False, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -681,6 +908,38 @@ class TestDatabricksIntegration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert host in response.json()["detail"]
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
+
+
+class TestGoogleCloudServiceAccountIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_rejects_key_file_token_uri_that_is_not_google(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "google-cloud-service-account",
+                "config": {
+                    "service_account_email": "svc@proj.iam.gserviceaccount.com",
+                    "project_id": "proj",
+                    "private_key": "key",
+                    "private_key_id": "key-id",
+                    "token_uri": "https://relay.example.com/token",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not Google's OAuth token endpoint" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="google-cloud-service-account").exists()
 
 
 class TestAWSIntegration:
@@ -2026,6 +2285,113 @@ class TestIntegrationAPIKeyAccess:
         assert data["has_more"] is True
 
         mock_slack_instance.list_channels.assert_called_once()
+
+    @pytest.mark.parametrize("owns_integration", [True, False])
+    @pytest.mark.parametrize(
+        "cache_state",
+        [
+            "present",
+            "missing",
+            "expires_during_lookup",
+            "concurrent_lookup",
+            "expires_during_merge",
+            "redis_error_during_merge",
+        ],
+    )
+    @override_settings(
+        CACHES={
+            **settings.CACHES,
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": "redis://slack-channel-cache-test:6379/0",
+                "OPTIONS": {"CONNECTION_POOL_KWARGS": {"connection_class": FakeConnection}},
+            },
+        }
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_id_lookup_updates_existing_search_cache(
+        self, mock_slack_class: MagicMock, owns_integration: bool, cache_state: str, client: HttpClient
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_CACHE_TEST",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user if owns_integration else None,
+        )
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value("test_key_slack_cache"),
+            scopes=["integration:read"],
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations/{integration.id}/channels/"
+        cache_key = f"slack/{integration.id}/{owns_integration}/channels"
+        other_cache_key = f"slack/{integration.id}/{not owns_integration}/channels"
+        cached_data = {"channels": [], "lastRefreshedAt": timezone.now().isoformat()}
+        cache.set(other_cache_key, cached_data, 30)
+        if cache_state != "missing":
+            cache.set(cache_key, cached_data, 30)
+        channel: dict[str, str | bool] = {
+            "id": "C_CACHE_TEST",
+            "name": "release-updates",
+            "is_private": owns_integration,
+            "is_member": True,
+            "is_ext_shared": False,
+            "is_private_without_access": False,
+        }
+
+        def resolve_channel(*args: object) -> dict[str, str | bool]:
+            if cache_state == "expires_during_lookup":
+                cache.delete(cache_key)
+            return channel
+
+        mock_slack_class.return_value.get_channel_by_id.side_effect = resolve_channel
+        redis_client = cast(Any, cache).client.get_client(write=True)
+        original_eval = redis_client.eval
+        competing_channel = {**channel, "id": "C_OTHER", "name": "other-channel"}
+        changed = False
+
+        def merge_with_concurrent_write(*args: object) -> object:
+            nonlocal changed
+            if not changed:
+                changed = True
+                if cache_state == "concurrent_lookup":
+                    IntegrationViewSet._cache_slack_channel(cache_key, competing_channel)
+                elif cache_state == "expires_during_merge":
+                    cache.delete(cache_key)
+                elif cache_state == "redis_error_during_merge":
+                    raise RedisError("connection reset by peer")
+            return original_eval(*args)
+
+        with patch.object(redis_client, "eval", side_effect=merge_with_concurrent_write):
+            response = client.get(
+                base_url, {"channel_id": channel["id"]}, HTTP_AUTHORIZATION="Bearer test_key_slack_cache"
+            )
+        assert response.status_code == status.HTTP_200_OK
+        resolved_channel = response.json()["channels"][0]
+        assert resolved_channel["name"] == "release-updates"
+        assert cache.get(other_cache_key) == cached_data
+        mock_slack_class.return_value.get_channel_by_id.assert_called_once_with(
+            channel["id"], owns_integration, "test_user_id"
+        )
+
+        if cache_state in ("present", "concurrent_lookup"):
+            response = client.get(
+                base_url, {"search": "release-updates"}, HTTP_AUTHORIZATION="Bearer test_key_slack_cache"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["channels"] == [resolved_channel]
+            assert response.json()["lastRefreshedAt"] == cached_data["lastRefreshedAt"]
+            assert 0 < cast(Any, cache).ttl(cache_key) <= 30
+            if cache_state == "concurrent_lookup":
+                assert {item["id"] for item in cache.get(cache_key)["channels"]} == {channel["id"], "C_OTHER"}
+        elif cache_state == "redis_error_during_merge":
+            assert cache.get(cache_key) == cached_data
+        else:
+            assert cache.get(cache_key) is None
+        mock_slack_class.return_value.list_channels.assert_not_called()
 
     @pytest.mark.parametrize(
         "query_string,expected_ids,expected_has_more",
@@ -6591,7 +6957,11 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
             {
                 "kind": "firebase",
                 "config": {
-                    "key_info": {"type": "service_account", "project_id": "my-firebase-project"},
+                    "key_info": {
+                        "type": "service_account",
+                        "project_id": "my-firebase-project",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                    },
                     "push_identity_verification": "required",
                 },
             },
@@ -6763,7 +7133,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
                     "project_id": "hijacked-project",
                     "private_key": "new",
                     "private_key_id": "new",
-                    "token_uri": "new",
+                    "token_uri": "https://oauth2.googleapis.com/token",
                 },
             },
             format="json",

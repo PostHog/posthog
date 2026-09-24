@@ -3,6 +3,9 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
+import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
+import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import {
     InboxReportSectionKey,
     SignalReport,
@@ -29,6 +32,7 @@ export const INBOX_EVENTS = {
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
+    PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
@@ -44,6 +48,7 @@ export const INBOX_EVENTS = {
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
+    SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -60,6 +65,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
     RUN_OPENED: 'Inbox run opened',
+    RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
@@ -153,6 +159,9 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  */
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
+/** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
+export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
     | 'scope'
@@ -171,7 +180,7 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, the roster's on/off filter, owner filter, and search, and opening a folded
+ * scratchpad callout, the roster's on/off filter, owner filter, search, and sort, and opening a folded
  * run group).
  */
 export type ScoutActionType =
@@ -202,6 +211,7 @@ export type ScoutActionType =
     | 'filter_owner'
     | 'search_scouts'
     | 'expand_run_group'
+    | 'sort_roster'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -583,6 +593,23 @@ export function captureSignalSourceSteeringChanged(params: {
     })
 }
 
+export function captureSignalSourceFiltersChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    filter: string
+    selectedCount: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTERS_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        filter: params.filter,
+        selected_count: params.selectedCount,
+        reads_everything: params.selectedCount === 0,
+        success: params.success,
+    })
+}
+
 /**
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
@@ -616,6 +643,18 @@ export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCou
     captureInboxEvent(INBOX_EVENTS.PANEL_VIEWED, {
         panel: params.panel,
         item_count: params.itemCount ?? null,
+    })
+}
+
+/**
+ * A panel read was aborted for taking too long. A request that never settles is invisible to
+ * `client_request_failure`, which only records a response, so this is the one place a stalled pane
+ * can be counted.
+ */
+export function capturePanelLoadTimedOut(params: { load: InboxPanelLoad; timeoutMs: number }): void {
+    captureInboxEvent(INBOX_EVENTS.PANEL_LOAD_TIMED_OUT, {
+        load: params.load,
+        timeout_ms: params.timeoutMs,
     })
 }
 
@@ -805,6 +844,25 @@ export function captureInboxRunOpened(params: {
         run_kind: params.kind,
         run_status: params.status,
         has_report: params.hasReport,
+    })
+}
+
+/**
+ * A run's own summary was read on a Runs row. The summary is the cheapest account of what a run did,
+ * and it is only reachable on hover, so this is the one signal for whether readers find it.
+ *
+ * The summary text stays out of the event, like the report title: an agent writes it about a
+ * customer's own code and data. `summary_length` is the readable stand-in.
+ */
+export function captureInboxRunSummaryViewed(params: {
+    purpose: ReportTaskPurpose
+    status: TaskRunStatus | null
+    summaryLength: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RUN_SUMMARY_VIEWED, {
+        run_purpose: params.purpose,
+        run_status: params.status,
+        summary_length: params.summaryLength,
     })
 }
 

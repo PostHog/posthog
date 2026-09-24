@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any, Optional
 
 from django.conf import settings
@@ -359,6 +361,33 @@ class _LowerConstantMembership(CloningVisitor):
         return super().visit_compare_operation(node)
 
 
+# Loaded rather than listed: the set belongs to the runtime, and a stale copy here would reject a
+# filter people can legitimately write. A test in the nodejs package pins the file to the type.
+_RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text())
+# Callables belong here because the VM resolves a bare standard-library name through the same
+# GET_GLOBAL path, so `arrayMap(lower, ...)` is a working filter rather than an unknown global.
+# Generated from the runtime by `pnpm --filter=@posthog/nodejs run build:filter-globals`.
+FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
+# The Python compiler knows its own standard library, which is not the one the Node VM runs.
+FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
+    name: (arity[0], arity[1]) for name, arity in _RUNTIME["functions"].items()
+}
+# Input templates run against the invocation globals, a different shape from the flattened filter globals.
+TEMPLATE_GLOBALS: set[str] = set(_RUNTIME["template_roots"])
+TEMPLATE_CALLABLES: set[str] = set(_RUNTIME["callables"])
+
+_UNKNOWN_GLOBAL = "Unknown global variable: "
+
+
+def _unknown_filter_globals(expr: ast.Expr) -> list[str]:
+    """Compile once with the runtime's globals declared, and return the roots the runtime will not have."""
+    context = HogQLContext(team_id=None, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
+    create_bytecode(expr, context=context)
+    return sorted(
+        {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+    )
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -367,8 +396,37 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception("Select queries are not allowed in filters")
 
         expr = _LowerConstantMembership().visit(expr)
-        context = HogQLContext(team_id=team.id)
+        # Declaring the globals turns the compiler's field resolution into a check: it warns on a
+        # root that is neither a local, an upvalue, nor one of ours.
+        context = HogQLContext(
+            team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS
+        )
         filters["bytecode"] = create_bytecode(expr, context=context).bytecode
+
+        unknown = sorted(
+            {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+        )
+        if unknown:
+            # The person saving a destination did not write the team's test account filters, so a
+            # message that only names the field sends them looking in the wrong place.
+            team_exprs = _build_test_account_filters(filters, team)
+            from_team = _unknown_filter_globals(_combine_expressions(team_exprs)) if team_exprs else []
+            if from_team:
+                # Compile the destination's own filters alone rather than subtracting the team's
+                # roots: a field that both sources read drops out of the difference and goes unnamed.
+                own = _unknown_filter_globals(
+                    compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
+                )
+                raise Exception(
+                    f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
+                    f"cannot read. Check the spelling, or use a field or function that real-time filters support. "
+                    + (f"This destination's own filters also read {', '.join(own)}. " if own else "")
+                    + f"Update your filters at: {_internal_user_settings_url(team.id)}"
+                )
+            raise Exception(
+                f"Real-time filters cannot read {', '.join(unknown)}. "
+                f"Check the spelling, or use a field or function that real-time filters support."
+            )
 
         # context.errors here only contains "function not implemented" errors from the
         # bytecode compiler (the resolver doesn't run during create_bytecode). These are

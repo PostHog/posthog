@@ -402,6 +402,20 @@ export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<
     return values.filter((v) => v.trim())
 }
 
+/**
+ * Sensitive values from the function config alone, before any template resolves. Covers an error
+ * raised while the inputs are still being built, when the resolved values do not exist yet.
+ */
+export const getConfiguredSensitiveValues = (hogFunction: HogFunctionType): string[] => {
+    const configured = Object.fromEntries(
+        Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).map(([key, input]) => [
+            key,
+            input?.value,
+        ])
+    )
+    return getSensitiveValues(hogFunction, configured)
+}
+
 export const redactSensitiveValues = (message: string, sensitiveValues?: string[]): string => {
     // Callers pass `err.message` straight from a catch, where `err` is `any` and need not be an
     // Error at all, so a non-string reaches this despite the signature. Hand it back untouched

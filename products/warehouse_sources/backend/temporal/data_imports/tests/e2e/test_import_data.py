@@ -623,8 +623,15 @@ def test_report_heartbeat_timeout_heartbeat_within_timeout(team):
 def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
     logger = mock.MagicMock()
 
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="source_id",
+        connection_id="connection_id",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.SNOWFLAKE,
+    )
     activity_inputs = ImportDataActivityInputs(
-        team_id=team.pk, schema_id=uuid.uuid4(), source_id=uuid.uuid4(), run_id="run_id"
+        team_id=team.pk, schema_id=uuid.uuid4(), source_id=source.id, run_id="run_id"
     )
 
     with time_machine.travel("2024-01-01 12:00:00", tick=False):
@@ -678,5 +685,7 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
                     "workflow_run_id": mock_info.workflow_run_id,
                     "workflow_type": mock_info.workflow_type,
                     "attempt": mock_info.attempt,
+                    # The stamp that makes a death diagnosable per connector.
+                    "source_type": ExternalDataSourceType.SNOWFLAKE,
                 },
             )
