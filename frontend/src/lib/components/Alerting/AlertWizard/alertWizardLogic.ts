@@ -244,6 +244,18 @@ function resolveAlertTarget(values: AlertTargetInputs): ResolvedAlertTarget | Un
     return { destination, triggerKey: values.selectedTriggerKey, subTemplate, template: values.activeTemplate }
 }
 
+function captureAlertCreationFailure(
+    reason: AlertTargetFailureReason | 'api_error',
+    values: Pick<AlertTargetInputs, 'selectedDestinationKey' | 'selectedTriggerKey'>
+): void {
+    posthog.capture('error_tracking_alert_creation_failed', {
+        source: 'wizard',
+        reason,
+        destination_key: values.selectedDestinationKey,
+        subtemplate_id: values.selectedTriggerKey,
+    })
+}
+
 function extractDestinationKeyFromAlert(alert: HogFunctionType, allDestinations: WizardDestination[]): string | null {
     const templateId = alert.template?.id
     if (!templateId) {
@@ -853,12 +865,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 const resolved = resolveAlertTarget(values)
                 if ('error' in resolved) {
                     lemonToast.error(resolved.error)
-                    posthog.capture('error_tracking_alert_creation_failed', {
-                        source: 'wizard',
-                        reason: resolved.reason,
-                        destination_key: values.selectedDestinationKey,
-                        subtemplate_id: values.selectedTriggerKey,
-                    })
+                    captureAlertCreationFailure(resolved.reason, values)
                     if (resolved.recoveryStep) {
                         actions.setStep(resolved.recoveryStep)
                     }
@@ -896,12 +903,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 actions.createAlertSuccess()
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Could not create the alert. Try again.')
-                posthog.capture('error_tracking_alert_creation_failed', {
-                    source: 'wizard',
-                    reason: 'api_error',
-                    destination_key: values.selectedDestinationKey,
-                    subtemplate_id: values.selectedTriggerKey,
-                })
+                captureAlertCreationFailure('api_error', values)
             } finally {
                 actions.submitConfigurationComplete()
             }
