@@ -265,8 +265,9 @@ describe('supportTicketsSceneLogic', () => {
 
         // Applies a view, then rebuilds the kea context the way a new browser session does:
         // the persisted view and filters survive, the mounted logic does not. The page that
-        // follows carries no query params, like the sidebar link and a bookmark do.
-        async function applyViewThenReopenAt(path: string): Promise<void> {
+        // follows carries no query params unless the caller passes some, like the sidebar link
+        // and a bookmark do.
+        async function applyViewThenReopenAt(path: string, searchParams?: Record<string, any>): Promise<void> {
             router.actions.push(urls.supportTickets())
             logic = supportTicketsSceneLogic()
             logic.mount()
@@ -276,7 +277,7 @@ describe('supportTicketsSceneLogic', () => {
             logic.unmount()
 
             initKeaTests()
-            router.actions.push(path)
+            router.actions.push(path, searchParams)
             logic = supportTicketsSceneLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -296,6 +297,21 @@ describe('supportTicketsSceneLogic', () => {
                 expect(router.values.searchParams.view).toBe('view-a')
             }
         )
+
+        it('detaches a restored view when the URL names the same filters', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
+            })
+
+            await applyViewThenReopenAt(urls.supportTickets(), { status: ['open'] })
+
+            // The link states the filters, so it keeps them. A view left attached here would
+            // turn the next URL write into ?view=view-a and drop what the link asked for.
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.status).toEqual(['open'])
+            expect(router.values.searchParams.view).toBeUndefined()
+        })
 
         it('drops a restored view that was deleted and keeps the filters on screen', async () => {
             // The shared mock answers 404, as a deleted view does.

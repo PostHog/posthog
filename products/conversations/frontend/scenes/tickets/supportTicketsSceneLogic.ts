@@ -275,8 +275,8 @@ export interface supportTicketsSceneLogicActions {
         shortId: string,
         restored?: boolean
     ) => {
-        shortId: string
         restored: boolean
+        shortId: string
     }
     loadTickets: () => {
         value: true
@@ -1006,8 +1006,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 return
             }
             // kea-router replays the current URL when the scene mounts. The replay is not a
-            // navigation, so it must not detach the saved view restored from the last session.
-            // afterMount owns the initial state instead.
+            // navigation, so on a bare URL it must not detach the saved view restored from the
+            // last session. afterMount owns the initial state instead.
             const isMountReplay = !cache.urlHandled
             cache.urlHandled = true
             // A URL change we wrote ourselves already matches state — re-applying it would
@@ -1028,7 +1028,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 return
             }
-            const leavingSavedView = !isMountReplay && (!!values.activeView || !!cache.latestViewShortId)
+            // A URL that names filters states what to show, so it detaches the restored view even
+            // when the two hold the same filters. If the view stayed attached, the next URL write
+            // would replace those filter params with ?view=<short_id>, and the link the user
+            // shares would no longer say what they picked.
+            const leavingSavedView =
+                (!isMountReplay || hasFilterParams(searchParams)) && (!!values.activeView || !!cache.latestViewShortId)
             if (
                 leavingSavedView ||
                 (hasFilterParams(searchParams) && !urlFiltersMatchState(searchParams, values.currentFilters))
