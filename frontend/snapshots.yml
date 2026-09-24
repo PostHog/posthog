@@ -6976,6 +6976,10 @@ snapshots:
         hash: v1.k794b7964.9c165882088a94a60c3f278c5ac933e19deea0799e2f178773b9562a06d5b587.T17LeudaJGjY7lpzSaWm3Vstubn72J6YmRirV14ZZGQ
     products-workflows-editor-graph--customer-onboarding-and-retention--light:
         hash: v1.k794b7964.d1a0262e3ba550f69a2ab3d0bcda4327157eb1f947c5ad35cb2267ba70cbdec8.2bL0CCEt9WyVdRlAp8Lyr03y_DB6ERgysK-0eIDqO1E
+    products-workflows-editor-graph--narrow-workflow--dark:
+        hash: v1.k794b7964.01f65c99f249253da38e1b14144997481107c43fd970d9ffb0325706c903902c.C8EF2O1y8NSkFVFK2fakvB6yqqMeMB6kaqHVJRLC2ZI
+    products-workflows-editor-graph--narrow-workflow--light:
+        hash: v1.k794b7964.123ec2fa1f1ba91cbf8257978a890c2cf9223d0fcef1c9a37c6fd7b594e945c3.Q0Btzh2-Lg299AqvrCAPrc4Bgy2OFM_gTWDFODs37RM
     products-workflows-editor-graph--new-workflow--dark:
         hash: v1.k794b7964.7ba2d7e983927e8e8375e47d0c949b93943fd66aae376f98e125d683dd4ffd99.YZb3PzvlCIEGiDRA-lVQffhm1K7TV_CXi-VCWJpzbLc
     products-workflows-editor-graph--new-workflow--light:
@@ -6992,6 +6996,10 @@ snapshots:
         hash: v1.k794b7964.7c60c3d139d5b5dabbd7fb974f621f135149176f1c86184aed079c6deaef414e.AkijMDM4cBxIWBu4E8V7VThp1fwVqHJcfVB24fcGK0Y
     products-workflows-editor-graph--support-sla-routing--light:
         hash: v1.k794b7964.185cabd282f05ff0599ff324858eeeb5a81eeeb8fffd0b072ca9d5c0d7807243.YHPb3_b2-Ub_stRNprVNr30-LC_kXEkREvdFFEMknkw
+    products-workflows-editor-graph--with-navigation--dark:
+        hash: v1.k794b7964.41531f0e4a9cb728232b50eb53a6615cbf117ec55824bccc6e42dca1c0f03d81.imMllz-NkrBb2FZ2YCA5vn3lmY8D5b933oS2mF0itww
+    products-workflows-editor-graph--with-navigation--light:
+        hash: v1.k794b7964.6d17dbab3ca3a7422ddcc58effbf489d7191bb9ef15db2d65fa405e27922a921.AsAyuHILJW39r69f-JHKnQKnqm1T5kf66hr2CkX-QNo
     products-workflows-editor-tree--add-on-promotion-emails--dark:
         hash: v1.k794b7964.f28f743921b108a3d7ce5c5f7f373407609e4f131790261d27afd7107909381f.Ji6HKS277Nou8dc2Ow4IG0TDdXKMQOCiNg6StWNB1Kc
     products-workflows-editor-tree--add-on-promotion-emails--light:
