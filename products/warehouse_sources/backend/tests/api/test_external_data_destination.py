@@ -123,6 +123,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                 Integration.IntegrationKind.AZURE_BLOB,
                 ("container_name", "prefix"),
             ),
+            (ExternalDataDestination.Type.CLICKHOUSE, Integration.IntegrationKind.CLICKHOUSE, ("database",)),
         ]
     )
     def test_the_target_cannot_be_changed(self, destination_type: str, kind: str, fields: tuple[str, ...]) -> None:

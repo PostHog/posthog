@@ -1,5 +1,6 @@
 import { AwsS3SetupModal } from 'scenes/integrations/aws-s3/AwsS3SetupModal'
 import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
+import { ClickHouseSetupModal } from 'scenes/integrations/clickhouse/ClickHouseSetupModal'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { GoogleCloudServiceAccountSetupModal } from 'scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal'
@@ -68,6 +69,17 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <PostgreSQLSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'clickhouse',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new ClickHouse connection',
+        onClick: () => openModal('clickhouse'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <ClickHouseSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })
 

@@ -157,6 +157,7 @@ export interface RoleLookupResponseApi {
  * * `aws-s3` - Aws S3
  * * `azure-blob` - Azure Blob
  * * `bing-ads` - Bing Ads
+ * * `clickhouse` - Clickhouse
  * * `clickup` - Clickup
  * * `customerio-app` - Customerio App
  * * `customerio-track` - Customerio Track
@@ -209,6 +210,7 @@ export const IntegrationKindEnumApi = {
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
+    Clickhouse: 'clickhouse',
     Clickup: 'clickup',
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
@@ -578,6 +580,7 @@ export interface IntegrationAccessRequestApi {
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
+     * * `clickhouse` - Clickhouse
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
@@ -742,6 +745,7 @@ export type IntegrationsListParams = {
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
+     * * `clickhouse` - Clickhouse
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
@@ -805,6 +809,7 @@ export const IntegrationsListKind = {
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
+    Clickhouse: 'clickhouse',
     Clickup: 'clickup',
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',

@@ -41928,6 +41928,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `ClickHouse` - ClickHouse
      */
     export type ExternalDataDestinationTypeEnum = typeof ExternalDataDestinationTypeEnum[keyof typeof ExternalDataDestinationTypeEnum];
 
@@ -41941,6 +41942,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      ClickHouse: 'ClickHouse',
     } as const;
 
     /**
@@ -41968,7 +41970,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `ClickHouse` - ClickHouse */
       type: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -53575,6 +53578,7 @@ export namespace Schemas {
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
+     * * `clickhouse` - Clickhouse
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
@@ -53628,6 +53632,7 @@ export namespace Schemas {
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
+      Clickhouse: 'clickhouse',
       Clickup: 'clickup',
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
@@ -53681,6 +53686,7 @@ export namespace Schemas {
        * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
+       * * `clickhouse` - Clickhouse
        * * `clickup` - Clickup
        * * `customerio-app` - Customerio App
        * * `customerio-track` - Customerio Track
@@ -72057,7 +72063,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `ClickHouse` - ClickHouse */
       type?: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -111304,6 +111311,7 @@ export namespace Schemas {
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
+     * * `clickhouse` - Clickhouse
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
@@ -111368,6 +111376,7 @@ export namespace Schemas {
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
+      Clickhouse: 'clickhouse',
       Clickup: 'clickup',
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',

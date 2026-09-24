@@ -38,6 +38,7 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     ),
     str(ExternalDataDestination.Type.BIGQUERY): (str(Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
+    str(ExternalDataDestination.Type.CLICKHOUSE): (str(Integration.IntegrationKind.CLICKHOUSE),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
@@ -200,6 +201,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         str(ExternalDataDestination.Type.BIGQUERY): ("dataset", "dataset_id", "project", "project_id"),
         str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "prefix"),
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
+        str(ExternalDataDestination.Type.CLICKHOUSE): ("database",),
     }
 
     def _reject_retargeting(self, attrs: dict[str, Any]) -> None:

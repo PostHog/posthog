@@ -120,6 +120,7 @@ export interface destinationModalLogicActions {
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
+            | 'clickhouse'
             | 'clickup'
             | 'customerio-app'
             | 'customerio-track'

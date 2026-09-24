@@ -1498,6 +1498,45 @@ class TestSnowflakeIntegration:
         assert expected_error_message in response.json()["detail"]
 
 
+class TestClickHouseIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_keeps_the_password_out_of_the_response(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "clickhouse",
+                "config": {"host": "ch.example.com", "user": "exporter", "password": "hunter2"},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.sensitive_config == {"password": "hunter2"}
+        assert "hunter2" not in json.dumps(response.json())
+
+    def test_create_reports_an_incomplete_config(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "clickhouse", "config": {"host": "ch.example.com", "user": "exporter"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "A password is required for clickhouse integration"
+
+
 class TestAzureBlobIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

@@ -1,7 +1,7 @@
 """Registering the writers that ship with warehouse sources.
 
 Every destination type `ExternalDataDestination.Type` offers ships here: Postgres, Redshift,
-Snowflake, Databricks, S3, BigQuery and Azure Blob. A type registered here is one a person can
+Snowflake, Databricks, S3, BigQuery, Azure Blob and ClickHouse. A type registered here is one a person can
 pick in the UI, so a writer that has never run against its warehouse must not be added:
 registering one is how a customer discovers it does not work.
 
@@ -25,6 +25,7 @@ SUPPORTED_DESTINATION_TYPES: list[str] = [
     str(ExternalDataDestination.Type.S3),
     str(ExternalDataDestination.Type.BIGQUERY),
     str(ExternalDataDestination.Type.AZURE_BLOB),
+    str(ExternalDataDestination.Type.CLICKHOUSE),
 ]
 
 
@@ -46,6 +47,9 @@ def register_builtin_destination_writers() -> None:
     )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.bigquery import (  # noqa: PLC0415
         BigQueryDestinationWriter,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.clickhouse import (  # noqa: PLC0415
+        ClickHouseDestinationWriter,
     )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.databricks import (  # noqa: PLC0415
         DatabricksDestinationWriter,
@@ -70,6 +74,7 @@ def register_builtin_destination_writers() -> None:
     register_destination_writer(ExternalDataDestination.Type.REDSHIFT, RedshiftDestinationWriter)
     register_destination_writer(ExternalDataDestination.Type.SNOWFLAKE, SnowflakeDestinationWriter)
     register_destination_writer(ExternalDataDestination.Type.S3, S3DestinationWriter)
+    register_destination_writer(ExternalDataDestination.Type.CLICKHOUSE, ClickHouseDestinationWriter)
 
 
 def builtin_destination_types() -> list[str]:

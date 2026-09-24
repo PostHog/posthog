@@ -16,6 +16,7 @@
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `ClickHouse` - ClickHouse
  */
 export type ExternalDataDestinationTypeEnumApi =
     (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
@@ -29,6 +30,7 @@ export const ExternalDataDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    ClickHouse: 'ClickHouse',
 } as const
 
 /**
@@ -56,7 +58,8 @@ export interface ExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `ClickHouse` - ClickHouse */
     type: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -101,7 +104,8 @@ export interface PatchedExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `ClickHouse` - ClickHouse */
     type?: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.

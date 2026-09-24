@@ -4,6 +4,7 @@ import IconPostHog from 'public/posthog-icon.svg'
 import IconS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBigQuery from 'public/services/bigquery.png'
+import IconClickHouse from 'public/services/clickhouse.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
@@ -23,6 +24,7 @@ export const DESTINATION_ICON_MAP: Record<ExternalDataDestinationTypeEnumApi, st
     Databricks: IconDatabricks,
     AzureBlob: IconAzureBlob,
     S3: IconS3,
+    ClickHouse: IconClickHouse,
 }
 
 const DESTINATION_TYPE_LABELS: Record<ExternalDataDestinationTypeEnumApi, string> = {
@@ -34,6 +36,7 @@ const DESTINATION_TYPE_LABELS: Record<ExternalDataDestinationTypeEnumApi, string
     Databricks: 'Databricks',
     AzureBlob: 'Azure Blob',
     S3: 'S3',
+    ClickHouse: 'ClickHouse',
 }
 
 /** The label a person should see for a destination type. The API serializes the raw enum value. */

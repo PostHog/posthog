@@ -132,6 +132,7 @@ class Integration(models.Model):
         AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
+        CLICKHOUSE = "clickhouse"
         CLICKUP = "clickup"
         CUSTOMERIO_APP = "customerio-app"
         CUSTOMERIO_TRACK = "customerio-track"
@@ -283,7 +284,7 @@ class Integration(models.Model):
         if self.kind == "apns":
             name = self.config.get("bundle_id", self.integration_id)
             return f"{name} (sandbox)" if self.config.get("environment") == "sandbox" else name
-        if self.kind == Integration.IntegrationKind.POSTGRESQL:
+        if self.kind in (Integration.IntegrationKind.POSTGRESQL, Integration.IntegrationKind.CLICKHOUSE):
             # The derived id reads as "1-db.example.com-5432-postgres", so prefer a name the
             # user chose. Falls back to host and user, which still beats the raw id.
             if name := self.config.get("name"):

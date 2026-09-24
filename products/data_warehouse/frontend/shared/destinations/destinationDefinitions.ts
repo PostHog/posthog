@@ -1,5 +1,6 @@
 import { azureBlobDefinition } from './azureBlob'
 import { bigqueryDefinition } from './bigquery'
+import { clickhouseDefinition } from './clickhouse'
 import { databricksDefinition } from './databricks'
 import { postgresDefinition } from './postgres'
 import { redshiftDefinition } from './redshift'
@@ -20,6 +21,7 @@ export const WAREHOUSE_DESTINATIONS: Record<CreatableDestinationType, WarehouseD
     Databricks: databricksDefinition,
     S3: s3Definition,
     AzureBlob: azureBlobDefinition,
+    ClickHouse: clickhouseDefinition,
 }
 
 export const CREATABLE_DESTINATION_TYPES = Object.keys(WAREHOUSE_DESTINATIONS) as CreatableDestinationType[]

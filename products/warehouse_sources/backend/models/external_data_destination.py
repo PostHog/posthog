@@ -1,7 +1,13 @@
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+
+
+def external_data_destination_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(ExternalDataDestination.Type.choices)
 
 
 class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
@@ -27,13 +33,14 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         DATABRICKS = "Databricks", "Databricks"
         AZURE_BLOB = "AzureBlob", "Azure Blob"
         S3 = "S3", "S3"
+        CLICKHOUSE = "ClickHouse", "ClickHouse"
 
     # `db_constraint=False`: a real FK constraint to the hot `posthog_team` table would
     # take a lock on it while being created. Team scoping is enforced at the app level
     # via `TeamScopedRootMixin`. See products/README.md "Adding or moving backend models
     # and migrations".
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    type = models.CharField(max_length=64, choices=Type)
+    type = models.CharField(max_length=64, choices=external_data_destination_type_choices)
     name = models.CharField(max_length=400)
     config = models.JSONField(
         default=dict,
