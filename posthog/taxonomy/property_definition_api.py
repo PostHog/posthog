@@ -201,7 +201,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class QueryContext:
     """
     The raw query is used to both query and count these results
