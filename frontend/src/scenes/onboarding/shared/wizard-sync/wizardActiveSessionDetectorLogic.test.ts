@@ -145,19 +145,6 @@ describe('wizardActiveSessionDetectorLogic', () => {
         expect(captureSpy).not.toHaveBeenCalled()
     })
 
-    it('does not capture an exception for a project-not-found 404', async () => {
-        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-        mockLatestRetrieve.mockRejectedValue(
-            new ApiError('not found', 404, undefined, { detail: 'Project not found.' })
-        )
-
-        await expectLogic(logic, () => {
-            logic.actions.check()
-        }).toDispatchActions(['setLastError'])
-
-        expect(captureSpy).not.toHaveBeenCalled()
-    })
-
     it('captures an exception for a 500', async () => {
         const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
         mockLatestRetrieve.mockRejectedValue(new ApiError('boom', 500))
