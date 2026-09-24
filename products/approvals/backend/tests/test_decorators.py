@@ -19,11 +19,8 @@ from products.feature_flags.backend.api.feature_flag import FeatureFlagSerialize
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-class TestApprovalGateFailsClosed(APIBaseTest):
-    """The gate must derive team/org from the serializer instance when the
-    context lacks get_team/get_organization callables, instead of silently
-    skipping the approval workflow (fail-closed, not fail-open)."""
+class _ApprovalGateFixtures(APIBaseTest):
+    """Shared fixtures for gating a feature flag save behind an approval policy."""
 
     def _create_disabled_flag(self) -> FeatureFlag:
         return FeatureFlag.objects.create(
@@ -57,6 +54,13 @@ class TestApprovalGateFailsClosed(APIBaseTest):
         serializer = FeatureFlagSerializer(instance=flag, data=data, partial=True, context=context)
         serializer.is_valid()
         return serializer
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestApprovalGateFailsClosed(_ApprovalGateFixtures):
+    """The gate must derive team/org from the serializer instance when the
+    context lacks get_team/get_organization callables, instead of silently
+    skipping the approval workflow (fail-closed, not fail-open)."""
 
     def test_gate_blocks_when_context_lacks_org_and_team_callables(self, _mock_enabled):
         flag = self._create_disabled_flag()
@@ -201,7 +205,7 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-class TestChangeRequestCreateFailureCounter(APIBaseTest):
+class TestChangeRequestCreateFailureCounter(_ApprovalGateFixtures):
     def _failures(self, action: str, error_type: str) -> float:
         return (
             REGISTRY.get_sample_value(
@@ -212,33 +216,13 @@ class TestChangeRequestCreateFailureCounter(APIBaseTest):
         )
 
     def _gated_serializer(self) -> FeatureFlagSerializer:
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
-            active=False,
-            created_by=self.user,
-        )
-        ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key="feature_flag.enable",
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
-
-        request = MagicMock()
-        request.method = "PATCH"
-        request.data = {"active": True}
-        request.user = self.user
-        request.path = f"/api/projects/{self.team.id}/feature_flags/"
-
-        serializer = FeatureFlagSerializer(
-            instance=flag,
-            data={"active": True},
-            partial=True,
-            context={
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        return self._serializer(
+            flag,
+            {"active": True},
+            {
                 "request": request,
                 "team_id": self.team.id,
                 "project_id": self.team.project_id,
@@ -246,8 +230,6 @@ class TestChangeRequestCreateFailureCounter(APIBaseTest):
                 "get_organization": lambda: self.organization,
             },
         )
-        serializer.is_valid()
-        return serializer
 
     def test_failed_change_request_insert_increments_the_counter(self, _mock_enabled):
         serializer = self._gated_serializer()
