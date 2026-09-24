@@ -221,7 +221,7 @@ def test_a_cdc_table_syncs_before_its_captured_changes_expire(
 
     assert response.status_code == expected_status, response.content
     if expected_status == 400:
-        assert "at least every 7 days" in str(response.json())
+        assert "must sync at least weekly" in str(response.json())
 
 
 @pytest.mark.parametrize("ingest_mode", [None, "buffered"])

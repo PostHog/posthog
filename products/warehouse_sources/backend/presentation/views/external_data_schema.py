@@ -213,8 +213,8 @@ NO_SYNC_FREQUENCY_ERROR = (
 # days, so a slower schedule would lose changes for good.
 CDC_MAX_SYNC_FREQUENCY_INTERVAL = dt.timedelta(days=7)
 CDC_SYNC_FREQUENCY_TOO_SLOW_ERROR = (
-    "Change data capture keeps captured changes for 14 days, so this table must sync at least every 7 days. "
-    'Choose "7day" or a shorter sync frequency.'
+    "Change data capture keeps captured changes for 14 days, so this table must sync at least weekly. "
+    "Choose Weekly or a shorter interval."
 )
 
 
