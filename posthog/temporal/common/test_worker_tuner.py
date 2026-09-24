@@ -5,12 +5,19 @@ from unittest import mock
 
 from temporalio.worker import ResourceBasedSlotConfig
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common import worker
 
 pytestmark = pytest.mark.asyncio
 
 
-async def _create_worker(**kwargs) -> tuple[mock.MagicMock, mock.MagicMock]:
+@frozen
+class _WorkerMocks:
+    worker_cls: mock.MagicMock
+    create_resource_based: mock.MagicMock
+
+
+async def _create_worker(**kwargs) -> _WorkerMocks:
     with (
         mock.patch.object(worker, "connect", new=mock.AsyncMock()),
         mock.patch.object(worker, "Worker") as worker_cls,
@@ -29,14 +36,14 @@ async def _create_worker(**kwargs) -> tuple[mock.MagicMock, mock.MagicMock]:
             max_concurrent_activities=7,
             **kwargs,
         )
-    return worker_cls, create_resource_based
+    return _WorkerMocks(worker_cls=worker_cls, create_resource_based=create_resource_based)
 
 
 async def test_create_worker_uses_fixed_slots_without_a_memory_target() -> None:
-    worker_cls, create_resource_based = await _create_worker(target_memory_usage=None)
+    mocks = await _create_worker(target_memory_usage=None)
 
-    create_resource_based.assert_not_called()
-    worker_kwargs = worker_cls.call_args.kwargs
+    mocks.create_resource_based.assert_not_called()
+    worker_kwargs = mocks.worker_cls.call_args.kwargs
     assert "tuner" not in worker_kwargs
     assert worker_kwargs["max_concurrent_activities"] == 7
 
@@ -45,13 +52,11 @@ async def test_create_worker_uses_fixed_slots_without_a_memory_target() -> None:
 async def test_create_worker_uses_the_resource_tuner_with_a_memory_target(
     activity_ramp_throttle: dt.timedelta | None,
 ) -> None:
-    worker_cls, create_resource_based = await _create_worker(
-        target_memory_usage=0.7, activity_ramp_throttle=activity_ramp_throttle
-    )
+    mocks = await _create_worker(target_memory_usage=0.7, activity_ramp_throttle=activity_ramp_throttle)
 
-    worker_kwargs = worker_cls.call_args.kwargs
-    assert worker_kwargs["tuner"] is create_resource_based.return_value
+    worker_kwargs = mocks.worker_cls.call_args.kwargs
+    assert worker_kwargs["tuner"] is mocks.create_resource_based.return_value
     assert "max_concurrent_activities" not in worker_kwargs
-    assert create_resource_based.call_args.kwargs["activity_config"] == ResourceBasedSlotConfig(
+    assert mocks.create_resource_based.call_args.kwargs["activity_config"] == ResourceBasedSlotConfig(
         maximum_slots=7, ramp_throttle=activity_ramp_throttle
     )
