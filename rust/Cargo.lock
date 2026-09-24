@@ -7242,6 +7242,7 @@ dependencies = [
  "moka",
  "rand 0.8.5",
  "serde_json",
+ "siphasher 1.0.2",
  "strum 0.26.3",
  "tokio",
  "tracing",
