@@ -377,7 +377,7 @@ const accessControlRolesList = (): ToolBase<
         } as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
-            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and role-members-list gives who is in a role.\n"
+            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and each entry here gives the matching `role_name`.\n"
         )
     },
 })
