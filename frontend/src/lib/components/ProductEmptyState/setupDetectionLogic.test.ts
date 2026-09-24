@@ -1,9 +1,10 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -275,6 +276,34 @@ describe('createSetupDetectionLogic', () => {
             next.mount()
             await expectLogic(next).toFinishAllListeners()
             expect(nextDetect).not.toHaveBeenCalled()
+        })
+
+        // Mounted before the project resolves (a fresh tab), the loadCurrentProjectSuccess
+        // catch-up runs the revalidation instead of afterMount. A later loadCurrentProjectSuccess
+        // (a project settings save) must not send a second, unflagged detectStatus once that
+        // catch-up has already run - its answer would bypass the revalidating guard and a real
+        // needs-setup would be silently dropped by has-data protection in setDetectedStatus.
+        it('does not send a second detectStatus on a later loadCurrentProjectSuccess after an inconclusive catch-up revalidation', async () => {
+            await seedCachedHasData()
+            projectLogic.actions.loadCurrentProjectSuccess(null)
+
+            const detect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValue(null)
+            const logic = buildCached(detect, true)
+            logic.mount()
+            expect(detect).not.toHaveBeenCalled()
+            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
+
+            // The project resolves after mount - the catch-up runs the revalidation once.
+            projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(detect).toHaveBeenCalledTimes(1)
+            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
+
+            // A later project reload must not fire another detectStatus.
+            projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(detect).toHaveBeenCalledTimes(1)
+            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
         })
     })
 

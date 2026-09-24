@@ -243,8 +243,15 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 }
             },
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
-                // Covers non-polling products mounted before bootstrap settled.
-                if (!cache.servedFromCache && values.detectedStatus === null && !values.detectedStatusLoading) {
+                // Covers non-polling products mounted before bootstrap settled, plus a still-armed
+                // revalidation; once a cache hit has been served and revalidated, a later fire of
+                // this action must not send a second, unflagged detectStatus (its answer would be
+                // dropped by the has-data guard in setDetectedStatus).
+                if (
+                    (!cache.servedFromCache || cache.revalidating) &&
+                    values.detectedStatus === null &&
+                    !values.detectedStatusLoading
+                ) {
                     actions.detectStatus()
                 }
             },
@@ -255,12 +262,11 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // The cache skips detection, not the side effects - returning users take
                 // this path on every later visit.
                 onDetected?.('has-data')
+                cache.servedFromCache = true
                 if (revalidateCachedHasData) {
                     // Before bootstrap settles, the loadCurrentProjectSuccess listener runs it.
                     cache.revalidating = true
                     detectIfProjectKnown(actions, values)
-                } else {
-                    cache.servedFromCache = true
                 }
                 return
             }
