@@ -1,11 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import {
-    DATA_COLLECTION_ABANDONED_EVENT,
-    DATA_COLLECTION_SETTLED_EVENT,
-    dataNodeCollectionLogic,
-} from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { initKeaTests } from '~/test/init'
 
@@ -23,8 +19,10 @@ describe('dataNodeCollectionLogic', () => {
         logic.mount()
     })
 
-    const capturedEvents = (event: string): Record<string, any>[] =>
-        (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event).map(([, properties]) => properties)
+    const capturedLoads = (): Record<string, any>[] =>
+        (posthog.capture as jest.Mock).mock.calls
+            .filter(([name, properties]) => name === 'time to see data' && properties.type === 'page_load')
+            .map(([, properties]) => properties)
 
     const mountTile = (id: string): void => {
         logic.actions.mountDataNode(id, {
@@ -130,21 +128,23 @@ describe('dataNodeCollectionLogic', () => {
             logic.actions.collectionNodeLoadData('tile-b')
 
             logic.actions.collectionNodeLoadDataSuccess('tile-a', { isCached: true })
-            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toHaveLength(0)
+            expect(capturedLoads()).toHaveLength(0)
 
             logic.actions.collectionNodeLoadDataFailure('tile-b')
 
-            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toEqual([
+            expect(capturedLoads()).toEqual([
                 expect.objectContaining({
-                    collection_key: 'test-collection',
-                    trigger: 'initial_load',
-                    tile_count: 2,
+                    context: 'test-collection',
+                    action: 'initial_load',
+                    status: 'failure',
+                    insights_fetched: 2,
+                    insights_fetched_cached: 1,
                     failed_tile_count: 1,
-                    cached_tile_count: 1,
                     unmounted_tile_count: 0,
                     last_tile_id: 'tile-b',
                     last_tile_status: 'failure',
-                    duration_ms: expect.any(Number),
+                    time_to_see_data_ms: expect.any(Number),
+                    primary_interaction_id: expect.any(String),
                 }),
             ])
         })
@@ -165,11 +165,7 @@ describe('dataNodeCollectionLogic', () => {
             logic.actions.collectionNodeLoadData('tile-a')
             logic.actions.collectionNodeLoadDataSuccess('tile-a')
 
-            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT).map((p) => p.trigger)).toEqual([
-                'initial_load',
-                'refresh',
-                'update',
-            ])
+            expect(capturedLoads().map((p) => p.action)).toEqual(['initial_load', 'refresh', 'update'])
         })
 
         it('stays silent for a collection not registered as a page container', () => {
@@ -184,27 +180,45 @@ describe('dataNodeCollectionLogic', () => {
             privateLogic.unmount()
         })
 
-        it('reports abandoned, not settled, when every loading tile unmounts', () => {
+        it.each([
+            [
+                'every loading tile unmounts',
+                (): void => {
+                    logic.actions.unmountDataNode('tile-a')
+                    logic.actions.unmountDataNode('tile-b')
+                },
+                'navigated_away',
+                undefined,
+            ],
+            [
+                'the page is hidden',
+                (): void => {
+                    window.dispatchEvent(new Event('pagehide'))
+                },
+                'left_app',
+                { transport: 'sendBeacon' },
+            ],
+        ])('reports one cancelled load when %s', (_, leave, reason, options) => {
             mountTile('tile-a')
             mountTile('tile-b')
             logic.actions.collectionNodeLoadData('tile-a')
             logic.actions.collectionNodeLoadData('tile-b')
 
-            logic.actions.unmountDataNode('tile-a')
-            expect(capturedEvents(DATA_COLLECTION_ABANDONED_EVENT)).toHaveLength(0)
+            leave()
 
-            logic.actions.unmountDataNode('tile-b')
-
-            expect(capturedEvents(DATA_COLLECTION_ABANDONED_EVENT)).toEqual([
+            expect(posthog.capture).toHaveBeenCalledTimes(1)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'time to see data',
                 expect.objectContaining({
-                    collection_key: 'test-collection',
-                    trigger: 'initial_load',
-                    tile_count: 2,
+                    context: 'test-collection',
+                    action: 'initial_load',
+                    status: 'cancelled',
+                    cancel_reason: reason,
+                    insights_fetched: 2,
                     tiles_still_loading: 2,
-                    duration_ms: expect.any(Number),
                 }),
-            ])
-            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toHaveLength(0)
+                options
+            )
         })
 
         it('settles when a tile unmounts mid-load and the rest have finished', () => {
@@ -216,15 +230,15 @@ describe('dataNodeCollectionLogic', () => {
 
             logic.actions.unmountDataNode('tile-a')
 
-            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toEqual([
+            expect(capturedLoads()).toEqual([
                 expect.objectContaining({
-                    tile_count: 2,
+                    status: 'success',
+                    insights_fetched: 2,
                     unmounted_tile_count: 1,
                     last_tile_id: 'tile-a',
                     last_tile_status: 'unmounted',
                 }),
             ])
-            expect(capturedEvents(DATA_COLLECTION_ABANDONED_EVENT)).toHaveLength(0)
         })
     })
 })

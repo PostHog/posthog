@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
+import posthog, { CaptureOptions } from 'posthog-js'
 
+import { PageLoadTimeToSeeData } from 'lib/internalMetrics'
+import { uuid } from 'lib/utils/dom'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { isPageCollection } from '~/queries/nodes/DataNode/pageCollections'
@@ -32,11 +34,8 @@ export type DataCollectionLoadTrigger = 'initial_load' | 'refresh' | 'update'
 
 export type DataCollectionTileStatus = 'success' | 'failure' | 'unmounted'
 
-// Renaming these breaks the dashboards and alerts built on them — pin, don't rename.
-export const DATA_COLLECTION_SETTLED_EVENT = 'data_collection_settled'
-export const DATA_COLLECTION_ABANDONED_EVENT = 'data_collection_abandoned'
-
 interface DataCollectionLoadCycle {
+    id: string
     startedAt: number
     /** Captured when the cycle opens: navigating away flips the active scene before the tiles unmount. */
     scene: string | null
@@ -81,6 +80,9 @@ export interface dataNodeCollectionLogicActions {
         id: string
         props: DataNodeRegisteredProps
     }
+    pageHidden: () => {
+        value: true
+    }
     reloadAll: () => {}
     unmountDataNode: (id: string) => {
         id: string
@@ -116,6 +118,7 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
         collectionNodeLoadData: (id: string) => ({ id }),
         collectionNodeLoadDataSuccess: (id: string, meta?: CollectionNodeLoadMeta) => ({ id, meta }),
         collectionNodeLoadDataFailure: (id: string) => ({ id }),
+        pageHidden: true,
     }),
     reducers({
         mountedDataNodes: [
@@ -162,19 +165,29 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
         ],
     }),
     listeners(({ values, props, cache }) => {
-        const capture = (event: string, properties: Record<string, unknown>): void => {
+        const report = (
+            cycle: DataCollectionLoadCycle,
+            outcome: Partial<PageLoadTimeToSeeData>,
+            options?: CaptureOptions
+        ): void => {
             // `posthog.capture` is absent inside the toolbar bundle.
-            if (isPageCollection(props.key) && posthog.capture) {
-                posthog.capture(event, properties)
+            if (!isPageCollection(props.key) || !posthog.capture) {
+                return
             }
+            const payload: PageLoadTimeToSeeData = {
+                type: 'page_load',
+                context: props.key,
+                action: cycle.trigger,
+                primary_interaction_id: cycle.id,
+                time_to_see_data_ms: Math.round(performance.now() - cycle.startedAt),
+                insights_fetched: cycle.participatingTileIds.size,
+                insights_fetched_cached: cycle.cachedTileCount,
+                scene: cycle.scene,
+                time_since_mount_ms: Math.round(performance.now() - cache.mountedAt),
+                ...outcome,
+            }
+            posthog.capture('time to see data', payload, options)
         }
-
-        const cycleProps = (cycle: DataCollectionLoadCycle): Record<string, unknown> => ({
-            collection_key: props.key,
-            scene: cycle.scene,
-            trigger: cycle.trigger,
-            time_since_mount_ms: Math.round(performance.now() - cache.mountedAt),
-        })
 
         const isTileInFlight = (cycle: DataCollectionLoadCycle, id: string): boolean =>
             cycle.participatingTileIds.has(id) && !cycle.settledTileIds.has(id) && !cycle.unmountedTileIds.has(id)
@@ -191,17 +204,31 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
         }
 
         const settle = (cycle: DataCollectionLoadCycle): void => {
-            capture(DATA_COLLECTION_SETTLED_EVENT, {
-                ...cycleProps(cycle),
-                duration_ms: Math.round(performance.now() - cycle.startedAt),
-                tile_count: cycle.participatingTileIds.size,
+            report(cycle, {
+                status: cycle.failedTileCount > 0 ? 'failure' : 'success',
                 failed_tile_count: cycle.failedTileCount,
-                cached_tile_count: cycle.cachedTileCount,
                 unmounted_tile_count: cycle.unmountedTileIds.size,
                 last_tile_id: cycle.lastTileId,
                 last_tile_kind: cycle.lastTileKind,
                 last_tile_status: cycle.lastTileStatus,
             })
+            closeCycle()
+        }
+
+        const abandon = (
+            cycle: DataCollectionLoadCycle,
+            reason: NonNullable<PageLoadTimeToSeeData['cancel_reason']>,
+            options?: CaptureOptions
+        ): void => {
+            report(
+                cycle,
+                {
+                    status: 'cancelled',
+                    cancel_reason: reason,
+                    tiles_still_loading: cycle.participatingTileIds.size - cycle.settledTileIds.size,
+                },
+                options
+            )
             closeCycle()
         }
 
@@ -232,6 +259,7 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
             collectionNodeLoadData: ({ id }) => {
                 if (!cache.cycle) {
                     cache.cycle = {
+                        id: uuid(),
                         startedAt: performance.now(),
                         scene: sceneLogic.findMounted()?.values.activeSceneId ?? null,
                         trigger: cache.pendingTrigger ?? (cache.completedCycles === 0 ? 'initial_load' : 'update'),
@@ -280,23 +308,30 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
                 noteLastTile(cycle, id, 'unmounted')
                 cycle.unmountedTileIds.add(id)
                 if (values.mountedDataNodes.length === 0) {
-                    capture(DATA_COLLECTION_ABANDONED_EVENT, {
-                        ...cycleProps(cycle),
-                        duration_ms: Math.round(performance.now() - cycle.startedAt),
-                        tile_count: cycle.participatingTileIds.size,
-                        tiles_still_loading: cycle.participatingTileIds.size - cycle.settledTileIds.size,
-                    })
-                    closeCycle()
+                    abandon(cycle, 'navigated_away')
                     return
                 }
                 settleIfDone(cycle)
             },
+            pageHidden: () => {
+                if (cache.cycle) {
+                    abandon(cache.cycle, 'left_app', { transport: 'sendBeacon' })
+                }
+            },
         }
     }),
-    afterMount(({ cache }) => {
+    afterMount(({ actions, cache }) => {
         cache.mountedAt = performance.now()
         cache.cycle = null
         cache.completedCycles = 0
         cache.pendingTrigger = null
+        cache.disposables.add(
+            () => {
+                window.addEventListener('pagehide', actions.pageHidden)
+                return () => window.removeEventListener('pagehide', actions.pageHidden)
+            },
+            'pagehide',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])
