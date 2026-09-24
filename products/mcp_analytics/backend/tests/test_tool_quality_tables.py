@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
@@ -173,6 +174,22 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert row.error_rate_pct == 0
         assert row.users == 1
         assert row.sessions == 1
+
+    @time_machine.travel(datetime(2026, 9, 10, 12, tzinfo=UTC), tick=False)
+    def test_to_date_range_compares_against_the_same_part_of_the_previous_unit(self) -> None:
+        _emit(self.team, tool_name="steady_tool", timestamp=datetime(2026, 8, 5, tzinfo=UTC))
+        # Inside last month but after its first ten days, so outside the previous period.
+        _emit(self.team, tool_name="steady_tool", timestamp=datetime(2026, 8, 20, tzinfo=UTC))
+        _emit(self.team, tool_name="steady_tool", timestamp=datetime(2026, 9, 5, tzinfo=UTC))
+        flush_persons_and_events()
+
+        runner = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="mStart")), team=self.team
+        )
+        row = runner.calculate().results[0]
+
+        assert row.total_calls == 1
+        assert row.previous_calls == 1
 
     def test_tool_with_only_previous_calls_is_absent_and_excluded_from_total_count(self) -> None:
         now = datetime.now(tz=UTC)

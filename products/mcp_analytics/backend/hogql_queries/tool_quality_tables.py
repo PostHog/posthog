@@ -213,7 +213,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 SELECT
                     tool,
                     countIf(is_current) AS total_calls,
-                    countIf(NOT is_current) AS previous_calls,
+                    countIf(is_previous) AS previous_calls,
                     countIf(is_current AND is_error) AS errors,
                     round(quantileIf(0.5)(duration_ms, is_current)) AS p50_duration_ms,
                     round(quantileIf(0.95)(duration_ms, is_current)) AS p95_duration_ms,
@@ -226,6 +226,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     SELECT
                         {_EFFECTIVE_TOOL} AS tool,
                         timestamp >= {current_from} AS is_current,
+                        timestamp <= {previous_to} AS is_previous,
                         toBool(properties.$mcp_is_error) AS is_error,
                         toFloat(properties.$mcp_duration_ms) AS duration_ms,
                         toString(properties.$session_id) AS session_id,
@@ -244,6 +245,9 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             placeholders={
                 "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
                 "current_from": current_range.date_from_as_hogql(),
+                # A to-date range ("This month") compares against the same part of the previous
+                # unit, which ends well before the current window starts.
+                "previous_to": previous_range.date_to_as_hogql(),
                 "_min_k": ast.Constant(value=_TREND_SCORE_MIN_K),
                 "_volume_fraction": ast.Constant(value=_TREND_SCORE_VOLUME_FRACTION),
                 "where": _named_tool_where(
