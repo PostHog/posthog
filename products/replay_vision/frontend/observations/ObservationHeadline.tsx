@@ -1,19 +1,34 @@
-import { IconCopy, IconSparkles } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { CitedText, ObservationPrimaryOutput, readResult } from '../components/ObservationCard'
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import { LabeledRow } from '../components/LabeledRow'
+import { ObservationPrimaryOutput } from '../components/ObservationCard'
+import type { ReplayObservationApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { configFromSnapshot, type ScorerScannerConfig } from '../replay_scanners/types'
-import { citedTextToPlainText } from '../utils/citations'
+import {
+    type MonitorVerdict,
+    VERDICT_LABEL,
+    readFixedTags,
+    readFreeformTags,
+    readModelOutput,
+    readScore,
+    readVerdict,
+} from '../utils/observation'
 
 const PILL = 'inline-flex items-center gap-1 rounded-md border-2 px-3 py-0.5 font-bold'
 
-const VERDICTS: Record<string, { label: string; className: string }> = {
-    yes: { label: 'Yes', className: 'text-success border-success' },
-    no: { label: 'No', className: 'text-danger border-danger' },
-    inconclusive: { label: 'Inconclusive', className: 'text-muted border-primary' },
+// Only the chosen categories show here, so the classifier's label names them as assigned.
+const HEADLINE_LABEL: Record<ScannerTypeEnumApi, string> = {
+    monitor: 'Verdict',
+    scorer: 'Score',
+    classifier: 'Assigned categories',
+    summarizer: 'Summary',
+}
+
+const VERDICT_CLASS: Record<MonitorVerdict, string> = {
+    yes: 'text-success border-success',
+    no: 'text-danger border-danger',
+    inconclusive: 'text-muted border-primary',
 }
 
 /** Red at the bottom of the scale, amber in the middle, green at the top. */
@@ -24,36 +39,36 @@ function scoreColor(score: number, min: number, max: number): string {
         : `color-mix(in oklab, var(--success) ${Math.round((position - 0.5) * 200)}%, var(--warning))`
 }
 
-export function ObservationHeadline({
+function HeadlineValue({
     observation,
+    scannerType,
     onSeek,
 }: {
     observation: ReplayObservationApi
+    scannerType: ScannerTypeEnumApi
     onSeek: (timestampMs: number) => void
-}): JSX.Element | null {
-    const snapshot = observation.scanner_snapshot
-    const result = readResult(observation)
-    if (!snapshot || !result) {
-        return null
-    }
-
-    if (snapshot.scanner_type === 'monitor') {
-        const verdict = typeof result.verdict === 'string' ? VERDICTS[result.verdict] : undefined
+}): JSX.Element {
+    if (scannerType === 'monitor') {
+        const verdict = readVerdict(observation)
         return verdict ? (
-            <span className={`self-start text-2xl ${PILL} ${verdict.className}`} data-attr="vision-observation-verdict">
-                {verdict.label}
+            <span
+                className={`self-start text-2xl ${PILL} ${VERDICT_CLASS[verdict]}`}
+                data-attr="vision-observation-verdict"
+            >
+                {VERDICT_LABEL[verdict]}
             </span>
         ) : (
             <span className="text-2xl font-bold text-muted">—</span>
         )
     }
 
-    if (snapshot.scanner_type === 'scorer') {
-        const score = typeof result.score === 'number' ? result.score : null
-        const scale = (configFromSnapshot(snapshot) as ScorerScannerConfig | null)?.scale
+    if (scannerType === 'scorer') {
+        const score = readScore(observation)
+        const scale = (configFromSnapshot(observation.scanner_snapshot) as ScorerScannerConfig | null)?.scale
         const min = typeof scale?.min === 'number' ? scale.min : 0
         const max = typeof scale?.max === 'number' ? scale.max : null
-        const label = typeof result.label === 'string' ? result.label : (scale?.label ?? null)
+        const resultLabel = readModelOutput(observation)?.label
+        const label = typeof resultLabel === 'string' ? resultLabel : (scale?.label ?? null)
         return (
             <div className="flex flex-col gap-1">
                 <span className="text-3xl font-bold tabular-nums">
@@ -71,9 +86,9 @@ export function ObservationHeadline({
         )
     }
 
-    if (snapshot.scanner_type === 'classifier') {
-        const tags = Array.isArray(result.tags) ? (result.tags as string[]) : []
-        const freeform = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
+    if (scannerType === 'classifier') {
+        const tags = readFixedTags(observation)
+        const freeform = readFreeformTags(observation)
         if (tags.length === 0 && freeform.length === 0) {
             return <span className="text-lg font-semibold text-muted">No categories</span>
         }
@@ -99,39 +114,32 @@ export function ObservationHeadline({
         )
     }
 
-    if (snapshot.scanner_type === 'summarizer') {
-        const title = typeof result.title === 'string' ? result.title : null
-        const summary = typeof result.summary === 'string' ? result.summary : null
-        return (
-            <div className="flex flex-col gap-1">
-                <div className="flex items-start justify-between gap-2">
-                    {title && <span className="text-xl font-bold">{title}</span>}
-                    {summary && (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconCopy />}
-                            tooltip="Copy summary"
-                            className="ml-auto"
-                            onClick={() =>
-                                void copyToClipboard(
-                                    [title, citedTextToPlainText(summary, result.summary_segments)]
-                                        .filter(Boolean)
-                                        .join('\n\n'),
-                                    'summary'
-                                )
-                            }
-                            data-attr="vision-copy-summary"
-                        />
-                    )}
-                </div>
-                {summary && (
-                    <span className="text-sm whitespace-pre-wrap">
-                        <CitedText text={summary} segments={result.summary_segments} onSeek={onSeek} />
-                    </span>
-                )}
-            </div>
-        )
-    }
+    return (
+        <ObservationPrimaryOutput
+            observation={observation}
+            showPrompt={false}
+            onSeek={onSeek}
+            expandSummary
+            copyable
+            largeTitle
+        />
+    )
+}
 
-    return <ObservationPrimaryOutput observation={observation} showPrompt={false} onSeek={onSeek} copyable />
+export function ObservationHeadline({
+    observation,
+    onSeek,
+}: {
+    observation: ReplayObservationApi
+    onSeek: (timestampMs: number) => void
+}): JSX.Element | null {
+    const scannerType = observation.scanner_snapshot?.scanner_type
+    if (!scannerType || !readModelOutput(observation)) {
+        return null
+    }
+    return (
+        <LabeledRow label={HEADLINE_LABEL[scannerType]}>
+            <HeadlineValue observation={observation} scannerType={scannerType} onSeek={onSeek} />
+        </LabeledRow>
+    )
 }

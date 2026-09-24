@@ -22,18 +22,10 @@ import { CitedMarkdown } from '../components/CitedMarkdown'
 import { LabeledRow } from '../components/LabeledRow'
 import { readResult } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
-import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { PromptPreview } from '../replay_scanners/components/PromptPreview'
-import {
-    configFromSnapshot,
-    failureKindDescription,
-    ineligibleKindDescription,
-    parseFailureReason,
-    parseIneligibleReason,
-    SUCCEEDED_OUTPUT_LABEL,
-} from '../replay_scanners/types'
+import { configFromSnapshot } from '../replay_scanners/types'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { ObservationDetails } from './ObservationDetails'
@@ -43,6 +35,7 @@ import { ObservationLabelControl } from './ObservationLabelControl'
 import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
+import { ObservationUnsuccessfulScan } from './ObservationUnsuccessfulScan'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -168,16 +161,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const scannerType = snapshot?.scanner_type
     const scannerName = scannerLabel(observation)
     const prompt = configFromSnapshot(snapshot)?.prompt ?? null
-    const ineligibleParsed =
-        observation.status === 'ineligible' && observation.error_reason
-            ? parseIneligibleReason(observation.error_reason)
-            : null
-    const ineligibleMessage = ineligibleParsed ? ineligibleParsed.message || null : observation.error_reason || null
-    const failedParsed =
-        observation.status === 'failed' && observation.error_reason
-            ? parseFailureReason(observation.error_reason)
-            : null
-    const failedMessage = failedParsed ? failedParsed.message || null : observation.error_reason || null
 
     const seekEmbeddedPlayer = (ms: number): void => setPendingSeek({ ms, trigger: Date.now() })
 
@@ -260,78 +243,15 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
 
-                            {observation.status === 'failed' && observation.error_reason && (
-                                <div className="flex flex-col gap-3">
-                                    <div className="flex flex-col gap-1">
-                                        <span className="text-2xl font-bold text-danger">Scan failed</span>
-                                        <p className="text-sm text-default m-0 leading-snug">
-                                            {failedParsed
-                                                ? failureKindDescription(failedParsed.kind)
-                                                : observation.error_reason}
-                                        </p>
-                                    </div>
-                                    {failedParsed && failedMessage && (
-                                        <LabeledRow label="Error">
-                                            <p className="text-sm text-default m-0 leading-snug font-mono">
-                                                {failedMessage}
-                                            </p>
-                                        </LabeledRow>
-                                    )}
-                                    <div>
-                                        <ObservationRetryButton
-                                            status={observation.status}
-                                            errorReason={observation.error_reason}
-                                            onRetry={() => retryObservation()}
-                                            loading={retrying}
-                                            emphasis="primary"
-                                            size="small"
-                                            dataAttr="vision-observation-detail-retry"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-
-                            {observation.status === 'ineligible' && observation.error_reason && (
-                                <div className="flex flex-col gap-3">
-                                    <div className="flex flex-col gap-1">
-                                        <span className="text-2xl font-bold text-muted">Not scanned</span>
-                                        <p className="text-sm text-default m-0 leading-snug">
-                                            {ineligibleParsed
-                                                ? ineligibleKindDescription(ineligibleParsed.kind)
-                                                : observation.error_reason}
-                                        </p>
-                                    </div>
-                                    {ineligibleParsed && ineligibleMessage && (
-                                        <LabeledRow label="More info">
-                                            <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
-                                        </LabeledRow>
-                                    )}
-                                    <div>
-                                        <ObservationRetryButton
-                                            status={observation.status}
-                                            errorReason={observation.error_reason}
-                                            onRetry={() => retryObservation()}
-                                            loading={retrying}
-                                            size="small"
-                                            dataAttr="vision-observation-detail-retry"
-                                        />
-                                    </div>
-                                </div>
-                            )}
+                            <ObservationUnsuccessfulScan
+                                observation={observation}
+                                retrying={retrying}
+                                onRetry={() => retryObservation()}
+                            />
 
                             {observation.status === 'succeeded' && snapshot && result && (
                                 <>
-                                    <LabeledRow
-                                        label={
-                                            scannerType === 'classifier'
-                                                ? 'Assigned categories'
-                                                : scannerType
-                                                  ? SUCCEEDED_OUTPUT_LABEL[scannerType]
-                                                  : ''
-                                        }
-                                    >
-                                        <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
-                                    </LabeledRow>
+                                    <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
                                     {scannerType !== 'summarizer' && reasoning && (
                                         <LabeledRow label="Reasoning">
                                             <CitedMarkdown

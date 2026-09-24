@@ -1143,6 +1143,11 @@ const scorerObservationDetail = observationDetailFor(scorerOverviewScanner, '000
     reasoning: 'Compared plans, opened billing and invited a teammate.',
 })
 
+const observationDetailStory = (detail: ReplayObservationApi): StoryObj => ({
+    parameters: { pageUrl: urls.replayVisionObservation(detail.id) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': detail } })],
+})
+
 // A scan the model never finished, so the page leads with the failure and a retry instead of a result.
 const failedObservationDetail = observation({
     ...monitorObservationDetail,
@@ -1152,10 +1157,7 @@ const failedObservationDetail = observation({
     scanner_result: null,
 })
 
-export const ObservationDetailFailed: StoryObj = {
-    parameters: { pageUrl: urls.replayVisionObservation(failedObservationDetail.id) },
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': failedObservationDetail } })],
-}
+export const ObservationDetailFailed: StoryObj = observationDetailStory(failedObservationDetail)
 
 // The session had no screen data to watch, so no model ran and a later retry may still succeed.
 const notScannedObservationDetail = observation({
@@ -1176,31 +1178,13 @@ const runningObservationDetail = observation({
     completed_at: null,
 })
 
-export const ObservationDetailNotScanned: StoryObj = {
-    parameters: { pageUrl: urls.replayVisionObservation(notScannedObservationDetail.id) },
-    decorators: [
-        mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': notScannedObservationDetail } }),
-    ],
-}
+export const ObservationDetailNotScanned: StoryObj = observationDetailStory(notScannedObservationDetail)
 
-export const ObservationDetailRunning: StoryObj = {
-    parameters: { pageUrl: urls.replayVisionObservation(runningObservationDetail.id) },
-    decorators: [
-        mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': runningObservationDetail } }),
-    ],
-}
+export const ObservationDetailRunning: StoryObj = observationDetailStory(runningObservationDetail)
 
-export const ObservationDetailClassifier: StoryObj = {
-    parameters: { pageUrl: urls.replayVisionObservation(classifierObservationDetail.id) },
-    decorators: [
-        mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': classifierObservationDetail } }),
-    ],
-}
+export const ObservationDetailClassifier: StoryObj = observationDetailStory(classifierObservationDetail)
 
-export const ObservationDetailScorer: StoryObj = {
-    parameters: { pageUrl: urls.replayVisionObservation(scorerObservationDetail.id) },
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': scorerObservationDetail } })],
-}
+export const ObservationDetailScorer: StoryObj = observationDetailStory(scorerObservationDetail)
 
 export const ScannerOnDemand: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=run` },

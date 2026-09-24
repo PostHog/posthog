@@ -128,6 +128,15 @@ export function ObservationLabelFeedback({
     )
 }
 
+// Rendered only beside the page's rating question, so table rows add no key listeners.
+function RatingHotkeys({ onThumb, disabled }: { onThumb: (isCorrect: boolean) => void; disabled: boolean }): null {
+    useKeyboardHotkeys({
+        y: { action: () => onThumb(true), disabled },
+        n: { action: () => onThumb(false), disabled },
+    })
+    return null
+}
+
 /**
  * Thumbs up/down rating on whether the scanner got this session right. The rating is shared across the
  * team (one per observation) and gathered later to improve the scanner prompt. `compact` renders just the
@@ -161,16 +170,6 @@ export function ObservationLabelControl({
         rate(isCorrect, feedbackDraft)
         setFeedbackOpen(!compact)
     }
-
-    // Table cells never listen, or every row would rate at once.
-    const askingForRating = !compact && !label && !editDisabledReason
-    useKeyboardHotkeys(
-        {
-            y: { action: () => onThumb(true), disabled: !askingForRating || saving },
-            n: { action: () => onThumb(false), disabled: !askingForRating || saving },
-        },
-        [askingForRating, saving, feedbackDraft]
-    )
 
     const buttons = (
         <div className="flex items-center gap-1">
@@ -235,6 +234,7 @@ export function ObservationLabelControl({
 
     return (
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded bg-surface-secondary px-3 py-2">
+            <RatingHotkeys onThumb={onThumb} disabled={saving || !!label || !!editDisabledReason} />
             <span className="text-sm">Did the scanner get this right?</span>
             <Popover
                 // Waits for the saved label, since the feedback autosave writes onto it.
