@@ -1,6 +1,6 @@
 ---
 name: writing-workflows-as-code
-description: 'Writes a PostHog workflow from scratch as TypeScript with the @posthog/workflows SDK and the posthog-workflows CLI: scaffold the file with init, pick the key and the trigger, compose typed or pass-through steps, resolve secrets from the environment, read what check prints, push it, and wire the CI pair. Use inside the PostHog monorepo when asked to write, define or author a workflow in TypeScript or as code, add a workflow to a repository, run posthog-workflows check or push, or work with @posthog/workflows. For a workflow built over MCP, use building-workflows instead.'
+description: 'Writes a PostHog workflow from scratch as TypeScript with the @posthog/workflows SDK and the posthog-workflows CLI: scaffold the file with init, pick the key and the trigger, compose typed or pass-through steps, resolve secrets from the environment, read what check prints, push it, and wire the CI pair. Use when asked to write, define or author a workflow in TypeScript or as code, add a workflow to a repository, run posthog-workflows check or push, or work with @posthog/workflows. For a workflow built over MCP, use building-workflows instead.'
 ---
 
 # Writing workflows as code
@@ -11,8 +11,7 @@ Work the steps in order. Each step ends when its check holds. [references/steps.
 
 ## 1. Install the package and scaffold a file
 
-- The package lives in this repository at `products/workflows/packages/workflows/` and is not published. Add it as `"@posthog/workflows": "workspace:*"` to the devDependencies of the package that holds the workflow files, and build it once with `pnpm --filter=@posthog/workflows build`, because the `posthog-workflows` bin runs from `dist/`. The CLI needs Node 22.12 or newer.
-- PostHog's own workflows live in `products/workflows/workflows/`. Its README covers `repo:check`, `repo:push` and the variables those files read.
+- Add the package to the devDependencies of the package that holds the workflow files: `npm install --save-dev @posthog/workflows`. PostHog publishes it to npm from the PostHog/posthog-js repository. The CLI needs Node 22.22 or newer.
 - Run `posthog-workflows init flows/onboarding.ts`. It writes a starter file with the key and the name taken from the file name, plus `status: 'draft'` (see step 4), and refuses to overwrite a file that exists.
 - The CLI evaluates the TypeScript itself, so there is no build step. Keep your own `tsc` running over the file, because the loader does not type-check.
 
