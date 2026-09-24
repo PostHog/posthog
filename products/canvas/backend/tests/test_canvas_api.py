@@ -928,6 +928,12 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
                 "operations": [
                     {"path": "src/added.ts", "content": "export {}"},
                     {
+                        "op": "str_replace",
+                        "path": "src/added.ts",
+                        "old_string": "export {}",
+                        "new_string": "export const y = 1",
+                    },
+                    {
                         "type": "str_replace",
                         "path": "src/canvas.tsx",
                         "old_string": "return null",
@@ -945,7 +951,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
-        assert source["project"]["files"]["src/added.ts"] == "export {}"
+        assert source["project"]["files"]["src/added.ts"] == "export const y = 1"
         assert (
             source["project"]["files"]["src/canvas.tsx"]
             == 'export default function C() { return ph.loadInsight("abc123") }'
@@ -975,6 +981,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         [
             ("str_replace_without_new_string", {"op": "str_replace", "old_string": "export"}),
             ("new_string_without_op_or_old_string", {"new_string": "export const x = 2"}),
+            ("misspelled_content_field", {"contents": "export const x = 2"}),
         ]
     )
     def test_incomplete_replacement_400s_and_keeps_the_file(self, _name: str, fields: dict[str, str]) -> None:

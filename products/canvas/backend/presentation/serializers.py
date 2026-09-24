@@ -719,7 +719,9 @@ def _inferred_edit_op(attrs: dict[str, Any]) -> CanvasSourceEditOp:
         return CanvasSourceEditOp.STR_REPLACE
     if attrs.get("new_path"):
         return CanvasSourceEditOp.RENAME
-    return CanvasSourceEditOp.WRITE if attrs.get("content") is not None else CanvasSourceEditOp.DELETE
+    if "content" not in attrs:
+        raise serializers.ValidationError({"op": "Set op, or send content (null deletes the file)."})
+    return CanvasSourceEditOp.WRITE if attrs["content"] is not None else CanvasSourceEditOp.DELETE
 
 
 class CanvasSourceEditOperationSerializer(serializers.Serializer):
@@ -732,8 +734,8 @@ class CanvasSourceEditOperationSerializer(serializers.Serializer):
             "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for "
             "changing an existing file. 'write' sets the file's complete content (new files, full rewrites). "
             "'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: "
-            "old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of "
-            "them means 'delete'."
+            "old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', "
+            "and content null means 'delete'. An operation with none of these fields is rejected."
         ),
     )
     path = serializers.CharField(help_text='Project-relative path of the file to edit (e.g. "src/canvas.tsx").')

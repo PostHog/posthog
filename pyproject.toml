@@ -618,7 +618,6 @@ ignore_imports = [
     "products.canvas.backend.presentation.views -> products.canvas.backend.error_reports",
     "products.canvas.backend.presentation.views -> products.canvas.backend.models",
     "products.canvas.backend.presentation.views -> products.canvas.backend.source",
-    "products.canvas.backend.presentation.views -> products.canvas.backend.source_edits",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.proxy",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.tasks",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.tools",

@@ -39,6 +39,7 @@ from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
     CanvasStateReader,
     apply_layout_ops,
+    apply_source_edits,
     call_connector_tool,
     canvas_connectors_enabled,
     connector_listings,
@@ -101,7 +102,6 @@ from products.canvas.backend.presentation.serializers import (
     canvas_url,
 )
 from products.canvas.backend.source import has_errors, validate_source_project
-from products.canvas.backend.source_edits import apply_source_edits
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
