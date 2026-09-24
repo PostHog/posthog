@@ -14,9 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
     DatahubResponseTooLargeError,
     DatahubResumeConfig,
     DatahubRetryableError,
+    DatahubTimeseriesScrollUnsupportedError,
     DatahubTooManyPagesError,
-    _extract_entities,
+    _extract_page,
     _headers,
+    _timeseries_row_id,
     check_endpoint_permissions,
     datahub_source,
     get_rows,
@@ -107,28 +109,34 @@ class TestDatahub:
 
     @parameterized.expand(
         [
-            ("page_with_cursor", {"scrollId": "abc", "entities": [{"urn": "u1"}]}, [{"urn": "u1"}], "abc"),
-            ("final_page", {"entities": [{"urn": "u2"}]}, [{"urn": "u2"}], None),
-            # An empty final page may omit `entities` entirely — that's a valid empty result.
-            ("empty_without_key", {}, [], None),
+            ("page_with_cursor", "entities", {"scrollId": "abc", "entities": [{"urn": "u1"}]}, [{"urn": "u1"}], "abc"),
+            ("final_page", "entities", {"entities": [{"urn": "u2"}]}, [{"urn": "u2"}], None),
+            # An empty final page may omit the items key entirely — that's a valid empty result.
+            ("empty_without_key", "entities", {}, [], None),
             # An empty-string scrollId must not be followed as a cursor.
-            ("empty_cursor", {"scrollId": "", "entities": []}, [], None),
+            ("empty_cursor", "entities", {"scrollId": "", "entities": []}, [], None),
+            # The timeseries endpoint wraps its rows under `results` instead of `entities`.
+            ("timeseries_page", "results", {"scrollId": "abc", "results": [{"urn": "u1"}]}, [{"urn": "u1"}], "abc"),
+            ("timeseries_final_page", "results", {"results": [{"urn": "u2"}]}, [{"urn": "u2"}], None),
+            # An entity envelope read with the timeseries key must not silently yield entity rows.
+            ("wrong_key_reads_empty", "results", {"entities": [{"urn": "u1"}]}, [], None),
         ]
     )
-    def test_extract_entities(
-        self, _name: str, payload: Any, expected_rows: list[dict], expected_cursor: str | None
+    def test_extract_page(
+        self, _name: str, items_key: str, payload: Any, expected_rows: list[dict], expected_cursor: str | None
     ) -> None:
-        assert _extract_entities(payload, "http://url") == (expected_rows, expected_cursor)
+        assert _extract_page(payload, "http://url", items_key) == (expected_rows, expected_cursor)
 
     @parameterized.expand(
         [
-            ("bare_list", [{"urn": "u1"}]),
-            ("entities_not_a_list", {"entities": {"urn": "u1"}}),
+            ("bare_list", "entities", [{"urn": "u1"}]),
+            ("entities_not_a_list", "entities", {"entities": {"urn": "u1"}}),
+            ("results_not_a_list", "results", {"results": {"urn": "u1"}}),
         ]
     )
-    def test_extract_entities_rejects_unexpected_payloads(self, _name: str, payload: Any) -> None:
+    def test_extract_page_rejects_unexpected_payloads(self, _name: str, items_key: str, payload: Any) -> None:
         with pytest.raises(DatahubRetryableError):
-            _extract_entities(payload, "http://url")
+            _extract_page(payload, "http://url", items_key)
 
     # --- fetch ---
 
@@ -179,6 +187,7 @@ class TestDatahub:
         monkeypatch: Any,
         pages: dict[Any, Any],
         endpoint: str = "datasets",
+        db_incremental_field_last_value: Any = None,
     ) -> tuple[list[dict], list[dict[str, Any]]]:
         """Run get_rows with a fake _fetch keyed by the `scrollId` param (None = first page)."""
         calls: list[dict[str, Any]] = []
@@ -202,6 +211,7 @@ class TestDatahub:
             team_id=1,
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ):
             rows.extend(batch)
         return rows, calls
@@ -214,7 +224,8 @@ class TestDatahub:
         }
         rows, calls = self._collect(manager, monkeypatch, pages)
 
-        assert [r["urn"] for r in rows] == ["u1", "u2", "u3"]
+        # Compared whole, so the timeseries row-id transform can't leak onto an entity endpoint.
+        assert rows == [{"urn": "u1"}, {"urn": "u2"}, {"urn": "u3"}]
         assert calls[0]["url"] == f"{BASE_URL}/openapi/v3/entity/dataset"
         # Stable ascending urn sort keeps page boundaries fixed while scrolling.
         assert all(
@@ -332,10 +343,102 @@ class TestDatahub:
                 )
             )
 
+    # --- timeseries aspect endpoints ---
+
+    # pytest.mark.parametrize (not parameterized.expand) because the test also needs the
+    # monkeypatch fixture, which parameterized's wrapper doesn't forward.
+    @pytest.mark.parametrize("last_value", [1500, None])
+    def test_timeseries_sweep_windows_every_page(self, last_value: Optional[int], monkeypatch: Any) -> None:
+        # The cursor is a stateless search_after token, so the server only keeps the time bound
+        # while we keep sending it. Drop it after page one and an incremental sync walks back
+        # through the whole history instead of stopping at the watermark. A full refresh must send
+        # no bound at all.
+        manager = _FakeResumableManager()
+        pages = {
+            None: {"scrollId": "cursor-1", "results": [{"urn": "u1", "timestampMillis": 3000}]},
+            "cursor-1": {"results": [{"urn": "u1", "timestampMillis": 2000}]},
+        }
+        rows, calls = self._collect(
+            manager, monkeypatch, pages, endpoint="dataset_profiles", db_incremental_field_last_value=last_value
+        )
+
+        assert [r["timestampMillis"] for r in rows] == [3000, 2000]
+        assert calls[0]["url"] == f"{BASE_URL}/openapi/v2/timeseries/dataset/datasetProfile"
+        assert all(c["params"].get("startTimeMillis") == last_value for c in calls)
+        assert all(c["params"]["count"] == PAGE_SIZE for c in calls)
+        # The endpoint takes no sort parameter, so none of the entity scroll's sort params apply.
+        assert all("sortCriteria" not in c["params"] for c in calls)
+
+    def test_timeseries_rows_carry_a_synthesized_primary_key(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000, "event": {"rowCount": 1}}]}}
+        rows, _calls = self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
+        assert rows[0]["id"] == _timeseries_row_id(pages[None]["results"][0])
+        assert rows[0]["event"] == {"rowCount": 1}
+
+    def test_timeseries_full_page_without_a_cursor_fails_instead_of_truncating(self, monkeypatch: Any) -> None:
+        # DataHub before v1.4.0 never returns a scroll cursor from the timeseries endpoint, so the
+        # sweep would end after one page and write a silently truncated table. A fixed instance
+        # always pairs a full page with a cursor, so this shape only happens on an old one.
+        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
+        manager = _FakeResumableManager()
+        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000}, {"urn": "u2", "timestampMillis": 2000}]}}
+        with pytest.raises(DatahubTimeseriesScrollUnsupportedError):
+            self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
+
+    def test_timeseries_short_final_page_without_a_cursor_ends_the_sweep(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
+        manager = _FakeResumableManager()
+        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000}]}}
+        rows, _calls = self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
+        assert [r["urn"] for r in rows] == ["u1"]
+
+    def test_entity_full_page_without_a_cursor_ends_the_sweep(self, monkeypatch: Any) -> None:
+        # The entity scroll has always signalled its last page by omitting the cursor, so the
+        # timeseries guard must not fire on it.
+        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
+        manager = _FakeResumableManager()
+        pages = {None: {"entities": [{"urn": "u1"}, {"urn": "u2"}]}}
+        rows, _calls = self._collect(manager, monkeypatch, pages)
+        assert [r["urn"] for r in rows] == ["u1", "u2"]
+
+    @parameterized.expand(
+        [
+            # urn plus timestamp alone is not unique: one dataset can carry a daily and an hourly
+            # bucket, one row per partition, and separately ingested events with distinct ids. A
+            # key that collapses those loses rows and makes every later merge multi-match.
+            ("event_granularity", {"event": {"eventGranularity": {"unit": "HOUR", "multiple": 1}}}, False),
+            ("partition_spec", {"event": {"partitionSpec": {"partition": "2026-09-01"}}}, False),
+            ("message_id", {"messageId": "m2"}, False),
+            # Metric values stay out of the key, so a bucket the instance restates merges onto
+            # itself rather than landing twice.
+            ("restated_metric", {"event": {"rowCount": 11}}, True),
+        ]
+    )
+    def test_timeseries_row_id_keys_on_identity_not_metrics(
+        self, _name: str, delta: dict[str, Any], expect_same: bool
+    ) -> None:
+        base: dict[str, Any] = {"urn": "u1", "timestampMillis": 3000, "messageId": "m1", "event": {"rowCount": 10}}
+        same = _timeseries_row_id(base) == _timeseries_row_id({**base, **delta})
+        assert same is expect_same
+
     # --- SourceResponse assembly ---
 
-    @parameterized.expand([("datasets",), ("users",), ("tags",)])
-    def test_datahub_source_uses_urn_primary_key(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("datasets", ["urn"], "asc"),
+            ("users", ["urn"], "asc"),
+            ("tags", ["urn"], "asc"),
+            ("schema_fields", ["urn"], "asc"),
+            # The timeseries endpoint always returns newest first and has no sort parameter, so a
+            # response claiming "asc" would checkpoint the watermark to now after the first batch.
+            ("dataset_profiles", ["id"], "desc"),
+            ("assertion_run_events", ["id"], "desc"),
+        ]
+    )
+    def test_datahub_source_primary_key_and_sort_mode(
+        self, endpoint: str, expected_keys: list[str], expected_sort: str
+    ) -> None:
         response = datahub_source(
             instance_url=BASE_URL,
             api_token=TOKEN,
@@ -345,7 +448,8 @@ class TestDatahub:
             resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
         )
         assert response.name == endpoint
-        assert response.primary_keys == ["urn"]
+        assert response.primary_keys == expected_keys
+        assert response.sort_mode == expected_sort
 
     # --- credential validation ---
 
@@ -457,6 +561,16 @@ class TestDatahub:
         ):
             result = check_endpoint_permissions(BASE_URL, TOKEN, ["datasets"], team_id=1)
         assert result["datasets"] == expected
+
+    def test_check_endpoint_permissions_probes_the_endpoint_the_sync_reads(self, monkeypatch: Any) -> None:
+        # A timeseries aspect needs the timeseries read privilege on top of the entity one, so
+        # probing the entity list would report a table as readable that the sync cannot read.
+        session = MagicMock()
+        session.get.return_value = _mock_response(200, {"results": []})
+        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: session)
+        monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (True, None))
+        check_endpoint_permissions(BASE_URL, TOKEN, ["dataset_operations"], team_id=1)
+        assert session.get.call_args.args[0] == f"{BASE_URL}/openapi/v2/timeseries/dataset/operation"
 
     def test_check_endpoint_permissions_treats_network_blips_as_reachable(self, monkeypatch: Any) -> None:
         session = MagicMock()

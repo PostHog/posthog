@@ -13,9 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.datahub import (
+    MIN_TIMESERIES_SCROLL_VERSION,
+    TIMESERIES_SCROLL_UNSUPPORTED_ERROR,
     DatahubResumeConfig,
     check_endpoint_permissions,
     datahub_source,
@@ -24,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.settings import (
     DATAHUB_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    TIMESERIES_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
     DatahubSourceConfig,
@@ -95,6 +102,11 @@ The token is a [personal access token](https://docs.datahub.com/docs/authenticat
             "401 Client Error": "Your DataHub access token is invalid or has expired. Generate a new personal access token under Settings → Access Tokens and reconnect.",
             "Unauthorized for url": "Your DataHub access token is invalid or has expired. Generate a new personal access token under Settings → Access Tokens and reconnect.",
             "403 Client Error": "Your DataHub access token does not have permission to read this data. Check the token owner's view privileges, then reconnect.",
+            TIMESERIES_SCROLL_UNSUPPORTED_ERROR: (
+                f"Your DataHub instance is older than {MIN_TIMESERIES_SCROLL_VERSION}, whose timeseries API cannot "
+                "paginate. Upgrade the instance to sync the run event, profile, usage and operation tables, or turn "
+                "those tables off."
+            ),
         }
 
     def get_schemas(
@@ -106,22 +118,10 @@ The token is a [personal access token](https://docs.datahub.com/docs/authenticat
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — the generic entity scroll exposes no server-side
-        # updated-since filter, so there is no timestamp cursor to advance an incremental sync
-        # (see settings.py).
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # The entity endpoints are full refresh only, because the generic entity scroll exposes no
+        # server-side updated-since filter, so there is no timestamp cursor to advance an
+        # incremental sync. The timeseries aspect endpoints do take one (see settings.py).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=TIMESERIES_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -158,4 +158,7 @@ The token is a [personal access token](https://docs.datahub.com/docs/authenticat
             team_id=inputs.team_id,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

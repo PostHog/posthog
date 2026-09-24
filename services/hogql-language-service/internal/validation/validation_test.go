@@ -29,11 +29,245 @@ func schema() *catalog.PreparedCatalog {
 		}},
 		"persons": {Name: "persons", Type: "posthog", Fields: map[string]catalog.Field{"properties": {Name: "properties", Type: "json"}}},
 	}, Properties: map[string][]catalog.Property{
-		"event":   {{Name: "$geo_city", ValueType: "String"}, {Name: "café", ValueType: "String"}},
+		"event":   {{Name: "$geo_city", ValueType: "String"}, {Name: "café", ValueType: "String"}, {Name: "amount", ValueType: "Numeric"}},
 		"person":  {{Name: "$geo_country", ValueType: "String"}},
 		"session": {{Name: "$entry_current_url", ValueType: "String"}},
 		"group:0": {{Name: "industry", ValueType: "String"}},
 	}})
+}
+
+func traversalSchema() *catalog.PreparedCatalog {
+	return catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"events": {Fields: map[string]catalog.Field{
+				"event": {Type: "String"}, "person": {Type: "lazy", Relation: "person"},
+				"session": {Type: "lazy", Relation: "session"},
+			}},
+			"sessions": {Fields: map[string]catalog.Field{"session_id": {Type: "String"}}},
+		},
+		Relations: map[string]catalog.RelationDefinition{
+			"person": {Fields: map[string]catalog.Field{
+				"email": {Type: "String"}, "properties": {Type: "JSON", PropertyNamespace: "person"},
+				"manager": {Type: "lazy", Relation: "person"}, "payload": {Type: "JSON"},
+			}},
+			"session": {Table: "sessions"},
+		},
+		Properties: map[string][]catalog.Property{"person": {{Name: "plan", ValueType: "String"}}},
+	})
+}
+
+func TestValidateTraversalRelations(t *testing.T) {
+	for _, query := range []string{
+		"SELECT e.person.email FROM events AS e",
+		"SELECT person.email FROM events",
+		"SELECT e.person.properties.plan FROM events AS e",
+		"SELECT e.person.manager.email FROM events AS e",
+		"SELECT e.person.properties.plan.nested FROM events AS e",
+		"SELECT e.person.payload.unknown FROM events AS e",
+		"SELECT e.session.session_id FROM events AS e",
+	} {
+		result := Validate(traversalSchema(), query)
+		if !result.Valid || strings.Join(result.TableNames, ",") != "events" {
+			t.Fatalf("query %q returned %#v", query, result)
+		}
+	}
+	for _, test := range []struct {
+		query, code, value string
+	}{
+		{"SELECT e.person.emali FROM events AS e", "unknown_field", "emali"},
+		{"SELECT e.person.properties.paln FROM events AS e", "unknown_property", "paln"},
+		{"SELECT e.person.properties.paln.nested FROM events AS e", "unknown_property", "paln"},
+		{"SELECT e.person.missing.email FROM events AS e", "unknown_field", "missing"},
+	} {
+		result := Validate(traversalSchema(), test.query)
+		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != test.code {
+			t.Fatalf("query %q returned %#v", test.query, result)
+		}
+		if got := test.query[result.Diagnostics[0].Start:result.Diagnostics[0].End]; got != test.value {
+			t.Fatalf("query %q diagnostic covered %q", test.query, got)
+		}
+	}
+}
+
+func TestValidateNotices(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		schema  *catalog.PreparedCatalog
+		notices []struct{ source, message string }
+	}{
+		{
+			name:  "qualified fields and table",
+			query: "SELECT e.event, e.timestamp FROM events AS e",
+			notices: []struct{ source, message string }{
+				{"event", "Field 'event' is of type 'String'"},
+				{"timestamp", "Field 'timestamp' is of type 'DateTime'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "cte projection",
+			query: "WITH x AS (SELECT event AS kind FROM events) SELECT x.kind FROM x",
+			notices: []struct{ source, message string }{
+				{"event", "Field 'event' is of type 'String'"},
+				{"events", "Table 'events'"},
+				{"kind", "Field 'kind' is of type 'String'"},
+				{"x", "Table 'x' is a common table expression"},
+			},
+		},
+		{
+			name:  "select alias before duplicate",
+			query: "SELECT event AS v, v, timestamp AS v FROM events",
+			notices: []struct{ source, message string }{
+				{"event", "Field 'event' is of type 'String'"},
+				{"v", "Field 'v' is of type 'String'"},
+				{"timestamp", "Field 'timestamp' is of type 'DateTime'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "property",
+			query: "SELECT e.properties.$geo_city FROM events AS e",
+			notices: []struct{ source, message string }{
+				{"$geo_city", "Event property '$geo_city' is of type 'String'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "numeric property",
+			query: "SELECT e.properties.amount FROM events AS e",
+			notices: []struct{ source, message string }{
+				{"amount", "Event property 'amount' is of type 'Float'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:   "traversed property",
+			query:  "SELECT e.person.properties.plan FROM events AS e",
+			schema: traversalSchema(),
+			notices: []struct{ source, message string }{
+				{"plan", "Person property 'plan' is of type 'String'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "quoted field",
+			query: "SELECT `event` FROM events",
+			notices: []struct{ source, message string }{
+				{"`event`", "Field 'event' is of type 'String'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "double-quoted field",
+			query: "SELECT \"event\" FROM events",
+			notices: []struct{ source, message string }{
+				{"\"event\"", "Field 'event' is of type 'String'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:   "relation traversal",
+			query:  "SELECT e.person.email FROM events AS e",
+			schema: traversalSchema(),
+			notices: []struct{ source, message string }{
+				{"email", "Field 'email' is of type 'String'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "unicode offsets",
+			query: "SELECT '🐱', event FROM events",
+			notices: []struct{ source, message string }{
+				{"event", "Field 'event' is of type 'String'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "wildcard",
+			query: "SELECT * FROM events",
+			notices: []struct{ source, message string }{
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "unknown field",
+			query: "SELECT missing FROM events",
+			notices: []struct{ source, message string }{
+				{"events", "Table 'events'"},
+			},
+		},
+		{
+			name:  "unresolved qualifier",
+			query: "SELECT missing.event FROM events",
+			notices: []struct{ source, message string }{
+				{"events", "Table 'events'"},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testSchema := test.schema
+			if testSchema == nil {
+				testSchema = schema()
+			}
+			result := Validate(testSchema, test.query)
+			if len(result.Notices) != len(test.notices) {
+				t.Fatalf("notices = %#v", result.Notices)
+			}
+			for index, expected := range test.notices {
+				actual := result.Notices[index]
+				if test.query[actual.Start:actual.End] != expected.source || actual.Message != expected.message {
+					t.Fatalf("notice %d = %#v, want %q: %q", index, actual, expected.source, expected.message)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateNoticesUseCanonicalTableAndSkipAmbiguousFields(t *testing.T) {
+	aliased := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{"warehouse_orders": {
+			Name: "warehouse_orders", Fields: map[string]catalog.Field{"order_id": {Type: "integer"}},
+		}},
+		TableAliases: map[string]string{"orders": "warehouse_orders"},
+		Properties:   map[string][]catalog.Property{},
+	})
+	query := "SELECT orders.order_id FROM orders"
+	result := Validate(aliased, query)
+	if !result.Valid || len(result.Notices) != 2 || result.Notices[0].Message != "Field 'order_id' is of type 'Integer'" || result.Notices[1].Message != "Table 'orders' refers to 'warehouse_orders'" {
+		t.Fatalf("alias notices = %#v", result)
+	}
+	for _, query := range []string{
+		"SELECT amount FROM warehouse_orders AS o JOIN warehouse_orders AS p ON o.order_id = p.order_id",
+		"WITH x AS (SELECT event AS v, timestamp AS v FROM events) SELECT x.v FROM x",
+		"SELECT event AS v, timestamp AS v FROM events ORDER BY v",
+	} {
+		checked := Validate(schema(), query)
+		fieldAt := strings.LastIndex(query, "v")
+		if strings.Contains(query, "amount") {
+			fieldAt = strings.Index(query, "amount")
+		} else if strings.Contains(query, "x.v") {
+			fieldAt = strings.Index(query, "x.v") + len("x.")
+		}
+		for _, notice := range checked.Notices {
+			if notice.Start == fieldAt {
+				t.Fatalf("ambiguous field has notice in %q: %#v", query, notice)
+			}
+		}
+	}
+}
+
+func TestTraversalRelationHopLimit(t *testing.T) {
+	parts := make([]string, querylimits.MaxRelationTraversalHops+1)
+	for index := range parts {
+		parts[index] = "manager"
+	}
+	query := "SELECT e.person." + strings.Join(parts, ".") + ".email FROM events AS e"
+	result := Validate(traversalSchema(), query)
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit" || result.Diagnostics[0].Message != querylimits.ErrRelationTraversalTooDeep.Error() {
+		t.Fatalf("result = %#v", result)
+	}
 }
 
 func TestValidateDoesNotShareBindingsAcrossStatements(t *testing.T) {
@@ -79,6 +313,19 @@ func TestValidateCapsDiagnostics(t *testing.T) {
 	result := Validate(schema(), "SELECT "+strings.Join(fields, ", ")+" FROM warehouse_orders")
 	if len(result.Diagnostics) != 25 {
 		t.Fatalf("diagnostics = %d", len(result.Diagnostics))
+	}
+}
+
+func TestValidateCapsNoticesWithoutSuppressingDiagnostics(t *testing.T) {
+	fields := strings.Repeat("event, ", querylimits.MaxNotices) + "event"
+	valid := Validate(schema(), "SELECT "+fields+" FROM events")
+	if !valid.Valid || len(valid.Notices) != querylimits.MaxNotices {
+		t.Fatalf("valid result = %#v", valid)
+	}
+
+	invalid := Validate(schema(), "SELECT "+fields+", missing FROM events")
+	if invalid.Valid || len(invalid.Diagnostics) != 1 || invalid.Diagnostics[0].Code != "unknown_field" || len(invalid.Notices) > querylimits.MaxNotices {
+		t.Fatalf("invalid result = %#v", invalid)
 	}
 }
 

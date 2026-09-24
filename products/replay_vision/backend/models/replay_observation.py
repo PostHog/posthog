@@ -29,6 +29,12 @@ IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 TERMINAL_STATUSES = tuple(status for status in ObservationStatus if status not in IN_FLIGHT_STATUSES)
 
 
+class ObservationVerdict(models.TextChoices):
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    INCONCLUSIVE = "inconclusive", "Inconclusive"
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"

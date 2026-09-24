@@ -42,7 +42,6 @@ import { formatCreditCount, formatCreditsRange } from '../../utils/credits'
 import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import {
     LABEL_CHART_DAYS,
     CALIBRATION_PAGE_SIZE,
@@ -620,7 +619,6 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string; 'd
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { labelStats, labelStatsLoading } = useValues(scannerCalibrationLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // buildTheme snapshots the current CSS vars, so rebuild when the app theme flips.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -740,14 +738,12 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                                         : badge.prompt}
                                                 </div>
                                             )}
-                                            <div className="text-muted">Click to view all prompt versions</div>
                                         </div>
                                     }
                                 >
                                     <div
-                                        className="absolute top-0 -translate-x-1/2 inline-flex cursor-pointer items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted hover:text-default"
+                                        className="absolute top-0 -translate-x-1/2 inline-flex items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted"
                                         style={{ left: badge.x }}
-                                        onClick={() => setActiveTab(ReplayScannerTab.Configuration)}
                                         data-attr="vision-calibration-version-badge"
                                     >
                                         v{badge.version}

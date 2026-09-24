@@ -232,9 +232,7 @@ class TestPullRequestOrigin(BaseTest):
                 "first_for_team_repository",
                 return_value=GitHubIntegration.__new__(GitHubIntegration),
             ),
-            patch.object(
-                GitHubIntegration, "get_pull_request", return_value={"success": True, "body": "", "etag": "e"}
-            ),
+            patch.object(GitHubIntegration, "get_pull_request", return_value={"success": True, "body": ""}),
             patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
         ):
             outcome = write_origin_section(

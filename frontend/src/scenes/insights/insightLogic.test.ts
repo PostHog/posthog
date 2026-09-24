@@ -34,12 +34,13 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 import { insightVizDataLogic } from './insightVizDataLogic'
+import { insightsApi } from './utils/api'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -105,7 +106,7 @@ const patchResponseFor = (
     }
 }
 
-function insightModelWith(properties: Record<string, any>): QueryBasedInsightModel {
+function insightModelWith(properties: Record<string, any>): InsightModel {
     return {
         id: 42,
         short_id: Insight42,
@@ -134,7 +135,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         color: null,
         user_access_level: AccessControlLevel.Editor,
         ...properties,
-    } as QueryBasedInsightModel
+    } as InsightModel
 }
 
 const seenQueryIDs: string[] = []
@@ -374,7 +375,7 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight: Partial<QueryBasedInsightModel<InsightVizNode>> = {
+                const insight: Partial<InsightModel<InsightVizNode>> = {
                     short_id: Insight42,
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -771,7 +772,7 @@ describe('insightLogic', () => {
         it('reacts to removal from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 42 } } as DashboardTile<QueryBasedInsightModel>,
+                    tile: { insight: { id: 42 } } as DashboardTile,
                     dashboardId: 3,
                 })
             })
@@ -784,7 +785,7 @@ describe('insightLogic', () => {
         it('does not reacts to removal of a different tile from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 12 } } as DashboardTile<QueryBasedInsightModel>,
+                    tile: { insight: { id: 12 } } as DashboardTile,
                     dashboardId: 3,
                 })
             })
@@ -796,7 +797,7 @@ describe('insightLogic', () => {
 
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType<QueryBasedInsightModel>)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -806,7 +807,7 @@ describe('insightLogic', () => {
 
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType<QueryBasedInsightModel>)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -833,6 +834,33 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
+    })
+
+    it.each(['clean', 'draft', 'draft during refresh'])('handles an external save with a %s editor', async (state) => {
+        logic = insightLogic({ dashboardItemId: Insight42 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const original = logic.values.insight
+        const updated = { ...original, name: 'Externally saved name' } as InsightModel
+        let resolveRefresh!: (value: InsightModel) => void
+        const refresh = new Promise<InsightModel>((resolve) => {
+            resolveRefresh = resolve
+        })
+        const fetchInsight = jest.spyOn(insightsApi, 'getByShortId').mockReturnValue(refresh)
+        if (state === 'draft') {
+            logic.actions.setInsightMetadataLocal({ name: 'Unsaved name' })
+        }
+        insightsModel.actions.insightSaved(Insight42)
+        if (state === 'draft during refresh') {
+            logic.actions.setInsightMetadataLocal({ name: 'Unsaved name' })
+        }
+        resolveRefresh(updated)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.insight.name).toEqual(state === 'clean' ? 'Externally saved name' : 'Unsaved name')
+        if (state === 'draft') {
+            expect(fetchInsight).not.toHaveBeenCalled()
+        }
+        fetchInsight.mockRestore()
     })
 
     describe('setInsight name preservation', () => {
@@ -1042,10 +1070,7 @@ describe('insightLogic', () => {
             await expectLogic(dashboardsModel, () => {
                 dashboardsModel
                     .findMounted()
-                    ?.actions.updateDashboardInsight(
-                        { ...(logic.values.insight as QueryBasedInsightModel), deleted: false },
-                        [5]
-                    )
+                    ?.actions.updateDashboardInsight({ ...(logic.values.insight as InsightModel), deleted: false }, [5])
             }).toDispatchActions([
                 (action: any) =>
                     action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
@@ -1070,7 +1095,7 @@ describe('insightLogic', () => {
         it('fetches clean insight before duplicating', async () => {
             jest.spyOn(api, 'create')
 
-            logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
             await expectLogic(logic).toFinishAllListeners()
 
             // The POST body should contain the clean insight fetched via getByShortId,
@@ -1086,7 +1111,7 @@ describe('insightLogic', () => {
             jest.spyOn(api, 'create')
 
             const insightWithBadShortId = {
-                ...(logic.values.insight as QueryBasedInsightModel),
+                ...(logic.values.insight as InsightModel),
                 short_id: '500' as InsightShortId,
                 name: 'fallback name',
             }
@@ -1103,13 +1128,13 @@ describe('insightLogic', () => {
         it('with redirectToInsight=true navigates to edit URL', async () => {
             // POST mock returns short_id: Insight12 — listen on router before dispatching
             await expectLogic(router, () => {
-                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+                logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
             }).toDispatchActions([router.actionCreators.push(urls.insightEdit(Insight12))])
         })
 
         it('with redirectToInsight=false does not navigate', async () => {
             await expectLogic(logic, () => {
-                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, false)
+                logic.actions.duplicateInsight(logic.values.insight as InsightModel, false)
             }).toFinishAllListeners()
 
             await expectLogic(router).toNotHaveDispatchedActions(['push'])
@@ -1117,7 +1142,7 @@ describe('insightLogic', () => {
 
         it('marks the insight as duplicating until the request settles', async () => {
             await expectLogic(logic, () => {
-                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+                logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
             })
                 .toMatchValues({ insightDuplicating: true })
                 .toFinishAllListeners()
@@ -1148,7 +1173,7 @@ describe('insightLogic', () => {
                 jest.spyOn(posthog, 'captureException')
 
                 await expectLogic(logic, () => {
-                    logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+                    logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
                 })
                     .toFinishAllListeners()
                     .toMatchValues({ insightDuplicating: false })

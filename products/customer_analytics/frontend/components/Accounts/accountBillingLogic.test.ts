@@ -7,7 +7,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, type QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, type InsightModel } from '~/types'
 
 import {
     AccountBillingKind,
@@ -21,7 +21,7 @@ const ORG_VARIABLE_ID = 'var-org'
 const START_VARIABLE_ID = 'var-start'
 const END_VARIABLE_ID = 'var-end'
 
-const buildBillingInsight = (shortId: string): QueryBasedInsightModel =>
+const buildBillingInsight = (shortId: string): InsightModel =>
     ({
         short_id: shortId,
         query: {
@@ -42,7 +42,7 @@ const buildBillingInsight = (shortId: string): QueryBasedInsightModel =>
                 },
             },
         },
-    }) as unknown as QueryBasedInsightModel
+    }) as unknown as InsightModel
 
 describe('accountBillingLogic', () => {
     let logic: ReturnType<typeof accountBillingLogic.build>

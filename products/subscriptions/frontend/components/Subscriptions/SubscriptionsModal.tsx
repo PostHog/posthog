@@ -27,7 +27,7 @@ export interface SubscriptionsModalProps {
     inline?: boolean
     insightShortId?: InsightShortId
     insightName?: string
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     'data-attr'?: string
 }
 

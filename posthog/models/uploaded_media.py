@@ -1,4 +1,5 @@
 from datetime import timedelta
+from io import BytesIO
 from typing import Optional
 
 from django.conf import settings
@@ -6,6 +7,7 @@ from django.db import models
 from django.db.models import Q
 
 import structlog
+from PIL import Image
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
@@ -38,6 +40,63 @@ PRIVATE_MEDIA_PURPOSES = frozenset({MEDIA_PURPOSE_DESKTOP_FEEDBACK})
 # minutes, so nothing can complete it, and nothing else revisits it. Generous because the only
 # cost of waiting is one unlisted row and its staged bytes.
 ABANDONED_UPLOAD_AGE = timedelta(hours=24)
+
+# Content types safe to render inline in a browser when served from the
+# unauthenticated /uploaded_media endpoint. Anything outside this set is
+# served as a download with a generic content type so stored HTML/SVG/etc.
+# cannot execute script in the application origin.
+_INLINE_SAFE_CONTENT_TYPES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+        "image/webp",
+        "image/avif",
+        "image/bmp",
+    }
+)
+
+# The Pillow formats behind the content types above. Image.open without formats= tries every
+# format Pillow can parse, so pass this to decode only the formats that download() serves inline.
+INLINE_SAFE_IMAGE_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "AVIF", "BMP")
+
+
+def _normalize_content_type(value: str | None) -> str:
+    if not value:
+        return ""
+    return value.split(";", 1)[0].strip().lower()
+
+
+def is_inline_safe_content_type(content_type: str | None) -> bool:
+    return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
+
+
+# Guards against a decompression bomb: a small, highly-compressed file that decodes to an
+# enormous bitmap. Checked from the header, before Pillow decodes the full image into memory.
+_MAX_IMAGE_PIXELS = 50_000_000
+
+
+def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
+    """Determine an image's real content type from its bytes — never trust a caller's claim.
+
+    Accepts only what `download` will serve inline: storing a format that always comes back
+    as an attachment gives the caller a URL no image tag can render. Returns None for
+    anything else, so the caller rejects rather than stores a type that misdescribes the
+    bytes.
+    """
+    if not data:
+        return None
+    try:
+        with Image.open(BytesIO(data), formats=INLINE_SAFE_IMAGE_FORMATS) as image:
+            width, height = image.size
+            if width * height > _MAX_IMAGE_PIXELS:
+                return None
+            image.load()
+            content_type = Image.MIME.get(image.format or "")
+    except Exception:
+        return None
+    return content_type if content_type in _INLINE_SAFE_CONTENT_TYPES else None
 
 
 class UploadedMedia(UUIDTModel, RootTeamMixin):

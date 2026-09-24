@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
@@ -177,6 +178,9 @@ class TestWidgetGeneration(SimpleTestCase):
             invalid_stream,
             valid_stream,
         ]
+        invalid_stream.response.headers = {"x-request-id": "generation-first-attempt"}
+        valid_stream.response.headers = {"x-request-id": "generation-retry"}
+        request_ids: list[str | None] = []
 
         source = generate_widget_source(
             team_id=42,
@@ -185,9 +189,11 @@ class TestWidgetGeneration(SimpleTestCase):
             schemas=[{"name": "locations_df", "columns": [{"name": "lat", "type": "float64"}]}],
             input_names=["locations_df"],
             client=client,
+            request_ids=request_ids,
         )
 
         assert source.title == "Interactive globe"
+        assert request_ids == ["generation-first-attempt", "generation-retry"]
         assert source.source == "export default function Canvas() { return <div>Ready</div> }"
         assert client.with_options.call_args.kwargs["max_retries"] == 0
         assert client.messages.create.call_count == 2
@@ -362,6 +368,8 @@ class TestWidgetGeneration(SimpleTestCase):
         client.with_options.return_value = client
         stream = completion_stream(content)
         client.messages.create.return_value = stream
+        stream.response.headers = {"x-request-id": "security-review"}
+        request_ids: list[str | None] = []
 
         review = review_widget_source(
             team_id=42,
@@ -369,9 +377,11 @@ class TestWidgetGeneration(SimpleTestCase):
             source="export default function Widget() { return <div /> }",
             input_names=["public_df"],
             client=client,
+            request_ids=request_ids,
         )
 
         assert review.severity == expected_severity
+        assert request_ids == ["security-review"]
         assert len(review.findings) == expected_findings
         assert review.review_version == WIDGET_SECURITY_REVIEW_VERSION
         request = client.messages.create.call_args.kwargs
@@ -888,6 +898,7 @@ class TestWidgetData(APIBaseTest):
             prompt_delta="Make it lighter",
             model="claude-sonnet-4-6",
             generator_version="4",
+            generation_cost_usd=Decimal("0.123456"),
             input_contract=initial_version.input_contract,
             schema_hash="",
             security_review_severity=GeneratedWidgetVersion.SecurityReviewSeverity.HIGH,
@@ -976,6 +987,7 @@ class TestWidgetData(APIBaseTest):
         assert len(history_response.json()["results"]) == 1
         assert history_response.json()["results"][0]["build_hash"] == "b" * 64
         assert history_response.json()["results"][0]["security_review"]["severity"] == "high"
+        assert history_response.json()["results"][0]["generation_cost_usd"] == "0.123456"
 
     def test_active_generation_hides_a_transient_preview_error(self) -> None:
         instance = self._mapping()
@@ -1675,8 +1687,13 @@ class TestWidgetData(APIBaseTest):
         publication_id = uuid4()
         events: list[str] = []
 
-        def perform_review(**_kwargs: object) -> WidgetSecurityReview:
+        def perform_generation(*, request_ids: list[str | None], **_kwargs: object) -> GeneratedWidgetSource:
+            request_ids.append("generation")
+            return GeneratedWidgetSource(title="Lighter globe", source=source)
+
+        def perform_review(*, request_ids: list[str | None], **_kwargs: object) -> WidgetSecurityReview:
             events.append("review")
+            request_ids.append("review")
             return security_review
 
         def prepare_source(**_kwargs: object) -> MagicMock:
@@ -1684,9 +1701,17 @@ class TestWidgetData(APIBaseTest):
             return MagicMock()
 
         with (
+            self.settings(AI_GATEWAY_URL="http://gateway.test/v1", AI_GATEWAY_API_KEY="test-gateway-key"),
+            patch.object(
+                httpx.Client,
+                "get",
+                return_value=httpx.Response(
+                    200, json={"cost_usd": "0.05"}, request=httpx.Request("GET", "http://gateway.test")
+                ),
+            ),
             patch(
                 "products.notebooks.backend.widget_generation.generate_widget_source",
-                return_value=GeneratedWidgetSource(title="Lighter globe", source=source),
+                side_effect=perform_generation,
             ),
             patch(
                 "products.notebooks.backend.widget_generation.review_widget_source",
@@ -1728,6 +1753,7 @@ class TestWidgetData(APIBaseTest):
         assert version.security_review_model == WIDGET_SECURITY_REVIEW_MODEL
         assert version.security_review_version == "1"
         assert version.security_reviewed_at is not None
+        assert version.generation_cost_usd == Decimal("0.120000")
         review.assert_called_once()
         assert review.call_args.kwargs["team_id"] == self.team.id
         assert review.call_args.kwargs["trace_id"] == f"notebook-widget-security-review-{job.id}"

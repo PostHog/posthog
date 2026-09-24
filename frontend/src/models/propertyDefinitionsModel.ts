@@ -167,7 +167,7 @@ const constructValuesEndpoint = (
     let basePath: string
 
     if (type === PropertyDefinitionType.Session) {
-        basePath = `api/environments/${teamId}/${type}s/values`
+        basePath = `api/projects/${teamId}/${type}s/values`
     } else if (type === PropertyDefinitionType.FlagValue) {
         // FlagValue is project-scoped, so use the project-scoped endpoint
         basePath = `api/projects/${teamId}/${type}/values`

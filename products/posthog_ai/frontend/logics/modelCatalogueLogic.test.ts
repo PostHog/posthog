@@ -99,6 +99,19 @@ describe('modelCatalogueLogic', () => {
         expect(logic.values.catalogue.map((choice) => choice.model)).toContain(model)
     })
 
+    // A run already on a retired model keeps its name and its full effort range, which it reads off the
+    // catalogue. `pickerModels` is what drops retired models from the list a person picks from.
+    it('keeps a retired model in the catalogue', () => {
+        const retired = MODELS.filter((model) => model.retired)
+        expect(retired.length).toBeGreaterThan(0)
+        mountWithFlags(GATED.map((model) => model.accessFlag as string))
+
+        const known = logic.values.catalogue.map((choice) => choice.model)
+        for (const model of retired) {
+            expect(known).toContain(model.id)
+        }
+    })
+
     // An empty effort list is an answer, not missing metadata: the picker renders such a model with no
     // effort dropdown, and a run must not send an effort for it. Filling the gap with a default would
     // offer efforts the backend rejects.

@@ -30,6 +30,8 @@ const meta: Meta<typeof ArtefactLogList> = {
             url,
             state: index === 0 ? 'closed' : index === 1 ? 'unknown' : 'open',
             merged: false,
+            review_decision: null,
+            merged_at: null,
             claim_id: null,
             attached_at: null,
             attached_by: { kind: 'task', user: null, agent: null, task_id: index === 2 ? 'new-task' : 'old-task' },

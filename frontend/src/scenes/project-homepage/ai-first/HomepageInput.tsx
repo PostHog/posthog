@@ -423,6 +423,11 @@ function IdleGrid(): JSX.Element {
     // [col, row] position of the highlighted item, null = nothing highlighted.
     // Column 0 is the suggestions list, column 1 the whole rail (dashboards then recents).
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
+    // Hover also sets the highlight, so arrow keys continue from the hovered row. Only a keyboard
+    // highlight renders, because the global `[data-highlighted]:not(:hover)` outline in base.scss
+    // flashes on the old row when React commits the hover state after the browser updates :hover.
+    const [highlightFromKeyboard, setHighlightFromKeyboard] = useState(false)
+    const visibleHighlight = highlightFromKeyboard ? highlight : null
     const gridRef = useRef<HTMLDivElement>(null)
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
@@ -472,6 +477,7 @@ function IdleGrid(): JSX.Element {
             if (e.target !== e.currentTarget) {
                 return
             }
+            setHighlightFromKeyboard(true)
 
             // Find the next non-empty column in a given direction
             const findNonEmptyCol = (from: number, direction: 1 | -1): number | null => {
@@ -554,18 +560,23 @@ function IdleGrid(): JSX.Element {
 
     // Scroll highlighted item into view
     useEffect(() => {
-        if (!highlight || !gridRef.current) {
+        if (!visibleHighlight || !gridRef.current) {
             return
         }
         const el = gridRef.current.querySelector('[data-highlighted="true"]')
         if (el) {
             el.scrollIntoView({ block: 'nearest' })
         }
-    }, [highlight])
+    }, [visibleHighlight])
 
     const railHighlightOffset: Record<'dashboard' | 'recent', number> = {
         dashboard: 0,
         recent: railItemsByKind.dashboard.length,
+    }
+
+    const highlightFromPointer = (position: [number, number] | null): void => {
+        setHighlight(position)
+        setHighlightFromKeyboard(false)
     }
 
     // Collapse-on-typing is handled by the shared wrapper in HomepageInput, so this renders the
@@ -586,6 +597,7 @@ function IdleGrid(): JSX.Element {
                     const firstCol = columns.findIndex((c) => c.items.length > 0)
                     if (firstCol !== -1) {
                         setHighlight([firstCol, 0])
+                        setHighlightFromKeyboard(true)
                     }
                 }
             }}
@@ -618,8 +630,8 @@ function IdleGrid(): JSX.Element {
                         <SuggestionRow
                             key={item.id}
                             item={item}
-                            highlighted={highlight?.[0] === 0 && highlight?.[1] === rowIndex}
-                            onHighlight={(over) => setHighlight(over ? [0, rowIndex] : null)}
+                            highlighted={visibleHighlight?.[0] === 0 && visibleHighlight?.[1] === rowIndex}
+                            onHighlight={(over) => highlightFromPointer(over ? [0, rowIndex] : null)}
                         />
                     ))
                 )}
@@ -649,8 +661,10 @@ function IdleGrid(): JSX.Element {
                                     <GridRow
                                         key={item.id}
                                         item={item}
-                                        highlighted={highlight?.[0] === 1 && highlight?.[1] === offset + index}
-                                        onHighlight={(over) => setHighlight(over ? [1, offset + index] : null)}
+                                        highlighted={
+                                            visibleHighlight?.[0] === 1 && visibleHighlight?.[1] === offset + index
+                                        }
+                                        onHighlight={(over) => highlightFromPointer(over ? [1, offset + index] : null)}
                                     />
                                 ))
                             )}

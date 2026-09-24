@@ -78,22 +78,28 @@ def test_review_already_posted_proceeds_when_readback_fails() -> None:
     assert _review_posted(_review_marker("rep-1", "sha1"), [], boom=True) is False
 
 
-def test_legacy_markers_only_suppress_reviews_in_the_same_mode() -> None:
+@parameterized.expand(
+    [
+        ("full", ""),
+        ("flash", "FLASH MODE\n"),
+        ("flash", message_prefix_for_mode("flash")),
+    ]
+)
+def test_legacy_markers_only_suppress_reviews_in_the_same_mode(posted_mode: str, prefix: str) -> None:
     legacy = _review_marker("rep-1", "sha1")
-    for posted_mode in ("full", "flash"):
-        review = {"body": f"{message_prefix_for_mode(posted_mode)}body\n{legacy}", "user": {"type": "Bot"}}
-        with patch(_PAGINATED, side_effect=_paginated([review])):
-            for requested_mode in ("full", "flash"):
-                assert _review_already_posted(
-                    "o",
-                    "r",
-                    1,
-                    _review_marker("rep-1", "sha1", requested_mode),
-                    token="t",
-                    installation_id=None,
-                    legacy_marker=legacy,
-                    review_mode=requested_mode,
-                ) is (posted_mode == requested_mode)
+    review = {"body": f"{prefix}body\n{legacy}", "user": {"type": "Bot"}}
+    with patch(_PAGINATED, side_effect=_paginated([review])):
+        for requested_mode in ("full", "flash"):
+            assert _review_already_posted(
+                "o",
+                "r",
+                1,
+                _review_marker("rep-1", "sha1", requested_mode),
+                token="t",
+                installation_id=None,
+                legacy_marker=legacy,
+                review_mode=requested_mode,
+            ) is (posted_mode == requested_mode)
 
 
 def test_promo_already_posted_detects_the_markered_comment() -> None:

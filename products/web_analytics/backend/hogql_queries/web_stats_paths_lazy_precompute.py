@@ -36,7 +36,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
-    CHANNEL_MAX_PRECOMPUTE_DAYS,
     build_insert_select_ast,
     channel_rules_shape_key,
     has_channel_type_filter,
@@ -44,17 +43,15 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     with_channel_rules_key,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
-    LAZY_TTL_SECONDS,
-    MAX_PRECOMPUTE_DAYS,
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
     ceil_utc_day,
-    channel_ttl_schedule,
     check_common_eligibility,
     floor_utc_day,
     handle_stale_served,
     host_filter_expr,
     is_background_warming_request,
+    lazy_ttl_schedule,
     log_eligibility_outcome,
     test_account_filter_expr,
     web_ensure_precomputed,
@@ -186,7 +183,6 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
         allow_channel_type_filter=channel,
-        max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if channel else MAX_PRECOMPUTE_DAYS,
     )
 
 
@@ -666,7 +662,7 @@ def ensure_web_stats_paths_precomputed(
         insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=channel_ttl_schedule(runner.team) if channel else LAZY_TTL_SECONDS,
+        ttl_seconds=lazy_ttl_schedule(runner.team),
         table=LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",

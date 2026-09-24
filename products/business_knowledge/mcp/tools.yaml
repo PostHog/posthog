@@ -63,6 +63,9 @@ tools:
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy
         enabled: false
+    business-knowledge-sources-documents-list:
+        operation: business_knowledge_sources_documents_list
+        enabled: false
     business-knowledge-sources-list:
         operation: business_knowledge_sources_list
         enabled: true

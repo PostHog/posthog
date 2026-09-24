@@ -1,8 +1,8 @@
 // A run's jobs with matrix shards rolled up (lib/jobGroups, the same rule as the backend's SQL
-// de-shard); failing groups sort first and name their failed shards. Groups expand via the caret only —
-// links inside rows must stay clickable.
+// de-shard); failing groups sort first and name their failed shards. Groups expand via the caret only,
+// because links inside rows must stay clickable.
 
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -151,7 +151,13 @@ export function GroupedJobsTable({
     embedded?: boolean
 }): JSX.Element {
     if (jobs == null) {
-        return <div className="px-3 py-2 text-xs text-secondary">{loading ? 'Loading jobs…' : 'No job data yet.'}</div>
+        return loading ? (
+            <div className="flex flex-col gap-2 px-3 py-2">
+                <LemonSkeleton className="h-4 w-full" repeat={3} />
+            </div>
+        ) : (
+            <div className="px-3 py-2 text-xs text-secondary">No job data yet.</div>
+        )
     }
     if (jobs.length === 0) {
         return (
@@ -266,7 +272,6 @@ export function GroupedJobsTable({
                     render: (_, group) => resultTag(group),
                 },
             ]}
-            emptyState="No jobs."
             nouns={['job group', 'job groups']}
         />
     )

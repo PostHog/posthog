@@ -19,7 +19,7 @@ import { ServerIcon } from './icons'
 import { ToolRow } from './ToolRow'
 
 function authorizeUrl(teamId: number | null, installationId: string): string {
-    return `/api/environments/${teamId}/mcp_server_installations/authorize/?installation_id=${installationId}`
+    return `/api/projects/${teamId}/mcp_server_installations/authorize/?installation_id=${installationId}`
 }
 
 function countBy<T>(items: T[], predicate: (item: T) => boolean): number {

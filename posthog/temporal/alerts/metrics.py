@@ -1,12 +1,26 @@
 from datetime import datetime
+from typing import Literal
 
-from prometheus_client import Gauge
+from prometheus_client import Counter, Gauge
 
 from posthog.metrics import pushed_metrics_registry
 
+AiDetectorCheckOutcome = Literal["evaluated", "unavailable", "misconfigured"]
+
+# Nothing else separates an AI detector check that reached a verdict from one whose provider
+# was out of reach: both land as an errored check, and only the worker logs say which.
+_AI_DETECTOR_CHECK_COUNTER = Counter(
+    "posthog_insight_alerts_ai_detector_checks_total",
+    "AI detector insight alert evaluations, by outcome",
+    labelnames=["outcome"],
+)
+
+
+def record_ai_detector_check_outcome(outcome: AiDetectorCheckOutcome) -> None:
+    _AI_DETECTOR_CHECK_COUNTER.labels(outcome=outcome).inc()
+
 
 def record_due_insight_alert_metrics(due_count: int, oldest_due_at: datetime | None, polled_at: datetime) -> None:
-
     oldest_due_age_seconds: float = 0.0
     if oldest_due_at is not None:
         oldest_due_age_seconds = max((polled_at - oldest_due_at).total_seconds(), 0)

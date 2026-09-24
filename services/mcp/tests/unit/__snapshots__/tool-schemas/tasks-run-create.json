@@ -19,8 +19,18 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "type": "string"
         },
+        "model": {
+            "description": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+            "minLength": 1,
+            "type": "string"
+        },
         "pending_user_message": {
             "description": "Initial or follow-up message for the run.",
+            "type": "string"
+        },
+        "reasoning_effort": {
+            "description": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+            "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
             "type": "string"
         },
         "resume_from_run_id": {
@@ -28,6 +38,18 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "type": "string"
+        },
+        "scheduled_at": {
+            "anyOf": [
+                {
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately."
         }
     },
     "required": ["id"],

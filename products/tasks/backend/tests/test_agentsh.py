@@ -573,6 +573,10 @@ class TestModalSandboxAgentShWrapping(TestCase):
         ]
     )
     def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
+        from products.tasks.backend.logic.services.agent_server_launcher import (
+            AGENT_SERVER_LAUNCH_CAPABILITIES,
+            AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+        )
         from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
         from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
@@ -581,6 +585,14 @@ class TestModalSandboxAgentShWrapping(TestCase):
         # Snapshots restored from old images carry an agent-server that rejects unknown
         # options; the launch probe must drop --autoPublish instead of crashing the run.
         launched: list[str] = []
+        markers = (
+            "\n".join(
+                f"{AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX}{capability}"
+                for capability in AGENT_SERVER_LAUNCH_CAPABILITIES
+            )
+            if supported
+            else ""
+        )
 
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
             if "--taskId" in command:
@@ -590,10 +602,9 @@ class TestModalSandboxAgentShWrapping(TestCase):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if command.startswith("bash /tmp/posthog-launch-preparation-"):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
-            if ENV_DISABLE_BUNDLED_SKILLS in command:  # bundled-skills clear
-                return ExecutionResult(stdout="", stderr="", exit_code=0)
-            self.assertIn("grep", command)
-            return ExecutionResult(stdout="", stderr="", exit_code=0 if supported else 1)
+            self.assertIn(ENV_DISABLE_BUNDLED_SKILLS, command)
+            self.assertIn("grep -q autoPublish", command)
+            return ExecutionResult(stdout=markers, stderr="", exit_code=0)
 
         sandbox: ModalSandbox | DockerSandbox
         if provider == "modal":
@@ -605,8 +616,6 @@ class TestModalSandboxAgentShWrapping(TestCase):
         sandbox.config = SandboxConfig(name="sb-test")
         cast_sandbox: Any = sandbox
         cast_sandbox.is_running = Mock(return_value=True)
-        cast_sandbox._agent_server_is_healthy = Mock(return_value=False)
-        cast_sandbox._free_agent_server_port = Mock()
         cast_sandbox.write_file = Mock(
             return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
         )

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { ExecuteSQLSchema } from '@/schema/tool-inputs'
 import { executeSqlHandler } from '@/tools/posthogAiTools/executeSql'
 import type { Context } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -53,5 +54,29 @@ describe('executeSqlHandler', () => {
             )
             expect(payload.structuredContent).toBeUndefined()
         }
+    })
+
+    // The catalog disclosure the metric-discovery prompt asks for has to have a field to
+    // live in, and it has to stay on this side of the wire: the endpoint takes no such
+    // argument, and the sentence is bookkeeping rather than part of the query.
+    it('takes a query context and keeps it out of the upstream request', async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValue(new Response(JSON.stringify({ success: true, content: 'count\n1' })))
+        vi.stubGlobal('fetch', fetchMock)
+        const context = {
+            api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' }),
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(2) },
+        } as unknown as Context
+
+        const params = ExecuteSQLSchema.parse({
+            query: 'SELECT count() FROM events WHERE timestamp > now() - INTERVAL 1 DAY',
+            context: 'governed catalog consulted: no match',
+        })
+        await executeSqlHandler(context, params)
+
+        expect(params.context).toBe('governed catalog consulted: no match')
+        expect(fetchMock).toHaveBeenCalledOnce()
+        expect(String(fetchMock.mock.calls[0]?.[1]?.body)).not.toContain('governed catalog consulted')
     })
 })

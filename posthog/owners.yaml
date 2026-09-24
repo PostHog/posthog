@@ -23,6 +23,8 @@ rules:
       owners: team-analytics-platform
     - match: '/rbac/'
       owners: team-platform-features
+    - match: '/slack/'
+      owners: team-devex
     - match: '/taxonomy/'
       owners: team-product-analytics
     - match: '/templates/surveys/'
@@ -30,4 +32,4 @@ rules:
     - match: '/warehouse/'
       owners: team-data-stack
     - match: '*llm_prompt*.py'
-      owners: [team-ai-observability, team-experiments]
+      owners: team-experiments

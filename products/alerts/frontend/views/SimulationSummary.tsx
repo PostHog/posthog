@@ -10,13 +10,15 @@ import {
     useChartTheme,
 } from '@posthog/quill-charts'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { DetectorConfig } from '~/queries/schema/schema-general'
+import { DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
+import { DEFAULT_LLM_DETECTION_CONFIDENCE } from '../logic/detectorConfigDefaults'
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 
 const handleChartError = makeChartErrorHandler('alerts-simulation-chart')
@@ -27,18 +29,16 @@ interface SimSeriesMeta {
 
 /** Format a date string compactly: "Mar 16, 11:00" or "Mar 16" if midnight. */
 function formatSimDate(dateStr: string): string {
-    const d = new Date(dateStr)
-    if (isNaN(d.getTime())) {
+    // dayjs reads a date-only label as a local calendar day. `new Date()` would read it as
+    // UTC midnight, which shows the previous day to anyone west of UTC.
+    const d = dayjs(dateStr)
+    if (!d.isValid()) {
         return dateStr
     }
-    const month = d.toLocaleString('en-US', { month: 'short' })
-    const day = d.getDate()
-    const hours = d.getHours()
-    const mins = d.getMinutes()
-    if (hours === 0 && mins === 0) {
-        return `${month} ${day}`
+    if (d.hour() === 0 && d.minute() === 0) {
+        return d.format('MMM D')
     }
-    return `${month} ${day}, ${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+    return d.format('MMM D, HH:mm')
 }
 
 /** Extract the sensitivity threshold from detector config (0-1 range). */
@@ -51,7 +51,12 @@ function getThreshold(config: DetectorConfig | null | undefined): number | null 
     if (c.type === 'ensemble' || c.type === 'threshold') {
         return null
     }
-    return typeof c.threshold === 'number' ? c.threshold : null
+    if (typeof c.threshold === 'number' && !Number.isNaN(c.threshold)) {
+        return c.threshold
+    }
+    // An AI config created through the API or MCP can omit the threshold, and the simulation
+    // is judged against the same default. Draw the line the points were actually judged against.
+    return c.type === DetectorType.LLM ? DEFAULT_LLM_DETECTION_CONFIDENCE : null
 }
 
 // Sub-detector score line colors.
@@ -84,7 +89,7 @@ function SimulationChart({
         ? subScores.map((sub, i) => ({
               key: `score-${i}`,
               label: sub.type,
-              data: sub.scores.map((s) => s ?? 0),
+              data: sub.scores.map((s) => s ?? NaN),
               color: SCORE_COLORS[i % SCORE_COLORS.length],
               yAxisId: 'yScore',
               meta: { isScore: true },
@@ -92,8 +97,9 @@ function SimulationChart({
         : [
               {
                   key: 'score',
-                  label: 'Score',
-                  data: result.scores.map((s) => s ?? 0),
+                  label: detectorConfig?.type === DetectorType.LLM ? 'Model confidence' : 'Score',
+                  data: result.scores.map((s) => s ?? NaN),
+                  points: detectorConfig?.type === DetectorType.LLM ? { radius: 3 } : undefined,
                   color: 'rgba(245, 158, 11, 0.8)',
                   yAxisId: 'yScore',
                   fill: { opacity: 0.1 },
@@ -126,8 +132,7 @@ function SimulationChart({
                             id: 'yScore',
                             position: 'right',
                             format: 'percentage_scaled',
-                            label: 'Anomaly score',
-                            // Scores are probabilities, so the axis is 0-100% whatever the data does.
+                            label: detectorConfig?.type === DetectorType.LLM ? 'Confidence' : 'Anomaly score',
                             // Floating it to the data max drops a threshold above every score: an
                             // off-plot reference line doesn't draw at all.
                             min: 0,

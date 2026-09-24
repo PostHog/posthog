@@ -47,7 +47,7 @@ export const BrokenTestRowStateEnumApi = {
 export interface BrokenTestRowApi {
     /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
     fingerprint: string
-    /** The pytest node id from the CI 'FAILED <id>' line — the failing test. */
+    /** The pytest node id from the CI 'FAILED <id>' line: the failing test. */
     test_id: string
     /** The trailing failure detail with volatile bits (numbers, hashes) normalized, shared across runs of the same failure. Empty when the FAILED line carried no detail. */
     error_signature: string
@@ -55,7 +55,7 @@ export interface BrokenTestRowApi {
     job_name: string
     /** 'owner/name' repository the failure belongs to. */
     repo: string
-    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch: one PR's own problem).
      *
      * * `breaking_master` - BREAKING_MASTER
      * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
@@ -68,13 +68,13 @@ export interface BrokenTestRowApi {
     first_seen: string
     /** Most recent failure line for this fingerprint in the analysis window. */
     last_seen: string
-    /** Total failure lines for this fingerprint in the window. An absolute count, never a rate — passing runs aren't in this data. */
+    /** Total failure lines for this fingerprint in the window. An absolute count, never a rate: passing runs aren't in this data. */
     occurrences: number
     /** Distinct branches the failure appeared on in the window. */
     branches: number
     /** Failure lines on the default branch (master/main). 0 means it never reached trunk. */
     master_hits: number
-    /** The most recent failing workflow run for this fingerprint — pass it to run_failure_logs to fetch the actual failing log lines. */
+    /** The most recent failing workflow run for this fingerprint: pass it to run_failure_logs to fetch the actual failing log lines. */
     latest_run_id: number
     /** The branch of the most recent failing run. */
     latest_branch: string
@@ -83,9 +83,9 @@ export interface BrokenTestRowApi {
 }
 
 export interface BrokenTestsResultApi {
-    /** Classified failures ranked by triage urgency — breaking trunk first, single-PR failures last. */
+    /** Classified failures ranked by triage urgency: breaking trunk first, single-PR failures last. */
     rows: BrokenTestRowApi[]
-    /** Default-branch job names whose latest completed run is failing — the 'what's on fire right now' summary. Empty when the job-level source isn't synced or trunk is green. */
+    /** Default-branch job names whose latest completed run is failing: the 'what's on fire right now' summary. Empty when the job-level source isn't synced or trunk is green. */
     breaking_master_jobs: string[]
     /** Length in days of the analysis window the counts cover. */
     window_days: number
@@ -184,7 +184,7 @@ export interface CIFailureLogsApi {
     pr_number: number
     /** Workflow runs attributed to the PR (across all its pushes) that were searched for logs. */
     runs_attributed: number
-    /** False when no failure logs were found — CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR carries no run association to resolve. */
+    /** False when no failure logs were found: CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR carries no run association to resolve. */
     logs_available: boolean
     /** True when the overall line cap across all jobs was hit. */
     truncated: boolean
@@ -385,7 +385,7 @@ export interface DeliveryLeadTimeApi {
     environment_scope: string
     /** PRs in scope merged in the window (bots and drafts excluded). */
     merged_pr_count: number
-    /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+    /** Of merged_pr_count, the PRs whose first successful in-scope deployment was observed by the window end. The rest are still waiting for a deploy or fall outside the scan. */
     deployed_merged_pr_count: number
 }
 
@@ -483,7 +483,7 @@ export interface LeadTimeBucketApi {
      */
     min_seconds: number | null
     /**
-     * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+     * 5th percentile of the stage's duration, in seconds: the lower whisker when outliers are excluded. Null when nothing deployed.
      * @nullable
      */
     p05_seconds: number | null
@@ -508,7 +508,7 @@ export interface LeadTimeBucketApi {
      */
     p75_seconds: number | null
     /**
-     * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+     * 95th percentile of the stage's duration, in seconds: the upper whisker when outliers are excluded. Null when nothing deployed.
      * @nullable
      */
     p95_seconds: number | null
@@ -522,7 +522,7 @@ export interface LeadTimeBucketApi {
 export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
-    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    /** Merge-to-deploy distribution per bucket across the window, oldest first: the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
     merge_to_deploy_series: LeadTimeBucketApi[]
     /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
     open_to_merge_series: LeadTimeBucketApi[]
@@ -538,7 +538,7 @@ export interface DoraOverviewApi {
     selected_environments: string[]
     /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
     has_membership_data: boolean
-    /** Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options. Empty when membership isn't synced. */
+    /** Distinct GitHub team slugs from the membership snapshot, sorted: the team picker's options. Empty when membership isn't synced. */
     github_teams: string[]
     /** Deployments whose first success status landed in the window, within the environment scope. */
     deployment_count: number
@@ -565,7 +565,7 @@ export interface DoraOverviewApi {
      */
     median_merge_to_deploy_seconds_prev: number | null
     /**
-     * Median seconds from a PR's open to the first successful deployment containing it — the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
+     * Median seconds from a PR's open to the first successful deployment containing it: the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
      * @nullable
      */
     median_open_to_deploy_seconds: number | null
@@ -574,7 +574,7 @@ export interface DoraOverviewApi {
      * @nullable
      */
     median_open_to_deploy_seconds_prev: number | null
-    /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
+    /** PRs first deployed in the window: the population behind the merge-to-deploy median and box plot. */
     deployed_pr_count: number
     /** Previous-window twin of deployed_pr_count. */
     deployed_pr_count_prev: number
@@ -602,7 +602,7 @@ export interface DoraOverviewApi {
      * @nullable
      */
     median_failed_deploy_to_next_success_seconds_prev: number | null
-    /** PRs merged in the window (bots and drafts excluded; narrowed by github_team when given) — the denominator behind unattributed_merged_pr_share. */
+    /** PRs merged in the window (bots and drafts excluded; narrowed by github_team when given): the denominator behind unattributed_merged_pr_share. */
     merged_pr_count: number
     /**
      * Share of merged_pr_count no successful in-scope deployment attributed: recent merges still waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. Null when nothing merged in the window.
@@ -610,7 +610,7 @@ export interface DoraOverviewApi {
      */
     unattributed_merged_pr_share: number | null
     /**
-     * The newest deployment status row synced, any environment — how fresh the deploy data is. Windows ending after this instant undercount. Null when the deploy tables are empty.
+     * The newest deployment status row synced, any environment: how fresh the deploy data is. Windows ending after this instant undercount. Null when the deploy tables are empty.
      * @nullable
      */
     latest_deploy_status_at: string | null
@@ -702,12 +702,12 @@ export interface WorkflowJobAggregateApi {
      */
     queue_p50_seconds: number | null
     /**
-     * Median duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
+     * Median duration of successful job instances, in seconds: cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * 95th-percentile duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
+     * 95th-percentile duration of successful job instances, in seconds: cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
      * @nullable
      */
     p95_seconds: number | null
@@ -735,7 +735,7 @@ export interface MasterFailureGroupApi {
     repo: RepoRefApi
     /** GitHub Actions workflow name the failing runs belong to. */
     workflow_name: string
-    /** De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure signature together with the workflow. '' when the job-level source isn't synced and the group degrades to workflow level. */
+    /** De-sharded failing job name (matrix '(G/N)' suffix stripped): the group's failure signature together with the workflow. '' when the job-level source isn't synced and the group degrades to workflow level. */
     failed_job: string
     /** Distinct failing default-branch runs in this group within the window. */
     run_count: number
@@ -743,7 +743,7 @@ export interface MasterFailureGroupApi {
     first_seen: string
     /** When the newest failing run in the group started. */
     last_seen: string
-    /** Run id of the newest failing run — the drill-down anchor. */
+    /** Run id of the newest failing run: the drill-down anchor. */
     latest_run_id: number
 }
 
@@ -777,9 +777,9 @@ export interface PRCostSummaryApi {
     by_workflow: WorkflowCostApi[]
     /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
     by_run: RunCostApi[]
-    /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched — independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
+    /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched: independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
     llm_spend?: PRLLMSpendApi | null
-    /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
+    /** False when the job-level source (github_workflow_jobs) isn't synced: every figure is then zero/null and the cost cards should be hidden. */
     jobs_available: boolean
     /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
     billable_minutes: number
@@ -790,9 +790,9 @@ export interface PRCostSummaryApi {
     estimated_cost_usd: number | null
     /** Jobs counted in the estimate (billable Linux runner, finished). */
     costed_jobs: number
-    /** Billable Linux jobs still queued/running (no elapsed) — excluded from the estimate. */
+    /** Billable Linux jobs still queued/running (no elapsed): excluded from the estimate. */
     unsettled_jobs: number
-    /** Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate. */
+    /** Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners: outside the estimate. */
     excluded_jobs: number
 }
 
@@ -918,7 +918,7 @@ export interface PRLifecycleApi {
     pull_request: PullRequestApi
     /** Lifecycle events ordered by time. */
     events: PRLifecycleEventApi[]
-    /** Always 'partial' — CI events only; reviews and comments are not yet available.
+    /** Always 'partial': CI events only; reviews and comments are not yet available.
      *
      * * `precise` - PRECISE
      * * `coarse` - COARSE
@@ -1075,9 +1075,31 @@ export interface PRTimelineApi {
     billable_minutes: number | null
 }
 
+export interface PRTimelineRedTimeApi {
+    /** The red segment cause.
+     *
+     * * `draft` - DRAFT
+     * * `waiting_for_review` - WAITING_FOR_REVIEW
+     * * `changes_requested` - CHANGES_REQUESTED
+     * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+     * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+     * * `ci_running` - CI_RUNNING
+     * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+     * * `red_master_broken` - RED_MASTER_BROKEN
+     * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+     * * `red_not_provable` - RED_NOT_PROVABLE
+     * * `merge_queue` - MERGE_QUEUE
+     * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE */
+    kind: PRTimelineSegmentKindEnumApi
+    /** Average seconds per merged pull request attributed to this cause. */
+    seconds_per_merged_pr: number
+}
+
 export interface PullRequestTimelinesApi {
     /** The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one pull request of a pull_request scope. */
     items: PRTimelineApi[]
+    /** Average red time per merged pull request, grouped by the evidence that classifies each red stretch. */
+    red_seconds_per_merged_pr: PRTimelineRedTimeApi[]
     /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
      *
      * * `author` - AUTHOR
@@ -1096,6 +1118,8 @@ export interface PullRequestTimelinesApi {
     merge_queue_state_available: boolean
     /** The now every open PR's timeline ends at. */
     generated_at: string
+    /** Every pull request merged in the selected scope and window. */
+    merged_pr_count: number
     /** True when more PRs matched than the limit. */
     truncated: boolean
     /** The maximum number of PRs returned. */
@@ -1480,7 +1504,7 @@ export interface RepoOverviewApi {
     ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
-    /** Same count over the equal-length window immediately before date_from — the delta baseline. */
+    /** Same count over the equal-length window immediately before date_from: the delta baseline. */
     run_count_prev: number
     /**
      * Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
@@ -1496,7 +1520,7 @@ export interface RepoOverviewApi {
     rerun_cycles: number
     /** Re-run cycles over the previous window. */
     rerun_cycles_prev: number
-    /** PRs merged in the window, all authors and bots included — the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+    /** PRs merged in the window, all authors and bots included. billable_minutes and estimated_cost_usd cover every run in the window, including default-branch and unmerged PR runs, so dividing them by this count spreads all CI spend over the merges. */
     merged_pr_count: number
     /** Merged-PR count over the previous window. */
     merged_pr_count_prev: number
@@ -1541,7 +1565,7 @@ export interface RepoOverviewApi {
      */
     estimated_cost_usd_prev: number | null
     /**
-     * estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged PR. Null when the job-level source isn't synced or nothing merged.
+     * estimated_cost_usd divided by merged_pr_count: the window's CI cost per merged PR. Null when the job-level source isn't synced or nothing merged.
      * @nullable
      */
     cost_per_merge_usd: number | null
@@ -1560,7 +1584,7 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_billable_minutes_prev: number | null
-    /** PRs merged in the window with at least one corroborated merge-queue gate run — the population behind every merge_queue_* landing stat. All authors, bots included. */
+    /** PRs merged in the window with at least one corroborated merge-queue gate run: the population behind every merge_queue_* landing stat. All authors, bots included. */
     merge_queue_merged_pr_count: number
     /** Queue-landed merges over the previous window. */
     merge_queue_merged_pr_count_prev: number
@@ -1575,7 +1599,7 @@ export interface RepoOverviewApi {
      */
     merge_queue_median_first_gate_to_merge_seconds_prev: number | null
     /**
-     * p90 of the same first-gate-run-to-merge measure — the tail, where queue pain concentrates. Null when no queue-landed merges.
+     * p90 of the same first-gate-run-to-merge measure: the tail, where queue pain concentrates. Null when no queue-landed merges.
      * @nullable
      */
     merge_queue_p90_first_gate_to_merge_seconds: number | null
@@ -1657,7 +1681,7 @@ export interface RepoOverviewApi {
      */
     merge_queue_skip_the_line_count_prev: number | null
     /**
-     * Median wall clock for a PR push round to settle fully green over the window — the window-level twin of time_to_green_series, same population and exclusions. Null when no fully green rounds.
+     * Median wall clock for a PR push round to settle fully green over the window: the window-level twin of time_to_green_series, same population and exclusions. Null when no fully green rounds.
      * @nullable
      */
     median_time_to_green_seconds: number | null
@@ -1717,7 +1741,7 @@ export interface WorkflowRunActivityApi {
 export interface BranchPRMatchApi {
     /** Repository the pull request belongs to, as 'owner/name'. */
     repo: string
-    /** Pull request number within the repository — pair with `repo` to link to it. */
+    /** Pull request number within the repository: pair with `repo` to link to it. */
     number: number
     /**
      * Pull request title, or null when the snapshot carries no title.
@@ -1736,16 +1760,16 @@ export interface RunFailureLogsApi {
     jobs: CIJobFailureLogApi[]
     /** Workflow run id the failure logs are for. */
     run_id: number
-    /** False when no failure logs were found — the run didn't fail, or its logs aged out of the short Logs retention. */
+    /** False when no failure logs were found: the run didn't fail, or its logs aged out of the short Logs retention. */
     logs_available: boolean
     /** True when the overall line cap across all jobs was hit. */
     truncated: boolean
 }
 
 export interface GitHubSourceApi {
-    /** Source id — pass back as `source_id` (with `repo`) to read this repository. */
+    /** Source id: pass back as `source_id` (with `repo`) to read this repository. */
     id: string
-    /** Repository as 'owner/name' — pass back as `repo` to scope to it. One entry per repository a source syncs; '' if unknown. */
+    /** Repository as 'owner/name': pass back as `repo` to scope to it. One entry per repository a source syncs; '' if unknown. */
     repo: string
     /** User-chosen warehouse table-name prefix for this source, or '' when none. */
     prefix: string
@@ -1958,12 +1982,12 @@ export interface WorkflowHealthItemApi {
      */
     success_rate: number | null
     /**
-     * Median duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
+     * Median duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * 95th-percentile duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
+     * 95th-percentile duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.
      * @nullable
      */
     p95_seconds: number | null
@@ -2005,7 +2029,7 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     success_rate_prev?: number | null
-    /** Successful runs that did real CI work. This is the p50/p95 sample count. */
+    /** Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to shorter successful runs. */
     percentile_run_count?: number
     /** Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check. */
     merge_queue_run_count?: number
@@ -2451,7 +2475,7 @@ export type EngineeringAnalyticsRepoOverviewParams = {
      */
     date_to?: string
     /**
-     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost: for headline-only consumers like the weekly digest. Defaults to true.
      */
     include_series?: boolean
     /**

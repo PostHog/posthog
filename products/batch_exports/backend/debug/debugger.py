@@ -279,6 +279,7 @@ class BatchExportsDebugger:
                 name=self.batch_export.model or "events",
                 schema=self.batch_export.schema,
                 filters=self.batch_export.filters,
+                hogql_query=self.batch_export.hogql_query,
             ),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
@@ -344,7 +345,13 @@ class BatchExportsDebugger:
         folder = get_base_s3_staging_folder(
             batch_export_run.parent.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
-            batch_export_run.data_interval_end.isoformat(),
+            batch_export_run.data_interval_end.isoformat() if batch_export_run.data_interval_end is not None else None,
+            run_id=(
+                str(batch_export_run.id)
+                if batch_export_run.batch_export_on_demand_id is not None
+                and (batch_export_run.data_interval_start is None or batch_export_run.data_interval_end is None)
+                else None
+            ),
         )
         file_selector = fs.FileSelector(
             base_dir=f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}", recursive=True
@@ -389,6 +396,10 @@ class BatchExportsDebugger:
         self,
         batch_export_run: BatchExportRun,
     ) -> collections.abc.Generator[pa.RecordBatch]:
+        if batch_export_run.data_interval_end is None or (
+            batch_export_run.batch_export_on_demand_id is not None and batch_export_run.data_interval_start is None
+        ):
+            raise ValueError("Query debugging requires explicit interval bounds; inspect the run's S3 data instead")
         team_id = batch_export_run.parent.team.id
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
         parameters: dict[str, typing.Any] = {

@@ -12,6 +12,7 @@ export interface NotificationSettings {
   completionVolume: number;
   scaleSoundWithTaskLength: boolean;
   customSounds: CustomSound[];
+  notificationsPausedUntil: number | null;
 }
 
 export interface INotificationSettings {

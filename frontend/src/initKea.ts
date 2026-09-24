@@ -72,6 +72,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
+    'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
 ]
 
 /*

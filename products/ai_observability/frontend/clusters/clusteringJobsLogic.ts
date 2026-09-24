@@ -108,21 +108,21 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
                 loadJobs: async () => {
                     // nosemgrep: prefer-codegen-api
                     const response = await api.get(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
                 createJob: async (payload: Partial<ClusteringJob>) => {
                     // nosemgrep: prefer-codegen-api
                     await api.create(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`,
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`,
                         payload
                     )
                     lemonToast.success('Clustering job created')
                     // Reload to get server-assigned fields
                     // nosemgrep: prefer-codegen-api
                     const response = await api.get(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
@@ -130,13 +130,13 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
                     const { id, ...data } = payload
                     // nosemgrep: prefer-codegen-api
                     await api.update(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${id}/`,
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${id}/`,
                         data
                     )
                     lemonToast.success('Clustering job updated')
                     // nosemgrep: prefer-codegen-api
                     const response = await api.get(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
@@ -168,9 +168,7 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
         deleteJob: async ({ jobId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
-                await api.delete(
-                    `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${jobId}/`
-                )
+                await api.delete(`api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${jobId}/`)
                 lemonToast.success('Clustering job deleted')
                 posthog.capture('llma clustering job deleted', { job_id: jobId })
                 actions.loadJobs()

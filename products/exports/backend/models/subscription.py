@@ -116,6 +116,8 @@ class Subscription(ModelActivityMixin, models.Model):
     Also see https://jakubroztocil.github.io/rrule/ for a helpful visual demonstration
     """
 
+    activity_logging_on_delete = True
+
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
@@ -350,7 +352,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     def set_next_delivery_date(self, from_dt: Optional[datetime] = None) -> None:
         # Authoritative schedule — a client-side preview mirror lives in
-        # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate).
+        # products/subscriptions/frontend/components/Subscriptions/nextDeliveryDate.ts (getNextDeliveryDate).
         self.next_delivery_date = self._compute_next_delivery_date(
             from_dt=from_dt, **{f: getattr(self, f) for f in self.RRULE_FIELDS}
         )

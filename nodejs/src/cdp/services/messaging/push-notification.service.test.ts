@@ -171,6 +171,7 @@ describe('PushNotificationService', () => {
                 })
             )
             expect(result.finished).toBe(true)
+            expect(result.deliveredToRecipient).toBe(true)
         })
 
         it('logs warning and records push_skipped when no device token found', async () => {
@@ -184,6 +185,8 @@ describe('PushNotificationService', () => {
             // No token means nothing was delivered — record push_skipped, not push_sent.
             expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
             expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
+            // Billing reads this, so a regression here charges for a notification nobody received.
+            expect(result.deliveredToRecipient).toBe(false)
         })
 
         it('stamps workflow, action and invocation ids into the data payload so opens can be attributed', async () => {

@@ -187,17 +187,20 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            trackHogFlowBillableInvocation(result, {
-                invocation: functionResult.invocation,
-                billingMetricType: this.hogFlowActionBillingType,
-            })
+            // A step that does not send leaves this undefined and bills as before.
+            if (functionResult.deliveredToRecipient !== false) {
+                trackHogFlowBillableInvocation(result, {
+                    invocation: functionResult.invocation,
+                    billingMetricType: this.hogFlowActionBillingType,
+                })
 
-            // actionStepCount holds across a retry of this step but changes on a loop revisit.
-            this.usageReporter?.reportBillableInvocation({
-                teamId: invocation.teamId,
-                usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-            })
+                // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                this.usageReporter?.reportBillableInvocation({
+                    teamId: invocation.teamId,
+                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
+                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                })
+            }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
             // already in flight, so a run that entered on v2 can send its email after v3 is
