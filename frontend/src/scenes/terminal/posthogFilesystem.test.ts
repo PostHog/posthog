@@ -805,6 +805,22 @@ describe('PostHog filesystem projection', () => {
         expect(type.children!.get('12.json')).toBe(apiFile)
     })
 
+    it('renames a file when its content type changes while browsing an overlapping API type', async () => {
+        const note = entry('note1', 'Notes')
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [note] })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        const files = fs.root.children!.get('files')!
+        await files.loadChildren!()
+        const markdown = files.children!.get('Notes.md')!
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 1,
+            results: [{ ...note, meta: { content_type: 'application/json' } }],
+        })
+        await fs.root.children!.get('api')!.children!.get('notebook')!.loadChildren!()
+        expect([...files.children!.keys()]).toEqual(['Notes.json'])
+        await expect(markdown.open!()).rejects.toMatchObject({ errno: 116 })
+    })
+
     it('rejects invalid JSON and propagates API failures without retrying a failed update', async () => {
         jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [entry('12', 'Object', 'dashboard')] })
         jest.mocked(apiMutator).mockResolvedValue({ id: 12, name: 'Original' })

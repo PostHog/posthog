@@ -944,10 +944,21 @@ export class PosthogFilesystem extends TerminalFilesystem {
         } else {
             for (const entry of entries) {
                 const extension = this.extension(entry)
-                const existing = files.get(this.fileIdentity(entry, extension))
-                if (existing) {
+                // A content-type change gives the entry a new extension, so the node under the old
+                // extension is not reused below and must be retired here to avoid a stale duplicate.
+                for (const candidate of ['.md', '.sql', '.json']) {
+                    const identity = this.fileIdentity(entry, candidate)
+                    const existing = files.get(identity)
+                    if (!existing) {
+                        continue
+                    }
                     existing.parent!.children!.delete(existing.name)
                     this.references.delete(this.mountedPath(existing))
+                    if (candidate !== extension) {
+                        files.delete(identity)
+                        this.projectNodes.delete(existing)
+                        existing.removed = true
+                    }
                 }
             }
         }
