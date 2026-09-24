@@ -95,6 +95,7 @@ export const resourceTransferRowLogic = kea<resourceTransferRowLogicType>([
                         throw new Error('Missing required fields for search')
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     return await api.create<SearchResponse>(
                         `api/organizations/${currentOrganization.id}/resource_transfers/search/`,
                         {

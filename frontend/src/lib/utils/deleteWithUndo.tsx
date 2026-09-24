@@ -16,6 +16,7 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     callback?: (undo: boolean, object: T) => void
 }): Promise<void> {
     try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
             ...props.object,
             deleted: !undo,
@@ -56,6 +57,7 @@ export async function deleteInsightWithUndo({
     callback?: (undo: boolean, object: InsightModel) => void
 }): Promise<void> {
     try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
             ...props.object,
             deleted: !undo,

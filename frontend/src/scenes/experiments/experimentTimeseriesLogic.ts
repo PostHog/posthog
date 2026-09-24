@@ -159,6 +159,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         throw new Error('Metric fingerprint is required')
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsTimeseriesResultsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
@@ -170,6 +171,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRecalculateTimeseriesCreate() from 'products/experiments/frontend/generated/api' instead.
                         const response = await api.createResponse(
                             `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/recalculate_timeseries/`,
                             {

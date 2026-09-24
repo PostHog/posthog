@@ -1039,6 +1039,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlDefaultsResponse | null,
             {
                 loadDefaults: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     api.get<AccessControlDefaultsResponse>(`api/projects/${props.projectId}/access_control_defaults`),
             },
         ],
@@ -1046,6 +1047,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlRolesResponse | null,
             {
                 loadRoles: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     api.get<AccessControlRolesResponse>(`api/projects/${props.projectId}/access_control_roles`),
             },
         ],
@@ -1053,6 +1055,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlMembersResponse | null,
             {
                 loadMembers: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
             },
         ],
@@ -1066,6 +1069,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             ? `access_control_roles?role_id=${subject.subjectId}`
                             : `access_control_members?member_id=${subject.subjectId}`
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                         const response = await api.get<{ results: AccessControlSettingsEntry[] }>(
                             `api/projects/${props.projectId}/${query}`
                         )

@@ -114,6 +114,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             {
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use personsPropertiesTimelineRetrieve() from 'products/persons/frontend/generated/api' instead.
                         const response = await api.get<RawPropertiesTimelineResult>(
                             `api/projects/${values.currentTeamId}/persons/${
                                 props.actor.id

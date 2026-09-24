@@ -1043,6 +1043,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 kind: NodeKind.HogQLQuery,
                                 query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
                             }
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                             cohort = await api.create('api/cohort', {
                                 is_static: true,
                                 name: `${values.cohort.name} (static copy)`,

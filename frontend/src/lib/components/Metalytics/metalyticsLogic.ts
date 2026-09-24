@@ -222,6 +222,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         },
         instanceId: async (instanceId) => {
             if (instanceId) {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                 void api.create(`/api/projects/${values.currentProjectId}/metalytics/`, {
                     metric_name: 'viewed',
                     instance_id: instanceId,

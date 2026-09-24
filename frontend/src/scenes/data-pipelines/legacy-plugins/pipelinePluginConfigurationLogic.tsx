@@ -230,6 +230,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
 
                     return (
                         plugins[props.pluginId] ||
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                         api.get(`api/organizations/${values.currentOrganizationId}/plugins/${props.pluginId}`)
                     )
                 },

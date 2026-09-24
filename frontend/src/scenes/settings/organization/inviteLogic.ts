@@ -224,6 +224,7 @@ export const inviteLogic = kea<inviteLogicType>([
                     // Inviting members is a sensitive action; if re-authentication is required,
                     // await its completion so the invite resumes once the user re-authenticates.
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use invitesBulkCreate() from '~/generated/core/api' instead.
                     return await api.create<OrganizationInviteType[]>(
                         `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
                         payload
@@ -236,6 +237,7 @@ export const inviteLogic = kea<inviteLogicType>([
             {
                 loadProjectAccessControl: async (projectId: number) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                         const accessControls = await api.get(`api/projects/${projectId}/access_controls`)
                         // Look for project-level access control (resource: "project", organization_member: null, role: null)
                         const projectAccessControl = accessControls.access_controls?.find(
@@ -262,13 +264,14 @@ export const inviteLogic = kea<inviteLogicType>([
                 loadInvites: async () => {
                     return organizationLogic.values.currentOrganization
                         ? (
-                              await api.get<PaginatedResponse<OrganizationInviteType>>(
+                              await api.get<PaginatedResponse<OrganizationInviteType>>( // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use invitesList() from '~/generated/core/api' instead.
                                   `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/`
                               )
                           ).results
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use invitesDestroy() from '~/generated/core/api' instead.
                     await api.delete(
                         `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
                     )

@@ -178,7 +178,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
                 }
 
                 try {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use personsBatchByDistinctIdsCreate() from 'products/persons/frontend/generated/api' instead.
                     const response = await api.create<BatchByDistinctIdsResponse>(
                         `api/projects/${teamId}/persons/batch_by_distinct_ids/`,
                         { distinct_ids: batch }

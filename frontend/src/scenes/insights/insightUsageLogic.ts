@@ -108,6 +108,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             // Report the insight being viewed to our '/viewed' endpoint.
             // Used for "recently viewed insights", and in insights dashboard.
             if (values.insight.id && !isSharedView()) {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' instead.
                 void api.create(`api/projects/${values.currentProjectId}/insights/viewed`, {
                     insight_ids: [values.insight.id],
                 })

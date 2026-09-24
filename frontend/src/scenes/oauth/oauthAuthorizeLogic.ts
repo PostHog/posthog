@@ -153,6 +153,7 @@ const oauthAuthorize = async (
     // any printable ASCII in `state`, so a raw-JSON state must reach the API byte-for-byte.
     const params = new URLSearchParams(window.location.search)
     try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
         const response = await api.create('/oauth/authorize/', {
             client_id: params.get('client_id'),
             redirect_uri: params.get('redirect_uri'),
@@ -484,6 +485,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             try {
                 const orgId = values.selectedOrganization
                 const endpoint = orgId ? `api/organizations/${orgId}/projects/` : 'api/projects/'
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 await api.create(endpoint, { name })
                 lemonToast.success(`Project "${name}" created`)
                 actions.setShowCreateProject(false)

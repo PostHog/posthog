@@ -407,6 +407,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingStartupsApplyCreate() from 'products/billing/frontend/generated/api' instead.
                     await api.create('api/billing/startups/apply', valuesToSubmit)
                     actions.setFormSubmitted(true)
                     // The verification link is bearer proof of YC founder status, so it stays out of analytics

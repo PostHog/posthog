@@ -72,6 +72,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             [] as InsightModel[],
             {
                 loadRecentInsights: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsMyLastViewedRetrieve() from 'products/product_analytics/frontend/generated/api' instead.
                     const insights = await api.get<InsightModel[]>(
                         `api/projects/${values.currentProjectId}/insights/my_last_viewed`
                     )

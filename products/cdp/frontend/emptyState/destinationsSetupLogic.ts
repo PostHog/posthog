@@ -25,7 +25,7 @@ export const destinationsSetupLogic = createSetupDetectionLogic({
             }),
             // The legacy plugin config endpoints are not in the OpenAPI spec, so there is
             // no generated client to call here.
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
             api.get<CountedPaginatedResponse<unknown>>(
                 `api/projects/${projectId}/pipeline_destination_configs/?limit=1`
             ),

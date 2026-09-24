@@ -95,6 +95,7 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
             [] as { id: number; name: string }[],
             {
                 loadProjects: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     const response = await api.get('api/projects/')
                     return response.results || []
                 },
@@ -119,6 +120,7 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
             }
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                 const team = await api.get(`api/projects/${projectId}/`)
                 const token = team.live_events_token
                 if (!token) {

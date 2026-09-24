@@ -268,6 +268,7 @@ export const organizationLogic = kea<organizationLogicType>([
                         return null
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use retrieve() from 'products/platform_features/frontend/generated/api' instead.
                         return await api.get('api/organizations/@current')
                     } catch (error) {
                         if (error instanceof ApiError && error.status && error.status < 500) {
@@ -283,6 +284,7 @@ export const organizationLogic = kea<organizationLogicType>([
                 },
                 createOrganization: async (name: string) => {
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use create() from 'products/platform_features/frontend/generated/api' instead.
                     return await api.create('api/organizations/', { name })
                 },
                 updateOrganization: async (payload: OrganizationUpdatePayload) => {
@@ -291,6 +293,7 @@ export const organizationLogic = kea<organizationLogicType>([
                     }
                     // Check if re-authentication is required, if so, await its completion (or failure)
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use partialUpdate() from 'products/platform_features/frontend/generated/api' instead.
                     const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
                         payload
@@ -299,8 +302,10 @@ export const organizationLogic = kea<organizationLogicType>([
                     return updatedOrganization
                 },
                 completeOnboarding: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/onboarding/`, {}),
                 migrateAccessControlVersion: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/migrate_access_control/`, {})
                     window.location.reload()
                     return values.currentOrganization // Return current organization state since the page will reload anyway
@@ -403,6 +408,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use destroy() from 'products/platform_features/frontend/generated/api' instead.
                 await api.delete(`api/organizations/${organizationId}`)
                 actions.deleteOrganizationSuccess({ redirectPath })
             } catch (e) {

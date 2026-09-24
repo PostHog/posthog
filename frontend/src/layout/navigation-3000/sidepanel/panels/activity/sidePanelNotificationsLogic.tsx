@@ -670,6 +670,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
 
                     try {
                         const [response] = await Promise.all([
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             api.get<ChangesResponse>(
                                 `api/projects/${values.currentProjectId}/my_notifications?` +
                                     toParams({ unread: onlyUnread })
@@ -715,6 +716,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     await api.create(`api/projects/${values.currentProjectId}/my_notifications/bookmark`, {
                         bookmark: latestNotification.created_at.toISOString(),
                     })
@@ -1017,6 +1019,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
             refreshInAppUnreadCount: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' instead.
                     const countResp = await api.get<{ count: number }>(
                         `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )
@@ -1327,6 +1330,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     // Swallow
                 }
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' instead.
                     const countResp = await api.get<{ count: number }>(
                         `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )

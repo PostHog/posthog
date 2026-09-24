@@ -732,6 +732,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (isSharedView()) {
                 return
             }
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
             api.update('api/user_home_settings/@me/', {
                 homepage: tab ? tabToPersistableSnapshot(tab) : null,
             }).catch((error) => {

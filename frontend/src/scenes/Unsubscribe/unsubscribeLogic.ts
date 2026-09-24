@@ -47,6 +47,7 @@ export const unsubscribeLogic = kea<unsubscribeLogicType>([
         unsubscription: {
             __default: false as boolean,
             attemptUnsubscribe: async ({ token }) => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                 const res = await api.get(`api/unsubscribe?token=${token}`)
                 return res.success
             },

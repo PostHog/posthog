@@ -86,6 +86,7 @@ export const sessionRecordingViewedLogic = kea<sessionRecordingViewedLogicType>(
                     return { viewed: false, otherViewers: 0 }
                 }
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                 const response = await api.get(
                     `/api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/viewed`
                 )

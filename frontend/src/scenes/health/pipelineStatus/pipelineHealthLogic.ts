@@ -110,6 +110,7 @@ export const pipelineHealthLogic = kea<pipelineHealthLogicType>([
                         return null
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dataWarehouseDataHealthIssuesRetrieve() from 'products/data_warehouse/frontend/generated/api' instead.
                         const response = await api.get<DataHealthIssuesResponse>(
                             `api/projects/${values.currentTeamIdStrict}/data_warehouse/data_health_issues/`
                         )

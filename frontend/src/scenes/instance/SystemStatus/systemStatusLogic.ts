@@ -203,6 +203,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
                         return null
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     return (await api.get('api/instance_status')).results ?? null
                 },
             },
@@ -211,6 +212,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
             [] as InstanceSetting[],
             {
                 loadInstanceSettings: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     return (await api.get('api/instance_settings')).results ?? []
                 },
             },
@@ -218,6 +220,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
         queries: [
             null as SystemStatusQueriesResult | null,
             {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                 loadQueries: async () => (await api.get('api/instance_status/queries')).results,
             },
         ],
@@ -300,6 +303,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
             actions.setUpdatedInstanceConfigCount(0)
             await Promise.all(
                 Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     await api.update(`api/instance_settings/${key}`, {
                         value,
                     })

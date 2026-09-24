@@ -132,6 +132,7 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
                     } else if (props.experimentId) {
                         params.append('experiment_id', String(props.experimentId))
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     return await api.get(`api/debug_ch_queries/?${params.toString()}`)
                 },
             },

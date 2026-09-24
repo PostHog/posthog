@@ -36,6 +36,18 @@ const i2 = await api.get<PaginatedResponse<Foo>>(`api/foo`)
 // ruleid: prefer-codegen-api
 const i3 = await api.get<CountedPaginatedResponse<ChangeRequest>>(`api/foo`)
 
+// ruleid: prefer-codegen-api
+const i4 = await api.getResponse(`api/foo`)
+
+// ruleid: prefer-codegen-api
+const i5 = await api.createResponse(`api/foo`, {})
+
+// ruleid: prefer-codegen-api
+await api.stream(`api/foo`, { onMessage })
+
+// ruleid: prefer-codegen-api
+const i6 = await api.createWithUploadProgress<Foo>(`api/foo`, formData)
+
 // ok: prefer-codegen-api
 const j = await api.integrations.authorizeUrl()
 

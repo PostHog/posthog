@@ -1242,7 +1242,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             lemonToast.error('Could not determine team')
                             return
                         }
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use evaluationsRetrieve() from 'products/ai_observability/frontend/generated/api' instead.
                         const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
@@ -1436,7 +1436,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use evaluationsPartialUpdate() from 'products/ai_observability/frontend/generated/api' instead.
                 await api.update(`/api/environments/${teamId}/evaluations/${linkedSource.evaluationId}/`, {
                     evaluation_config: { prompt: prompt.systemPrompt },
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
@@ -1516,7 +1516,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use evaluationsCreate() from 'products/ai_observability/frontend/generated/api' instead.
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',

@@ -654,6 +654,7 @@ export function OverviewTab({
                                             setMatchingFlagIdsLoading(true)
                                             try {
                                                 const { limit, offset, ...filters } = paramsFromFilters
+                                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsMatchingIdsRetrieve() from 'products/feature_flags/frontend/generated/api' instead.
                                                 const response = (await api.get(
                                                     `api/projects/${currentProjectId}/feature_flags/matching_ids/?${toParams(filters)}`
                                                 )) as { ids: number[]; total: number }

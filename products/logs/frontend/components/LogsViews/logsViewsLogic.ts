@@ -119,12 +119,12 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
             [] as LogsView[],
             {
                 loadViews: async () => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
                     const response = await api.get(`${logsViewsUrl(values.currentTeamId)}/`)
                     return response.results
                 },
                 createView: async ({ name, filters }: { name: string; filters: LogsViewApiFilters }) => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
                     const created: LogsView = await api.create(`${logsViewsUrl(values.currentTeamId)}/`, {
                         name,
                         filters,
@@ -145,7 +145,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
     listeners(({ actions, values }) => ({
         deleteView: async ({ shortId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
                 await api.delete(`${logsViewsUrl(values.currentTeamId)}/${shortId}/`)
                 lemonToast.success('View deleted')
             } catch {

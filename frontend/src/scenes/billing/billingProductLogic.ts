@@ -1185,6 +1185,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         handleProductUpgrade: async ({ products, redirectPath }) => {
             try {
                 const body: Record<string, string> = { products }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingActivateCreate() from 'products/billing/frontend/generated/api' instead.
                 const response = await api.create('api/billing/activate', body)
 
                 if (response.success) {
@@ -1268,6 +1269,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         activateTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingTrialsActivateCreate() from 'products/billing/frontend/generated/api' instead.
                 await api.create(`api/billing/trials/activate`, {
                     type: 'autosubscribe',
                     target: props.product.type,
@@ -1284,6 +1286,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         cancelTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingTrialsCancelCreate() from 'products/billing/frontend/generated/api' instead.
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
                 if (values.surveyID) {
@@ -1306,6 +1309,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         removeBillingLimitNextPeriod: async ({ productType }) => {
             actions.setRemovingBillingLimitNextPeriod(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                 await api.update('api/billing', { reset_limit_next_period: productType })
                 lemonToast.success('Billing limit for next period has been removed.')
             } catch (error) {

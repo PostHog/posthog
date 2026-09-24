@@ -134,6 +134,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             {
                 updateResourceAccessControls: async ({ accessControls, saveType }) => {
                     for (const control of accessControls) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                         await api.put<AccessControlTypeRole>(
                             `api/projects/${values.currentProjectId}/resource_access_controls`,
                             {

@@ -12,6 +12,7 @@ export async function loadWizardRunArtifactContent(
     runId: string,
     artifactId: string
 ): Promise<string> {
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     const response = await api.getResponse(getWizardRunsArtifactsContentRetrieveUrl(projectId, runId, artifactId))
 
     return response.text()

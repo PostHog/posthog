@@ -2096,6 +2096,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortQuery: async ({ queryId }) => {
             try {
                 const { currentTeamId } = values
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                 await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)

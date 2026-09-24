@@ -638,6 +638,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCampaignFieldPreferences: () => trackSettingsUpdated('campaign_field_preferences'),
             testMapping: async ({ tableId, sourceMap }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use marketingAnalyticsTestMappingCreate() from 'products/marketing_analytics/frontend/generated/api' instead.
                     const response = await api.create(
                         `api/projects/${values.currentTeamId}/marketing_analytics/test_mapping/`,
                         { table_id: tableId, source_map: sourceMap }

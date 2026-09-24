@@ -2107,6 +2107,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
                         const batch = allIds.slice(i, i + BATCH_SIZE)
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use personsBatchByDistinctIdsCreate() from 'products/persons/frontend/generated/api' instead.
                         const response = await api.create(`api/projects/${teamId}/persons/batch_by_distinct_ids/`, {
                             distinct_ids: batch,
                         })

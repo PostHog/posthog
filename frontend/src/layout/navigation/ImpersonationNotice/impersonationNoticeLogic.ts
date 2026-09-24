@@ -383,6 +383,7 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 // app and the overlay along with it. On success we hand the fetched
                 // user to loadUserSuccess ourselves so userLogic stays in sync.
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                     const freshUser = await api.get<UserType>('api/users/@me/')
                     if (freshUser?.is_impersonated) {
                         actions.loadUserSuccess(freshUser)
