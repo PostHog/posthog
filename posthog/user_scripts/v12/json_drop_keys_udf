@@ -1,3 +1,2 @@
 #!/bin/bash
-UDF_NAME=json_drop_keys_udf
 . "$(dirname "$0")/run_udf.sh"

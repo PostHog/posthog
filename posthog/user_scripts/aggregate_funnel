@@ -1,3 +1,2 @@
 #!/bin/bash
-UDF_NAME=aggregate_funnel
 . "$(dirname "$0")/run_udf.sh"

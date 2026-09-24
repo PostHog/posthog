@@ -1,3 +1,2 @@
 #!/bin/bash
-UDF_NAME=json_clean_posthog_event_properties_udf
 . "$(dirname "$0")/run_udf.sh"
