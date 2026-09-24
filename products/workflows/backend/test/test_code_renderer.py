@@ -6,7 +6,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.workflows.backend.services.code_renderer import render_workflow_code
+from products.workflows.backend.services.code_renderer import (
+    MAX_ACTIONS,
+    MAX_BRANCH_ARMS,
+    MAX_EDGES,
+    WorkflowTooLargeToRender,
+    render_workflow_code,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "code_renderer"
 
@@ -16,6 +22,16 @@ EXPECTED_WARNINGS: dict[str, list[dict[str, str | None]]] = {
         {
             "action_id": "tell_the_crm",
             "message": 'The input "signing_secret" of "Tell the CRM" is a secret. PostHog does not return its value, so set TELL_THE_CRM_SIGNING_SECRET before you push.',
+        },
+    ],
+    "passthrough_actions": [
+        {
+            "action_id": "split",
+            "message": 'The arm "1" of "Split traffic" has no edge. Add a step to it before you push.',
+        },
+        {
+            "action_id": "split",
+            "message": 'The branch arm 1 of "Split traffic" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
         },
     ],
     "re_engagement": [
@@ -74,7 +90,9 @@ def _basic_workflow(**overrides: object) -> dict:
     return workflow
 
 
-def _branch_workflow(conditions: list[dict], arm_targets: dict[int, str], branch_name: str = "Which") -> dict:
+def _branch_workflow(
+    conditions: list[dict], arm_targets: dict[int, str], branch_name: str = "Which", extra_edges: tuple[dict, ...] = ()
+) -> dict:
     return {
         "key": "branchy",
         "name": "Branchy",
@@ -94,6 +112,7 @@ def _branch_workflow(conditions: list[dict], arm_targets: dict[int, str], branch
                 {"from": "which", "to": arm_targets.get(index, "exit_node"), "type": "branch", "index": index}
                 for index in range(len(conditions))
             ],
+            *extra_edges,
         ],
     }
 
@@ -139,6 +158,22 @@ class TestCodeRenderer(SimpleTestCase):
                     {
                         "action_id": "which",
                         "message": 'The arm "Free" of "Which" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
+                    }
+                ],
+            ),
+            (
+                "branch_edge_past_the_arms_is_dropped",
+                _branch_workflow(
+                    conditions=[_person_condition("Paid")],
+                    arm_targets={0: "inside"},
+                    extra_edges=({"from": "which", "to": "exit_node", "type": "branch", "index": 2147483647},),
+                ),
+                ["then: path(delay('1d', { name: 'Inside' }))"],
+                [],
+                [
+                    {
+                        "action_id": "which",
+                        "message": '"Which" has 1 branch edge(s) that match no arm of the step. They are dropped.',
                     }
                 ],
             ),
@@ -361,6 +396,28 @@ class TestCodeRenderer(SimpleTestCase):
             assert text in rendered.code, rendered.code
         for text in absent:
             assert text not in rendered.code, rendered.code
+
+    @parameterized.expand(
+        [
+            ("actions", {"actions": [{"id": f"step_{index}", "type": "delay"} for index in range(MAX_ACTIONS + 1)]}),
+            ("edges", {"edges": [{"from": "a", "to": "b", "type": "continue"}] * (MAX_EDGES + 1)}),
+            (
+                "arms",
+                {
+                    "actions": [
+                        {
+                            "id": "which",
+                            "type": "conditional_branch",
+                            "config": {"conditions": [{}] * (MAX_BRANCH_ARMS + 1)},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_refuses_a_graph_over_the_render_bounds(self, _name: str, overrides: dict) -> None:
+        with self.assertRaises(WorkflowTooLargeToRender):
+            render_workflow_code(_basic_workflow(**overrides))
 
     def test_renders_condition_shapes_the_sdk_supports(self) -> None:
         definition = _branch_workflow(

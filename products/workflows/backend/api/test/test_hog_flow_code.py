@@ -152,6 +152,18 @@ class TestHogFlowCode(APIBaseTest):
         assert response.json()["attr"] == "actions"
         assert response.json()["detail"] == "Step 0 needs a text `id` and a text `type`."
 
+    def test_rejects_a_branch_edge_past_the_arms_of_a_stored_step(self) -> None:
+        flow_id = self._create_flow()
+        edges = [
+            *_content("1d")["edges"],
+            {"from": "wait_a_day", "to": "exit_node", "type": "branch", "index": 2147483647},
+        ]
+
+        response = self._code_of(flow_id, {"edges": edges})
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "edges"
+
     def test_renders_a_secret_in_the_body_as_the_stored_secret(self) -> None:
         sync_template_to_db(_secret_template())
         function_step = {
@@ -220,6 +232,14 @@ class TestHogFlowCodeRequestSerializer(SimpleTestCase):
                 "actions",
             ),
             ("edge_not_an_object", {"edges": ["a"]}, "edges"),
+            (
+                "branch_edge_past_the_arms",
+                {
+                    "actions": [{"id": "a", "type": "conditional_branch", "config": {"conditions": [{}]}}],
+                    "edges": [{"from": "a", "to": "b", "type": "branch", "index": 1}],
+                },
+                "edges",
+            ),
             ("variables_not_a_list", {"variables": "a"}, "variables"),
             ("conversion_not_an_object", {"conversion": []}, "conversion"),
             ("unknown_exit_condition", {"exit_condition": "never"}, "exit_condition"),
