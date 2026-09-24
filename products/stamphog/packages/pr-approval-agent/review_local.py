@@ -28,7 +28,9 @@ logic. It replaces only the steps that touch the network with injected data:
   familiarity, which are the author-team membership lookup and the author's
   merged-PR set. Familiarity's blame math is mirrored here with the injected PR
   set (see _familiarity_offline), because Pipeline._compute_familiarity hardcodes
-  the `gh` fetch that only the networked entrypoint can make.
+  the `gh` fetch that only the networked entrypoint can make. The hosted server
+  also injects blame and history facts read from GitHub, which replace the git
+  history reads entirely (see _attach_familiarity).
 
 The engine reads the trusted policy (`.stamphog/policy.yml`,
 `.stamphog/review-guidance.md`) from the checkout at import time. The server
@@ -58,6 +60,7 @@ from familiarity import (
     _prior_prs_in_paths,
     _read_diff,
     _select_considered_files,
+    familiarity_from_facts,
 )
 from gates import POLICY, assign_tier, substantive_size
 from gateway import REVIEWER_MODEL
@@ -348,22 +351,42 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
     """Attach the author-familiarity signal for the T1-agent path only.
 
     Same gating as Pipeline._maybe_compute_familiarity (T0 skips the LLM, T2 is a
-    deny, so neither benefits). Absent injected PR numbers leaves the signal None,
-    exactly as a failed `gh` call would in review_pr.py — a one-way ratchet.
+    deny, so neither benefits).
+
+    The hosted server always sets ``familiarity_facts``: the blame and history facts it read
+    from GitHub, or null when that failed or the run is an inbox review. Null leaves the signal
+    absent (a one-way ratchet), and never falls back to git, because the hosted checkout does
+    not carry the history that git blame needs. A context without the key comes from a runtime
+    that predates the server facts, so it keeps the git path. There, absent injected PR numbers
+    leave the signal None, exactly as a failed `gh` call would in review_pr.py.
     """
     if pipeline.classification.get("tier") != "T1-agent":
         return
-    raw_prs = context.get("author_pr_numbers")
-    if not raw_prs:
-        return
-    author_prs = {int(n) for n in raw_prs}
+    author_prs = {int(n) for n in context.get("author_pr_numbers") or []}
+    if "familiarity_facts" in context:
+        facts = context["familiarity_facts"]
+        if not facts:
+            return
+        source = "server"
+    else:
+        if not author_prs:
+            return
+        source = "git"
     diff_path = pipeline._ensure_diff_path()
     try:
-        pipeline.classification["familiarity"] = _familiarity_offline(
-            author_prs, diff_path, pipeline.pr.base_sha, pipeline.pr.head_sha, POLICY.familiarity
-        )
+        if source == "server":
+            fam = familiarity_from_facts(facts, pipeline.pr.author, author_prs, diff_path, POLICY.familiarity)
+        else:
+            fam = _familiarity_offline(
+                author_prs, diff_path, pipeline.pr.base_sha, pipeline.pr.head_sha, POLICY.familiarity
+            )
     except Exception as exc:
         print(f"warning: familiarity computation failed ({exc}); continuing without the signal")
+        return
+    # Telemetry reads pipeline.familiarity and the prompt reads the classification, so both are set.
+    pipeline.familiarity = fam
+    pipeline.familiarity_source = source
+    pipeline.classification["familiarity"] = fam
 
 
 def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:

@@ -148,6 +148,30 @@ query($id: ID!, $cursor: String) {
 }
 """
 
+# Blame of one file at one commit, for the author-familiarity facts. One file per request, because
+# GitHub aborts a GraphQL request after about ten seconds, and the blame of one large generated file
+# can use all of that. Batched files would all fail with it.
+_BLAME_QUERY = """
+query($owner: String!, $name: String!, $oid: GitObjectID!, $path: String!) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $oid) {
+      ... on Commit {
+        blame(path: $path) {
+          ranges {
+            startingLine
+            endingLine
+            commit { oid messageHeadline committedDate author { name user { login } } }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# The fields read from each commit in a history query, the same as the blame query reads.
+_HISTORY_COMMIT_FIELDS = "oid messageHeadline committedDate author { name user { login } }"
+
 # Refresh the installation token this many seconds before GitHub's stated expiry, to cover clock skew
 # and in-flight requests. GitHub installation tokens live one hour, so a 5-minute margin is ample.
 _TOKEN_EXPIRY_MARGIN_SECONDS = 300
@@ -980,6 +1004,93 @@ class StamphogGitHubClient:
             if len(items) < _PER_PAGE:
                 break
         return numbers
+
+    def get_merge_base_sha(self, repo: str, base_sha: str, head_sha: str) -> str:
+        """The merge base of two commits, from the compare API (``merge_base_commit.sha``).
+
+        A PR's diff line numbers are relative to this commit, not to the base branch tip.
+        """
+        path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+            params={"per_page": 1},
+            priority=Priority.BATCH,
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to compare {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        data = self._json(response, path)
+        sha = ((data.get("merge_base_commit") or {}) if isinstance(data, dict) else {}).get("sha")
+        if not isinstance(sha, str) or not sha:
+            raise StamphogGitHubError(f"No merge base in the compare payload for {base_sha}...{head_sha}")
+        return sha
+
+    def _commit_graphql(self, repo: str, query: str, variables: dict[str, Any], *, timeout: int) -> dict:
+        """Run a query against one commit object of ``repo`` and return that commit's fields.
+
+        Raises on any HTTP, GraphQL, or shape failure. These queries feed an advisory signal, so
+        they run on the sheddable BATCH lane.
+        """
+        owner, name = repo.split("/", 1)
+        response = self._request(
+            "POST",
+            "/graphql",
+            endpoint="/graphql",
+            json_body={"query": query, "variables": {"owner": owner, "name": name, **variables}},
+            timeout=timeout,
+            priority=Priority.BATCH,
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(f"GraphQL request failed on {repo}", status_code=response.status_code)
+        data = self._json(response, "/graphql")
+        if not isinstance(data, dict) or data.get("errors"):
+            raise StamphogGitHubError(f"GraphQL errors on {repo}")
+        commit = ((data.get("data") or {}).get("repository") or {}).get("object")
+        if not isinstance(commit, dict):
+            raise StamphogGitHubError(f"Commit not found in {repo}")
+        return commit
+
+    def get_blame_ranges(self, repo: str, oid: str, path: str, *, timeout: int) -> list[dict]:
+        """The blame ranges of ``path`` at commit ``oid``, as GraphQL returns them."""
+        commit = self._commit_graphql(repo, _BLAME_QUERY, {"oid": oid, "path": path}, timeout=timeout)
+        ranges = (commit.get("blame") or {}).get("ranges")
+        if not isinstance(ranges, list):
+            raise StamphogGitHubError(f"No blame for a path in {repo}")
+        return [blame_range for blame_range in ranges if isinstance(blame_range, dict)]
+
+    def get_author_history(
+        self, repo: str, oid: str, author_node_id: str, paths: list[str], *, since: str, first: int, timeout: int
+    ) -> dict[str, list[dict]]:
+        """The newest ``first`` commits by one author under each of ``paths``, walking back from ``oid``.
+
+        One request, one alias per path. The paths come from the PR, so they travel as GraphQL
+        variables and never as query text.
+        """
+        declarations = " ".join(f"$p{index}: String!" for index in range(len(paths)))
+        aliases = " ".join(
+            f"p{index}: history(path: $p{index}, since: $since, author: {{id: $author}}, first: {first}) "
+            f"{{ nodes {{ {_HISTORY_COMMIT_FIELDS} }} }}"
+            for index in range(len(paths))
+        )
+        query = (
+            "query($owner: String!, $name: String!, $oid: GitObjectID!, $author: ID!, $since: GitTimestamp!, "
+            f"{declarations}) {{ repository(owner: $owner, name: $name) {{ object(oid: $oid) {{ "
+            f"... on Commit {{ {aliases} }} }} }} }}"
+        )
+        variables: dict[str, Any] = {"oid": oid, "author": author_node_id, "since": since}
+        variables.update({f"p{index}": path for index, path in enumerate(paths)})
+        commit = self._commit_graphql(repo, query, variables, timeout=timeout)
+        history: dict[str, list[dict]] = {}
+        for index, path in enumerate(paths):
+            nodes = (commit.get(f"p{index}") or {}).get("nodes")
+            if not isinstance(nodes, list):
+                raise StamphogGitHubError(f"No history for a path in {repo}")
+            history[path] = [node for node in nodes if isinstance(node, dict)]
+        return history
 
     def list_installation_repositories(self) -> list[str]:
         """Return the sorted ``owner/name`` full names this installation can access.

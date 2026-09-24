@@ -1,6 +1,6 @@
 """Sandbox reviewer invocation + output parsing.
 
-The whole review engine (hard gates, tier classification, git-blame
+The whole review engine (hard gates, tier classification, author
 familiarity, and the LLM reviewer) runs inside the sandbox via the engine's own
 modules (``products/stamphog/packages/pr-approval-agent/review_local.py``). This
 module no longer embeds a reviewer script. It only does two things:
@@ -111,6 +111,7 @@ def build_reviewer_invocation(
     pr_reactions: list[dict],
     author_pr_numbers: list[int],
     author_team_slugs: list[str],
+    familiarity_facts: dict | None,
     base_sha: str,
     head_sha: str,
     repo: str,
@@ -127,11 +128,14 @@ def build_reviewer_invocation(
     GraphQL-only surface the tokenless sandbox can't fetch itself), so an
     unresolved inline "do not merge" reaches the reviewer prompt.
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
-    (the engine needs them for the git-blame familiarity signal, which it
-    otherwise gets from a `gh` call it can't make in the sandbox).
+    (the familiarity signal matches a blamed commit to the author by its squash-merge
+    PR number when the commit has no GitHub login).
     ``author_team_slugs`` are every GitHub team the author belongs to, which the
     engine intersects with the teams owning the changed paths to tell the reviewer
     whether the author owns the code (another `gh` call the sandbox can't make).
+    ``familiarity_facts`` are the blame and author-history facts the server read from GitHub
+    (``logic/familiarity_facts.py``), or None when that failed. The key is always set, because
+    its presence tells the engine to take familiarity from the facts and never from git history.
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
@@ -154,6 +158,7 @@ def build_reviewer_invocation(
         "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
         "author_team_slugs": list(author_team_slugs),
+        "familiarity_facts": familiarity_facts,
         "self_driving_review": self_driving_review,
         "review_trigger": review_trigger,
     }

@@ -16,7 +16,6 @@ import gates  # noqa: E402
 import policy  # noqa: E402
 
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
-    _blame_paths,
     _clone_pr,
     _effective_policy_files,
     _inject_policy_files,
@@ -126,7 +125,7 @@ def test_inject_policy_files_wipes_optional_paths_from_pr_head() -> None:
     assert any(".stamphog/policy.yml" in cmd for cmd in wipes)
 
 
-def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None:
+def test_clone_is_blobless_and_diff_blobs_are_prefetched_in_one_fetch() -> None:
     executed: list[str] = []
 
     class _RecordingSandbox:
@@ -137,7 +136,7 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
     deadline = time.monotonic() + 600
     sandbox = _RecordingSandbox()
     _clone_pr(sandbox, "acme/widgets", "basesha", "headsha", 7, "tok", deadline)  # type: ignore[arg-type]
-    _prefetch_review_blobs(sandbox, "basesha", "headsha", "tok", ["src/old_name.py"], deadline)  # type: ignore[arg-type]
+    _prefetch_review_blobs(sandbox, "basesha", "headsha", "tok", deadline)  # type: ignore[arg-type]
 
     clone = next(cmd for cmd in executed if " clone " in cmd)
     assert "--filter=blob:none" in clone
@@ -148,9 +147,7 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
     checkout = next(cmd for cmd in executed if " checkout " in cmd)
     assert "http.extraheader" in checkout.split(" checkout ")[0]
 
-    prefetch = next(cmd for cmd in executed if "rev-list" in cmd)
-    assert "--missing=print" in prefetch
-    assert "src/old_name.py" in prefetch
+    prefetch = next(cmd for cmd in executed if "diff --raw" in cmd)
     # One fetch for the whole set, driven by the enumerated object ids.
     assert "fetch origin" in prefetch and "--stdin" in prefetch
     # The enumeration must not fetch the objects it is reporting as missing.
@@ -160,36 +157,3 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
     assert "diff --raw --no-renames" in prefetch
     # A submodule's commit belongs to another repository; batching it makes origin reject the lot.
     assert "grep -v '^:160000'" in prefetch
-
-
-def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
-    files = [
-        {"filename": "src/new_name.py", "previous_filename": "src/old_name.py", "patch": "@@", "changes": 4},
-        {"filename": "src/plain.py", "patch": "@@", "changes": 2},
-        # GitHub reports a binary as zero added and zero deleted, and renders no patch for it.
-        {"filename": "static/logo.png", "additions": 0, "deletions": 0, "changes": 0},
-    ]
-    assert _blame_paths(files) == ["src/old_name.py", "src/plain.py"]
-
-    # The engine blames the largest files, so the bounded list has to be ordered the same way: a
-    # large file late in the API order must not be blamed with nothing prefetched for it.
-    ordered = _blame_paths(
-        [
-            {"filename": "src/small.py", "patch": "@@", "changes": 3},
-            {"filename": "src/large.py", "patch": "@@", "changes": 900},
-        ]
-    )
-    assert ordered == ["src/large.py", "src/small.py"]
-
-    # GitHub omits the patch of a large text file too, but reports its real line counts. The engine
-    # parses the local diff and blames it, so it has to be prefetched.
-    assert _blame_paths([{"filename": "src/huge.py", "changes": 1800}]) == ["src/huge.py"]
-
-    # A lockfile's history is the largest blob set a prefetch can name, and the engine never blames it.
-    assert _blame_paths(
-        [
-            {"filename": "pnpm-lock.yaml", "changes": 40},
-            {"filename": "rust/Cargo.lock", "changes": 12},
-            {"filename": "src/plain.py", "changes": 2},
-        ]
-    ) == ["src/plain.py"]

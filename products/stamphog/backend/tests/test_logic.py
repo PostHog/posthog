@@ -1,5 +1,7 @@
 import json
+import threading
 from collections.abc import Callable
+from typing import cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -9,11 +11,14 @@ from django.test import SimpleTestCase, override_settings
 import jwt
 from parameterized import parameterized
 
+from posthog.egress.github.transport import GitHubRateLimitError
+
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
+from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
     StamphogGitHubClient,
@@ -159,6 +164,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
             pr_reactions=[],
             author_pr_numbers=[],
             author_team_slugs=[],
+            familiarity_facts=None,
             base_sha="base",
             head_sha="head",
             repo="owner/repo",
@@ -168,6 +174,9 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         context = json.loads(invocation.context_json)
         assert context["reviews"] == reviews
         assert context["review_threads"] == review_threads
+        # A null still has to be sent: without the key the engine falls back to git blame, which the
+        # sandbox checkout has no history for.
+        assert "familiarity_facts" in context and context["familiarity_facts"] is None
 
     def test_review_trigger_reaches_the_sandbox_context(self) -> None:
         # The reviewer cannot derive why it was asked; dropping the key silently returns it to a
@@ -183,6 +192,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
                 pr_reactions=[],
                 author_pr_numbers=[],
                 author_team_slugs=[],
+                familiarity_facts=None,
                 base_sha="base",
                 head_sha="head",
                 repo="owner/repo",
@@ -196,6 +206,106 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
         assert context_for()["review_trigger"] == ""
         assert context_for()["self_driving_review"] is False
+
+
+def _graphql_commit(oid: str, login: str | None) -> dict:
+    return {
+        "oid": oid,
+        "messageHeadline": f"feat: change {oid} (#7)",
+        "committedDate": "2026-01-01T00:00:00Z",
+        "author": {"name": f"name-{oid}", "user": {"login": login} if login else None},
+    }
+
+
+class _FamiliarityClient:
+    def __init__(self, *, blame_error: Exception | None = None, history_error: Exception | None = None) -> None:
+        self.blame_error = blame_error
+        self.history_error = history_error
+        self.release = threading.Event()
+        self.block = False
+
+    def get_merge_base_sha(self, repo: str, base_sha: str, head_sha: str) -> str:
+        return "mb"
+
+    def get_blame_ranges(self, repo: str, oid: str, path: str, *, timeout: int) -> list[dict]:
+        if self.block:
+            self.release.wait(timeout=10)
+        if self.blame_error is not None and path == "src/b.py":
+            raise self.blame_error
+        return [
+            {"startingLine": 1, "endingLine": 4, "commit": _graphql_commit("c-early", "someone")},
+            {"startingLine": 5, "endingLine": 6, "commit": _graphql_commit("c-unlinked", None)},
+        ]
+
+    def get_author_history(self, repo: str, oid: str, author_node_id: str, paths: list[str], **_: object) -> dict:
+        if self.history_error is not None:
+            raise self.history_error
+        return {path: [_graphql_commit("c-author", "author")] if path == "src" else [] for path in paths}
+
+
+_FAMILIARITY_FILES = [
+    {"filename": "src/a.py", "status": "modified", "changes": 2, "patch": "@@ -5,2 +5,2 @@\n-old\n+new\n keep"},
+    {"filename": "src/b.py", "status": "modified", "changes": 2, "patch": "@@ -1,1 +1,1 @@\n-old\n+new"},
+    # Lockfiles, binaries and added files carry no blame the engine reads.
+    {"filename": "pnpm-lock.yaml", "status": "modified", "changes": 40, "patch": "@@ -1 +1 @@\n-a\n+b"},
+    {"filename": "static/logo.png", "status": "modified", "changes": 0},
+    {"filename": "src/new.py", "status": "added", "changes": 3, "patch": "@@ -0,0 +1,3 @@\n+a\n+b\n+c"},
+]
+_FAMILIARITY_PR = {"base": {"sha": "base"}, "head": {"sha": "head"}, "user": {"login": "author", "node_id": "U_1"}}
+
+
+def _fetch_history(client: _FamiliarityClient) -> ReviewHistory:
+    return fetch_review_history(
+        cast(StamphogGitHubClient, client), "o/r", _FAMILIARITY_PR, _FAMILIARITY_FILES, include_familiarity=True
+    )
+
+
+class FamiliarityFactsTests(SimpleTestCase):
+    def test_facts_keep_the_blame_of_changed_lines_and_the_authors_history(self) -> None:
+        history = _fetch_history(_FamiliarityClient())
+
+        assert history.merge_base_sha == "mb"
+        facts = history.familiarity_facts
+        assert facts is not None
+        # a.py changes base line 5, b.py base line 1: each keeps only the range covering it.
+        assert facts["blame"] == {
+            "src/a.py": [{"start": 5, "end": 6, "oid": "c-unlinked"}],
+            "src/b.py": [{"start": 1, "end": 4, "oid": "c-early"}],
+        }
+        # A commit whose email links to no account keeps a null login, so the engine falls back to
+        # the squash-merge PR number in its subject.
+        assert facts["commits"]["c-unlinked"]["login"] is None
+        assert facts["commits"]["c-unlinked"]["subject"] == "feat: change c-unlinked (#7)"
+        assert facts["path_history"] == ["c-author"]
+
+    @parameterized.expand(
+        [
+            ("one_blame_fails", {"blame_error": StamphogGitHubError("502")}, True),
+            ("rate_limited", {"blame_error": GitHubRateLimitError("slow down")}, False),
+            ("history_fails", {"history_error": StamphogGitHubError("502")}, False),
+        ]
+    )
+    def test_failures_degrade_one_file_or_drop_all_facts(self, _name: str, errors: dict, facts_kept: bool) -> None:
+        history = _fetch_history(_FamiliarityClient(**errors))
+
+        assert history.merge_base_sha == "mb"
+        if facts_kept:
+            # The engine counts the lines of a file without blame as not owned.
+            assert history.familiarity_facts is not None
+            assert set(history.familiarity_facts["blame"]) == {"src/a.py"}
+        else:
+            assert history.familiarity_facts is None
+
+    def test_a_slow_github_leaves_the_facts_out_instead_of_waiting(self) -> None:
+        client = _FamiliarityClient()
+        client.block = True
+        try:
+            with patch("products.stamphog.backend.logic.familiarity_facts._BUDGET_SECONDS", 0):
+                history = _fetch_history(client)
+        finally:
+            client.release.set()
+
+        assert history.familiarity_facts is None
 
 
 class ReviewTriggerTests(SimpleTestCase):

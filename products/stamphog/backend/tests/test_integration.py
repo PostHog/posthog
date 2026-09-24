@@ -193,8 +193,34 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha101a"
-    recorder.register_pr(REPO, 101, _pr_object(101, author, head_sha), _pr_files())
+    pr_object = _pr_object(101, author, head_sha)
+    pr_object["user"]["node_id"] = "U_devex"
+    files = [
+        {
+            "filename": "src/util.py",
+            "status": "modified",
+            "additions": 1,
+            "deletions": 1,
+            "changes": 2,
+            "patch": "@@ -3,2 +3,2 @@\n-old\n+new\n keep",
+        }
+    ]
+    recorder.register_pr(REPO, 101, pr_object, files)
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    def commit(oid: str, login: str) -> dict:
+        return {
+            "oid": oid,
+            "messageHeadline": f"feat: change ({oid})",
+            "committedDate": "2026-01-01T00:00:00Z",
+            "author": {"name": login, "user": {"login": login}},
+        }
+
+    recorder.blame_ranges["src/util.py"] = [
+        {"startingLine": 1, "endingLine": 2, "commit": commit("c-other", "someone-else")},
+        {"startingLine": 3, "endingLine": 9, "commit": commit("c-author", author)},
+    ]
+    recorder.author_history["src"] = [commit("c-author", author)]
 
     status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
     assert status == 202
@@ -203,6 +229,16 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
     assert run.status == ReviewRunStatus.COMPLETED
     assert run.verdict == ReviewVerdict.APPROVED
+
+    # The sandbox gets familiarity from GitHub facts, and only the blame ranges of changed lines ride
+    # along. It therefore needs no history, and the prefetch walks none.
+    assert run.output["merge_base_sha"] == recorder.merge_base_sha
+    context = json.loads(dict(stamphog_chain.sandbox_writes)[STAMPHOG_SANDBOX_CONTEXT_PATH].decode())
+    facts = context["familiarity_facts"]
+    assert facts["blame"] == {"src/util.py": [{"start": 3, "end": 9, "oid": "c-author"}]}
+    assert facts["path_history"] == ["c-author"]
+    assert set(facts["commits"]) == {"c-author"}
+    assert not any("rev-list" in command for command in stamphog_chain.sandbox_class.executed_commands)
 
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     assert len(approvals) == 1

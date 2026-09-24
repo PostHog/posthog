@@ -106,6 +106,7 @@ _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
 _PR_REACTIONS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions$")
+_COMPARE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/compare/(?P<basehead>[^/]+)$")
 _PR_REACTION_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions/(?P<rid>\d+)$")
 
 _API_PREFIX = "https://api.github.com"
@@ -173,6 +174,11 @@ class GitHubRecorder:
         # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
         self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
+        # The merge base the compare API reports for every PR, and the familiarity GraphQL answers:
+        # path -> blame ranges, and path -> the author's history nodes. Unscripted paths answer empty.
+        self.merge_base_sha = "mergebase000"
+        self.blame_ranges: dict[str, list[dict]] = {}
+        self.author_history: dict[str, list[dict]] = {}
         self.policy_files: dict[str, str] = {}
         # Per-repository overrides for the same paths, for cases where two connected repos must
         # answer differently (one carries a root owners.yaml, another does not).
@@ -205,6 +211,8 @@ class GitHubRecorder:
             return self._get_pr(m.group("repo"), int(m.group("number")))
         if method == "GET" and path == "/search/issues":
             return self._search_issues(params)
+        if method == "GET" and _COMPARE_RE.match(path):
+            return FakeResponse(200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}})
         if method == "GET" and _CHECK_RUNS_RE.match(path):
             return FakeResponse(200, json_data={"check_runs": []})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
@@ -283,8 +291,19 @@ class GitHubRecorder:
     def _graphql(self, body: dict) -> FakeResponse:
         query = str(body.get("query") or "")
         variables = body.get("variables") or {}
-        # GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, the minimizeComment
-        # mutation after a dismissal, and the shared ownership file reader. Route by the query's shape.
+        # GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, the familiarity
+        # blame and history reads, the minimizeComment mutation after a dismissal, and the shared
+        # ownership file reader. Route by the query's shape.
+        if "blame(" in query:
+            ranges = self.blame_ranges.get(str(variables.get("path")), [])
+            return FakeResponse(200, json_data={"data": {"repository": {"object": {"blame": {"ranges": ranges}}}}})
+        if "history(" in query:
+            aliases = {
+                name: {"nodes": self.author_history.get(str(path), [])}
+                for name, path in variables.items()
+                if re.fullmatch(r"p\d+", name)
+            }
+            return FakeResponse(200, json_data={"data": {"repository": {"object": aliases}}})
         if "minimizeComment" in query:
             self.github_writes.append({"kind": "minimize_review", "node_id": variables.get("id"), "query": query})
             return FakeResponse(
@@ -583,6 +602,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
         # Every SandboxConfig passed to create(), so a test can assert what the sandbox was given
         # (environment variables, egress allowlist).
         created_configs: list[Any] = []
+        # Every command passed to execute(), so a test can assert what ran in the sandbox.
+        executed_commands: list[str] = []
 
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
@@ -592,6 +613,7 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
             return cls()
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
+            type(self).executed_commands.append(command)
             stdout = engine_output if "review_local.py" in command else ""
             return FakeExecResult(stdout=stdout, stderr="", exit_code=0)
 

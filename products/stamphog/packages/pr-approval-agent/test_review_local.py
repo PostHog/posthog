@@ -184,6 +184,63 @@ def test_offline_run_carries_commit_provenance(monkeypatch) -> None:
     }
 
 
+_OWNED_FACTS = {
+    "commits": {"c1": {"login": "alice", "name": "Alice", "subject": "feat: x (#1)", "committed_at": 0}},
+    "blame": {"src/foo.py": [{"start": 1, "end": 9, "oid": "c1"}]},
+    "path_history": [],
+    "file_history": {},
+}
+
+
+@pytest.mark.parametrize(
+    "extra_context, expected_source, expected_band",
+    [
+        pytest.param({"familiarity_facts": _OWNED_FACTS}, "server", "STRONG", id="server-facts"),
+        # A null from the server means it failed. The hosted checkout has no history for git blame,
+        # so the signal stays absent instead of falling back.
+        pytest.param({"familiarity_facts": None, "author_pr_numbers": [1]}, "absent", None, id="server-failed"),
+        # A context from a runtime without server facts keeps the git path.
+        pytest.param({"author_pr_numbers": [1]}, "git", "MODERATE", id="no-server-facts"),
+        pytest.param({}, "absent", None, id="no-facts-and-no-pr-numbers"),
+    ],
+)
+def test_familiarity_source_follows_the_context(
+    monkeypatch, tmp_path, extra_context: dict, expected_source: str, expected_band: str | None
+) -> None:
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    git_result = review_local.AuthorFamiliarity(
+        band="MODERATE",
+        blame_overlap_pct=0.0,
+        modified_lines_owned=0,
+        modified_lines_total=0,
+        prior_prs_in_paths=3,
+        days_since_last_touch=1,
+        files_prev_count=0,
+        files_total=1,
+        capped=False,
+        blame_incomplete_files=0,
+        top_prior_authors=(),
+    )
+    monkeypatch.setattr(review_local, "_familiarity_offline", lambda *a, **k: git_result)
+    diff_path = tmp_path / "pr.diff"
+    diff_path.write_text(
+        "diff --git a/src/foo.py b/src/foo.py\n--- a/src/foo.py\n+++ b/src/foo.py\n@@ -2 +2 @@\n-a\n+b\n"
+    )
+    context = {**_run_context([_api_file("src/foo.py", status="modified")]), **extra_context}
+    pipeline = Pipeline(0, "PostHog/posthog", head_checkout=True)
+    pipeline.pr = review_local._build_pr_data(context)
+    pipeline.classification = {"tier": "T1-agent"}
+    pipeline._diff_path = diff_path
+
+    review_local._attach_familiarity(pipeline, context)
+
+    assert pipeline.familiarity_source == expected_source
+    band = pipeline.familiarity.band if pipeline.familiarity else None
+    assert band == expected_band
+    # The prompt reads the classification and telemetry reads the pipeline, so both must agree.
+    assert pipeline.classification.get("familiarity") is pipeline.familiarity
+
+
 def _thread_context(review_threads: list[dict]) -> dict:
     return {
         "repo": "PostHog/posthog",

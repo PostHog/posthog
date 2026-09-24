@@ -6,7 +6,7 @@ policy files, raw reviewer output) is persisted on ``ReviewRun.output`` between 
 rather than threaded through the workflow, keeping every Temporal payload well under the
 ~2 MiB limit.
 
-The whole review engine (hard gates, tier classification, git-blame familiarity, and
+The whole review engine (hard gates, tier classification, author familiarity, and
 the LLM reviewer) runs inside the sandbox via the engine's own modules
 (``products/stamphog/packages/pr-approval-agent/review_local.py``). The server never
 processes repo content. It fetches PR data and the trusted default-branch policy over
@@ -24,11 +24,12 @@ import base64
 import random
 import threading
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -64,6 +65,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     pregate_skip_reason,
     run_engine_pregate,
 )
+from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
@@ -396,6 +398,18 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     client = StamphogGitHubClient(repo_config.installation_id)
     pr = client.get_pr(repo, pull_request.pr_number)
     files = client.get_pr_files(repo, pull_request.pr_number)
+    # Self-driving runs skip the author's history: the author is the App machine user, so
+    # familiarity from its merged PRs would read to the engine as human trust. Without facts the
+    # engine only omits the familiarity section from the reviewer prompt; the review proceeds normally.
+    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    # The familiarity facts cost a few GraphQL round trips and depend only on the PR and its files,
+    # so they are read in a background thread while the fetches below run. fetch_review_history
+    # bounds its own time and never raises.
+    history_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stamphog-review-history")
+    history_future = history_executor.submit(
+        fetch_review_history, client, repo, pr, files, include_familiarity=not is_inbox_review
+    )
+    history_executor.shutdown(wait=False)
     # Reviews feed the engine's prerequisite gate — an active CHANGES_REQUESTED must block auto-approval.
     reviews = client.get_pr_reviews(repo, pull_request.pr_number)
     # Top-level discussion comments are blocker context (a maintainer's "please hold").
@@ -407,10 +421,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     check_runs = client.get_check_runs(repo, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    # Self-driving runs skip this fetch: the author is the App machine user, so blame familiarity
-    # from its merged PRs would read to the engine as human trust. An empty list only omits the
-    # familiarity section from the reviewer prompt; the review itself proceeds normally.
-    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    # Skipped for self-driving runs, like the familiarity facts above.
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
     # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
     # no token, and the engine learns the owning teams only after it reads the checkout's ownership
@@ -426,6 +437,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         if content is not None:
             policy_files[path] = content
 
+    history: ReviewHistory = history_future.result()
+
     run.output = {
         **(run.output or {}),
         "pr": pr,
@@ -438,6 +451,10 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
         "author_team_slugs": author_team_slugs,
+        # Always set, null included: its presence tells the engine the server owns familiarity,
+        # so a null means "absent" rather than "compute it from git".
+        "familiarity_facts": history.familiarity_facts,
+        "merge_base_sha": history.merge_base_sha,
     }
     run.save(update_fields=["output", "updated_at"])
 
@@ -641,6 +658,9 @@ def _review_invocation(run: ReviewRun) -> ReviewerInvocation:
         pr_reactions=output.get("pr_reactions", []),
         author_pr_numbers=output.get("author_pr_numbers", []),
         author_team_slugs=output.get("author_team_slugs", []),
+        # A run whose context predates the server facts gets None, which the engine reads as an
+        # absent signal. The sandbox checkout holds no history for it to fall back on.
+        familiarity_facts=output.get("familiarity_facts"),
         base_sha=(pr.get("base") or {}).get("sha") or "",
         head_sha=run.head_sha,
         repo=run.pull_request.repo_config.repository,
@@ -771,7 +791,6 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     repo = repo_config.repository
     output = run.output or {}
     pr = output.get("pr", {})
-    files = output.get("files", [])
     policy_files = output.get("policy_files", {})
 
     # The trusted source for each policy file is the repo's default branch layered over the
@@ -855,7 +874,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 with timer.step("clone"):
                     _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
                 with timer.step("prefetch"):
-                    _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, _blame_paths(files), deadline)
+                    _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, deadline)
                 # The prefetch swallows its own failure, including a timeout that consumed the rest
                 # of the budget. Re-check here, because the three steps below write through the
                 # sandbox filesystem API and cannot take a deadline: passing one would switch them
@@ -1422,18 +1441,15 @@ def _clone_pr(
 ) -> None:
     """Clone the repo with full history, then fetch the PR base and head and check out head.
 
-    Full history (no ``--depth``) is required so git-blame familiarity resolves: the
-    engine blames ``merge-base(base, head)`` for the diff's base-side lines, which needs
-    the merge-base commit AND the file history behind it present. A shallow clone would
-    truncate blame to the graft boundary (undercounting, which only ever weakens the
-    signal — a one-way ratchet — but is still avoidable here).
+    Full history (no ``--depth``) keeps the engine's ``git merge-base`` and its commit-trailer
+    provenance read working. The author-familiarity signal does not read history from the
+    checkout: the server injects blame and history facts read from GitHub.
 
-    ``--filter=blob:none`` keeps every commit and tree, so history stays complete and blame
-    still walks it; only file contents stay on the remote until something reads them. An
-    unfiltered clone of a monorepo does not finish inside the step timeout, because it carries
-    every blob of every commit. The head checkout batches the blobs it needs into one fetch, and
-    _prefetch_review_blobs batches the old-side ones the review reads, because left to itself blame
-    fetches them one object at a time.
+    ``--filter=blob:none`` keeps every commit and tree; only file contents stay on the remote
+    until something reads them. An unfiltered clone of a monorepo does not finish inside the step
+    timeout, because it carries every blob of every commit. The head checkout batches the blobs it
+    needs into one fetch, and _prefetch_review_blobs batches the old-side ones the review reads,
+    because left to itself git fetches them one object at a time.
 
     The head is fetched through ``pull/<n>/head`` rather than the bare sha: a fork PR's
     head commit only exists in the base repo through that ref, so a bare-sha fetch fails
@@ -1481,88 +1497,21 @@ def _clone_pr(
     _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 
-# Bounds the blame history walk. The engine blames at most 30 files, and this list is ordered the
-# same way, so the bound keeps headroom over that while stopping a pathological file list from
-# making the walk longer than anything will read.
-_MAX_BLAME_PREFETCH_PATHS = 100
-
-# Mirrors _MAX_CHANGED_LINES_PER_FILE in the engine's familiarity.py, which the backend cannot
-# import. Over-naming a path is cheap, but a file this large is one the engine drops before it
-# blames anything, and its history is the most expensive to fetch.
-_MAX_PREFETCH_CHANGED_LINES = 2000
-
-# Mirrors the lockfile names of DEPENDENCY_ECOSYSTEMS in the engine's gates.py, which familiarity.py
-# keeps out of blame. Update both. A lockfile's history is the largest set of blobs a prefetch can
-# name, and the engine never blames it. Matched against the lowercased basename, like the engine.
-_LOCKFILE_NAMES = frozenset(
-    {
-        "pnpm-lock.yaml",
-        "package-lock.json",
-        "yarn.lock",
-        "npm-shrinkwrap.json",
-        "uv.lock",
-        "poetry.lock",
-        "pipfile.lock",
-        "gemfile.lock",
-        "composer.lock",
-        "cargo.lock",
-        "go.sum",
-    }
-)
-
-
-def _is_lockfile(path: str) -> bool:
-    return PurePosixPath(path).name.lower() in _LOCKFILE_NAMES
-
-
-def _blame_paths(files: list[dict]) -> list[str]:
-    """Base-side paths of the changed text files, for the blame prefetch.
-
-    The engine blames the OLD path of each changed file, so a rename resolves through
-    ``previous_filename``. A binary is excluded, because its historical blobs are exactly the big
-    ones not worth fetching, and blame skips it anyway. The test is the changed-line count rather
-    than the presence of a patch: GitHub reports a binary as zero added and zero deleted, while it
-    omits the patch of a large text file the engine will still blame.
-
-    Deliberately wider than the engine's own blame selection (largest 30 files): duplicating that
-    heuristic here would let the two drift apart, and naming a path the engine skips costs one more
-    tree walk, because the enumeration reads local trees and the fetch is one request either way.
-    The size bound and lockfiles are the exceptions, because there the cost is the fetch itself.
-
-    Ordered by changed lines, the way the engine orders its own blame selection. Taking the API's
-    order instead would bound a different set: the engine blames the largest files, so a large one
-    late in the API list would be blamed with nothing prefetched for it.
-    """
-    candidates = [entry for entry in files if 0 < entry.get("changes", 0) <= _MAX_PREFETCH_CHANGED_LINES]
-    candidates.sort(key=lambda entry: entry.get("changes", 0), reverse=True)
-    paths: list[str] = []
-    for entry in candidates:
-        path = entry.get("previous_filename") or entry.get("filename")
-        if path and not _is_lockfile(path) and path not in paths:
-            paths.append(path)
-    return paths[:_MAX_BLAME_PREFETCH_PATHS]
-
-
 def _prefetch_review_blobs(
     sandbox: SandboxBase,
     base_sha: str,
     head_sha: str,
     token: str,
-    blame_paths: list[str],
     deadline: float,
 ) -> None:
     """Fetch the old-side blobs the review reads, in one request.
 
-    On a blobless clone blame is the worst case git has: it reads the file's content at each
-    candidate commit, and each miss is its own round trip — for one PR's blame set, ~400 sequential
-    fetches and over three minutes. Enumerating the missing blobs first costs nothing, because the
-    trees are already local, and one batched fetch then serves the whole set, after which blame
-    runs offline in seconds.
-
-    Two sets, one fetch. The blame set needs every historical revision of its paths, which is why it
-    is bounded. The diff set needs the merge-base revision of every changed file, because the engine
-    diffs merge-base against head before it does anything else, and a missing old side there fails
-    the diff outright rather than degrading it.
+    On a blobless clone each missing blob is its own round trip. Enumerating the missing blobs
+    first costs nothing, because the trees are already local, and one batched fetch then serves the
+    whole set. The set is the merge-base revision of every changed file, because the engine diffs
+    merge-base against head before it does anything else, and a missing old side there fails the
+    diff outright rather than degrading it. No history is fetched: the author-familiarity signal
+    reads blame and history from the facts the server injects (see fetch_review_history).
 
     ``diff --raw`` names the diff set: with rename detection off it compares tree entries, so it
     reads no content and needs no blobs, and it reports the old-side object id of every changed
@@ -1573,15 +1522,14 @@ def _prefetch_review_blobs(
 
     Each of those ids is tested with ``cat-file -e``, whose contract is only its exit status, so the
     result does not depend on how a given git version reports a missing promisor object — some print
-    it, some fail the command. The blame set uses ``rev-list --missing=print`` instead, which is the
-    documented way to ask that question of a traversal.
+    it, some fail the command.
 
     Best effort by design. Everything here is also reachable by a lazy fetch, so a failure costs the
     review speed rather than its verdict wherever that fetch can authenticate. Anything raised is
     swallowed; the reviewer's own share of the budget shrinks accordingly and the shared deadline
     keeps that bounded.
 
-    ``GIT_NO_LAZY_FETCH`` guards each enumeration: without it, the reads would fetch the very
+    ``GIT_NO_LAZY_FETCH`` guards the enumeration: without it, the reads would fetch the very
     objects they are supposed to be reporting as missing. ``fetch.negotiationAlgorithm=noop``
     skips the have/want negotiation, which walks history to tell the server what the clone already
     holds — wasted work when the request names the objects it wants outright.
@@ -1592,17 +1540,8 @@ def _prefetch_review_blobs(
     credential = _git_credential(token)
     oid_file = "/tmp/stamphog-review-oids"
     auth = credential.command
-    # rev-list walks history for the blame set; diff --raw names the diff set, and cat-file reports
-    # which of those blobs are absent. The two lists overlap, hence sort -u.
-    history_oids = (
-        (
-            f"GIT_NO_LAZY_FETCH=1 git --literal-pathspecs rev-list --full-history --objects "
-            f'--no-object-names --missing=print "$merge_base" -- '
-            f"{' '.join(shlex.quote(path) for path in blame_paths)} | sed -n 's/^?//p'"
-        )
-        if blame_paths
-        else "true"
-    )
+    # diff --raw names the old-side blobs, and cat-file reports which of them are absent. Two
+    # changed files can share an old side, hence sort -u.
     diff_oids = (
         "for oid in $("
         'GIT_NO_LAZY_FETCH=1 git diff --raw --no-renames --abbrev=40 "$merge_base" HEAD '
@@ -1612,7 +1551,7 @@ def _prefetch_review_blobs(
     command = (
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
         f"merge_base=$(git merge-base {shlex.quote(base_sha)} {shlex.quote(head_sha)}) && "
-        f"{{ {history_oids}; {diff_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
+        f"{{ {diff_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
         f"if [ -s {shlex.quote(oid_file)} ]; then "
         f"{auth} -c fetch.negotiationAlgorithm=noop fetch origin --no-tags --no-write-fetch-head "
         f"--filter=blob:none --stdin < {shlex.quote(oid_file)}; fi"

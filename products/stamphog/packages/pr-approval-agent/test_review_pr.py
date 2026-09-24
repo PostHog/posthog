@@ -686,6 +686,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
             blame_incomplete_files=0,
             top_prior_authors=("Alice",),
         )
+        pipeline.familiarity_source = "server"
         pipeline.provenance = CommitProvenance(
             commit_count=3,
             agent_commit_count=2,
@@ -702,6 +703,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_familiarity_blame_overlap_pct"] == 12.3
         assert props["stamphog_familiarity_prior_prs_in_paths"] == 2
         assert props["stamphog_familiarity_days_since_last_touch"] == 30
+        assert props["stamphog_familiarity_source"] == "server"
         assert props["stamphog_agent_authored"] is True
         assert props["stamphog_agent_commit_count"] == 2
         assert props["stamphog_commit_count"] == 3
@@ -712,6 +714,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_owner_teams"] == []
         assert props["stamphog_familiarity_band"] == ""
         assert props["stamphog_familiarity_blame_overlap_pct"] is None
+        assert props["stamphog_familiarity_source"] == "absent"
         assert props["stamphog_agent_authored"] is None
         assert props["stamphog_generated_by"] == []
         assert props["stamphog_task_ids"] == []

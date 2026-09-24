@@ -222,6 +222,10 @@ class Pipeline:
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
         self.familiarity: AuthorFamiliarity | None = None
+        # Where the familiarity signal came from: "git" (local history), "server" (GitHub facts the
+        # hosted server injected), or "absent". Telemetry only, so a band shift can be traced to
+        # its source.
+        self.familiarity_source = "absent"
         self.classification: dict = {}
         self.effective_policy: EffectivePolicy | None = None
         self._diff_path: Path | None = None
@@ -536,6 +540,8 @@ class Pipeline:
         trended per subsystem, not just where the reviewer consumes it.
         """
         self.familiarity = self._compute_familiarity()
+        if self.familiarity is not None:
+            self.familiarity_source = "git"
         if self.classification.get("tier") == "T1-agent":
             self.classification["familiarity"] = self.familiarity
 
@@ -984,6 +990,7 @@ class Pipeline:
                 "stamphog_familiarity_blame_overlap_pct": round(fam.blame_overlap_pct, 1) if fam else None,
                 "stamphog_familiarity_prior_prs_in_paths": fam.prior_prs_in_paths if fam else None,
                 "stamphog_familiarity_days_since_last_touch": fam.days_since_last_touch if fam else None,
+                "stamphog_familiarity_source": self.familiarity_source,
                 "stamphog_agent_authored": prov.agent_authored if prov else None,
                 "stamphog_agent_commit_count": prov.agent_commit_count if prov else None,
                 "stamphog_commit_count": prov.commit_count if prov else None,
