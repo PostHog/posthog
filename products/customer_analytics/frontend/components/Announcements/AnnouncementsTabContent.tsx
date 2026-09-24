@@ -5,6 +5,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonInputSelect,
+    LemonSegmentedButton,
     LemonSnack,
     LemonTable,
     LemonTableColumns,
@@ -17,6 +18,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { AnnouncementSendAsEnumApi } from '../../generated/api.schemas'
 import type { AnnouncementApi, AnnouncementDeliveryApi } from '../../generated/api.schemas'
 import { AnnouncementAccountFilters } from './AnnouncementAccountFilters'
 import { announcementsLogic } from './announcementsLogic'
@@ -38,12 +40,20 @@ function announcementStatusTag(status: AnnouncementApi['status']): { type: TagTy
     }
 }
 
-function ConfirmSendContent({ message, channelLabels }: { message: string; channelLabels: string[] }): JSX.Element {
+function ConfirmSendContent({
+    message,
+    channelLabels,
+    senderLabel,
+}: {
+    message: string
+    channelLabels: string[]
+    senderLabel: string
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-2 max-w-[500px]">
             <p className="m-0">
-                This message will be posted to {pluralize(channelLabels.length, 'customer channel')}. Sending cannot be
-                undone.
+                This message will be posted to {pluralize(channelLabels.length, 'customer channel')} as{' '}
+                <strong>{senderLabel}</strong>. Sending cannot be undone.
             </p>
             <div className="border rounded p-2 bg-surface-secondary whitespace-pre-wrap max-h-40 overflow-y-auto">
                 {message}
@@ -66,13 +76,24 @@ function AnnouncementComposer(): JSX.Element {
         memberChannelsLoading,
         submitting,
         submitDisabledReason,
+        sendAs,
+        senderName,
     } = useValues(announcementsLogic)
-    const { setMessage, setSelectedChannelIds, submitAnnouncement, loadMemberChannels } = useActions(announcementsLogic)
+    const { setMessage, setSelectedChannelIds, setSendAs, submitAnnouncement, loadMemberChannels } =
+        useActions(announcementsLogic)
+
+    const senderLabel = sendAs === AnnouncementSendAsEnumApi.User ? senderName : 'SupportHog'
 
     const confirmSend = (): void => {
         LemonDialog.open({
             title: `Send this announcement to ${pluralize(selectedChannelLabels.length, 'channel')}?`,
-            content: <ConfirmSendContent message={messageDraft.trim()} channelLabels={selectedChannelLabels} />,
+            content: (
+                <ConfirmSendContent
+                    message={messageDraft.trim()}
+                    channelLabels={selectedChannelLabels}
+                    senderLabel={senderLabel}
+                />
+            ),
             primaryButton: {
                 children: 'Send',
                 onClick: submitAnnouncement,
@@ -86,6 +107,28 @@ function AnnouncementComposer(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2 max-w-[800px]">
+            <div className="flex items-center gap-2">
+                <span className="text-secondary">Send as</span>
+                <LemonSegmentedButton
+                    size="small"
+                    value={sendAs}
+                    onChange={setSendAs}
+                    options={[
+                        {
+                            value: AnnouncementSendAsEnumApi.Bot,
+                            label: 'SupportHog',
+                            'data-attr': 'announcement-send-as-bot',
+                        },
+                        {
+                            value: AnnouncementSendAsEnumApi.User,
+                            label: senderName,
+                            tooltip:
+                                'Posts under your Slack name and photo, matched by your PostHog email. Slack still marks the message as an app.',
+                            'data-attr': 'announcement-send-as-user',
+                        },
+                    ]}
+                />
+            </div>
             <LemonTextArea
                 value={messageDraft}
                 onChange={setMessage}
@@ -193,6 +236,14 @@ function AnnouncementHistory(): JSX.Element {
             title: 'By',
             key: 'created_by',
             render: (_, announcement) => announcement.created_by?.first_name || announcement.created_by?.email || '—',
+        },
+        {
+            title: 'Sent as',
+            key: 'send_as',
+            render: (_, announcement) =>
+                announcement.send_as === AnnouncementSendAsEnumApi.User
+                    ? announcement.sender_display_name || '—'
+                    : 'SupportHog',
         },
     ]
 

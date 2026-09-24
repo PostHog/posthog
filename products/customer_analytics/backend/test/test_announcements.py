@@ -8,11 +8,17 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.conversations.backend.facade.api import SupportChannel, SupportSlackNotConfigured
+from products.conversations.backend.facade.api import (
+    SupportChannel,
+    SupportSenderIdentityUnavailable,
+    SupportSlackNotConfigured,
+    SupportSlackSender,
+)
 from products.customer_analytics.backend.models import Announcement, AnnouncementDelivery
 from products.customer_analytics.backend.test.factories import create_account as create_account_row
 
 HELPER = "products.customer_analytics.backend.logic.announcements.list_support_bot_channels"
+SENDER = "products.customer_analytics.backend.logic.announcements.resolve_support_slack_sender"
 
 
 class TestAnnouncementAPI(APIBaseTest):
@@ -77,6 +83,85 @@ class TestAnnouncementAPI(APIBaseTest):
         assert by_channel["D_secret_dm"].status == AnnouncementDelivery.Status.FAILED
         assert by_channel["D_secret_dm"].error == "not_in_channel"
         assert by_channel["C1"].status == AnnouncementDelivery.Status.SENT
+
+    @patch("products.customer_analytics.backend.presentation.views.announcements.report_user_action")
+    @patch(HELPER)
+    def test_create_defaults_to_sending_as_the_bot(self, mock_channels, _mock_report):
+        mock_channels.return_value = self._member_channels()
+
+        response = self.client.post(self.base_url, {"message": "hi", "channels": ["C1"]}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["send_as"] == "bot"
+        assert response.json()["sender_display_name"] == ""
+
+    @patch("products.customer_analytics.backend.logic.announcements.post_support_message")
+    @patch(SENDER)
+    @patch(HELPER)
+    def test_create_as_user_snapshots_the_slack_profile_and_posts_under_it(self, mock_channels, mock_sender, mock_post):
+        mock_channels.return_value = self._member_channels()
+        mock_sender.return_value = SupportSlackSender(name="Ada", icon_url="https://example.com/ada.png")
+        mock_post.return_value = "1.0"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self.base_url, {"message": "hi", "channels": ["C1"], "send_as": "user"}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["send_as"] == "user"
+        assert response.json()["sender_display_name"] == "Ada"
+        mock_sender.assert_called_once_with(self.team.pk, self.user.email)
+        assert mock_post.call_args.kwargs["sender"] == SupportSlackSender(
+            name="Ada", icon_url="https://example.com/ada.png"
+        )
+
+    @patch(SENDER)
+    @patch(HELPER)
+    def test_create_as_user_rejects_when_no_slack_user_matches_the_email(self, mock_channels, mock_sender):
+        mock_channels.return_value = self._member_channels()
+        mock_sender.return_value = None
+
+        response = self.client.post(
+            self.base_url, {"message": "hi", "channels": ["C1"], "send_as": "user"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Field-keyed errors flatten to detail + attr, which is what the composer reads to tell
+        # the sender why this failed rather than showing a generic toast.
+        assert self.user.email in response.json()["detail"]
+        assert response.json()["attr"] == "send_as"
+        # Nothing is sent as SupportHog behind the user's back.
+        assert Announcement.all_teams.count() == 0
+
+    @patch(SENDER)
+    @patch(HELPER)
+    def test_create_as_user_rejects_an_install_that_cannot_post_a_custom_identity(self, mock_channels, mock_sender):
+        mock_channels.return_value = self._member_channels()
+        mock_sender.side_effect = SupportSenderIdentityUnavailable()
+
+        response = self.client.post(
+            self.base_url, {"message": "hi", "channels": ["C1"], "send_as": "user"}, format="json"
+        )
+
+        # Otherwise every channel gets a delivery row that Slack rejects one at a time.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "reconnect" in response.json()["detail"]
+        assert response.json()["attr"] == "send_as"
+        assert Announcement.all_teams.count() == 0
+
+    @patch(SENDER)
+    @patch(HELPER)
+    def test_create_rejects_an_unknown_sender(self, mock_channels, mock_sender):
+        mock_channels.return_value = self._member_channels()
+
+        response = self.client.post(
+            self.base_url, {"message": "hi", "channels": ["C1"], "send_as": "someone_else"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_sender.assert_not_called()
+        assert Announcement.all_teams.count() == 0
 
     @patch(HELPER)
     def test_create_rejects_when_slack_not_connected(self, mock_channels):
