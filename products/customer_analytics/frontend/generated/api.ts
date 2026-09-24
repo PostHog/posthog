@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPresenceApi,
+    AccountPresenceListRequestApi,
     AccountPresenceViewerApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
@@ -954,6 +956,23 @@ export const accountsByExternalIdRetrieve = async (
     return apiMutator<AccountApi>(getAccountsByExternalIdRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAccountsPresenceListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/accounts/presence-list/`
+}
+
+export const accountsPresenceList = async (
+    projectId: string,
+    accountPresenceListRequestApi: AccountPresenceListRequestApi,
+    options?: RequestInit
+): Promise<AccountPresenceApi[]> => {
+    return apiMutator<AccountPresenceApi[]>(getAccountsPresenceListUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPresenceListRequestApi),
     })
 }
 

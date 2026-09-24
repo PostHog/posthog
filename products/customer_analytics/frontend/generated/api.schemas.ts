@@ -1139,6 +1139,21 @@ export interface PaginatedAccountSupportTicketMessageListApi {
     results: AccountSupportTicketMessageApi[]
 }
 
+export interface AccountPresenceListRequestApi {
+    /**
+     * Up to 100 account IDs to read presence for.
+     * @maxItems 100
+     */
+    account_ids: string[]
+}
+
+export interface AccountPresenceApi {
+    /** Customer analytics account ID. */
+    readonly account_id: string
+    /** People viewing this account. */
+    readonly viewers: readonly AccountPresenceViewerApi[]
+}
+
 export type AccountsTableQueryRequestApiVariablesOverride = { [key: string]: { [key: string]: unknown } } | null
 
 export type AccountsTableAccountFieldApi =
