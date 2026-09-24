@@ -205,9 +205,11 @@ export interface experimentMetricsLogicActions {
             duration_ms?: number
             experiment_id: number
             failed?: number
+            failed_to_start?: boolean
             is_existing?: boolean
             poll_count?: number
             recalculation_id: string | null
+            status_code?: number
             succeeded?: number
             total_metrics?: number
             trigger?: ExperimentMetricsRecalculationTriggerEnumApi
@@ -217,9 +219,11 @@ export interface experimentMetricsLogicActions {
             duration_ms?: number | undefined
             experiment_id: number
             failed?: number | undefined
+            failed_to_start?: boolean | undefined
             is_existing?: boolean | undefined
             poll_count?: number | undefined
             recalculation_id: string | null
+            status_code?: number | undefined
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?: ExperimentMetricsRecalculationTriggerEnumApi | undefined
@@ -879,7 +883,25 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * Re-enable the reload button: the run never started, so nothing else will clear loading.
                      */
                     actions.setRecalculationLoading(false)
-                    lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
+                    /**
+                     * The run never started, so no terminal event will ever fire for it. Without this the
+                     * whole create-failure class is invisible in analytics: `failed_to_start` separates it
+                     * from a run that started and then failed.
+                     */
+                    actions.reportExperimentMetricRecalculation('failed', {
+                        experiment_id: resolvedIds.experimentId,
+                        recalculation_id: null,
+                        trigger,
+                        failed_to_start: true,
+                        status_code: error?.status,
+                    })
+                    /**
+                     * Only the manual button asks for a recalculation, so only it gets told one failed. The
+                     * automatic triggers stay quiet on failure the way they already do on success.
+                     */
+                    if (trigger === 'manual') {
+                        lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
+                    }
                 } finally {
                     cache.createInFlight = false
                 }

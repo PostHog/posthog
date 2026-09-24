@@ -21,7 +21,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -158,6 +158,19 @@ from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+class RecalculationSchedulingUnavailable(APIException):
+    # The service that runs the recalculation is separate, so a failure to queue the run is transient and
+    # the same click works a moment later. A bare 500 carries no detail, which leaves the client with a
+    # generic message and no reason to retry.
+    status_code = 503
+    default_detail = (
+        "Couldn't start the recalculation. The service that runs it is temporarily unavailable, "
+        "so try again in a moment."
+    )
+    default_code = "recalculation_scheduling_unavailable"
+
 
 # Heavy JSON columns the list view never renders. Deferred for the list action so large
 # pages don't pay to read/decode detail-only data; the full serializer still loads them
@@ -1412,7 +1425,7 @@ class EnterpriseExperimentsViewSet(
                         task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )
                 )
-            except Exception:
+            except Exception as error:
                 # team-scoped filter: defense in depth so the rollback can never reach across teams even if
                 # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
                 # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
@@ -1427,7 +1440,11 @@ class EnterpriseExperimentsViewSet(
                     status=ExperimentMetricsRecalculation.Status.PENDING,
                     query_to__isnull=True,
                 ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                raise
+                logger.exception(
+                    "Failed to start the experiment metrics recalculation workflow",
+                    extra={"recalculation_id": recalculation_id, "experiment_id": experiment.id},
+                )
+                raise RecalculationSchedulingUnavailable from error
 
         return Response(
             ExperimentMetricsRecalculationSerializer(result).data,

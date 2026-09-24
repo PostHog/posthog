@@ -662,6 +662,68 @@ describe('experimentMetricsLogic', () => {
             expect(createMock).toHaveBeenCalled()
         })
 
+        describe('create failure', () => {
+            const useFailingCreate = (): void => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            freshCompletedRecalculation,
+                        ],
+                    },
+                    post: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                            503,
+                            { detail: 'Scheduler is unavailable. Try again in a moment.' },
+                        ],
+                    },
+                })
+            }
+
+            it('reports a failed_to_start event so a run that never started is measurable', async () => {
+                useFailingCreate()
+                mountLogic()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                }).toDispatchActions([
+                    logic.actionCreators.reportExperimentMetricRecalculation('failed', {
+                        experiment_id: EXPERIMENT.id as number,
+                        recalculation_id: null,
+                        trigger: 'manual',
+                        failed_to_start: true,
+                        status_code: 503,
+                    }),
+                ])
+                expect(logic.values.recalculationLoading).toBe(false)
+            })
+
+            it('shows the backend message on a manual trigger', async () => {
+                useFailingCreate()
+                mountLogic()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                }).toFinishAllListeners()
+
+                expect(lemonToast.error).toHaveBeenCalledWith('Scheduler is unavailable. Try again in a moment.')
+            })
+
+            it.each(['cold_run', 'experiment_config_change'] as const)(
+                'stays quiet when the %s trigger fails, since the user never asked',
+                async (trigger) => {
+                    useFailingCreate()
+                    mountLogic()
+
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerRecalculation(trigger)
+                    }).toFinishAllListeners()
+
+                    expect(lemonToast.error).not.toHaveBeenCalled()
+                }
+            )
+        })
+
         describe('queuing', () => {
             it('queues instead of posting when a run is active', async () => {
                 const createMock = jest.fn(() => [201, pendingRecalculation])

@@ -129,11 +129,13 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     )
     @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
     def test_post_marks_failed_when_workflow_start_errors(self, mock_run, mock_connect):
-        # When the workflow start fails, the view marks the freshly-created row FAILED then re-raises.
-        # The DRF test client converts the exception into a 500 response rather than propagating it.
+        # When the workflow start fails, the view marks the freshly-created row FAILED and answers with a
+        # retryable 503 carrying a detail — a bare 500 leaves the client with nothing to show the user.
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
-        assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert resp.json()["code"] == "recalculation_scheduling_unavailable"
+        assert resp.json()["detail"]
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
         assert row.status == ExperimentMetricsRecalculation.Status.FAILED
 
@@ -155,7 +157,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
         mock_run.side_effect = _start_lands_then_rpc_fails
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
-        assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
         assert row.status == ExperimentMetricsRecalculation.Status.IN_PROGRESS
 
