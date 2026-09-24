@@ -32,6 +32,12 @@ from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade.contracts import (
+    DeletePropertyAccessControlInput,
+    PropertyAccessLevel,
+    UpsertPropertyAccessControlInput,
+)
 from products.access_control.backend.facade.enums import RuleWriteOutcomeValue
 from products.access_control.backend.facade.object_names import (
     display_model,
@@ -534,11 +540,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         role: Role | None = None,
     ) -> Response:
         """Property rules belonging to one subject, including read & write grants over a stricter default."""
-        from products.access_control.backend.facade.api import (
-            list_property_access_controls,  # noqa: PLC0415 — the facade imports ee models, a module-level import would be circular
-        )
-
-        rules = list_property_access_controls(
+        rules = access_control_api.list_property_access_controls(
             team_id=team.id,
             organization_member_id=organization_member.id if organization_member else None,
             role_id=role.id if role else None,
@@ -861,15 +863,6 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
     ) -> Response:
         """The same checks as PropertyAccessControlViewSet, so a property rule set here cannot do
         more than one set on the settings page."""
-        from products.access_control.backend.facade import (
-            api,  # noqa: PLC0415 — the facade imports ee models, a module-level import would be circular
-        )
-        from products.access_control.backend.facade.contracts import (  # noqa: PLC0415
-            DeletePropertyAccessControlInput,
-            PropertyAccessLevel,
-            UpsertPropertyAccessControlInput,
-        )
-
         if not property_definition_id:
             raise exceptions.ValidationError("resource_id is required for a property rule.")
         if not team.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
@@ -888,7 +881,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         try:
             if access_level is None:
                 try:
-                    api.delete_property_access_control(
+                    access_control_api.delete_property_access_control(
                         team_id=team.id,
                         input=DeletePropertyAccessControlInput(
                             property_definition_id=property_definition_id,
@@ -896,21 +889,21 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                             role_id=role_id,
                         ),
                     )
-                except api.PropertyAccessControlRuleNotFoundError:
+                except access_control_api.PropertyAccessControlRuleNotFoundError:
                     # Nothing to clear, including a rule a concurrent clear removed first
                     return self._property_rule_response("noop", None)
                 return self._property_rule_response("cleared", None)
             existing = next(
                 (
                     rule
-                    for rule in api.get_property_access_state(
+                    for rule in access_control_api.get_property_access_state(
                         team_id=team.id, property_definition_id=property_definition_id
                     ).rules
                     if rule.organization_member_id == membership_id and rule.role_id == role_id
                 ),
                 None,
             )
-            rule = api.upsert_property_access_control(
+            rule = access_control_api.upsert_property_access_control(
                 team_id=team.id,
                 created_by_id=self.request.user.pk if self.request.user.is_authenticated else None,
                 input=UpsertPropertyAccessControlInput(
@@ -920,9 +913,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     role_id=role_id,
                 ),
             )
-        except api.PropertyDefinitionNotFoundError:
+        except access_control_api.PropertyDefinitionNotFoundError:
             raise exceptions.NotFound("Property definition not found.")
-        except api.InvalidPropertyAccessControlTargetError as exc:
+        except access_control_api.InvalidPropertyAccessControlTargetError as exc:
             raise exceptions.ValidationError(str(exc))
         return self._property_rule_response("updated" if existing else "created", rule)
 
