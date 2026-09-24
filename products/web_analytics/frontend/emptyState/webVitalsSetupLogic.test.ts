@@ -33,9 +33,7 @@ describe('webVitalsSetupLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.WEB_ANALYTICS }).values.status).toBe(expected)
     })
 
-    // Users can delete the $web_vitals event definition from Data management, so a
-    // cached has-data answer must be revalidated, not trusted forever.
-    it('revalidates a cached has-data answer in the background', async () => {
+    it('revalidates a cached has-data answer, since users can delete the $web_vitals definition', async () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, autocapture_web_vitals_opt_in: false } as TeamType)
         ;(eventDefinitionsList as jest.Mock).mockResolvedValue({ results: [{ name: '$web_vitals' }] })
         webVitalsSetupLogic.mount()

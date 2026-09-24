@@ -256,8 +256,6 @@ describe('createSetupDetectionLogic', () => {
             return detect.mock.calls.length > 0
         }
 
-        // A deleted last entity must bring the empty state back, and the gate must not
-        // wait on the probe to open for the common case where data is still there.
         it('opens the gate at once, then flips to needs-setup and drops the cache when the data is gone', async () => {
             await seedCachedHasData()
             let answer: (status: ProductSetupStatus) => void = () => {}
