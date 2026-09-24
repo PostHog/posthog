@@ -40,3 +40,29 @@ runs:
               enable-cache: ${{ inputs.enable-cache }}
               cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
               save-cache: ${{ inputs.save-cache }}
+
+        # The glibc build of uv can segfault at exit after a successful install, because of a
+        # thread-detach race in glibc before 2.43 (https://github.com/astral-sh/uv/issues/21428).
+        # The musl build is statically linked, so the runner's glibc cannot cause the crash.
+        - name: Swap in the static musl build of uv
+          if: runner.os == 'Linux'
+          shell: bash
+          env:
+              UV_VERSION: ${{ steps.setup-uv.outputs.uv-version }}
+              UV_PATH: ${{ steps.setup-uv.outputs.uv-path }}
+          run: |
+              target="$(uname -m)-unknown-linux-musl"
+              case "$UV_VERSION-$target" in
+                  0.12.13-x86_64-unknown-linux-musl) sha256=4e2bfd0c9007b1032a50e539e965fd0a6037d87ad93ae1580d220a92d4c94098 ;;
+                  0.12.13-aarch64-unknown-linux-musl) sha256=f44bc1037a17889fe562fffd2002d4ed108e499fbe68b4f022af244dc7b8244f ;;
+                  *)
+                      echo "::error::No musl checksum for uv $UV_VERSION ($target). Add one to this step when you bump uv."
+                      exit 1
+                      ;;
+              esac
+              tarball="$(mktemp)"
+              curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$tarball" \
+                  "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-$target.tar.gz"
+              echo "$sha256  $tarball" | sha256sum --check --quiet
+              tar -xzf "$tarball" -C "$(dirname "$UV_PATH")" --strip-components=1
+              "$UV_PATH" --version
