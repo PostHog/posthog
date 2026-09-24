@@ -66,6 +66,27 @@ describe('broadcastSentLogic', () => {
         }
     })
 
+    it('loads the full list at once when a search with no matches is cleared', async () => {
+        jest.useFakeTimers()
+        try {
+            const logic = broadcastSentLogic({ id: 'flow-1', parentRunId: 'run-1', runCreatedAt: null })
+            logic.mount()
+
+            logic.actions.setRecipientSearch('nobody')
+            await jest.advanceTimersByTimeAsync(300)
+            requests[0].resolve([])
+            await jest.advanceTimersByTimeAsync(0)
+
+            logic.actions.setRecipientSearch('')
+
+            expect(logic.values.sendsLoading).toBe(true)
+            expect(requests).toHaveLength(2)
+            expect(requests[1].params.search).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it.each([
         ['on the 29th UTC day after the run started', '2026-01-30T23:59:00Z', false],
         ['from UTC midnight on the 30th day, before 30 full days pass', '2026-01-31T00:00:00Z', true],

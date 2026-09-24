@@ -216,8 +216,12 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        setRecipientSearch: async (_, breakpoint) => {
-            await breakpoint(300)
+        setRecipientSearch: async ({ search }, breakpoint) => {
+            // A cleared search loads at once. During a delay the old search's empty results would show
+            // with no search, which reads as a run with no sends and replaces the search input.
+            if (search) {
+                await breakpoint(300)
+            }
             actions.loadSends()
         },
     })),
