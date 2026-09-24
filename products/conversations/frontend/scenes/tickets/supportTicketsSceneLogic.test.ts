@@ -282,17 +282,20 @@ describe('supportTicketsSceneLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         }
 
-        it('reopens the inbox on the saved view the user last had applied', async () => {
-            useMocks({
-                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
-            })
+        it.each([urls.supportTickets(), `${urls.supportTickets()}/`])(
+            'reopens the inbox on the saved view the user last had applied at %s',
+            async (path) => {
+                useMocks({
+                    get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
+                })
 
-            await applyViewThenReopenAt(urls.supportTickets())
+                await applyViewThenReopenAt(path)
 
-            expect(logic.values.activeView?.short_id).toBe('view-a')
-            expect(logic.values.statusFilter).toEqual(['open'])
-            expect(router.values.searchParams.view).toBe('view-a')
-        })
+                expect(logic.values.activeView?.short_id).toBe('view-a')
+                expect(logic.values.statusFilter).toEqual(['open'])
+                expect(router.values.searchParams.view).toBe('view-a')
+            }
+        )
 
         it('drops a restored view that was deleted and keeps the filters on screen', async () => {
             // The shared mock answers 404, as a deleted view does.

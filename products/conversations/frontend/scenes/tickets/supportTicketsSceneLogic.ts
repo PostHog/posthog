@@ -20,7 +20,7 @@ import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -189,8 +189,8 @@ function hasFilterParams(searchParams: Record<string, any>): boolean {
 // the ticket detail scene reuses its loadTickets action, and a notebook node mounts it
 // through the saved views menu. Only the list the user looks at owns the page URL.
 function isOnTicketListPage(): boolean {
-    // location.pathname still carries the project prefix that the route paths drop.
-    return removeProjectIdIfPresent(router.values.location.pathname) === TICKET_LIST_PATH
+    // location.pathname still carries the project prefix and any trailing slash that the route paths drop.
+    return stripTrailingSlash(removeProjectIdIfPresent(router.values.location.pathname)) === TICKET_LIST_PATH
 }
 
 // Compare a URL against the current filters via their canonical encodings, so
