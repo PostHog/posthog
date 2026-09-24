@@ -57,7 +57,10 @@ export class Navigation {
             // Caddy proxies the literal paths `/surveys`, `/surveys/`, `/api/surveys`
             // to the SDK's hypercache-server, and going through `/project/<teamId>/...`
             // avoids that matcher and lets the app load normally.
-            await this.page.waitForURL(/\/project\/\d+(?:\/|$)/, { timeout: 10_000 }).catch(() => {})
+            // A fresh page has no pending project redirect to wait for.
+            if (this.page.url() !== 'about:blank') {
+                await this.page.waitForURL(/\/project\/\d+(?:\/|$)/, { timeout: 10_000 }).catch(() => {})
+            }
             const teamId = teamIdFromPath(new URL(this.page.url()).pathname)
             const path = IDENTIFIER_URL_FALLBACKS[name]
             const target = teamId !== null ? `/project/${teamId}${path}` : path
@@ -69,11 +72,7 @@ export class Navigation {
             const element = (await navbarSelector.count()) > 0 ? navbarSelector : menuSelector
             await element.click()
         }
-        // Wait for navigation to complete and page to be ready
+        // Callers wait for their scene's UI; background polling can prevent network idle.
         await this.page.waitForLoadState('domcontentloaded')
-        // Additional wait with timeout for network to settle (catches lazy-loaded components)
-        await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {
-            // Ignore timeout - networkidle may not occur with long-polling
-        })
     }
 }
