@@ -11,6 +11,7 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 
@@ -25,6 +26,10 @@ def _flow(team: Team, name: str, conversion: dict[str, Any]) -> HogFlow:
         actions=[],
         edges=[],
     )
+
+
+def _template(team: Team, conversion: dict[str, Any]) -> HogFlowTemplate:
+    return HogFlowTemplate.objects.create(team=team, name="template", scope="team", conversion=conversion)
 
 
 class TestMigrateConversionWindowToDuration(BaseTest):
@@ -121,6 +126,16 @@ class TestMigrateConversionWindowToDuration(BaseTest):
             revision.refresh_from_db()
         assert revision.content == {"conversion": {"filters": [], "window": "1d"}}
 
+    def test_converts_a_template(self) -> None:
+        # A new workflow copies the template's conversion, and the flow API drops window_minutes, so an
+        # unmigrated template hands every workflow built from it the default window instead of its own.
+        template = _template(self.team, {"filters": [], "window_minutes": 2880})
+
+        call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, live_run=True)
+
+        template.refresh_from_db()
+        assert template.conversion == {"filters": [], "window": "2d"}
+
     def test_leaves_an_ambiguous_revision_snapshot_alone(self) -> None:
         flow = _flow(self.team, "ambiguous revision", {"filters": [], "window": "7d"})
         with team_scope(self.team.id):
@@ -185,9 +200,10 @@ class TestStripInert(BaseTest):
         flow.refresh_from_db()
         assert flow.conversion == {"filters": [], "window": window, "window_minutes": 2880}
 
-    def test_refuses_a_convertible_draft_or_snapshot_and_says_so(self) -> None:
-        # A convertible value hiding in a draft or a snapshot is not inert: publishing or restoring it
-        # after the field is gone drops the window. Skipping it silently would report a clean sweep.
+    def test_refuses_a_convertible_draft_snapshot_or_template_and_says_so(self) -> None:
+        # A convertible value hiding in a draft, a snapshot or a template is not inert: publishing,
+        # restoring or building from it after the field is gone drops the window. Skipping it silently
+        # would report a clean sweep.
         flow = _flow(self.team, "clean live row", {"filters": []})
         flow.draft = {"conversion": {"filters": [], "window_minutes": 2880}}
         flow.save()
@@ -198,6 +214,7 @@ class TestStripInert(BaseTest):
                 version=1,
                 content={"conversion": {"filters": [], "window_minutes": 1440}},
             )
+        template = _template(self.team, {"filters": [], "window_minutes": 60})
 
         out = StringIO()
         call_command(
@@ -210,12 +227,15 @@ class TestStripInert(BaseTest):
 
         flow.refresh_from_db()
         revision.refresh_from_db()
+        template.refresh_from_db()
         assert flow.draft == {"conversion": {"filters": [], "window_minutes": 2880}}
         assert revision.content == {"conversion": {"filters": [], "window_minutes": 1440}}
-        assert "2 flow(s), draft(s) or snapshot(s) still carry a convertible value" in out.getvalue()
+        assert template.conversion == {"filters": [], "window_minutes": 60}
+        assert "3 flow(s), draft(s), snapshot(s) or template(s) still carry a convertible value" in out.getvalue()
 
-    def test_strips_drafts_and_revision_snapshots(self) -> None:
-        # A snapshot that keeps the key puts it back the moment someone restores that version.
+    def test_strips_drafts_revision_snapshots_and_templates(self) -> None:
+        # A snapshot or a template that keeps the key puts it back the moment someone restores that
+        # version or builds a workflow from it.
         flow = _flow(self.team, "with draft", {"filters": [], "window_minutes": 0})
         flow.draft = {"conversion": {"filters": [], "window_minutes": None}}
         flow.save()
@@ -226,14 +246,17 @@ class TestStripInert(BaseTest):
                 version=1,
                 content={"conversion": {"filters": [], "window_minutes": 0}},
             )
+        template = _template(self.team, {"filters": [], "window_minutes": None})
 
         call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, live_run=True, strip_inert=True)
 
         flow.refresh_from_db()
         revision.refresh_from_db()
+        template.refresh_from_db()
         assert flow.conversion == {"filters": []}
         assert flow.draft == {"conversion": {"filters": []}}
         assert revision.content == {"conversion": {"filters": []}}
+        assert template.conversion == {"filters": []}
 
     def test_dry_run_writes_nothing(self) -> None:
         flow = _flow(self.team, "inert", {"filters": [], "window_minutes": 0})

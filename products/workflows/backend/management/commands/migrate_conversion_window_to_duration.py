@@ -7,6 +7,7 @@ from django.db import transaction
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.timing_reschedule import parse_delay_duration_seconds
 from products.workflows.backend.utils.durations import duration_minutes
@@ -116,12 +117,17 @@ class Command(BaseCommand):
 
         drafts = drafts_with_rows + self.convert_drafts(live_run, team_id)
         revisions = self.convert_revisions(live_run, team_id)
+        templates = self.convert_templates(live_run, team_id)
 
         self.report_needs_review(needs_review)
 
         verb = "converted" if live_run else "to convert"
         self.stdout.write(self.style.SUCCESS(f"Completed ({mode}): {converted} flow(s) {verb}"))
-        self.stdout.write(self.style.SUCCESS(f"  plus {drafts} draft(s) and {revisions} revision snapshot(s)"))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  plus {drafts} draft(s), {revisions} revision snapshot(s) and {templates} template(s)"
+            )
+        )
 
     def strip_inert(self, live_run: bool, team_id: int | None, mode: str) -> None:
         """Delete the key everywhere it is dead weight, so nothing is left to read or restore."""
@@ -196,18 +202,42 @@ class Command(BaseCommand):
                 )
             revisions_stripped += 1
 
+        templates = HogFlowTemplate.objects.filter(conversion__isnull=False)
+        if team_id:
+            templates = templates.filter(team_id=team_id)
+        templates_stripped = 0
+        for template in templates.iterator():
+            if converted_conversion(template.conversion) is not None:
+                # A workflow created from this template would get the default window instead of its own.
+                still_convertible += 1
+                continue
+            if stripped_conversion(template.conversion) is None:
+                continue
+            self.stdout.write(f"  {verb} template id={template.id} team_id={template.team_id}")
+            if live_run:
+                with transaction.atomic():
+                    locked_template = HogFlowTemplate.objects.select_for_update().get(pk=template.pk)
+                    fresh = stripped_conversion(locked_template.conversion)
+                    if fresh is None:
+                        continue
+                    HogFlowTemplate.objects.filter(pk=template.pk).update(conversion=fresh)
+            templates_stripped += 1
+
         if still_convertible:
             self.stdout.write(
                 self.style.WARNING(
-                    f"  {still_convertible} flow(s), draft(s) or snapshot(s) still carry a convertible "
-                    "value and were left alone. Run the command without --strip-inert first, then "
-                    "repeat this pass."
+                    f"  {still_convertible} flow(s), draft(s), snapshot(s) or template(s) still carry a "
+                    "convertible value and were left alone. Run the command without --strip-inert first, "
+                    "then repeat this pass."
                 )
             )
         done = "stripped" if live_run else "to strip"
         self.stdout.write(self.style.SUCCESS(f"Completed ({mode}): {flows_stripped} flow(s) {done}"))
         self.stdout.write(
-            self.style.SUCCESS(f"  plus {drafts_stripped} draft(s) and {revisions_stripped} revision snapshot(s)")
+            self.style.SUCCESS(
+                f"  plus {drafts_stripped} draft(s), {revisions_stripped} revision snapshot(s) and "
+                f"{templates_stripped} template(s)"
+            )
         )
 
     def convert_drafts(self, live_run: bool, team_id: int | None) -> int:
@@ -267,6 +297,32 @@ class Command(BaseCommand):
                 HogFlowRevision.objects.for_team(revision.team_id).filter(pk=revision.pk).update(
                     content={**content, "conversion": rewritten.conversion}
                 )
+            count += 1
+        return count
+
+    def convert_templates(self, live_run: bool, team_id: int | None) -> int:
+        """Templates a new workflow copies its conversion from. The flow API drops window_minutes, so a
+        template left on the old field gives every workflow created from it the default window instead."""
+        templates = HogFlowTemplate.objects.filter(conversion__isnull=False)
+        if team_id:
+            templates = templates.filter(team_id=team_id)
+
+        count = 0
+        for template in templates.iterator():
+            rewritten = converted_conversion(template.conversion)
+            if rewritten is None:
+                continue
+            self.stdout.write(
+                f"  {'Converting' if live_run else 'Would convert'} template id={template.id} "
+                f"team_id={template.team_id}: window={rewritten.window}"
+            )
+            if live_run:
+                with transaction.atomic():
+                    locked = HogFlowTemplate.objects.select_for_update().get(pk=template.pk)
+                    fresh = converted_conversion(locked.conversion)
+                    if fresh is None:
+                        continue
+                    HogFlowTemplate.objects.filter(pk=template.pk).update(conversion=fresh.conversion)
             count += 1
         return count
 
