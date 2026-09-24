@@ -6976,6 +6976,10 @@ snapshots:
         hash: v1.k794b7964.9c165882088a94a60c3f278c5ac933e19deea0799e2f178773b9562a06d5b587.T17LeudaJGjY7lpzSaWm3Vstubn72J6YmRirV14ZZGQ
     products-workflows-editor-graph--customer-onboarding-and-retention--light:
         hash: v1.k794b7964.d1a0262e3ba550f69a2ab3d0bcda4327157eb1f947c5ad35cb2267ba70cbdec8.2bL0CCEt9WyVdRlAp8Lyr03y_DB6ERgysK-0eIDqO1E
+    products-workflows-editor-graph--narrow-workflow--dark:
+        hash: v1.k794b7964.01f65c99f249253da38e1b14144997481107c43fd970d9ffb0325706c903902c.C8EF2O1y8NSkFVFK2fakvB6yqqMeMB6kaqHVJRLC2ZI
+    products-workflows-editor-graph--narrow-workflow--light:
+        hash: v1.k794b7964.123ec2fa1f1ba91cbf8257978a890c2cf9223d0fcef1c9a37c6fd7b594e945c3.Q0Btzh2-Lg299AqvrCAPrc4Bgy2OFM_gTWDFODs37RM
     products-workflows-editor-graph--new-workflow--dark:
         hash: v1.k794b7964.7ba2d7e983927e8e8375e47d0c949b93943fd66aae376f98e125d683dd4ffd99.YZb3PzvlCIEGiDRA-lVQffhm1K7TV_CXi-VCWJpzbLc
     products-workflows-editor-graph--new-workflow--light:
@@ -6992,6 +6996,10 @@ snapshots:
         hash: v1.k794b7964.7c60c3d139d5b5dabbd7fb974f621f135149176f1c86184aed079c6deaef414e.AkijMDM4cBxIWBu4E8V7VThp1fwVqHJcfVB24fcGK0Y
     products-workflows-editor-graph--support-sla-routing--light:
         hash: v1.k794b7964.185cabd282f05ff0599ff324858eeeb5a81eeeb8fffd0b072ca9d5c0d7807243.YHPb3_b2-Ub_stRNprVNr30-LC_kXEkREvdFFEMknkw
+    products-workflows-editor-graph--with-navigation--dark:
+        hash: v1.k794b7964.41531f0e4a9cb728232b50eb53a6615cbf117ec55824bccc6e42dca1c0f03d81.imMllz-NkrBb2FZ2YCA5vn3lmY8D5b933oS2mF0itww
+    products-workflows-editor-graph--with-navigation--light:
+        hash: v1.k794b7964.6d17dbab3ca3a7422ddcc58effbf489d7191bb9ef15db2d65fa405e27922a921.AsAyuHILJW39r69f-JHKnQKnqm1T5kf66hr2CkX-QNo
     products-workflows-editor-tree--add-on-promotion-emails--dark:
         hash: v1.k794b7964.f28f743921b108a3d7ce5c5f7f373407609e4f131790261d27afd7107909381f.Ji6HKS277Nou8dc2Ow4IG0TDdXKMQOCiNg6StWNB1Kc
     products-workflows-editor-tree--add-on-promotion-emails--light:
@@ -11304,6 +11312,14 @@ snapshots:
         hash: v1.k794b7964.b2de0cd0533566c2406e9c66bcbe6a83c6f7b2bd0e1862027ba36a33a78624d1.D6LgyASNsXWSr98qx80h-brseJENrtIOMEJsSNN9sUo
     scenes-app-settings-project--settings-project-surveys--light:
         hash: v1.k794b7964.1dce2d50ae8e763257abefd34003f487df7baa41b6313291544ef850594c67eb.FZ2Kzj3Zzi8EPr4bXptpzNAps-OhQ0Je0kW17u3dXwc
+    scenes-app-settings-settingsectionunavailable--admin-only--dark:
+        hash: v1.k794b7964.b6580b1a9c7735f0b03e9d5b58954169a1772b47bc2ae449f14771e1c5281a7b.Pp01b8BavwsYTSE4Mo3Q57hwN0X73qsh7JDbp7_DORo
+    scenes-app-settings-settingsectionunavailable--admin-only--light:
+        hash: v1.k794b7964.7e462c4ab5f42a3a7009504cddfad7bbf1b34f06f55179223819189371f2fb88.8GzqqWh7i9xTHpvCqKwIgIXtub_koGBxpqDOTb_lRX8
+    scenes-app-settings-settingsectionunavailable--not-enabled--dark:
+        hash: v1.k794b7964.df4991f623bf060ebc92ccee5e33ad3b03f7f14ed7e00e298e5789298c46f821.D_Z6MA0PLkC5eOxoazEB5kCQiYVMkS80XqkfJzm7ycI
+    scenes-app-settings-settingsectionunavailable--not-enabled--light:
+        hash: v1.k794b7964.06e88a65c54124deb1ddd8236f4473695e5a87d5360ae5ab266779e9fc118f0b.m-LRG6zgQ_Ci4Y8_7H8N1OSIa2-GAzu9ZogXu0IDCdk
     scenes-app-settings-user--settings-user-api-keys--dark:
         hash: v1.k794b7964.c2bdcdc0dae9ab40e695772337ae95876f4f65dee34af627210f5af55fa567e9.OrMBp-9yqlfHY7s8HIzZg8R6M2i0lPVY5q9mx__VSjk
     scenes-app-settings-user--settings-user-api-keys--light:
