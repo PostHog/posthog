@@ -26,6 +26,7 @@ from posthog.schema import (
 from posthog.hogql.database.database import get_data_warehouse_table_name
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.access_controlled_resources import (
     _TRANSITIVE_SYSTEM_TABLE_SCOPES,
@@ -297,7 +298,7 @@ class TestQueriedAccessControlledResources(BaseTest):
 
     def test_view_fan_out_does_not_scale_queries(self):
         # Views that share a base view must each be walked once, so six of them cost the same queries as two.
-        def _query_count(fan_out: int) -> int:
+        def _cost(fan_out: int) -> tuple[int, int]:
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=f"base_view_{fan_out}",
@@ -311,16 +312,22 @@ class TestQueriedAccessControlledResources(BaseTest):
                     query={"kind": "HogQLQuery", "query": f"select * from base_view_{fan_out}"},
                 )
             query = HogQLQuery(query=f"select * from {', '.join(view_names)}")
-            with CaptureQueriesContext(connection) as ctx:
+            with (
+                CaptureQueriesContext(connection) as ctx,
+                patch("posthog.hogql.parser.parse_select", wraps=parse_select) as parse_spy,
+            ):
                 assert queried_access_controlled_resources(query, self.team) == {
                     "warehouse_view",
                     "warehouse_table",
                     "external_data_source",
                     "notebook",
                 }
-            return len(ctx.captured_queries)
+            return len(ctx.captured_queries), parse_spy.call_count
 
-        assert _query_count(6) == _query_count(2)
+        (queries_6, parses_6), (queries_2, parses_2) = _cost(6), _cost(2)
+        assert queries_6 == queries_2
+        # Each added view costs one parse. A base view walked again for each parent would cost two.
+        assert parses_6 - parses_2 == 4
 
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
