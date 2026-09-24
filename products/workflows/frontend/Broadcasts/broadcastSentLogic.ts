@@ -50,7 +50,7 @@ export interface broadcastSentLogicActions {
         sends: MessageAsset[]
         payload?: any
     }
-    loadSends: () => any
+    loadSends: (_: void) => void
     loadSendsFailure: (
         error: string,
         errorObject?: any
@@ -60,10 +60,10 @@ export interface broadcastSentLogicActions {
     }
     loadSendsSuccess: (
         sends: MessageAsset[],
-        payload?: any
+        payload?: void
     ) => {
         sends: MessageAsset[]
-        payload?: any
+        payload?: void
     }
     selectInvocation: (invocationId: string | null) => {
         invocationId: string | null
@@ -129,7 +129,7 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
             sends: [
                 [] as MessageAsset[],
                 {
-                    loadSends: async (_, breakpoint) => {
+                    loadSends: async (_: void, breakpoint) => {
                         cache.queryVersion = (cache.queryVersion ?? 0) + 1
                         const query = { search: values.recipientSearch, status: values.statusFilter }
                         let page: MessageAsset[]
