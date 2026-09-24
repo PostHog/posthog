@@ -16,7 +16,11 @@ import structlog
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
-from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
+from posthog.models.github_integration_base import (
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+    _is_safe_github_repo_path,
+)
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
@@ -25,11 +29,6 @@ from . import common, model, refresh_tracking
 
 logger = structlog.get_logger(__name__)
 
-
-# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
-# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
-# authenticated request to a different endpoint.
-_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 _GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
 
@@ -43,10 +42,6 @@ _GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,3
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
 _MAX_FILE_CONTENTS_BYTES = 10 * 1024 * 1024
-
-
-def _is_safe_github_repo_path(repo_path: str) -> bool:
-    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
 def _is_safe_github_ref(ref: str) -> bool:
