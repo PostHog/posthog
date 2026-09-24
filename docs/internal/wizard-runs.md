@@ -90,6 +90,10 @@ The handoff activity marks the run as `completed` after it persists the Run Arti
 If a worker activity exhausts its retries or the workflow is canceled, one finalization activity records the terminal state.
 Sandbox cleanup does not change a completed run if cleanup fails.
 
+The Worker passes the existing run ID to the setup agent through `POSTHOG_WIZARD_RUN_ID`.
+The agent uses that ID to publish task snapshots instead of creating another run.
+The Worker owns the cloud run's stages and terminal status.
+
 The Worker:
 
 1. Resolves short-lived GitHub and Wizard credentials inside the activity.
