@@ -187,7 +187,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "deployments": {
-        "description": "Every deployment in the organization — the full deployments plus the branch deployments open against them. The lookup resolving which Dagster+ deployment a run or asset belongs to.",
+        "description": "Every deployment in the organization, both the full deployments and the branch deployments open against them. The lookup resolving which Dagster+ deployment a run or asset belongs to.",
         "docs_url": "https://docs.dagster.io/api/graphql",
         "columns": {
             "organizationId": "Identifier of the organization the deployment belongs to.",
@@ -204,7 +204,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "run_logs": {
-        "description": "Event log for each run — step starts, successes, failures, retries and log messages. Resolves what happened inside the runs table's rows.",
+        "description": "Event log for each run, covering step starts, successes, failures, retries and log messages. Resolves what happened inside the runs table's rows.",
         "docs_url": "https://docs.dagster.io/api/graphql",
         "columns": {
             "runId": "Identifier of the run the event belongs to.",
@@ -258,7 +258,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "insights_job_metrics": {
-        "description": "Dagster+ Insights metrics per job over time — credits consumed, execution time, materialization and retry counts — one row per metric, job and time bucket.",
+        "description": "Dagster+ Insights metrics per job over time, such as credits consumed, execution time, and materialization and retry counts. One row per metric, job and time bucket.",
         "docs_url": "https://docs.dagster.io/guides/monitor/insights",
         "columns": {
             "metricName": "Name of the Insights metric the row measures (e.g. dagster_credits, execution_time_ms).",
@@ -273,7 +273,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "insights_asset_metrics": {
-        "description": "Dagster+ Insights metrics per asset over time — credits consumed, execution time, materialization and retry counts — one row per metric, asset and time bucket.",
+        "description": "Dagster+ Insights metrics per asset over time, such as credits consumed, execution time, and materialization and retry counts. One row per metric, asset and time bucket.",
         "docs_url": "https://docs.dagster.io/guides/monitor/insights",
         "columns": {
             "metricName": "Name of the Insights metric the row measures (e.g. dagster_credits, execution_time_ms).",
@@ -289,7 +289,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "insights_deployment_metrics": {
-        "description": "Dagster+ Insights metrics per deployment over time — credits consumed, execution time, materialization and retry counts — one row per metric, deployment and time bucket.",
+        "description": "Dagster+ Insights metrics per deployment over time, such as credits consumed, execution time, and materialization and retry counts. One row per metric, deployment and time bucket.",
         "docs_url": "https://docs.dagster.io/guides/monitor/insights",
         "columns": {
             "metricName": "Name of the Insights metric the row measures (e.g. dagster_credits, execution_time_ms).",

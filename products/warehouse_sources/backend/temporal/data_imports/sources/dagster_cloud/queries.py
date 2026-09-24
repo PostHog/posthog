@@ -353,8 +353,8 @@ fragment DeploymentFields on DagsterCloudDeployment {
 }"""
 
 # `deployments` returns only the subset the caller can reach, so the table is built from
-# `fullDeployments` plus `branchDeployments` instead — together they cover every deployment the
-# organization has, and each row carries `isBranchDeployment` to tell the two apart.
+# `fullDeployments` plus `branchDeployments` instead, because together they cover every deployment
+# the organization has. Each row carries `isBranchDeployment` to tell the two apart.
 DEPLOYMENTS_QUERY = (
     """
 query Deployments($branchDeploymentLimit: Int!) {

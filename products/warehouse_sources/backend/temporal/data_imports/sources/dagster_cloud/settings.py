@@ -91,7 +91,8 @@ class DagsterCloudFanOutConfig:
     window_row_field: str | None = None
     window_unit: WindowUnit | None = None
     # Forward-cursor children page with an opaque cursor plus a `hasMore` flag instead of a
-    # timestamp window. Such a walk is never checkpointed mid-parent — see `row_index_field`.
+    # timestamp window. Such a walk is never checkpointed mid-parent, for the reason
+    # `row_index_field` gives below.
     cursor_variable: str | None = None
     has_more_key: str | None = None
     # Child rows with no identifier of their own get their 0-based position in the parent's
@@ -396,7 +397,7 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
         supports_incremental=True,
         partition_key="timestamp",
         # Events ascend inside a run, but runs arrive newest-first, so the stream as a whole is
-        # not ordered — "desc" holds the watermark until the fan-out finishes.
+        # not ordered, so "desc" holds the watermark until the fan-out finishes.
         sort_mode="desc",
         # One row per log line of every run is the largest table this source can produce, and a
         # first sync walks the deployment's whole run history.
@@ -447,7 +448,7 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
         supports_incremental=True,
         partition_key="timestamp",
         # One request returns every bucket of one metric at once, so the rows it produces are
-        # not in time order — "desc" holds the watermark until the whole walk finishes.
+        # not in time order, so "desc" holds the watermark until the whole walk finishes.
         sort_mode="desc",
         # Insights is a Dagster+ feature the token may not be entitled to, and a metric catalog
         # is deployment-specific, so leave the choice to the user.
@@ -469,7 +470,7 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
         supports_incremental=True,
         partition_key="timestamp",
         # One request returns every bucket of one metric at once, so the rows it produces are
-        # not in time order — "desc" holds the watermark until the whole walk finishes.
+        # not in time order, so "desc" holds the watermark until the whole walk finishes.
         sort_mode="desc",
         # Insights is a Dagster+ feature the token may not be entitled to, and a metric catalog
         # is deployment-specific, so leave the choice to the user.
@@ -491,7 +492,7 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
         supports_incremental=True,
         partition_key="timestamp",
         # One request returns every bucket of one metric at once, so the rows it produces are
-        # not in time order — "desc" holds the watermark until the whole walk finishes.
+        # not in time order, so "desc" holds the watermark until the whole walk finishes.
         sort_mode="desc",
         # Insights is a Dagster+ feature the token may not be entitled to, and a metric catalog
         # is deployment-specific, so leave the choice to the user.

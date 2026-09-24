@@ -783,7 +783,7 @@ class TestDeployments:
     @patch(f"{MODULE}.make_tracked_session")
     def test_full_and_branch_deployments_land_in_one_table(self, mock_session_cls: MagicMock) -> None:
         # `deployments` alone returns only what the caller can reach, so the table unions the two
-        # sibling root fields — a branch deployment missing here orphans the runs that ran on it.
+        # sibling root fields, because a branch deployment missing here orphans the runs that ran on it.
         session = MagicMock()
         session.post.side_effect, calls = _route({"Deployments": [_deployments_response(["prod"], ["pr-7"])]})
         mock_session_cls.return_value = session
@@ -836,8 +836,8 @@ class TestRunLogFanOut:
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
     def test_forward_cursor_pages_and_numbers_events_across_pages(self, mock_session_cls: MagicMock) -> None:
-        # A run event carries no id, so its position in the run's stream is the key — it has to
-        # keep counting across the parent's pages, not restart at each one.
+        # A run event carries no id, so its position in the run's stream is the key, and it has to
+        # keep counting across the parent's pages rather than restart at each one.
         session = MagicMock()
         session.post.side_effect, calls = _route(
             {
