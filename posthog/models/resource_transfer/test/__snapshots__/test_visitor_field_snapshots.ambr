@@ -333,6 +333,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Text
   list([
+    'agent_context',
     'body',
   ])
 # ---
