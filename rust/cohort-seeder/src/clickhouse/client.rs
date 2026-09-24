@@ -17,7 +17,30 @@ use rustls::pki_types::pem::{self, PemObject};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 
+use super::credential::ClickHouseCredential;
 use crate::config::Config;
+
+#[derive(Clone)]
+pub struct ClickHouseClient {
+    client: clickhouse::Client,
+    credential: Arc<ClickHouseCredential>,
+}
+
+impl ClickHouseClient {
+    pub fn new(client: clickhouse::Client, credential: ClickHouseCredential) -> Self {
+        Self {
+            client,
+            credential: Arc::new(credential),
+        }
+    }
+
+    pub fn query(&self, sql: &str) -> clickhouse::query::Query {
+        self.client
+            .clone()
+            .with_password(self.credential.current())
+            .query(sql)
+    }
+}
 
 /// The resolved ClickHouse HTTP endpoint. Precedence is explicit URL > offline cluster host > host;
 /// the scheme comes from `secure`, and a bare host gets the canonical port (8443 secure, 8123 plain).
@@ -262,7 +285,7 @@ fn client_with_tls_config(tls_config: ClientConfig) -> clickhouse::Client {
     )
 }
 
-pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseClientError> {
+pub fn build_client(config: &Config) -> Result<ClickHouseClient, ClickHouseClientError> {
     let join_algorithm = config
         .seeder_ch_join_algorithm
         .parse::<ClickHouseJoinAlgorithm>()?;
@@ -281,10 +304,9 @@ pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseCli
     } else {
         client_with_tls_config(unverified_tls_config()?)
     };
-    Ok(client
+    let client = client
         .with_url(endpoint.as_str())
         .with_user(&config.clickhouse_user)
-        .with_password(&config.clickhouse_password)
         .with_database(&config.clickhouse_database)
         .with_option(
             "max_execution_time",
@@ -304,7 +326,11 @@ pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseCli
             "max_bytes_in_set",
             config.seeder_ch_max_bytes_in_set.to_string(),
         )
-        .with_option("join_algorithm", join_algorithm.as_str()))
+        .with_option("join_algorithm", join_algorithm.as_str());
+    Ok(ClickHouseClient::new(
+        client,
+        ClickHouseCredential::from_config(config),
+    ))
 }
 
 #[cfg(test)]
@@ -492,6 +518,38 @@ LaIcbwSaQpbb1SSltcQ0krF2y351IH79a2fmV57qw3VZ5u17KbO4
                 error.contains(expected),
                 "CA bundle {ca_path:?} gave {error:?}, expected it to mention {expected:?}"
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn each_query_sends_the_token_file_as_it_is_when_the_query_is_built() {
+        let (sent_keys, mut received_keys) = tokio::sync::mpsc::unbounded_channel();
+        let server = axum::Router::new().fallback(move |headers: axum::http::HeaderMap| {
+            let sent_keys = sent_keys.clone();
+            async move {
+                let key = headers
+                    .get("x-clickhouse-key")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned);
+                sent_keys.send(key).unwrap();
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
+
+        let scratch = tempfile::tempdir().unwrap();
+        let token_file = scratch.path().join("token");
+        let mut config = default_config();
+        config.clickhouse_url = format!("http://{address}");
+        config.clickhouse_password = "static".to_string();
+        config.clickhouse_password_file = token_file.to_string_lossy().into_owned();
+        let client = build_client(&config).unwrap();
+
+        for token in ["first-token", "rotated-token"] {
+            std::fs::write(&token_file, token).unwrap();
+            client.query("SELECT 1").execute().await.unwrap();
+            assert_eq!(received_keys.recv().await.unwrap().as_deref(), Some(token));
         }
     }
 }

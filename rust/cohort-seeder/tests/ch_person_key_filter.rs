@@ -22,9 +22,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use clickhouse::{Client, Row};
+use clickhouse::Row;
 use cohort_seeder::clickhouse::client::build_client;
 use cohort_seeder::clickhouse::person_sql::{person_scan_sql, PersonScanSpec};
+use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::{PersonRange, ProjectedKeys, UtcMillis};
 use envconfig::Envconfig;
@@ -227,13 +228,13 @@ async fn the_repeated_aggregate_is_computed_once() {
     );
 }
 
-fn connect() -> Client {
+fn connect() -> ClickHouseClient {
     let config = Config::init_from_env().expect("the seeder config falls back to its defaults");
     build_client(&config).expect("the default ClickHouse client builds")
 }
 
 /// Run the production predicate over `blobs`, in the blobs' own order.
-async fn admit_all(client: &Client, keys: &[&str], blobs: &[&str]) -> Vec<bool> {
+async fn admit_all(client: &ClickHouseClient, keys: &[&str], blobs: &[&str]) -> Vec<bool> {
     let sql = format!(
         "WITH ? AS blobs\nSELECT index, {} AS admitted\nFROM (SELECT arrayJoin(arrayEnumerate(blobs)) AS index, blobs[index] AS blob)\nORDER BY index",
         predicate_over("blob", keys),
