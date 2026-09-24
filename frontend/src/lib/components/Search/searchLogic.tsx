@@ -228,6 +228,7 @@ export interface searchLogicValues {
         ticketItems: SearchItem[]
     }
     dataManagementItems: SearchItem[]
+    fallbackSearchQuery: string | null
     groupItems: SearchItem[]
     groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>
     groupSearchResultsLoading: boolean
@@ -258,8 +259,9 @@ export interface searchLogicValues {
     rankedSearch: {
         items: SearchItem[]
         query: string
-        teamId: number
+        teamId: number | null
     } | null
+    rankedSearchDisabledTeams: number[]
     rankedSearchLoading: boolean
     recentItems: SearchItem[]
     search: string
@@ -285,6 +287,9 @@ export interface searchLogicActions {
     toggleTerminal: () => {
         value: true
     } // terminalDockLogic
+    disableRankedSearch: (teamId: number) => {
+        teamId: number
+    }
     loadAccountSearchResults: ({ searchTerm }: { searchTerm: string }) => {
         searchTerm: string
     }
@@ -383,7 +388,7 @@ export interface searchLogicActions {
         rankedSearch: {
             items: SearchItem[]
             query: string
-            teamId: number
+            teamId: number | null
         } | null,
         payload?: {
             query: string
@@ -392,7 +397,7 @@ export interface searchLogicActions {
         rankedSearch: {
             items: SearchItem[]
             query: string
-            teamId: number
+            teamId: number | null
         } | null
         payload?: {
             query: string
@@ -440,6 +445,9 @@ export interface searchLogicActions {
             searchTerm: string
         }
     }
+    searchFallback: (search: string) => {
+        search: string
+    }
     searchRecents: ({ search }: { search: string }) => {
         search: string
     }
@@ -473,7 +481,14 @@ export interface searchLogicActions {
 export interface searchLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        useRankedSearch: (featureFlags: FeatureFlagsSet, arg: string) => boolean
+        useRankedSearch: (
+            featureFlags: FeatureFlagsSet,
+            currentTeamId: number | null,
+            rankedSearchDisabledTeams: number[],
+            fallbackSearchQuery: any,
+            search: string,
+            arg: string
+        ) => boolean
         commandCandidates: (
             toolsItems: SearchItem[],
             newItems: SearchItem[],
@@ -489,10 +504,13 @@ export interface searchLogicMeta {
             rankedSearch: {
                 items: SearchItem[]
                 query: string
-                teamId: number
+                teamId: number | null
             } | null,
             currentTeamId: number | null,
-            allCategories: SearchCategory[]
+            allCategories: SearchCategory[],
+            featureFlags: FeatureFlagsSet,
+            searchPending: boolean,
+            arg: string
         ) => SearchCategory[]
         isSearching: (
             useRankedSearch: boolean,
@@ -653,15 +671,24 @@ export const searchLogic = kea<searchLogicType>([
     actions({
         setSearch: (search: string) => ({ search }),
         setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
+        disableRankedSearch: (teamId: number) => ({ teamId }),
+        searchFallback: (search: string) => ({ search }),
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ values, cache, actions }) => ({
         rankedSearch: [
-            null as { query: string; teamId: number; items: SearchItem[] } | null,
+            null as { query: string; teamId: number | null; items: SearchItem[] } | null,
             {
                 loadRankedSearch: async ({ query }: { query: string }, breakpoint) => {
                     const teamId = values.currentTeamId
                     if (teamId === null) {
-                        return null
+                        return {
+                            query,
+                            teamId,
+                            items: filterSearchItems(values.commandCandidates, query).map((item) => ({
+                                ...item,
+                                category: 'results',
+                            })),
+                        }
                     }
                     const signal = cache.searchAbortController?.signal as AbortSignal | undefined
                     const commands = values.commandCandidates
@@ -675,6 +702,7 @@ export const searchLogic = kea<searchLogicType>([
                                     id: item.id.slice(0, 200),
                                     name: (item.displayName || item.name).slice(0, 200),
                                     description: [
+                                        item.displayName ? item.name : undefined,
                                         commandDescriptions[item.name],
                                         commandExamples[item.name],
                                         item.category,
@@ -703,11 +731,29 @@ export const searchLogic = kea<searchLogicType>([
                                 },
                             ]
                         })
-                    } catch (error) {
-                        if (isAbortError(error)) {
-                            breakpoint()
+                        breakpoint()
+                        if (
+                            !signal?.aborted &&
+                            values.search === query &&
+                            values.currentTeamId === teamId &&
+                            items.length === 0
+                        ) {
+                            actions.searchFallback(query)
+                            return null
                         }
-                        items = filterSearchItems(commands, query).map((item) => ({ ...item, category: 'results' }))
+                    } catch (error) {
+                        breakpoint()
+                        if (
+                            isAbortError(error) ||
+                            signal?.aborted ||
+                            values.search !== query ||
+                            values.currentTeamId !== teamId
+                        ) {
+                            return values.rankedSearch
+                        }
+                        actions.disableRankedSearch(teamId)
+                        actions.searchFallback(query)
+                        return null
                     }
                     breakpoint()
                     if (signal?.aborted || values.search !== query || values.currentTeamId !== teamId) {
@@ -933,6 +979,19 @@ export const searchLogic = kea<searchLogicType>([
         ],
     })),
     reducers({
+        fallbackSearchQuery: [
+            null as string | null,
+            {
+                setSearch: () => null,
+                searchFallback: (_, { search }) => search,
+            },
+        ],
+        rankedSearchDisabledTeams: [
+            [] as number[],
+            {
+                disableRankedSearch: (state, { teamId }) => [...state, teamId],
+            },
+        ],
         rankedSearch: {
             setSearch: () => null,
         },
@@ -946,7 +1005,7 @@ export const searchLogic = kea<searchLogicType>([
             false,
             {
                 setSearch: (_, { search }) => search.trim() !== '',
-                loadRankedSearchSuccess: () => false,
+                loadRankedSearchSuccess: (state, { rankedSearch }) => (rankedSearch === null ? state : false),
                 loadRankedSearchFailure: () => false,
                 loadUnifiedSearchResultsSuccess: () => false,
                 loadUnifiedSearchResultsFailure: () => false,
@@ -961,9 +1020,26 @@ export const searchLogic = kea<searchLogicType>([
     }),
     selectors({
         useRankedSearch: [
-            (s) => [s.featureFlags, (_, props: SearchLogicProps) => props.logicKey],
-            (flags: FeatureFlagsSet, logicKey: string): boolean =>
-                logicKey === 'command' && !!flags[FEATURE_FLAGS.COMMAND_SEARCH_JEV],
+            (s) => [
+                s.featureFlags,
+                s.currentTeamId,
+                s.rankedSearchDisabledTeams,
+                s.fallbackSearchQuery,
+                s.search,
+                (_, props: SearchLogicProps) => props.logicKey,
+            ],
+            (
+                flags: FeatureFlagsSet,
+                teamId: number | null,
+                disabledTeams: number[],
+                fallbackQuery: string | null,
+                search: string,
+                logicKey: string
+            ): boolean =>
+                logicKey === 'command' &&
+                !!flags[FEATURE_FLAGS.COMMAND_SEARCH_JEV] &&
+                fallbackQuery !== search &&
+                (teamId === null || !disabledTeams.includes(teamId)),
         ],
         commandCandidates: [
             (s) => [
@@ -982,19 +1058,39 @@ export const searchLogic = kea<searchLogicType>([
                     .slice(0, 512),
         ],
         visibleCategories: [
-            (s) => [s.useRankedSearch, s.search, s.rankedSearch, s.currentTeamId, s.allCategories],
+            (s) => [
+                s.useRankedSearch,
+                s.search,
+                s.rankedSearch,
+                s.currentTeamId,
+                s.allCategories,
+                s.featureFlags,
+                s.searchPending,
+                (_, props: SearchLogicProps) => props.logicKey,
+            ],
             (
                 enabled: boolean,
                 search: string,
                 rankedSearch: {
                     items: SearchItem[]
                     query: string
-                    teamId: number
+                    teamId: number | null
                 } | null,
                 teamId: number | null,
-                allCategories: SearchCategory[]
+                allCategories: SearchCategory[],
+                flags: FeatureFlagsSet,
+                pending: boolean,
+                logicKey: string
             ): SearchCategory[] => {
                 if (!enabled || !search.trim()) {
+                    if (
+                        search.trim() &&
+                        logicKey === 'command' &&
+                        flags[FEATURE_FLAGS.COMMAND_SEARCH_JEV] &&
+                        (pending || allCategories.some((category) => category.isLoading))
+                    ) {
+                        return [{ key: 'results', items: [], isLoading: true }]
+                    }
                     return allCategories
                 }
                 const complete = rankedSearch?.query === search && rankedSearch?.teamId === teamId
@@ -2044,6 +2140,11 @@ export const searchLogic = kea<searchLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            if (values.search.trim()) {
+                actions.setSearch(values.search)
+            }
+        },
         setSearch: async ({ search }, breakpoint) => {
             if (search.trim() === '') {
                 // An empty term means the palette closed or the box was cleared, so no later run
@@ -2069,7 +2170,13 @@ export const searchLogic = kea<searchLogicType>([
                 return
             }
 
+            actions.searchFallback(search)
+        },
+        searchFallback: async ({ search }, breakpoint) => {
             await breakpoint(150)
+            if (values.search !== search) {
+                return
+            }
 
             // Registering under the same key aborts the previous term's requests. The new ones go
             // out in the same tick, so each superseded run sees its replacement when it wakes up.

@@ -429,12 +429,14 @@ function SearchRoot({
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
-        if (useRankedSearch && searchValue.trim()) {
-            return allItems
-        }
         const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
         let items: SearchItem[]
-        if (searchValue.trim()) {
+        if (useRankedSearch && searchValue.trim()) {
+            if (isSearching) {
+                return []
+            }
+            items = allItems
+        } else if (searchValue.trim()) {
             // Client-side fuzzy filter for recents/tools/starred; keep server results as-is
             const clientItems = allItems.filter((item) => ['recents', 'tools', 'starred'].includes(item.category))
             const serverItems = allItems.filter((item) => !['recents', 'tools', 'starred'].includes(item.category))
@@ -447,7 +449,11 @@ function SearchRoot({
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
         const normalizedQuery = searchValue.trim().toLowerCase()
-        if (normalizedQuery && SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))) {
+        if (
+            !isSearching &&
+            normalizedQuery &&
+            SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))
+        ) {
             const hasDark = normalizedQuery.includes('dark')
             const hasLight = normalizedQuery.includes('light')
 
@@ -478,8 +484,8 @@ function SearchRoot({
             }
         }
 
-        return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, suggestedItems, isDarkModeOn, useRankedSearch])
+        return useRankedSearch && searchValue.trim() ? items : [...normalizedSuggestedItems, ...items]
+    }, [allItems, searchValue, suggestedItems, isDarkModeOn, useRankedSearch, isSearching])
 
     useEffect(() => {
         if (!isActive) {

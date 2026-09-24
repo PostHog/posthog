@@ -193,6 +193,8 @@ Set `TYPESAFE_API_KEY` and `COMMAND_SEARCH_JEV_TEAM_IDS` (a comma-separated list
 The backend evaluates the flag locally, so the analytics SDK must have its local feature flag definitions available.
 Use synthetic data or projects owned by PostHog only; TypeSafe is approved for staff experiments, not customer data.
 Cloud access is restricted to the US.
+The empty allowlist keeps production disabled until deployment configuration explicitly supplies approved team IDs.
+Before enabling the experiment in production, configure this setting through the deployment chart and secret/configuration management.
 
 The browser sends the search text and available command metadata; it does not fetch or upload a project's files for ranking.
 Django retrieves up to 48 newest files, 48 files created by the current user, and 32 path text matches, within the current team and web surface.
@@ -203,7 +205,10 @@ File bodies and arbitrary file metadata are excluded.
 Typing waits 200 milliseconds before starting a request.
 The palette displays one completed result set and discards superseded responses.
 Rankings are cached for 30 seconds; provider failures and exhausted budgets fall back to text matches without a later rerank.
-A network failure between the browser and Django falls back to available commands.
+A denied or failed ranking request restores the existing search for that team while the palette is mounted.
+An empty ranking also uses the existing search, including people, groups, accounts, tickets, and playlists.
+These fallback searches finish before their results appear together.
+Successful ranked searches stay limited to commands and file candidates to keep their latency bounded.
 The existing search remains available when the flag is off.
 
 ### Running in detached mode
