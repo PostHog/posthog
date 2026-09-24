@@ -776,7 +776,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return lambda instance: AccessControlSerializer(instance, data=data, context=context)
 
     def _rule_target(
-        self, team: Team, user_access_control: UserAccessControl, resource: str, resource_id: str | None
+        self,
+        team: Team,
+        user_access_control: UserAccessControl,
+        resource: str,
+        resource_id: str | None,
+        *,
+        access_level: str | None,
     ) -> tuple[Model, str | None]:
         """The object a rule is validated against, and the resource_id to store.
 
@@ -791,7 +797,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             raise exceptions.ValidationError(f"{resource} does not accept access rules.")
         if resource_id:
-            return self._visible_object(team, user_access_control, resource, resource_id), resource_id
+            target = self._visible_object(team, user_access_control, resource, resource_id, access_level=access_level)
+            return target, resource_id
         if resource not in ACCESS_CONTROL_RESOURCES:
             raise exceptions.ValidationError(
                 f"{resource} has no resource-level rules. Pass a resource_id for a rule on one object."
@@ -826,7 +833,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 team, user_access_control, resource_id, access_level, membership=membership, role=role
             )
 
-        target, stored_resource_id = self._rule_target(team, user_access_control, resource, resource_id)
+        target, stored_resource_id = self._rule_target(
+            team, user_access_control, resource, resource_id, access_level=access_level
+        )
         body: dict[str, Any] = {"resource": resource, "resource_id": stored_resource_id, "access_level": access_level}
         if membership is not None:
             body["organization_member"] = str(membership.id)

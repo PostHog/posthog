@@ -163,6 +163,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `dashboard` - dashboard
  * * `dashboard_template` - dashboard_template
  * * `data_catalog` - data_catalog
+ * * `data_deletion` - data_deletion
  * * `dataset` - dataset
  * * `early_access_feature` - early_access_feature
  * * `endpoint` - endpoint
@@ -219,6 +220,7 @@ export const RuleResourceEnumApi = {
     Dashboard: 'dashboard',
     DashboardTemplate: 'dashboard_template',
     DataCatalog: 'data_catalog',
+    DataDeletion: 'data_deletion',
     Dataset: 'dataset',
     EarlyAccessFeature: 'early_access_feature',
     Endpoint: 'endpoint',
@@ -280,6 +282,7 @@ export interface AccessControlRuleRequestApi {
      * * `dashboard` - dashboard
      * * `dashboard_template` - dashboard_template
      * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
@@ -420,6 +423,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `dashboard` - dashboard
      * * `dashboard_template` - dashboard_template
      * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
@@ -611,6 +615,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `dashboard` - dashboard
      * * `dashboard_template` - dashboard_template
      * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
