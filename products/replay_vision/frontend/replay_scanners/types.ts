@@ -215,9 +215,8 @@ export function failureKindDescription(kind: FailureKind): string {
 /**
  * Why a failed or ineligible scan produced no result, short enough for a table cell.
  *
- * A failure always reads as the kind's curated copy: the encoded message is an upstream exception
- * string, which tells a reader nothing they can act on. That raw text stays on the detail surfaces.
- * An ineligible message is product-written, so it is preferred over the generic kind copy.
+ * A failure's encoded message is an upstream exception string, so the cell reads the curated copy and
+ * the raw text stays on the detail surfaces. An ineligible message is product-written, so it is kept.
  */
 export function unsuccessfulScanReason(
     status: ReplayObservationApi['status'],
