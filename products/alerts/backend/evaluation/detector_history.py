@@ -10,12 +10,14 @@ to today's behavior, and the cache is rebuilt from that scan.
 """
 
 import json
+import random
 import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone as django_timezone
@@ -28,7 +30,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, ph_background_capture
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.alerts.backend.evaluation.detector_history_eligibility import (
@@ -58,6 +60,35 @@ _Buckets = dict[datetime, tuple[Any, float]]
 RunQuery = Callable[..., tuple[list, list[str] | None]]
 
 
+def _shadow_compare(
+    rows: list[_Row], matched: DetectorSeriesQuery, team: Team, anchor: datetime, run_query: RunQuery
+) -> dict[str, object]:
+    """Sampled observe-only check that a cache-served series matches what the full scan returns.
+
+    Beyond the refresh margin history is as measured, so a person merge can move an old bucket;
+    the event reports the divergence so the rollout can watch its size, rather than failing.
+    """
+    rate = settings.ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE
+    if not rate or random.random() >= rate:
+        return {}
+    full_rows, _ = run_query()
+    full = _parse_rows(full_rows, team)
+    if full is None:
+        return {"shadow_compared": True, "shadow_parse_failed": True}
+    expected = _assemble(full, matched, anchor)
+    diverging = sum(1 for a, b in zip(expected, rows) if a != b) + abs(len(expected) - len(rows))
+    return {"shadow_compared": True, "shadow_equal": diverging == 0, "shadow_diverging_rows": diverging}
+
+
+def _capture_outcome(alert: AlertConfiguration, outcome: str, **props: object) -> None:
+    """One event per served detector check, so the flag rollout has a cache-engagement signal."""
+    ph_background_capture()(
+        distinct_id=str(alert.id),
+        event="alert detector cache outcome",
+        properties={"team_id": alert.team_id, "alert_id": str(alert.id), "outcome": outcome, **props},
+    )
+
+
 def detector_rows_from_history(
     *,
     alert: AlertConfiguration,
@@ -79,16 +110,19 @@ def detector_rows_from_history(
         return None
     if config.evaluation != HogQLAlertEvaluation.LAST_ROW:
         # first_row scores the head of the window, which the tail refresh never re-reads.
+        _capture_outcome(alert, "ineligible_evaluation")
         return None
     matched = match_detector_series_query(insight.query, column=config.column)
     if matched is None:
+        _capture_outcome(alert, "ineligible_query")
         return None
 
     team_id = resolve_effective_team_id(alert.team_id)
     fingerprint = _fingerprint(matched, config, team, alert.created_by)
     now = django_timezone.now()
 
-    def rebuild() -> tuple[list[_Row], list[str]]:
+    def rebuild(reason: str) -> tuple[list[_Row], list[str]]:
+        _capture_outcome(alert, "full_seed", reason=reason, window_hours=matched.window_hours)
         return _rebuild(
             alert=alert,
             team_id=team_id,
@@ -103,20 +137,21 @@ def detector_rows_from_history(
         # Clocks going back give two bucket instants one local label, and the query returns
         # buckets by label, so a cache keyed by instant cannot tell them apart. Fall back to
         # full scans for as long as the fold sits inside the window.
+        _capture_outcome(alert, "dst_fold_full_scan", window_hours=matched.window_hours)
         return None
     cached = _load_cached(team_id, alert.id, fingerprint, matched, anchor)
     if not cached or len(cached) < min_samples:
         # Even a perfect tail scan could not fill the detector's window from here.
-        return rebuild()
+        return rebuild("short_cache")
 
     scan_hours = _scan_hours(cached, now)
     if scan_hours >= matched.window_hours:
-        return rebuild()
+        return rebuild("stale_cache")
 
     scanned_rows, _ = run_query(query_override=matched.narrowed_to(scan_hours, at=now, tz=team.timezone))
     scanned = _parse_rows(scanned_rows, team)
     if scanned is None:
-        return rebuild()
+        return rebuild("unparsable_tail")
 
     authoritative_from = anchor - timedelta(hours=scan_hours)
     _write(
@@ -136,7 +171,9 @@ def detector_rows_from_history(
 
     rows = _assemble(merged, matched, anchor)
     if len(rows) < min_samples:
-        return rebuild()
+        return rebuild("short_assembly")
+    shadow = _shadow_compare(rows, matched, team, anchor, run_query)
+    _capture_outcome(alert, "cache_hit", scan_hours=scan_hours, window_hours=matched.window_hours, **shadow)
     return rows, matched.column_names
 
 
