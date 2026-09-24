@@ -296,7 +296,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             )
         assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
 
-    def test_view_fan_out_does_not_scale_queries(self):
+    def test_view_fan_out_does_not_scale_queries(self) -> None:
         # Views that share a base view must each be walked once, so six of them cost the same queries as two.
         def _cost(fan_out: int) -> tuple[int, int]:
             DataWarehouseSavedQuery.objects.create(
