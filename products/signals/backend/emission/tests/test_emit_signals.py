@@ -514,22 +514,18 @@ class TestCheckActionability:
 class TestFilterActionable:
     @pytest.mark.asyncio
     async def test_filters_non_actionable_outputs(self):
-        outputs = [_make_output(source_id="1"), _make_output(source_id="2"), _make_output(source_id="3")]
+        outputs = [
+            _make_output(source_id="1", description="actionable one"),
+            _make_output(source_id="2", description="non-actionable two"),
+            _make_output(source_id="3", description="actionable three"),
+        ]
         team = MagicMock(id=1)
 
         mock_client = MagicMock()
-        responses = [
-            _make_llm_response("ACTIONABLE"),
-            _make_llm_response("NOT_ACTIONABLE"),
-            _make_llm_response("ACTIONABLE"),
-        ]
-        call_count = 0
 
         async def mock_create(*args, **kwargs):
-            nonlocal call_count
-            resp = responses[call_count]
-            call_count += 1
-            return resp
+            prompt = kwargs["messages"][0]["content"]
+            return _make_llm_response("NOT_ACTIONABLE" if "non-actionable two" in prompt else "ACTIONABLE")
 
         mock_client.messages.create = mock_create
 
