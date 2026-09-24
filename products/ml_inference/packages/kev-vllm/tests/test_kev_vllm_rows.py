@@ -3,7 +3,7 @@ import importlib
 import pytest
 
 from kev_vllm.decision import readout_positions
-from kev_vllm.kev_compat import SPECIAL, SystemOneRequest, encode, rows_of, to_answers, to_record, with_date_facts
+from kev_vllm.kev_compat import SPECIAL, SystemOneRequest, encode, rows_of, to_answers, to_record
 
 
 def test_each_row_ends_with_decide_and_exposes_every_option(tokenizer, record):
@@ -62,18 +62,3 @@ def test_io_processor_entry_point_names_an_importable_dotted_path():
     assert module_name == "kev_vllm.io_processor" and attr == "KevIOProcessor"
     with pytest.raises(ModuleNotFoundError, match="vllm"):
         importlib.import_module(module_name)
-
-
-@pytest.mark.parametrize(
-    "state",
-    [
-        "Filed on June 26, 2026, due July 4, 2026.",
-        {"filed": "June 26, 2026", "due": "July 4, 2026"},
-        ["Filed on June 26, 2026", "due July 4, 2026"],
-    ],
-)
-def test_date_facts_are_applied_once_however_many_times_the_state_passes_through(state):
-    once = with_date_facts(state)
-
-    assert once != state
-    assert with_date_facts(once) == once

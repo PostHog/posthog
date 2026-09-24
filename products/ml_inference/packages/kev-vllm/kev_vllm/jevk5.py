@@ -9,6 +9,7 @@ for byte, because the LoRA was trained on it.
 import json
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from kev_vllm.kev_compat import JSONContent, Noul, Question, Score
 
@@ -22,9 +23,15 @@ SYSTEM = (
 )
 
 
-def options(question: Question) -> list[tuple[str, str]]:
-    """(key, option text) in the order the letters are assigned: noul is true then false, choice follows its criteria,
-    score is the levels lowest first."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Option:
+    key: str
+    text: str
+
+
+def options(question: Question) -> list[Option]:
+    """Options in the order the letters are assigned: noul is true then false, choice follows its criteria, score is the
+    levels lowest first."""
     if isinstance(question, Noul):
         criteria = question.criteria or {}
         pairs = [(key, criteria.get(key) or f"The proposition is {key}.") for key in ("true", "false")]
@@ -32,11 +39,11 @@ def options(question: Question) -> list[tuple[str, str]]:
         pairs = [(str(level), description) for level, description in enumerate(question.criteria)]
     else:
         pairs = [(key, description or key) for key, description in question.criteria.items()]
-    return [(key, f"{key}: {description}") for key, description in pairs]
+    return [Option(key=key, text=f"{key}: {description}") for key, description in pairs]
 
 
 def messages(state: JSONContent, question: Question) -> list[dict[str, str]]:
-    texts = [text for _, text in options(question)]
+    texts = [option.text for option in options(question)]
     if len(texts) > MAX_OPTIONS:
         raise ValueError(f"JevK5 answers at most {MAX_OPTIONS} options per question, got {len(texts)}")
     payload = {
@@ -68,7 +75,7 @@ def letter_token_ids(tokenizer) -> list[int]:
 def probabilities(letter_logits: Sequence[float], question: Question, temperature: float, keys: Sequence[str]) -> list[float]:
     """Calibrated probabilities reported in `keys` order (kev_compat.question_keys), which for noul is false then true,
     the reverse of the letter order."""
-    by_letter = [key for key, _ in options(question)]
+    by_letter = [option.key for option in options(question)]
     scaled = [logit / temperature for logit in letter_logits[: len(by_letter)]]
     top = max(scaled)
     weights = [math.exp(value - top) for value in scaled]

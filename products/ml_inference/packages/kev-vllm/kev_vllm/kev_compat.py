@@ -169,21 +169,14 @@ def date_facts(text: str) -> str:
     return " ".join(facts)
 
 
-DATE_FACTS_PARAGRAPH = "\n\ndate_facts: "
-
-
 def with_date_facts(state):
     """State with a `date_facts` field (object states) or an appended paragraph (string states) when two or more absolute
-    dates appear. Opt-in preprocessing (KEV_DATE_FACTS=1 in kev.serve, --date_facts in kev.benchmark). Idempotent, unlike
-    Kev's version: a state that already carries the facts (a client applied them before a server that also does) is
-    returned as is, so the model never sees the paragraph twice."""
-    if isinstance(state, str) and DATE_FACTS_PARAGRAPH in state: return state
-    if isinstance(state, list) and state and isinstance(state[-1], dict) and "date_facts" in state[-1]: return state
+    dates appear. Opt-in preprocessing (KEV_DATE_FACTS=1 in kev.serve, --date_facts in kev.benchmark)."""
     facts = date_facts(render(state))
     if not facts: return state
     if isinstance(state, dict): return {**state, "date_facts": facts}
     if isinstance(state, list): return state + [{"date_facts": facts}]
-    return f"{state}{DATE_FACTS_PARAGRAPH}{facts}"
+    return f"{state}\n\ndate_facts: {facts}"
 
 
 def question_keys(qtype: str, criteria) -> list[str]:

@@ -1,6 +1,6 @@
 #
-# Build and push the decision model serving image: the official vLLM image plus the kev-vllm plugin package.
-# Weights are not in the image; a GPU host mounts an exported checkpoint (see the package README).
+# Build and push the decision model serving image: the official vLLM image plus the kev-vllm plugin package, Caddy and
+# s5cmd. Weights are not in the image; the entrypoint fetches them (see the package README).
 #
 name: ML Inference Decision Image CD
 
@@ -11,17 +11,25 @@ on:
         paths:
             - 'products/ml_inference/packages/kev-vllm/**'
             - '.github/workflows/cd-ml-inference-decision-image.yml'
-    # paths mirror the push trigger; the build-ml-inference-image label forces a build on a PR touching them, pushed
-    # to GHCR only so a GPU host can pull it for a trial before the change lands.
+    # Adding the build-ml-inference-image label builds the PR's head at that moment and pushes it to GHCR alone, so a GPU
+    # host can pull it for a trial before the change lands. A later push does not rebuild until someone adds the label
+    # again, which ties each build to a commit a person chose, as container-images-label-ci.yml does.
     pull_request:
-        types: [opened, synchronize, reopened, labeled]
+        types: [labeled]
         paths:
             - 'products/ml_inference/packages/kev-vllm/**'
             - '.github/workflows/cd-ml-inference-decision-image.yml'
     workflow_dispatch:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    # An unrelated label must not cancel a build already in progress.
+    group: >-
+        ${{ github.workflow }}-${{
+            github.event_name == 'push' && github.sha
+            || github.event_name == 'pull_request' && github.event.label.name != 'build-ml-inference-image'
+                && format('ignored-label-{0}', github.event.label.name)
+            || github.head_ref || github.ref
+        }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -32,7 +40,7 @@ jobs:
                 github.event_name == 'push' ||
                 github.event_name == 'workflow_dispatch' ||
                 (github.event.pull_request.head.repo.full_name == github.repository &&
-                 contains(github.event.pull_request.labels.*.name, 'build-ml-inference-image'))
+                 github.event.label.name == 'build-ml-inference-image')
             )
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
