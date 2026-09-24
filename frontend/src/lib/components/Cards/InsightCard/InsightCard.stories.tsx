@@ -283,35 +283,6 @@ export const ErrorStates: Story = {
     },
 }
 
-/**
- * A tile that has no result and a failure the client already knows about, while the next attempt is
- * already queued. The failure has to win: a spinner here reads as a slow tile rather than a failed one.
- */
-export const ErrorStateWhileRetryQueued: Story = {
-    render: () => {
-        return (
-            <div className="grid gap-4 grid-cols-1 min-w-[30rem]">
-                <InsightCardComponent
-                    tile={defaultTile}
-                    insight={{ ...EXAMPLE_TRENDS, name: 'Unavailable query', result: null } as unknown as InsightModel}
-                    apiErrored
-                    apiError={
-                        new ApiError('', 503, undefined, {
-                            code: 'service_unavailable',
-                            queryId: 'queued-retry-query-id',
-                        })
-                    }
-                    loadingQueued
-                    refresh={() => {}}
-                    rename={() => {}}
-                    duplicate={() => {}}
-                    placement="SavedInsightGrid"
-                />
-            </div>
-        )
-    },
-}
-
 // Access Control Stories
 export const AccessControlNoAccess: Story = {
     render: () => {
