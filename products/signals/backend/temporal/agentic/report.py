@@ -30,7 +30,10 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
-from products.signals.backend.report_content_gates import team_report_metrics_enabled
+from products.signals.backend.report_content_gates import (
+    team_expected_impact_authoring_enabled,
+    team_report_metrics_enabled,
+)
 from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -764,6 +767,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
                 input.team_id
             )
+            expected_impact_authoring_enabled = metrics_enabled and await database_sync_to_async(
+                team_expected_impact_authoring_enabled, thread_sensitive=False
+            )(input.team_id)
             # An `agent` check needs a scout fleet to dispatch it. A team with none degrades to
             # deterministic checks rather than storing a check that could never run.
             agent_checks_enabled = await database_sync_to_async(_team_runs_scouts, thread_sensitive=False)(
@@ -801,6 +807,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 metrics_enabled=metrics_enabled,
+                expected_impact_authoring_enabled=expected_impact_authoring_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
             )

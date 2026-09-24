@@ -594,6 +594,11 @@ Put reproducible report-level measurements under `metrics`. A metric tells the r
 - **At most {MAX_REPORT_METRICS} metrics per report.** Prefer the handful that changes a decision. `metrics` replaces the previous set with the new title and summary, so repeat any still-valid metric on re-research. Snapshot-only or queryless rows are legacy or malformed, are always redacted, and must not be re-sent.
 """
 
+_EXPECTED_IMPACT_GUIDANCE = """## Proposed impact measurement
+
+When the solution has an Expected impact section and the research supports it, give one live metric that directly measures the intended change a `goal_value` and `goal_direction` (`at_most` or `at_least`). Suggest `decision_window_days` (1–30) or `minimum_data_points` (1–1000), or both, based on the observed traffic and how often the underlying event occurs. Count qualifying opportunities, not failures, as data points: a zero-failure goal cannot require failures to occur. Prefer a short useful window over waiting for certainty. State the baseline and intended outcome in the Expected impact prose. The goal is a proposal, not a scheduled check or a statistical confidence claim. If the metric cannot observe the intended outcome, or no credible threshold or traffic estimate exists, omit the goal rather than invent one. Keep an existing valid goal on re-research unless evidence changes it.
+"""
+
 
 def _render_previous_metrics_context(previous_metrics: list[ReportMetric]) -> str:
     if not previous_metrics:
@@ -921,6 +926,7 @@ def build_report_presentation_prompt(
     previous_charts: list[ReportChart] | None = None,
     previous_metrics: list[ReportMetric] | None = None,
     metrics_enabled: bool = False,
+    expected_impact_authoring_enabled: bool = False,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not metrics_enabled:
@@ -933,6 +939,8 @@ def build_report_presentation_prompt(
     visual_sections: list[str] = []
     if metrics_enabled:
         visual_sections.append(_REPORT_METRICS_GUIDANCE)
+        if expected_impact_authoring_enabled:
+            visual_sections.append(_EXPECTED_IMPACT_GUIDANCE)
         previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
         if previous_metrics_context:
             visual_sections.append(previous_metrics_context)
@@ -1086,6 +1094,7 @@ async def run_multi_turn_research(
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
     metrics_enabled: bool = False,
+    expected_impact_authoring_enabled: bool = False,
     agent_checks_enabled: bool = False,
     steering_section: str = "",
     implementation_context: ImplementationResearchContext = NO_IMPLEMENTATION_CONTEXT,
@@ -1257,6 +1266,7 @@ async def run_multi_turn_research(
             previous_charts=previous_report_research.charts if previous_report_research else None,
             previous_metrics=previous_report_research.metrics if previous_report_research else None,
             metrics_enabled=metrics_enabled,
+            expected_impact_authoring_enabled=expected_impact_authoring_enabled,
         )
         presentation_result = await session.send_followup(
             presentation_prompt,

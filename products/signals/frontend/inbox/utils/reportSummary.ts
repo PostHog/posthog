@@ -9,7 +9,7 @@
 
 import { fromMarkdown } from 'mdast-util-from-markdown'
 
-export type ReportSummarySectionKind = 'problem' | 'impact' | 'solution' | 'other'
+export type ReportSummarySectionKind = 'problem' | 'impact' | 'expected-impact' | 'solution' | 'other'
 
 export interface ReportSummarySection {
     kind: ReportSummarySectionKind
@@ -32,6 +32,7 @@ export interface ParsedReportSummary {
 const SECTION_LABELS: Record<Exclude<ReportSummarySectionKind, 'other'>, string> = {
     problem: 'Problem',
     impact: 'Impact',
+    'expected-impact': 'Expected impact',
     solution: 'Solution',
 }
 
@@ -40,6 +41,7 @@ const SECTION_KINDS: Record<string, Exclude<ReportSummarySectionKind, 'other'>> 
     problem: 'problem',
     'the problem': 'problem',
     impact: 'impact',
+    'expected impact': 'expected-impact',
     solution: 'solution',
     fix: 'solution',
     'the fix': 'solution',

@@ -1045,6 +1045,35 @@ class ReportMetricSerializer(serializers.Serializer):
             "caveat on the data. Omit it rather than restate the title, unit, or window."
         ),
     )
+    goal_value = _MetricFloatField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Proposed threshold after release. Informational only; does not schedule a check.",
+    )
+    goal_direction = serializers.ChoiceField(
+        choices=("at_most", "at_least"),
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Whether success means at most or at least goal_value.",
+    )
+    decision_window_days = serializers.IntegerField(
+        min_value=1,
+        max_value=30,
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Suggested days after release before assessing impact, not a monitoring schedule.",
+    )
+    minimum_data_points = serializers.IntegerField(
+        min_value=1,
+        max_value=1000,
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Optional number of qualifying observations before assessing impact.",
+    )
 
     def to_representation(self, instance: Mapping[str, object]) -> dict[str, object]:
         representation = dict(super().to_representation(instance))

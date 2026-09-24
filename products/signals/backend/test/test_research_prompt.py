@@ -210,6 +210,16 @@ def _make_chart() -> ReportChart:
 
 
 class TestBuildReportPresentationPrompt:
+    def test_proposed_impact_guidance_only_appears_with_both_flags(self):
+        off = build_report_presentation_prompt(2, metrics_enabled=True)
+        no_metrics = build_report_presentation_prompt(2, expected_impact_authoring_enabled=True)
+        on = build_report_presentation_prompt(2, metrics_enabled=True, expected_impact_authoring_enabled=True)
+
+        assert "## Proposed impact measurement" not in off
+        assert "## Proposed impact measurement" not in no_metrics
+        assert "## Proposed impact measurement" in on
+        assert "Count qualifying opportunities, not failures" in on
+
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)
         on = build_report_presentation_prompt(2, metrics_enabled=True)
