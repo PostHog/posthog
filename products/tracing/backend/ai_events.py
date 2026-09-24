@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -22,6 +23,10 @@ AI_EVENT_KINDS = ["$ai_generation", "$ai_span", "$ai_embedding"]
 # OTel ingestion stamps an event with the span's start, while the PostHog AI SDKs and the LLM
 # gateway stamp it when the call finished. The source marker tells the two apart.
 OTEL_INGESTION_SOURCE = "otel"
+
+# `$ai_latency` is sender-controlled. Past this a value is junk rather than a slow call, and a
+# huge one overflows the datetime arithmetic below.
+MAX_LATENCY_SECONDS = 7 * 24 * 60 * 60
 
 
 @frozen
@@ -110,9 +115,17 @@ def _stored_trace_id_forms(trace_id: str) -> list[str]:
         return [hex_form]
 
 
+def _usable_latency(value: float | None) -> float | None:
+    if value is None or not math.isfinite(value) or value < 0 or value > MAX_LATENCY_SECONDS:
+        return None
+    return value
+
+
 def _to_trace_ai_event(row: dict) -> TraceAiEvent:
     stamped_at: datetime = row.pop("stamped_at")
     ingestion_source = row.pop("ingestion_source")
-    latency = row.get("latency_seconds") or 0
-    started_at = stamped_at if ingestion_source == OTEL_INGESTION_SOURCE else stamped_at - timedelta(seconds=latency)
-    return TraceAiEvent(started_at=started_at, **row)
+    latency = _usable_latency(row.pop("latency_seconds"))
+    started_at = stamped_at
+    if ingestion_source != OTEL_INGESTION_SOURCE and latency:
+        started_at = stamped_at - timedelta(seconds=latency)
+    return TraceAiEvent(started_at=started_at, latency_seconds=latency, **row)

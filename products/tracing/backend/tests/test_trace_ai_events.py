@@ -100,20 +100,29 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("an SDK event stamped at the finish", {}, "2026-06-02T08:00:00Z"),
-            ("an OTel event stamped at the start", {"$ai_ingestion_source": "otel"}, "2026-06-02T08:00:04Z"),
+            ("an SDK event stamped at the finish", {"$ai_latency": 4}, "2026-06-02T08:00:00Z", 4),
+            (
+                "an OTel event stamped at the start",
+                {"$ai_latency": 4, "$ai_ingestion_source": "otel"},
+                "2026-06-02T08:00:04Z",
+                4,
+            ),
+            # A sender-controlled latency past any real call is dropped rather than overflowing.
+            ("a junk latency", {"$ai_latency": 1e20}, "2026-06-02T08:00:04Z", None),
+            ("a negative latency", {"$ai_latency": -3}, "2026-06-02T08:00:04Z", None),
         ]
     )
     def test_normalizes_the_start_time_by_ingestion_source(
-        self, _name: str, properties: dict[str, Any], expected_start: str
+        self, _name: str, properties: dict[str, Any], expected_start: str, expected_latency: float | None
     ) -> None:
-        self._create_ai_event(TRACE_A, timestamp="2026-06-02T08:00:04Z", properties={"$ai_latency": 4, **properties})
+        self._create_ai_event(TRACE_A, timestamp="2026-06-02T08:00:04Z", properties=properties)
         flush_persons_and_events()
 
         response = self._post(TRACE_A)
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert [row["started_at"] for row in json.loads(response.content)["results"]] == [expected_start]
+        rows = json.loads(response.content)["results"]
+        assert [(row["started_at"], row["latency_seconds"]) for row in rows] == [(expected_start, expected_latency)]
 
     def test_finds_the_gateway_uuid_form_of_the_trace_id(self) -> None:
         by_uuid = self._create_ai_event(TRACE_A_UUID)
