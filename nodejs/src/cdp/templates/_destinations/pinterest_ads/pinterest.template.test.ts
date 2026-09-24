@@ -46,7 +46,7 @@ describe('pinterest template', () => {
                         email: '  Example@PostHog.com ',
                         phone: '+1 (234) 567-890',
                         first_name: 'Zoë',
-                        $geoip_city_name: 'San Francisco',
+                        $geoip_city_name: 'St. Louis',
                         $geoip_country_code: 'US',
                         epik: 'epik-click-id',
                     },
@@ -58,7 +58,7 @@ describe('pinterest template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"view_content","action_source":"web","event_time":1735689600,"event_id":"event-id","user_data":{"em":["3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"],"ph":["c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646"],"fn":["2752b88686847fa5c86f47b94ce652b7b3f22a91c37617d451a4db9afa431450"],"ln":["32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566"],"ct":["1a6bd4d9d79dc0a79b53795c70d3349fa9e38968a3fbefbfe8783efb1d2b6aac"],"country":["79adb2a2fce5c6ba215fe5f27f532d4e7edbac4b6a5e09e1ef3a08084a904621"],"external_id":["b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"],"client_ip_address":"203.0.113.7","client_user_agent":"Mozilla/5.0 (Macintosh)","click_id":"epik-click-id"},"event_source_url":"https://example.com/shoes?epik=abc","custom_data":{"currency":"EUR","value":"30.5","content_ids":["43431-18"],"contents":[{"id":"43431-18","item_price":"30.5","quantity":2,"item_name":"Trail shoe 🥾 \\"Pro\\"","item_brand":"Café Nørd","item_category":"Footwear"}],"num_items":2,"content_name":"Trail shoe 🥾 \\"Pro\\"","content_brand":"Café Nørd","content_category":"Footwear"}}]}",
+              "body": "{"data":[{"event_name":"view_content","action_source":"web","event_time":1735689600,"event_id":"event-id","user_data":{"em":["3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"],"ph":["c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646"],"fn":["2752b88686847fa5c86f47b94ce652b7b3f22a91c37617d451a4db9afa431450"],"ln":["32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566"],"ct":["8ba24bdf99947996f3000259be455de791b06fcc0e802ce05031030df1ee8ea3"],"country":["79adb2a2fce5c6ba215fe5f27f532d4e7edbac4b6a5e09e1ef3a08084a904621"],"external_id":["b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"],"client_ip_address":"203.0.113.7","client_user_agent":"Mozilla/5.0 (Macintosh)","click_id":"epik-click-id"},"event_source_url":"https://example.com/shoes?epik=abc","custom_data":{"currency":"EUR","value":"30.5","content_ids":["43431-18"],"contents":[{"id":"43431-18","item_price":"30.5","quantity":2,"item_name":"Trail shoe 🥾 \\"Pro\\"","item_brand":"Café Nørd","item_category":"Footwear"}],"num_items":2,"content_name":"Trail shoe 🥾 \\"Pro\\"","content_brand":"Café Nørd","content_category":"Footwear"}}]}",
               "headers": {
                 "Authorization": "Bearer conversion-token",
                 "Content-Type": "application/json",

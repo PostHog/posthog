@@ -108,7 +108,11 @@ fn normalize(key, value) {
         for (let symbol in ['+', '-', ' ', '(', ')', '.']) {
             normalized := replaceAll(normalized, symbol, '')
         }
-    } else if (key == 'ct' or key == 'zp') {
+    } else if (key == 'ct') {
+        for (let symbol in [' ', '.', ',', '-', '\\'']) {
+            normalized := replaceAll(normalized, symbol, '')
+        }
+    } else if (key == 'zp') {
         normalized := replaceAll(normalized, ' ', '')
     }
     return normalized
