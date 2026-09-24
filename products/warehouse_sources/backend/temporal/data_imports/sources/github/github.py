@@ -5,6 +5,8 @@ import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
+from itertools import batched
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode, urlsplit
 
@@ -60,10 +62,12 @@ FAN_OUT_PARENT_CAP_HITS = Counter(
 # for clock skew between the two before trusting it to skip a parent.
 _RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
-# GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
-# the only version-dependent part for the endpoints we sync — response shapes are compatible across
-# these versions. Every caller — sync, credential validation, webhook management — passes the
-# source's resolved pin; this constant is only the fallback for callers outside a source instance.
+# GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. Every caller —
+# sync, credential validation, webhook management — passes the source's resolved pin; this constant
+# is only the fallback for callers outside a source instance. Response shapes are not compatible
+# across these versions: 2026-03-10 drops `merge_commit_sha` from the pull request object, which
+# `_add_merge_commit_shas` puts back. Read a new version's breaking changes against the columns we
+# land before adding it to supported_versions.
 GITHUB_DEFAULT_API_VERSION = "2022-11-28"
 
 # Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, the "Repository
@@ -132,6 +136,12 @@ class GithubRepositoryTooLargeError(Exception):
     documented limit of that specific endpoint (other stats endpoints keep working, just with
     zeroed addition/deletion counts for large repos). Retrying can never succeed, so `_fetch_page`
     raises this and the caller syncs zero rows instead of failing the schema forever."""
+
+    pass
+
+
+class GithubGraphqlUnavailableError(Exception):
+    """The connection cannot read the requested GitHub GraphQL resource."""
 
     pass
 
@@ -853,14 +863,30 @@ def _repository_resolves(
 
 
 def _github_retry_wait(state: RetryCallState) -> float:
-    """Sleep until GitHub's advertised rate-limit reset when it gave us one
-    (capped, plus a little jitter so the sources sharing one installation's
-    budget don't all wake at the same reset instant); otherwise fall back to
-    exponential backoff."""
+    """Sleep until the limit that shed this call frees, whichever limit it was.
+
+    Both twins get a timed wait, capped, plus a little jitter so the sources sharing one
+    installation's budget don't all wake at the same instant:
+
+    - ``GitHubRateLimitError`` is GitHub's own limit, and it advertises the reset.
+    - ``GitHubEgressBudgetExhausted`` is *our* limit, and the limiter knows the pace — the
+      same question :func:`_pace_before_request` asks before every request.
+
+    Only the fall-through is blind exponential backoff, which is capped at 30 seconds and so
+    cannot outlast either window. Leaving our own budget on that path meant a shed page
+    retried five times inside ~2 minutes, failed the activity, and let Temporal restart the
+    whole extraction — the shape behind a burst of ~9,700 shed-call errors in one hour.
+    """
     if state.outcome is not None and state.outcome.failed:
         exc = state.outcome.exception()
         if isinstance(exc, GitHubRateLimitError) and exc.retry_after is not None:
             return min(float(exc.retry_after), GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+        if isinstance(exc, GitHubEgressBudgetExhausted) and exc.scope:
+            # Zero means the budget already refilled between the denial and now, so fall through
+            # rather than returning a no-wait retry that would just hammer the gate again.
+            pace = github_installation_pace_seconds(exc.scope, priority=Priority.BATCH)
+            if pace > 0:
+                return min(pace, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
     return _github_backoff_wait(state)
 
 
@@ -894,21 +920,37 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
         time.sleep(pace)
 
 
+def _is_unmapped_client_status(status_code: int) -> bool:
+    """A 4xx `HTTPStatus` doesn't recognize, like the nginx-style 499 ("client closed request")
+    GitHub's edge has been observed returning from `/graphql` on an upstream hiccup. It's not a
+    denial GitHub meant to send us, so group it with the 5xx path instead of crashing the sync on
+    an unclassified HTTPError. Mirrors the Hubspot source's `_is_retryable_status`."""
+    if not (400 <= status_code < 500):
+        return False
+    try:
+        HTTPStatus(status_code)
+    except ValueError:
+        return True
+    return False
+
+
+# Transient failures every GitHub call retries on, REST and GraphQL alike.
+_GITHUB_RETRYABLE_ERRORS = (
+    GithubRetryableError,
+    # Our egress limiter shed this deferrable call (BATCH); back off and re-acquire next attempt.
+    GitHubEgressBudgetExhausted,
+    GitHubRateLimitError,
+    requests.ReadTimeout,
+    requests.ConnectionError,
+    # GitHub can break the connection mid-body on a chunked response, which surfaces as a
+    # ChunkedEncodingError (a direct RequestException subclass, not a ConnectionError). It's
+    # transient — a fresh request re-fetches the page — so retry it instead of failing the sync.
+    requests.exceptions.ChunkedEncodingError,
+)
+
+
 @retry(
-    retry=retry_if_exception_type(
-        (
-            GithubRetryableError,
-            # Our egress limiter shed this deferrable page (BATCH); back off and re-acquire next attempt.
-            GitHubEgressBudgetExhausted,
-            GitHubRateLimitError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            # GitHub can break the connection mid-body on a chunked response, which surfaces as a
-            # ChunkedEncodingError (a direct RequestException subclass, not a ConnectionError). It's
-            # transient — a fresh GET re-fetches the page — so retry it instead of failing the sync.
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
+    retry=retry_if_exception_type(_GITHUB_RETRYABLE_ERRORS),
     stop=stop_after_attempt(5),
     wait=_github_retry_wait,
     reraise=True,
@@ -947,7 +989,7 @@ def _fetch_page(
     )
 
     # Transient server errors: retry with plain exponential backoff.
-    if response.status_code >= 500:
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
         raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
     # Rate limited (secondary 429, or primary 403 with a rate-limit body): raise
@@ -1296,6 +1338,230 @@ def _fan_out_get_rows(
         yield batcher.get_table()
 
 
+# REST version 2026-03-10 stopped returning `merge_commit_sha` on the pull request object, so a
+# merged pull request lands with no record of the commit it produced and every join onto that commit
+# matches nothing. GraphQL still holds the value as PullRequest.mergeCommit.oid, so read it from
+# there and put it back on the row, whatever version the source is pinned to.
+GITHUB_GRAPHQL_URL = f"{GITHUB_BASE_URL}/graphql"
+
+# One GraphQL call per REST page: the aliases cost one rate point each, far below the node cap.
+_MERGE_COMMIT_BATCH_SIZE = GITHUB_ENDPOINTS["pull_requests"].page_size
+_GRAPHQL_ACCESS_ERROR_TYPES = frozenset({"FORBIDDEN", "INSUFFICIENT_SCOPES", "NOT_FOUND", "UNAUTHENTICATED"})
+
+
+def _merge_commit_document(numbers: list[int]) -> str:
+    # The numbers are ints read off the REST rows, so they cannot carry anything into the document;
+    # owner and name travel as variables.
+    aliases = " ".join(f"pr{number}: pullRequest(number: {number}) {{ mergeCommit {{ oid }} }}" for number in numbers)
+    return f"query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+
+
+def _graphql_error_type(error: Any) -> str | None:
+    if not isinstance(error, dict):
+        return None
+
+    candidates = [error.get("type")]
+    extensions = error.get("extensions")
+    if isinstance(extensions, dict):
+        candidates.extend((extensions.get("type"), extensions.get("code"), extensions.get("classification")))
+
+    return next((candidate.upper() for candidate in candidates if isinstance(candidate, str)), None)
+
+
+def _has_only_graphql_access_errors(errors: Any) -> bool:
+    return (
+        isinstance(errors, list)
+        and bool(errors)
+        and all(_graphql_error_type(error) in _GRAPHQL_ACCESS_ERROR_TYPES for error in errors)
+    )
+
+
+def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, Any]) -> None:
+    """Map GraphQL's own primary rate limit onto the error the REST path raises.
+
+    GraphQL reports that limit as a 200 whose `errors` carry type RATE_LIMITED. `raise_if_github_rate_limited`
+    cannot see that shape, because it only inspects 429 and 403 responses. Without this mapping the retry
+    falls back to the plain backoff, which is capped at 30 seconds and so cannot outlast the hourly window
+    the GraphQL limit resets on.
+    """
+    errors = body.get("errors")
+    if not isinstance(errors, list):
+        return
+    if not any(isinstance(error, dict) and error.get("type") == "RATE_LIMITED" for error in errors):
+        return
+
+    try:
+        reset_at: int | None = int(response.headers.get("x-ratelimit-reset", ""))
+    except (ValueError, TypeError):
+        reset_at = None
+    # A response without a usable reset header still needs a wait longer than the plain backoff, for
+    # the same reason.
+    retry_after = max(1, reset_at - int(time.time())) if reset_at is not None else 60
+    raise GitHubRateLimitError(
+        f"Github GraphQL rate limit exceeded (resets at {reset_at})",
+        reset_at=reset_at,
+        retry_after=retry_after,
+    )
+
+
+def _read_graphql_body(response: requests.Response) -> dict[str, Any]:
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError as error:
+        raise GithubRetryableError("Github GraphQL returned invalid JSON") from error
+    if not isinstance(body, dict):
+        raise GithubRetryableError("Github GraphQL returned an invalid response body")
+    return body
+
+
+def _merge_commit_sha(pull_requests: dict[str, Any], number: int) -> str | None:
+    pull_request = pull_requests.get(f"pr{number}")
+    if pull_request is None:
+        return None
+    if not isinstance(pull_request, dict):
+        raise GithubRetryableError("Github GraphQL returned an invalid pull request")
+
+    merge_commit = pull_request.get("mergeCommit")
+    if merge_commit is None:
+        return None
+    if not isinstance(merge_commit, dict):
+        raise GithubRetryableError("Github GraphQL returned an invalid merge commit")
+
+    oid = merge_commit.get("oid")
+    if not isinstance(oid, str):
+        raise GithubRetryableError("Github GraphQL returned an invalid merge commit")
+    return oid
+
+
+def _parse_merge_commit_shas(
+    body: dict[str, Any], numbers: list[int], repository: str, logger: FilteringBoundLogger
+) -> dict[int, str]:
+    errors = body.get("errors")
+    data = body.get("data")
+    pull_requests = data.get("repository") if isinstance(data, dict) else None
+    if not isinstance(pull_requests, dict):
+        if _has_only_graphql_access_errors(errors):
+            raise GithubGraphqlUnavailableError(f"Github GraphQL returned no repository data: errors={errors}")
+        raise GithubRetryableError(f"Github GraphQL returned no repository data: errors={errors}")
+
+    if errors:
+        if not _has_only_graphql_access_errors(errors):
+            raise GithubRetryableError(f"Github GraphQL returned unresolved errors: errors={errors}")
+        logger.warning(
+            "Github: GraphQL denied part of the merge commit batch, so those pull requests keep "
+            f"an empty merge_commit_sha: repository={repository}, errors={errors}"
+        )
+
+    return {number: sha for number in numbers if (sha := _merge_commit_sha(pull_requests, number)) is not None}
+
+
+@retry(
+    retry=retry_if_exception_type(_GITHUB_RETRYABLE_ERRORS),
+    stop=stop_after_attempt(5),
+    wait=_github_retry_wait,
+    reraise=True,
+)
+def _fetch_merge_commit_shas(
+    repository: str,
+    numbers: list[int],
+    access_token: str,
+    logger: FilteringBoundLogger,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> dict[int, str]:
+    """Ask GraphQL for the merge commit of each pull request number, through the gated and recorded
+    transport, budget pacing, and retry policy the REST walk uses. Returns only the numbers GraphQL
+    answered for: a partial GraphQL error leaves its own alias null while the rest of the batch
+    still resolves."""
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
+    if installation_id is not None:
+        _pace_before_request(installation_id, logger)
+
+    owner, _, name = repository.partition("/")
+    response = github_request(
+        "POST",
+        GITHUB_GRAPHQL_URL,
+        source="warehouse",
+        endpoint="/graphql",
+        headers=_get_headers(access_token, api_version=api_version),
+        installation_id=installation_id,
+        priority=Priority.BATCH,
+        timeout=60,
+        session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
+        json={
+            "query": _merge_commit_document(numbers),
+            "variables": {"owner": owner, "name": name},
+        },
+    )
+
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
+        raise GithubRetryableError(f"Github GraphQL error (retryable): status={response.status_code}")
+    raise_if_github_rate_limited(response)
+    if response.status_code in {401, 403, 404}:
+        raise GithubGraphqlUnavailableError(f"Github GraphQL access failed: status={response.status_code}")
+    response.raise_for_status()
+
+    body = _read_graphql_body(response)
+    _raise_if_graphql_rate_limited(response, body)
+    return _parse_merge_commit_shas(body, numbers, repository, logger)
+
+
+def _add_merge_commit_shas(
+    rows: list[dict[str, Any]],
+    repository: str,
+    access_token: str,
+    logger: FilteringBoundLogger,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> bool:
+    """Fill in `merge_commit_sha` on the merged pull requests of one page, in place. False says
+    GraphQL is closed to this connection, so the caller can stop asking for the rest of the walk.
+
+    A permanent denial does not fail the sync: the rest of the pull request row is good, and failing
+    would lose the whole table on every run for a connection that can never answer. Other failures
+    abort the walk so its incremental watermark cannot skip rows that still need enrichment."""
+    # Land the column whatever happens. The curated engineering analytics views select
+    # `merge_commit_sha` by name, so a page that resolves nothing must still carry an empty column
+    # rather than drop it from the table and break the read.
+    for row in rows:
+        row.setdefault("merge_commit_sha", None)
+
+    pending: dict[int, dict[str, Any]] = {
+        row["number"]: row
+        for row in rows
+        if row.get("merged_at") and not row.get("merge_commit_sha") and isinstance(row.get("number"), int)
+    }
+    if not pending:
+        return True
+
+    for batch in batched(pending, _MERGE_COMMIT_BATCH_SIZE, strict=False):
+        try:
+            shas = _fetch_merge_commit_shas(
+                repository,
+                list(batch),
+                access_token,
+                logger,
+                egress_identity=egress_identity,
+                api_version=api_version,
+            )
+        except GithubGraphqlUnavailableError as error:
+            logger.warning(
+                "Github: GraphQL is unavailable, so merged pull requests keep an empty merge_commit_sha: "
+                f"repository={repository}, error={error}"
+            )
+            return False
+        for number, sha in shas.items():
+            pending[number]["merge_commit_sha"] = sha
+
+    missing = sum(1 for row in pending.values() if not row.get("merge_commit_sha"))
+    if missing:
+        logger.warning(
+            "Github: GraphQL holds no merge commit for some merged pull requests: "
+            f"repository={repository}, missing={missing}"
+        )
+    return True
+
+
 def get_rows(
     personal_access_token: str,
     repository: str,
@@ -1343,6 +1609,9 @@ def get_rows(
     item_filter = _get_item_filter(endpoint)
     item_mapper = _get_item_mapper(endpoint)
     body_transform = _get_body_transform(endpoint)
+    # One unreachable GraphQL call turns the merge commit enrichment off for the rest of the walk,
+    # rather than paying its retries again on every page.
+    enrich_merge_commits = endpoint == "pull_requests"
 
     initial_params = _build_initial_params(
         config, endpoint, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -1403,6 +1672,16 @@ def get_rows(
             data = data.get(config.response_data_path, [])
         if not isinstance(data, list) or not data:
             break
+
+        if enrich_merge_commits:
+            enrich_merge_commits = _add_merge_commit_shas(
+                data,
+                repository,
+                personal_access_token,
+                logger,
+                egress_identity=egress_identity,
+                api_version=api_version,
+            )
 
         next_url = _parse_next_url(response.headers.get("Link", ""))
         stop_after_this_page = _should_stop_desc(data, actual_sort_mode, stop_field, stop_cutoff)

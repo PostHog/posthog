@@ -15,12 +15,6 @@ const mockImportedTabs: string[] = []
 jest.mock('./components/ScannerOverview', () => ({ ScannerOverview: () => <div>Overview content</div> }))
 jest.mock('./components/ScannerScoutCard', () => ({ ScannerScoutCard: () => null }))
 
-jest.mock('../search/ObservationSearchTab', () => {
-    mockImportedTabs.push('Search')
-    return {
-        ObservationSearchTab: ({ scanner }: { scanner: { id: string } }) => <div>Search content {scanner.id}</div>,
-    }
-})
 jest.mock('./components/ScannerRunTab', () => {
     mockImportedTabs.push('On-demand')
     return { ScannerRunTab: ({ scannerId }: { scannerId: string }) => <div>On-demand content {scannerId}</div> }
@@ -102,7 +96,7 @@ describe('ReplayScanner', () => {
         expect(observationRequests[0].get('backfill_id')).toBe(backfillId)
         expect(mockImportedTabs).toEqual([])
 
-        const tabs = ['Search', 'On-demand', 'Backfills', 'Configuration', 'Calibration', 'Scouts', 'Alerts']
+        const tabs = ['On-demand', 'Backfills', 'Configuration', 'Calibration', 'Scouts', 'Alerts']
         for (const [index, tab] of tabs.entries()) {
             fireEvent.click(screen.getByText(tab, { exact: true }))
             expect(screen.getByText('Observations', { exact: true })).toBeInTheDocument()

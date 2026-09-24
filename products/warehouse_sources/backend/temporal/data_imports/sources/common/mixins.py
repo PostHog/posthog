@@ -659,10 +659,20 @@ class SSHTunnelMixin:
 
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
-            if config.ssh_tunnel.host:
-                is_host_valid, host_errors = _is_host_safe(config.ssh_tunnel.host, team_id)
-                if not is_host_valid:
-                    return False, f"SSH tunnel host not allowed: {host_errors}"
+            # `SSHTunnel.from_config` asserts on host, port and auth type. A bare `AssertionError`
+            # has no message, so the caller can only show generic invalid-credentials copy.
+            if not config.ssh_tunnel.host:
+                return False, "SSH tunnel host is required"
+
+            is_host_valid, host_errors = _is_host_safe(config.ssh_tunnel.host, team_id)
+            if not is_host_valid:
+                return False, f"SSH tunnel host not allowed: {host_errors}"
+
+            if not config.ssh_tunnel.port:
+                return False, "SSH tunnel port is required"
+
+            if not config.ssh_tunnel.auth.type:
+                return False, "SSH tunnel authentication type is required"
 
             ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
             is_auth_valid, auth_errors = ssh_tunnel.is_auth_valid()
@@ -672,6 +682,10 @@ class SSHTunnelMixin:
             is_port_valid, port_errors = ssh_tunnel.has_valid_port()
             if not is_port_valid:
                 return is_port_valid, port_errors
+
+            is_host_key_valid, host_key_errors = ssh_tunnel.is_host_key_valid()
+            if not is_host_key_valid:
+                return is_host_key_valid, host_key_errors
 
         return True, None
 

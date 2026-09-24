@@ -341,6 +341,57 @@ class TestListFanOut:
         assert snapshots[1][0].endswith("lists/l1/active.json")
         assert snapshots[1][1]["page"] == 1
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_custom_fields_yield_a_row_per_field_with_its_list_id(self, MockSession) -> None:
+        # Custom field keys are unique within a list, not across them, so the list id has to land
+        # as a plain column — it is half the primary key.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}, {"ListID": "l2"}]),
+                _response([{"FieldName": "website", "Key": "[website]", "DataType": "Text", "FieldOptions": []}]),
+                _response([{"FieldName": "age", "Key": "[age]", "DataType": "Number", "FieldOptions": []}]),
+            ],
+        )
+
+        rows = _rows(_source("list_custom_fields"))
+
+        assert [(row["Key"], row["ListID"]) for row in rows] == [("[website]", "l1"), ("[age]", "l2")]
+        assert snapshots[1][0].endswith("lists/l1/customfields.json")
+        assert snapshots[2][0].endswith("lists/l2/customfields.json")
+        assert "page" not in snapshots[1][1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_custom_fields_non_list_body_raises_loudly(self, MockSession) -> None:
+        # The endpoint returns a bare array; a 200 object means the response shape changed.
+        session = MockSession.return_value
+        _wire(session, [_response([{"ListID": "l1"}]), _response({"Code": 250, "Message": "Fail"})])
+
+        with pytest.raises(ValueError, match="list response body"):
+            _rows(_source("list_custom_fields"))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stats_yield_one_snapshot_row_per_list(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}, {"ListID": "l2"}]),
+                _response({"TotalActiveSubscribers": 10, "TotalUnsubscribes": 1}),
+                _response({"TotalActiveSubscribers": 20, "TotalUnsubscribes": 2}),
+            ],
+        )
+
+        rows = _rows(_source("list_stats"))
+
+        assert rows == [
+            {"TotalActiveSubscribers": 10, "TotalUnsubscribes": 1, "ListID": "l1"},
+            {"TotalActiveSubscribers": 20, "TotalUnsubscribes": 2, "ListID": "l2"},
+        ]
+        assert snapshots[1][0].endswith("lists/l1/stats.json")
+        assert snapshots[2][0].endswith("lists/l2/stats.json")
+
 
 class TestCampaignFanOut:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -443,6 +494,64 @@ class TestCampaignFanOut:
         assert params["orderfield"] == "email"
         assert params["orderdirection"] == "asc"
         assert "date" not in params
+
+    @staticmethod
+    def _lists_and_segments() -> Response:
+        return _response(
+            {
+                "Lists": [{"ListID": "l1", "Name": "My List"}],
+                "Segments": [{"ListID": "l1", "SegmentID": "s1", "Title": "My Segment"}],
+            }
+        )
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_row",
+        [
+            ("campaign_lists", {"ListID": "l1", "Name": "My List", "CampaignID": "c1"}),
+            ("campaign_segments", {"ListID": "l1", "SegmentID": "s1", "Title": "My Segment", "CampaignID": "c1"}),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lists_and_segments_body_feeds_two_tables(self, MockSession, endpoint: str, expected_row: dict) -> None:
+        # One endpoint, two collections: each table must pick only its own array out of the body.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_envelope([{"CampaignID": "c1"}]), self._lists_and_segments()])
+
+        assert _rows(_source(endpoint)) == [expected_row]
+        assert snapshots[1][0].endswith("campaigns/c1/listsandsegments.json")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lists_and_segments_tolerates_a_missing_collection(self, MockSession) -> None:
+        # A campaign sent to no segments is a zero-row page, not a response-shape failure.
+        session = MockSession.return_value
+        _wire(session, [_envelope([{"CampaignID": "c1"}]), _response({"Lists": [{"ListID": "l1", "Name": "My List"}]})])
+
+        assert _rows(_source("campaign_segments")) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_email_client_usage_yields_a_row_per_client_version(self, MockSession) -> None:
+        # A client family appears once per version, so both are part of the primary key.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _envelope([{"CampaignID": "c1"}]),
+                _response(
+                    [
+                        {"Client": "Apple Mail", "Version": "Apple Mail 6", "Percentage": 13.02, "Subscribers": 4633},
+                        {"Client": "Apple Mail", "Version": "Apple Mail 7", "Percentage": 4.94, "Subscribers": 1632},
+                    ]
+                ),
+            ],
+        )
+
+        rows = _rows(_source("campaign_email_client_usage"))
+
+        assert [(row["Client"], row["Version"], row["CampaignID"]) for row in rows] == [
+            ("Apple Mail", "Apple Mail 6", "c1"),
+            ("Apple Mail", "Apple Mail 7", "c1"),
+        ]
+        assert snapshots[1][0].endswith("campaigns/c1/emailclientusage.json")
 
 
 class TestJourneyFanOut:

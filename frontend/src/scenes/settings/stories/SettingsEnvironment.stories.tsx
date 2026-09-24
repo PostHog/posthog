@@ -44,6 +44,14 @@ const meta: Meta<StoryProps> = {
                     has_secret: false,
                     cookie_delivery_enabled: true,
                 },
+                '/api/projects/:id/heatmap_capture/settings/': {
+                    capture_mode: 'url_allowlist',
+                    url_allowlist: ['https://example.com/pricing'],
+                    enforcement_enabled: false,
+                    can_capture_all_urls: true,
+                    capture_url_limit: null,
+                },
+                '/api/projects/:id/heatmap_capture/pages/': { pages: [] },
                 // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],

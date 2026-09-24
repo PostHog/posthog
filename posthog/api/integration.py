@@ -7,7 +7,7 @@ from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import HttpResponse
@@ -17,11 +17,14 @@ from django.utils.dateparse import parse_datetime
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
+from django_redis.cache import RedisCache
+from django_redis.exceptions import ConnectionInterrupted
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -106,6 +109,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
@@ -211,8 +215,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
-        # nosemgrep: inbound-webhooks-go-through-ingress -- this signs a marketplace install redirect, not a webhook delivery, so there is nothing for the dispatcher to fan out
+        # 300s tolerance matches the Stripe provisioning check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -1241,6 +1244,24 @@ class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
         )
 
 
+class PersonalConnectionRecentAuthPermission(BasePermission):
+    """A `posthog` connection is the creator's personal credential, so creating or removing one needs a fresh
+    session, like the other personal integrations. Team-shared kinds keep their existing rules."""
+
+    message = TimeSensitiveActionPermission.message
+    code = TimeSensitiveActionPermission.code
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) == "create" and request.data.get("kind") == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        if isinstance(obj, Integration) and obj.kind == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1279,7 +1300,7 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
     ]
-    permission_classes = [IntegrationManagementPermission]
+    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -1310,6 +1331,7 @@ class IntegrationViewSet(
             APIScopePermission(),
             AccessControlPermission(),
             TeamMemberAccessPermission(),
+            PersonalConnectionRecentAuthPermission(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
@@ -1477,6 +1499,42 @@ class IntegrationViewSet(
         }
 
     @staticmethod
+    def _cache_slack_channel(key: str, channel: dict) -> None:
+        backend = caches["default"]
+        if not isinstance(backend, RedisCache):
+            return
+        try:
+            client = backend.client
+            redis_client = client.get_client(write=True)
+            redis_key = client.make_key(key)
+            for _ in range(5):
+                previous = redis_client.get(redis_key)
+                if previous is None or redis_client.pttl(redis_key) <= 0:
+                    return
+                data = client.decode(previous)
+                channels_by_id = {item["id"]: item for item in data["channels"]}
+                channels_by_id[channel["id"]] = channel
+                updated = client.encode({**data, "channels": list(channels_by_id.values())})
+                # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
+                if redis_client.eval(
+                    """
+                    if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('PTTL', KEYS[1]) > 0 then
+                        return redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')
+                    end
+                    return false
+                    """,
+                    1,
+                    redis_key,
+                    previous,
+                    updated,
+                ):
+                    return
+        except (ConnectionInterrupted, RedisError, OSError):
+            # The caller already resolved the channel, so a Redis failure here must not turn a
+            # successful lookup into a 500. The next list refresh rebuilds the cache.
+            logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
+
+    @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
         query = search.strip()
@@ -1526,7 +1584,9 @@ class IntegrationViewSet(
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
             if channel:
-                return Response({"channels": [self._serialize_slack_channel(channel)]})
+                serialized_channel = self._serialize_slack_channel(channel)
+                self._cache_slack_channel(key, serialized_channel)
+                return Response({"channels": [serialized_channel]})
             return Response({"channels": []})
 
         query_serializer = SlackChannelsQuerySerializer(data=request.query_params)

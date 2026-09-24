@@ -12,8 +12,8 @@ from django.db.models import QuerySet
 from django.test import override_settings
 from django.utils import timezone
 
+from owners_yaml.schema import TeamEntry
 from parameterized import parameterized
-from posthog_owners.schema import TeamEntry
 from slack_sdk.errors import SlackApiError
 from structlog.testing import capture_logs
 

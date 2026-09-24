@@ -133,20 +133,29 @@ class RunDueChecksOutput:
     passed: int
     failed: int
     errored: int
+    # Defaulted so a workflow history written before the agent lane existed still decodes.
+    dispatched: int = 0
+    deferred: int = 0
 
 
 @activity.defn
 async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> RunDueChecksOutput:
-    """Measure every report check due this tick.
+    """Advance every report check due this tick.
 
     Rides the coordinator rather than a schedule of its own: soak windows are days, so tick
     granularity is ample, and a deterministic check costs one cached Trends query with no sandbox
-    and no scout enrolment.
+    and no scout enrolment. An `agent` check is dispatched here as a scout run and answers itself
+    later, so this activity never waits on one.
     """
     async with Heartbeater():
         summary = await database_sync_to_async(run_due_report_checks, thread_sensitive=False)()
     return RunDueChecksOutput(
-        expired=summary.expired, passed=summary.passed, failed=summary.failed, errored=summary.errored
+        expired=summary.expired,
+        passed=summary.passed,
+        failed=summary.failed,
+        errored=summary.errored,
+        dispatched=summary.dispatched,
+        deferred=summary.deferred,
     )
 
 

@@ -13,6 +13,14 @@ jest.mock('kea', () => ({
     useActions: jest.fn(),
 }))
 
+jest.mock('kea-router', () => ({
+    ...jest.requireActual('kea-router'),
+    router: {
+        actions: { push: jest.fn() },
+        values: { location: { pathname: '/business-knowledge' }, searchParams: {}, hashParams: {} },
+    },
+}))
+
 jest.mock('lib/hooks/useFeatureFlag', () => ({
     useFeatureFlag: (): boolean => true,
 }))
@@ -33,12 +41,17 @@ jest.mock('../components/CreateKnowledgeSourceModal', () => ({
     CreateKnowledgeSourceModal: (): null => null,
 }))
 
-jest.mock('../components/EditKnowledgeSourceModal', () => ({
-    EditKnowledgeSourceModal: (): null => null,
-}))
-
 jest.mock('./businessKnowledgeLogic', () => ({
     businessKnowledgeLogic: {},
+    REFRESH_INTERVAL_OPTIONS: [],
+}))
+
+jest.mock('scenes/urls', () => ({
+    urls: {
+        businessKnowledge: (): string => '/business-knowledge',
+        businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
+        businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+    },
 }))
 
 function makeSource(overrides: Partial<KnowledgeSource> = {}): KnowledgeSource {
@@ -75,15 +88,16 @@ function makeSource(overrides: Partial<KnowledgeSource> = {}): KnowledgeSource {
 }
 
 describe('BusinessKnowledgeScene', () => {
-    const openEditModal = jest.fn()
-
     beforeEach(() => {
         jest.clearAllMocks()
         ;(useActions as jest.Mock).mockReturnValue({
             openCreateModal: jest.fn(),
-            openEditModal,
             deleteSource: jest.fn(),
             refreshSource: jest.fn(),
+            setSearchTerm: jest.fn(),
+            setSourceTypeFilter: jest.fn(),
+            setAddedByFilter: jest.fn(),
+            push: jest.fn(),
         })
         ;(useValues as jest.Mock).mockReturnValue({
             sources: [makeSource()],
@@ -91,6 +105,9 @@ describe('BusinessKnowledgeScene', () => {
             readyCount: 1,
             totalChunks: 3,
             refreshingIds: [],
+            searchTerm: '',
+            sourceTypeFilter: 'all',
+            addedByFilter: 'all',
         })
     })
 
@@ -98,20 +115,50 @@ describe('BusinessKnowledgeScene', () => {
         cleanup()
     })
 
-    it('lets you open the editor for a learned source', () => {
+    it('picks the added-by filter from the dropdown', () => {
+        const setAddedByFilter = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({
+            openCreateModal: jest.fn(),
+            deleteSource: jest.fn(),
+            refreshSource: jest.fn(),
+            setSearchTerm: jest.fn(),
+            setSourceTypeFilter: jest.fn(),
+            setAddedByFilter,
+            push: jest.fn(),
+        })
+        ;(useValues as jest.Mock).mockReturnValue({
+            sources: [],
+            sourcesLoading: false,
+            readyCount: 0,
+            totalChunks: 0,
+            refreshingIds: [],
+            searchTerm: '',
+            sourceTypeFilter: 'all',
+            addedByFilter: 'all',
+        })
         render(<BusinessKnowledgeScene />)
 
+        fireEvent.click(screen.getByText('All sources'))
+        fireEvent.click(screen.getByText('Learned'))
+
+        expect(setAddedByFilter).toHaveBeenCalledWith('learned')
+    })
+
+    it('links the source name to its detail page and keeps the learned ticket link', () => {
+        render(<BusinessKnowledgeScene />)
+
+        const source = makeSource()
+        expect(screen.getByText('Refund policy').closest('a')).toHaveAttribute(
+            'href',
+            `/business-knowledge/${source.id}`
+        )
         expect(screen.getByText('Learned from ticket #42')).toBeInTheDocument()
         expect(screen.getByText('Learned from ticket #42').closest('a')).toHaveAttribute(
             'href',
             '/project/1/support/tickets/42'
         )
         expect(screen.getByText('Learned')).toBeInTheDocument()
-        expect(screen.getByLabelText('Edit')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Edit')).not.toBeInTheDocument()
         expect(screen.getByLabelText('Delete')).toBeInTheDocument()
-
-        fireEvent.click(screen.getByText('Refund policy'))
-
-        expect(openEditModal).toHaveBeenCalledWith(expect.objectContaining({ id: makeSource().id }))
     })
 })

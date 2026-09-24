@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
@@ -11,10 +12,13 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ActivityScope } from '~/types'
+
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { scoutPausedByLine } from '../../../utils/scoutGroups'
 import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutExemptionBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -62,6 +66,29 @@ function ScoutDescription({ text }: { text: string }): JSX.Element {
             {paragraph}
             <span className="text-xs text-muted group-hover:text-primary">{expanded ? 'Show less' : 'Show more'}</span>
         </button>
+    )
+}
+
+/**
+ * Who stopped a scout that is off, and where the rest of the story is. The row records only the
+ * last status change, so every earlier toggle is the activity log's to tell.
+ */
+function ScoutPausedBy({ config }: { config: SignalScoutConfig }): JSX.Element | null {
+    const line = scoutPausedByLine(config)
+    if (!line) {
+        return null
+    }
+    const activityUrl = combineUrl(urls.advancedActivityLogs(), {
+        scopes: ActivityScope.SIGNAL_SCOUT_CONFIG,
+        item_ids: config.id,
+    }).url
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-secondary">
+            <span>{line}</span>
+            <Link to={activityUrl} className="text-xs">
+                See every change
+            </Link>
+        </div>
     )
 }
 
@@ -186,6 +213,8 @@ export function ScoutDetailHeader({
             </div>
 
             {config.description && <ScoutDescription text={config.description} />}
+
+            <ScoutPausedBy config={config} />
 
             <ScoutHealthStrip config={config} rollup={rollup} noteCount={noteCount} learnedCount={learnedCount} />
         </div>
