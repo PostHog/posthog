@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArchive, IconClock, IconCopy, IconInfo, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
+import { IconArchive, IconClock, IconCode, IconCopy, IconInfo, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -91,21 +91,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
             prevStatusRef.current = workflow?.status
         }
     }, [workflow?.status, displayStatus])
-
-    const copyCodeButton = (type: 'primary' | 'secondary'): JSX.Element => (
-        <LemonButton
-            type={type}
-            size="small"
-            icon={<IconCopy />}
-            onClick={() => copyWorkflowCode()}
-            loading={copyCodePending}
-            disabledReason={copyCodeDisabledReason}
-            tooltip="Copy this workflow as @posthog/workflows TypeScript"
-            data-attr="workflow-copy-code"
-        >
-            Copy code
-        </LemonButton>
-    )
 
     return (
         <>
@@ -212,7 +197,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
-                        {!isCodeManaged && copyCodeButton('secondary')}
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
                         {isSavedWorkflow && (
                             <>
@@ -268,6 +252,19 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             <IconScreen />
                                             Save as template
                                         </ButtonPrimitive>
+                                        {/* A code-managed workflow has this in the header instead. */}
+                                        {!isCodeManaged && (
+                                            <ButtonPrimitive
+                                                menuItem
+                                                onClick={() => copyWorkflowCode()}
+                                                disabled={copyCodePending}
+                                                tooltip="Copy this workflow as @posthog/workflows TypeScript"
+                                                data-attr="workflow-copy-code-btn"
+                                            >
+                                                <IconCode />
+                                                Copy code
+                                            </ButtonPrimitive>
+                                        )}
                                     </ScenePanelActionsSection>
                                     <ScenePanelDivider />
                                     <ScenePanelActionsSection>
@@ -323,7 +320,18 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     push takes the save button's place. */}
                                 {isCodeManaged ? (
                                     <span className="flex items-center gap-1">
-                                        {copyCodeButton('primary')}
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            icon={<IconCopy />}
+                                            onClick={() => copyWorkflowCode()}
+                                            loading={copyCodePending}
+                                            disabledReason={copyCodeDisabledReason}
+                                            tooltip="Copy this workflow as @posthog/workflows TypeScript"
+                                            data-attr="workflow-copy-code"
+                                        >
+                                            Copy code
+                                        </LemonButton>
                                         <Tooltip title={codeManagedReason(originalWorkflow)} placement="bottom">
                                             <IconInfo
                                                 className="text-tertiary size-4"
