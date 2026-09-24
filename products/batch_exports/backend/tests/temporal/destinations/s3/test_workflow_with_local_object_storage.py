@@ -381,6 +381,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_hogql_model(
     clickhouse_client,
     object_storage_client,
     ateam,
+    auser,
     s3_compatible_batch_export,
     bucket_name,
     interval,
@@ -400,7 +401,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_hogql_model(
     `events_table` is pinned to `sharded_events` because the HogQL `events` table reads it,
     while the fixture would otherwise default to `events_recent` for a recent interval.
     """
-    model = BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query)
+    model = BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query, user_id=auser.pk)
 
     await run_s3_batch_export_workflow(
         model=model,
