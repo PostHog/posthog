@@ -16,6 +16,7 @@ from posthog.egress.vapi.observability import vapi_egress
 
 class VapiClient(RecordedEgressClient):
     observability = vapi_egress
+    egress_domain = "vapi"
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json", "Content-Type": "application/json"}

@@ -34,6 +34,7 @@ class HarmonicClient(AsyncEgressClient):
     matching aiohttp's recommended session-reuse pattern rather than one session per call)."""
 
     observability = harmonic_egress
+    egress_domain = "harmonic"
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Content-Type": "application/json"}

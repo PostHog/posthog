@@ -125,6 +125,11 @@ Each domain keeps its own metric names, so existing dashboards stay valid.
 The `source` label (e.g. `integration`, `visual_review`, `warehouse`) carries per-subsystem attribution.
 Endpoint labels are normalized to bound cardinality: numeric ids are templated out by default, and a domain with structured paths passes its own normalizer, so raw-URL callers don't mint one label per id.
 
+The base transports also emit an experimental OpenTelemetry client span for every outbound request.
+The span uses the shared `egress.*` attributes and the domain adds only API-specific attributes.
+It records the final response host after redirects, marks HTTP error responses, and records only the
+exception type when a request fails so credentials cannot enter trace attributes.
+
 Harmonic also records `harmonic_api_request_duration_seconds` from the start of an HTTP request through response headers, and `harmonic_api_admission_wait_seconds` for waits in the bulk client's pacing loop, including time queued for the pacing lock.
 The request duration excludes the local admission wait and response-body parsing.
 The weekly Salesforce sweep allows 24 company lookups in flight; each outbound request still draws from the shared BATCH budget.

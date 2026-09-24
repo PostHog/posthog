@@ -26,6 +26,7 @@ class FirecrawlClient(EgressClient):
     every caller; wire it through :func:`firecrawl_request`."""
 
     observability = firecrawl_egress
+    egress_domain = "firecrawl"
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json", "Content-Type": "application/json"}
