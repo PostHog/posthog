@@ -2,6 +2,7 @@ import { DEFAULT_PANEL_IDS, DEFAULT_TAB_IDS } from "./panelConstants";
 import {
   addNewTabToPanel,
   applyCleanupWithFallback,
+  createFileTabId,
   generatePanelId,
   getLeafPanel,
   getSplitConfig,
@@ -707,57 +708,50 @@ export function closePanel(
   const panel = getLeafPanel(layout.panelTree, panelId);
   if (!panel) return {};
 
-  const closingTabs = panel.content.tabs.filter(
-    (tab) => tab.closeable !== false,
-  );
   const pinnedTabs = panel.content.tabs.filter(
     (tab) => tab.closeable === false,
   );
-  const openFiles = closingTabs.reduce(
-    (files, tab) =>
-      updateMetadataForTab({ ...layout, openFiles: files }, tab.id, "remove")
-        .openFiles,
-    layout.openFiles,
+  const closingIds = new Set(
+    panel.content.tabs
+      .filter((tab) => tab.closeable !== false)
+      .map((tab) => tab.id),
   );
-
   const neighbor = findNeighborLeaf(layout.panelTree, panelId);
-  if (!neighbor) {
-    if (closingTabs.length === 0) return {};
-    const activeTabId = pinnedTabs.some(
-      (tab) => tab.id === panel.content.activeTabId,
-    )
-      ? panel.content.activeTabId
-      : (pinnedTabs[0]?.id ?? "");
-    const panelTree = updateTreeNode(layout.panelTree, panelId, (node) =>
-      node.type !== "leaf"
-        ? node
-        : {
-            ...node,
-            content: { ...node.content, tabs: pinnedTabs, activeTabId },
-          },
-    );
-    return { panelTree, openFiles };
-  }
+  if (!neighbor && closingIds.size === 0) return {};
 
+  const openFiles = layout.openFiles.filter(
+    (file) => !closingIds.has(createFileTabId(file)),
+  );
+  // The last pane has nowhere to send its pinned tabs, so it keeps them.
+  const keptTabs = neighbor ? [] : pinnedTabs;
   const emptiedTree = updateTreeNode(layout.panelTree, panelId, (node) =>
     node.type !== "leaf"
       ? node
-      : { ...node, content: { ...node.content, tabs: [], activeTabId: "" } },
+      : {
+          ...node,
+          content: {
+            ...node.content,
+            tabs: keptTabs,
+            activeTabId:
+              keptTabs.find((tab) => tab.id === node.content.activeTabId)?.id ??
+              keptTabs[0]?.id ??
+              "",
+          },
+        },
   );
-  const treeWithPinnedTabs =
-    pinnedTabs.length === 0
-      ? emptiedTree
-      : updateTreeNode(emptiedTree, neighbor.id, (node) =>
-          node.type !== "leaf"
-            ? node
-            : {
-                ...node,
-                content: {
-                  ...node.content,
-                  tabs: [...node.content.tabs, ...pinnedTabs],
-                },
-              },
-        );
+  if (!neighbor) return { panelTree: emptiedTree, openFiles };
+
+  const treeWithPinnedTabs = updateTreeNode(emptiedTree, neighbor.id, (node) =>
+    node.type !== "leaf"
+      ? node
+      : {
+          ...node,
+          content: {
+            ...node.content,
+            tabs: [...node.content.tabs, ...pinnedTabs],
+          },
+        },
+  );
   const panelTree = applyCleanupWithFallback(
     cleanupNode(treeWithPinnedTabs),
     layout.panelTree,

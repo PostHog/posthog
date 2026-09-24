@@ -11,6 +11,7 @@ import {
 } from "../hooks/usePanelLayoutHooks";
 import type { SplitDirection } from "../panelLayoutStore";
 import { usePanelLayoutStore } from "../panelLayoutStore";
+import { getLeafPanel } from "../panelStoreHelpers";
 import type { PanelNode } from "../panelTypes";
 import { GroupNodeRenderer } from "./GroupNodeRenderer";
 import { LeafNodeRenderer } from "./LeafNodeRenderer";
@@ -75,22 +76,8 @@ const PanelLayoutRenderer: React.FC<{
   const handleSplitPanel = useCallback(
     (panelId: string, direction: SplitDirection) => {
       const layout = usePanelLayoutStore.getState().getLayout(taskId);
-      if (!layout) return;
-
-      const findActiveTabId = (panelNode: PanelNode): string | null => {
-        if (panelNode.type === "leaf" && panelNode.id === panelId) {
-          return panelNode.content.activeTabId ?? null;
-        }
-        if (panelNode.type === "group") {
-          for (const child of panelNode.children) {
-            const result = findActiveTabId(child);
-            if (result) return result;
-          }
-        }
-        return null;
-      };
-
-      const activeTabId = findActiveTabId(layout.panelTree);
+      const activeTabId =
+        layout && getLeafPanel(layout.panelTree, panelId)?.content.activeTabId;
       if (activeTabId) {
         layoutState.splitPanel(
           taskId,
