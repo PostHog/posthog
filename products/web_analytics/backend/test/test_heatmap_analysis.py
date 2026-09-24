@@ -78,6 +78,10 @@ class TestPageVariants(SimpleTestCase):
         second.states[0].variant_id = variant.id
         remaining = group_page_states({"b": second})
         assert remaining[0].id == variant.id
+        newcomer = recording()
+        newcomer.states[0].signature = [*second.states[0].signature, "A:other"]
+        joined = group_page_states({"0": newcomer, "b": second})
+        assert [(item.id, len(item.members)) for item in joined] == [(variant.id, 2)]
 
     def test_clicks_without_matching_target_geometry_are_excluded(self) -> None:
         source = recording()
@@ -128,10 +132,8 @@ class TestHistoricalHeatmapAPI(APIBaseTest):
         self.client.force_login(member)
         assert self.client.get(f"{self.endpoint}{analysis.id}/").status_code == 403
 
-    @parameterized.expand([(False,), (True,)])
-    def test_worker_persists_membership_but_discards_sources_deleted_during_render(
-        self, deleted_during_render: bool
-    ) -> None:
+    @parameterized.expand([("completed",), ("deleted_during_render",), ("expired_during_render",)])
+    def test_worker_persists_membership_but_discards_sources_deleted_during_render(self, outcome: str) -> None:
         analysis = HeatmapAnalysis.objects.for_team(self.team.id).create(
             team=self.team,
             created_by=self.user,
@@ -147,9 +149,11 @@ class TestHistoricalHeatmapAPI(APIBaseTest):
             return True
 
         def render(_analysis: HeatmapAnalysis, _source: SessionRecording, asset: ExportedAsset) -> RecordingAnalysis:
-            if deleted_during_render:
+            if outcome == "deleted_during_render":
                 asset.expires_after = timezone.now() - timedelta(seconds=1)
                 asset.save(update_fields=["expires_after"])
+            if outcome == "expired_during_render":
+                HeatmapAnalysis.objects.for_team(self.team.id).filter(id=analysis.id).update(status="failed")
             return recording()
 
         with (
@@ -164,8 +168,11 @@ class TestHistoricalHeatmapAPI(APIBaseTest):
             analyze_heatmap(self.team.id, str(analysis.id))
         analysis.refresh_from_db()
         sources = HeatmapAnalysisRecording.objects.for_team(self.team.id).filter(analysis=analysis)
+        if outcome == "expired_during_render":
+            assert analysis.status == "failed"
+            return
         assert analysis.sampled_recordings == 1
-        if deleted_during_render:
+        if outcome == "deleted_during_render":
             assert analysis.status == "partial"
             assert analysis.excluded_recordings == 1
             assert not sources.exists()
@@ -236,7 +243,11 @@ class TestHistoricalHeatmapAPI(APIBaseTest):
         )
         stalled = self.client.get(f"{self.endpoint}{response.json()['id']}/")
         assert stalled.json()["analysis"]["status"] == "failed"
-        assert self.client.post(self.endpoint, self.body).status_code == 202
+        future = self.client.post(
+            self.endpoint, {**self.body, "date_to": (timezone.now() + timedelta(days=1)).isoformat()}
+        )
+        assert future.status_code == 202
+        assert HeatmapAnalysis.objects.for_team(self.team.id).get(id=future.json()["id"]).date_to <= timezone.now()
 
     def test_replay_disabled_and_cross_team_heatmap_fail_closed(self) -> None:
         assert self.client.get(f"{self.endpoint}invalid-id/").status_code == 404
@@ -288,6 +299,16 @@ class TestHistoricalHeatmapAPI(APIBaseTest):
         assert selected.status_code == 200, selected.json()
         analysis.refresh_from_db()
         assert analysis.representatives == {variant_id: moment_id}
+        stored = SessionRecording.objects.create(team=self.team, session_id="synthetic-session")
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "recording-viewer@example.com", "password")
+        AccessControl.objects.create(
+            team=self.team, resource="session_recording", resource_id=str(stored.id), access_level="none"
+        )
+        self.client.force_login(member)
+        assert self.client.get(f"{self.endpoint}{analysis.id}/").json()["variants"] == []
+        self.client.force_login(self.user)
         asset.expires_after = timezone.now() - timedelta(seconds=1)
         asset.save()
         response = self.client.get(f"{self.endpoint}{analysis.id}/")

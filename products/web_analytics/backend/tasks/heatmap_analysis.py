@@ -206,7 +206,7 @@ class HeatmapAnalysisRun:
 
     def load_recording(self, session_id: str) -> SessionRecording:
         access = assert_analysis_access(self.analysis)
-        recording = SessionRecording(team=self.analysis.team, session_id=session_id)
+        recording = SessionRecording.get_or_build(session_id=session_id, team=self.analysis.team)
         if not recording.load_metadata() or recording.snapshot_source != "web" or not recording.expiry_time:
             raise ValueError("Recording unavailable")
         if (recording.total_size or 0) > MAX_RECORDING_BYTES or (recording.event_count or 0) > MAX_RECORDING_EVENTS:
@@ -317,15 +317,15 @@ class HeatmapAnalysisRun:
             variants = group_page_states(self.results)
             analysis.representatives = {variant.id: variant.member_id(variant.representative()) for variant in variants}
             ANALYSIS_SECONDS.observe(time.monotonic() - self.started)
-            analysis.save(
-                update_fields=[
-                    "status",
-                    "error",
-                    "sampled_recordings",
-                    "excluded_recordings",
-                    "representatives",
-                    "updated_at",
-                ]
+            HeatmapAnalysis.objects.for_team(analysis.team_id).filter(
+                id=analysis.id, status=HeatmapAnalysis.Status.PROCESSING
+            ).update(
+                status=analysis.status,
+                error=analysis.error,
+                sampled_recordings=analysis.sampled_recordings,
+                excluded_recordings=analysis.excluded_recordings,
+                representatives=analysis.representatives,
+                updated_at=timezone.now(),
             )
 
 
@@ -339,7 +339,7 @@ def analyze_heatmap(team_id: int, analysis_id: str) -> None:
     if (
         not HeatmapAnalysis.objects.for_team(team_id)
         .filter(id=analysis_id, status=HeatmapAnalysis.Status.QUEUED)
-        .update(status=HeatmapAnalysis.Status.PROCESSING)
+        .update(status=HeatmapAnalysis.Status.PROCESSING, updated_at=timezone.now())
     ):
         return
     HeatmapAnalysisRun(analysis).run()
