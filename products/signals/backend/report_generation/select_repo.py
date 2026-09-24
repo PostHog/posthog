@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
+from products.signals.backend.report_generation.source_repository import source_repository_from_signals
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
@@ -75,6 +76,7 @@ async def select_repository_for_team(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    pinned_repository: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
 
@@ -83,6 +85,11 @@ async def select_repository_for_team(
     unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
     — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
     "no match / requires human input".
+
+    ``pinned_repository`` is a repository the request names itself (see
+    :mod:`~products.signals.backend.report_generation.source_repository`). The shared selector
+    returns it when the team can reach it, and ``repository=None`` with the mismatch when it
+    cannot — it never substitutes a different repository for one the request named.
     """
     # Resolved at the single repo-selection chokepoint so both callers (custom agent +
     # report flow) pick it up.
@@ -109,6 +116,7 @@ async def select_repository_for_team(
             reasoning_effort=agent_runtime.reasoning_effort,
             service_tier=agent_runtime.service_tier,
             past_corrections=past_corrections,
+            pinned_repository=pinned_repository,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'
@@ -140,7 +148,12 @@ async def select_repository_for_report(
     verbose: bool = False,
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
-    """Select the most relevant repository for a set of signals."""
+    """Select the most relevant repository for a set of signals.
+
+    Signals that name their own repository pin it, so a report built from a GitHub issue targets
+    the repository the issue was filed against rather than whichever candidate the agent finds the
+    closest match.
+    """
     from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
 
     request_section = render_signals_to_text(signals)
@@ -153,4 +166,5 @@ async def select_repository_for_report(
         sandbox_environment_id=sandbox_environment_id,
         verbose=verbose,
         output_fn=output_fn,
+        pinned_repository=source_repository_from_signals(signals),
     )

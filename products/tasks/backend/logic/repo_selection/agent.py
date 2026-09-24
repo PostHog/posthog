@@ -518,6 +518,29 @@ context and repo names alone.
 {schema_json}
 </jsonschema>"""
 
+# The reason a selection carries when the request named its own repository. Read by tests and by
+# anyone reading a stored `repo_selection` artefact to tell a pinned pick from an agent's pick.
+PINNED_REPOSITORY_REASON = "The request names this repository as its source."
+
+
+def _pinned_selection(pinned_repository: str, candidate_repos: list[str]) -> RepoSelectionResult:
+    """Honor a repository the request names, or refuse to select a different one.
+
+    Candidates are lowercased, so the pin is too before matching.
+    """
+    pinned = pinned_repository.strip().lower()
+    if pinned in candidate_repos:
+        return RepoSelectionResult(repository=pinned, reason=PINNED_REPOSITORY_REASON)
+    logger.info("repo_selection.pinned_repository_unavailable", extra={"pinned": pinned})
+    return RepoSelectionResult(
+        repository=None,
+        reason=(
+            f"The request comes from `{pinned}`, which is not among the repositories this project's "
+            "GitHub installation can reach. Connect it, or pick a repository by hand — another "
+            "repository is not a substitute for the one the request names."
+        ),
+    )
+
 
 async def select_repository(
     team_id: int,
@@ -538,6 +561,7 @@ async def select_repository(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     past_corrections: str | None = None,
+    pinned_repository: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -546,6 +570,12 @@ async def select_repository(
 
     `past_corrections` is an optional pre-rendered block of the caller's previous selections
     that a reviewer marked wrong; see `_build_repo_selection_prompt`.
+
+    `pinned_repository` is a repository the request itself names — a GitHub issue says which
+    repository it was filed against, and that is the answer, not a question for the agent. When it
+    is an eligible candidate it is returned as-is. When it is not, the result is `repository=None`
+    carrying the mismatch: the agent would otherwise pick a similar-looking repository and send the
+    work somewhere the request never pointed at.
 
     Callers that have already resolved the integration and candidate list (e.g. to run their
     own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
@@ -593,6 +623,8 @@ async def select_repository(
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )
+    if pinned_repository is not None:
+        return _pinned_selection(pinned_repository, candidate_repos)
     if len(candidate_repos) == 1:
         return RepoSelectionResult(
             repository=candidate_repos[0],
