@@ -25,6 +25,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { retryWithBackoff } from 'lib/utils/async'
+import { isLivestreamUnauthorized, refreshLiveEventsToken } from 'lib/utils/liveEventsToken'
 import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -809,8 +810,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     () => {
                         const reason = cache.nextStartReason ?? 'visibility_resume'
                         cache.nextStartReason = null
-                        // TEMPORARY: lifecycle tracking for /notifications SSE connection.
-                        // Remove together with livestream_401_debug once root cause is known.
+                        // TEMPORARY: lifecycle tracking for /notifications SSE connection. Kept until
+                        // the token refresh is confirmed to drive livestream_sse_max_errors to near zero.
                         posthog.capture('livestream_sse_startsse_called', {
                             reason,
                             flag_enabled: values.realTimeNotificationsEnabled,
@@ -845,44 +846,55 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         posthog.capture('livestream_sse_connecting', { url, reason })
 
                         void retryWithBackoff(
-                            () =>
-                                connectToNotificationsSSE(
-                                    url,
-                                    token,
-                                    abortController.signal,
-                                    (notification) => {
-                                        // Transient "edited elsewhere" events ride this stream but are
-                                        // not inbox notifications — forward them to interested editors and
-                                        // skip the unread-count / toast / list handling below.
-                                        if (notification.notification_type === RESOURCE_EDITED_EVENT_TYPE) {
-                                            actions.resourceEdited(notification as unknown as ResourceEditedEvent)
-                                            return
-                                        }
-                                        if (!values.isInitialLoadComplete) {
-                                            return
-                                        }
-                                        actions.notificationReceived(notification)
-                                        if (notification.priority === 'critical') {
-                                            showCriticalNotificationToast(notification)
-                                        }
-                                    },
-                                    {
-                                        // TEMPORARY: livestream SSE lifecycle tracking.
-                                        onFirstMessage: () => {
-                                            if (!cache.firstMessageLogged) {
-                                                cache.firstMessageLogged = true
-                                                posthog.capture('livestream_sse_first_message', { url })
+                            async () => {
+                                try {
+                                    await connectToNotificationsSSE(
+                                        url,
+                                        values.currentTeam?.live_events_token ?? token,
+                                        abortController.signal,
+                                        (notification) => {
+                                            // Transient "edited elsewhere" events ride this stream but are
+                                            // not inbox notifications — forward them to interested editors and
+                                            // skip the unread-count / toast / list handling below.
+                                            if (notification.notification_type === RESOURCE_EDITED_EVENT_TYPE) {
+                                                actions.resourceEdited(notification as unknown as ResourceEditedEvent)
+                                                return
+                                            }
+                                            if (!values.isInitialLoadComplete) {
+                                                return
+                                            }
+                                            actions.notificationReceived(notification)
+                                            if (notification.priority === 'critical') {
+                                                showCriticalNotificationToast(notification)
                                             }
                                         },
-                                        onError: (error) => {
-                                            posthog.capture('livestream_sse_error', {
-                                                url,
-                                                error_name: (error as Error | undefined)?.name,
-                                                error_message: (error as Error | undefined)?.message,
-                                            })
-                                        },
+                                        {
+                                            // TEMPORARY: livestream SSE lifecycle tracking.
+                                            onFirstMessage: () => {
+                                                if (!cache.firstMessageLogged) {
+                                                    cache.firstMessageLogged = true
+                                                    posthog.capture('livestream_sse_first_message', { url })
+                                                }
+                                            },
+                                            onError: (error) => {
+                                                posthog.capture('livestream_sse_error', {
+                                                    url,
+                                                    error_name: (error as Error | undefined)?.name,
+                                                    error_message: (error as Error | undefined)?.message,
+                                                })
+                                            },
+                                        }
+                                    )
+                                } catch (error) {
+                                    // The token is a 7-day JWT that arrives with the team, so a tab open
+                                    // longer than that replays a dead bearer until the retry budget runs
+                                    // out. Refetch the team, so the next attempt gets a usable token.
+                                    if (isLivestreamUnauthorized(error)) {
+                                        await refreshLiveEventsToken()
                                     }
-                                ),
+                                    throw error
+                                }
+                            },
                             {
                                 maxAttempts: SSE_RETRY_ATTEMPTS,
                                 initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,

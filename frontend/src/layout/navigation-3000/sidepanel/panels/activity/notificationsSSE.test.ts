@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { InAppNotification } from '~/types'
 
@@ -80,6 +81,16 @@ describe('connectToNotificationsSSE', () => {
     it('throws from onError to stop fetchEventSource retries', async () => {
         mockStream.mockImplementation(async (_url, opts) => {
             expect(() => opts.onError(new Error('connection lost'))).toThrow('SSE disconnected')
+        })
+
+        await connectToNotificationsSSE(url, token, abortController.signal, jest.fn())
+    })
+
+    it('rethrows a rejected token with its status, so the caller can refresh it', async () => {
+        mockStream.mockImplementation(async (_url, opts) => {
+            expect(() => opts.onError(new ApiError('Unauthorized', 401))).toThrow(
+                expect.objectContaining({ status: 401 })
+            )
         })
 
         await connectToNotificationsSSE(url, token, abortController.signal, jest.fn())

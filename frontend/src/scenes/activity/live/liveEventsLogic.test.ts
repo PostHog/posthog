@@ -1,9 +1,13 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -50,6 +54,13 @@ describe('liveEventsLogic', () => {
             enabled ? [FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS] : [],
             enabled ? { [FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]: true } : {}
         )
+    }
+
+    async function waitForStreamCalls(count: number): Promise<void> {
+        for (let attempt = 0; attempt < 50 && streamSpy.mock.calls.length < count; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+        expect(streamSpy.mock.calls).toHaveLength(count)
     }
 
     function lastStreamUrl(): URL {
@@ -148,6 +159,24 @@ describe('liveEventsLogic', () => {
             } else {
                 expect(JSON.parse(url.searchParams.get('properties')!)).toEqual(expectedProperties)
             }
+        })
+    })
+    describe('expired livestream token', () => {
+        it('refetches the team and reopens the stream with the fresh token', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/@current/': () => [200, { ...MOCK_DEFAULT_TEAM, live_events_token: 'fresh-token' }],
+                },
+            })
+            const firstCall = streamSpy.mock.calls[0][1] as { onError: (error: unknown) => void }
+            expect(streamSpy.mock.calls[0][1].headers.Authorization).toEqual(
+                `Bearer ${MOCK_DEFAULT_TEAM.live_events_token}`
+            )
+
+            firstCall.onError(new ApiError('Unauthorized', 401))
+            await waitForStreamCalls(2)
+
+            expect(streamSpy.mock.calls[1][1].headers.Authorization).toEqual('Bearer fresh-token')
         })
     })
 })

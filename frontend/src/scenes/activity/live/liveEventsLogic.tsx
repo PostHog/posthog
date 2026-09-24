@@ -7,6 +7,7 @@ import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { isLivestreamUnauthorized, refreshLiveEventsToken } from 'lib/utils/liveEventsToken'
 import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -256,38 +257,59 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             cache.disposables.add(() => {
                 cache.batch = []
                 const controller = new AbortController()
-                void api.stream(url.toString(), {
-                    headers: {
-                        Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
-                    },
-                    signal: controller.signal,
-                    onMessage: (event) => {
-                        lemonToast.dismiss(ERROR_TOAST_ID)
-                        let eventData: LiveEvent
-                        try {
-                            eventData = JSON.parse(event.data)
-                        } catch {
-                            // Drop malformed stream payloads rather than throwing inside the listener
-                            return
-                        }
-                        cache.batch.push(eventData)
-                        if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
-                            actions.addEvents(cache.batch)
-                            cache.batch.length = 0
-                        }
-                    },
-                    onError: (error) => {
-                        if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
-                            console.error('Failed to poll events. You likely have no events coming in.', error)
-                            lemonToast.error(`No live events found. Continuing to retry in the background…`, {
-                                icon: <Spinner />,
-                                toastId: ERROR_TOAST_ID,
-                                autoClose: false,
-                            })
-                            cache.hasShownLiveStreamErrorToast = true
-                        }
-                    },
-                })
+                let tokenRefreshed = false
+
+                const openStream = (token: string | undefined): void => {
+                    void api.stream(url.toString(), {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                        signal: controller.signal,
+                        onMessage: (event) => {
+                            lemonToast.dismiss(ERROR_TOAST_ID)
+                            let eventData: LiveEvent
+                            try {
+                                eventData = JSON.parse(event.data)
+                            } catch {
+                                // Drop malformed stream payloads rather than throwing inside the listener
+                                return
+                            }
+                            cache.batch.push(eventData)
+                            if (
+                                cache.batch.length >= 10 ||
+                                performance.now() - (values.lastBatchTimestamp || 0) > 300
+                            ) {
+                                actions.addEvents(cache.batch)
+                                cache.batch.length = 0
+                            }
+                        },
+                        onError: (error) => {
+                            // The token is a 7-day JWT that arrives with the team, so a tab open longer
+                            // than that sends a dead bearer. api.stream drops the stream on a 401, so
+                            // refetch the team once and open it again with a usable token.
+                            if (isLivestreamUnauthorized(error) && !tokenRefreshed) {
+                                tokenRefreshed = true
+                                void refreshLiveEventsToken().then((freshToken) => {
+                                    if (freshToken && !controller.signal.aborted) {
+                                        openStream(freshToken)
+                                    }
+                                })
+                                return
+                            }
+                            if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
+                                console.error('Failed to poll events. You likely have no events coming in.', error)
+                                lemonToast.error(`No live events found. Continuing to retry in the background…`, {
+                                    icon: <Spinner />,
+                                    toastId: ERROR_TOAST_ID,
+                                    autoClose: false,
+                                })
+                                cache.hasShownLiveStreamErrorToast = true
+                            }
+                        },
+                    })
+                }
+
+                openStream(values.currentTeam?.live_events_token)
                 return () => controller.abort()
             }, 'eventsConnection')
         },
