@@ -286,7 +286,6 @@ export interface dashboardLogicValues {
         interval: number
     }
     blockRefresh: boolean
-    nextWidgetStaleAt: number | null
     breadcrumbs: Breadcrumb[]
     breakdownValuesIncomplete: boolean
     buttonTileId: DashboardTileIdOrNew
@@ -361,6 +360,7 @@ export interface dashboardLogicValues {
     loadingPreview: boolean
     maxContext: MaxContextInput[]
     nextAllowedDashboardRefresh: Dayjs | null
+    nextWidgetStaleAt: number | null
     oldestRefreshed: Dayjs | null
     pageVisibility: boolean
     pendingInsertion: PendingInsertion | null
@@ -368,6 +368,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
         total: number
@@ -404,7 +405,6 @@ export interface dashboardLogicValues {
     } | null
     urlVariables: Record<string, HogQLVariable>
     variablesDirty: boolean
-    refreshEligibilityTick: number
     widgetRefreshStatus: Record<
         number,
         {
@@ -662,6 +662,9 @@ export interface dashboardLogicActions {
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
         tile: any
+    }
+    recheckRefreshEligibility: () => {
+        value: true
     }
     refreshDashboardItem: (payload: { tile: DashboardTile }) => {
         tile: DashboardTile
@@ -982,9 +985,6 @@ export interface dashboardLogicActions {
     toggleTileDescription: (tileId: number) => {
         tileId: number
     }
-    recheckRefreshEligibility: () => {
-        value: true
-    }
     triggerDashboardRefresh: () => {
         value: true
     }
@@ -1216,13 +1216,27 @@ export interface dashboardLogicMeta {
         nextAllowedDashboardRefresh: (lastDashboardRefresh: Dayjs | null) => Dayjs | null
         nextWidgetStaleAt: (
             widgetTiles: DashboardTile[],
-            widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
+            widgetRefreshStatus: Record<
+                number,
+                {
+                    error?: string | null
+                    fetchedAt?: number
+                    loading?: boolean
+                }
+            >,
             dashboardWidgetsEnabled: boolean
         ) => number | null
         blockRefresh: (
             nextAllowedDashboardRefresh: Dayjs | null,
             widgetTiles: DashboardTile[],
-            widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
+            widgetRefreshStatus: Record<
+                number,
+                {
+                    error?: string | null
+                    fetchedAt?: number
+                    loading?: boolean
+                }
+            >,
             refreshEligibilityTick: number,
             dashboardWidgetsEnabled: boolean,
             placement: DashboardPlacement,
@@ -3107,7 +3121,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         nextWidgetStaleAt: [
             (s) => [s.widgetTiles, s.widgetRefreshStatus, s.dashboardWidgetsEnabled],
-            (widgetTiles, widgetRefreshStatus, dashboardWidgetsEnabled): number | null => {
+            (
+                widgetTiles: DashboardTile[],
+                widgetRefreshStatus: Record<
+                    number,
+                    {
+                        error?: string | null
+                        fetchedAt?: number
+                        loading?: boolean
+                    }
+                >,
+                dashboardWidgetsEnabled: boolean
+            ): number | null => {
                 if (!dashboardWidgetsEnabled) {
                     return null
                 }
