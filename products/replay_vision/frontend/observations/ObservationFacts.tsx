@@ -33,15 +33,7 @@ export function ObservationFacts({ observation }: { observation: ReplayObservati
             </Fact>
             <Fact label="Triggered by">
                 {observation.triggered_by !== 'schedule' && observation.triggered_by_user ? (
-                    <ProfilePicture
-                        user={{
-                            first_name: observation.triggered_by_user.first_name,
-                            last_name: observation.triggered_by_user.last_name,
-                            email: observation.triggered_by_user.email,
-                        }}
-                        size="xs"
-                        showName
-                    />
+                    <ProfilePicture user={observation.triggered_by_user} size="xs" showName />
                 ) : (
                     OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
                 )}

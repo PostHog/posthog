@@ -5196,6 +5196,8 @@ class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
         assert response.status_code == 403, response.json()
 
 
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestReplayVisionProductIntent(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()

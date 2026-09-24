@@ -10,7 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
+import { formatDurationMilliseconds } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
@@ -22,10 +22,7 @@ function durationLabel(observation: ReplayObservationApi): string | null {
         return null
     }
     const ms = dayjs(observation.completed_at).diff(observation.started_at)
-    if (!Number.isFinite(ms) || ms < 0) {
-        return null
-    }
-    return ms < 60_000 ? (humanFriendlyMilliseconds(ms) ?? null) : humanFriendlyDuration(ms / 1000)
+    return Number.isFinite(ms) && ms >= 0 ? formatDurationMilliseconds(ms) : null
 }
 
 export function ObservationDetails({ observation }: { observation: ReplayObservationApi }): JSX.Element {
