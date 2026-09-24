@@ -2194,6 +2194,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         // Temporary migration surface: reachable only from the access control
         // settings banner, never from the settings navigation or search
         hideFromNavigation: true,
+        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
         settings: [
             {
                 id: 'organization-access-resolution-preview',
