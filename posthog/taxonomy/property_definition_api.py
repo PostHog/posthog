@@ -327,7 +327,7 @@ class QueryContext:
         event_property_field = "NULL"
         event_name_join_filter = ""
 
-        if event_names and len(event_names) > 0 and self.should_join_event_property:
+        if event_names and self.should_join_event_property:
             event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
             event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
