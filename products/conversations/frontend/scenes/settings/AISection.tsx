@@ -342,7 +342,7 @@ export function AISection(): JSX.Element {
                                     </LemonButton>
                                 </div>
                                 <LemonDivider />
-                                <TicketPatternThresholds />
+                                <TicketPatternThresholds restrictionReason={settingsRestrictionReason} />
                             </>
                         )}
                     </LemonCard>
