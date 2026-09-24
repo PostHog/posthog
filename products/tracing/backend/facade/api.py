@@ -34,6 +34,10 @@ from posthog.schema import (
     TraceSpansSymbolStatsQueryResponse,
 )
 
+from products.tracing.backend.ai_events import (
+    TraceAiEvent,
+    fetch_trace_ai_events as _fetch_trace_ai_events,
+)
 from products.tracing.backend.attribute_breakdown_query_runner import (
     FACET_COLUMNS as _FACET_COLUMNS,
     run_attribute_breakdown_query as _run_attribute_breakdown_query,
@@ -240,3 +244,11 @@ def count_session_exceptions(
     A session with no such exceptions is absent from the result rather than present with a zero.
     """
     return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)
+
+
+def fetch_trace_ai_events(*, team: "Team", trace_id: str, date_from: datetime, date_to: datetime) -> list[TraceAiEvent]:
+    """List the LLM analytics events whose `$ai_trace_id` is the hex trace id, inside the window,
+    earliest first. Case insensitive. The events side of the trace-to-AI-events join, which the
+    caller finishes.
+    """
+    return _fetch_trace_ai_events(team=team, trace_id=trace_id, date_from=date_from, date_to=date_to)

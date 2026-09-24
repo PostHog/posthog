@@ -41,6 +41,8 @@ import type {
     _TracingServiceNamesResponseApi,
     _TracingSparklineRequestApi,
     _TracingSparklineResponseApi,
+    _TracingTraceAiEventsRequestApi,
+    _TracingTraceAiEventsResponseApi,
     _TracingTraceRequestApi,
     _TracingTraceResponseApi,
     _TracingTreeRequestApi,
@@ -374,6 +376,31 @@ export const tracingSpansTraceCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingTraceRequestApi),
+    })
+}
+
+export const getTracingSpansTraceAiEventsCreateUrl = (projectId: string, traceId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/ai_events/`
+}
+
+/**
+ * List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
+ * can show each model call inline with the spans.
+ *
+ * The spans and the AI events live on different ClickHouse clusters, so one query cannot join
+ * them; this returns the events half and the caller places them by time.
+ */
+export const tracingSpansTraceAiEventsCreate = async (
+    projectId: string,
+    traceId: string,
+    _tracingTraceAiEventsRequestApi: _TracingTraceAiEventsRequestApi,
+    options?: RequestInit
+): Promise<_TracingTraceAiEventsResponseApi> => {
+    return apiMutator<_TracingTraceAiEventsResponseApi>(getTracingSpansTraceAiEventsCreateUrl(projectId, traceId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingTraceAiEventsRequestApi),
     })
 }
 

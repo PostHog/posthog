@@ -54,6 +54,7 @@ from ..facade.api import (
     count_session_exceptions,
     count_span_exceptions,
     count_trace_exceptions,
+    fetch_trace_ai_events,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
@@ -825,6 +826,37 @@ class _TracingTraceResponseSerializer(serializers.Serializer):
     nextOffset = serializers.IntegerField(
         allow_null=True, help_text="Offset for the next page, or null on the last page."
     )
+
+
+class _TracingTraceAiEventsRequestSerializer(serializers.Serializer):
+    dateFrom = serializers.DateTimeField(help_text="Start of the window the AI events must fall in. ISO 8601.")
+    dateTo = serializers.DateTimeField(help_text="End of the window the AI events must fall in. ISO 8601.")
+
+
+class _TracingTraceAiEventSerializer(serializers.Serializer):
+    uuid = serializers.CharField(help_text="Event UUID.")
+    event = serializers.CharField(
+        help_text="The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`."
+    )
+    timestamp = serializers.DateTimeField(help_text="When the call finished. Subtract `latency_seconds` for its start.")
+    ai_trace_id = serializers.CharField(help_text="The `$ai_trace_id` of the event, which opens it in LLM analytics.")
+    ai_span_id = serializers.CharField(allow_null=True, help_text="The `$ai_span_id` of the event.")
+    ai_parent_id = serializers.CharField(
+        allow_null=True,
+        help_text="The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.",
+    )
+    span_name = serializers.CharField(allow_null=True, help_text="The `$ai_span_name`, set on `$ai_span` events.")
+    latency_seconds = serializers.FloatField(allow_null=True, help_text="How long the call took, in seconds.")
+    model = serializers.CharField(allow_null=True, help_text="The model the call used.")
+    provider = serializers.CharField(allow_null=True, help_text="The provider the call went to.")
+    input_tokens = serializers.IntegerField(allow_null=True, help_text="Prompt tokens.")
+    output_tokens = serializers.IntegerField(allow_null=True, help_text="Completion tokens.")
+    total_cost_usd = serializers.FloatField(allow_null=True, help_text="Total cost of the call, in USD.")
+    is_error = serializers.BooleanField(help_text="Whether the call failed.")
+
+
+class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
+    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest first.")
 
 
 class _TracingSparklineRowSerializer(serializers.Serializer):
@@ -1862,6 +1894,39 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             },
             status=status.HTTP_200_OK,
         )
+
+    @validated_request(
+        _TracingTraceAiEventsRequestSerializer,
+        responses={200: OpenApiResponse(response=_TracingTraceAiEventsResponseSerializer)},
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)/ai_events",
+        required_scopes=["tracing:read"],
+    )
+    def trace_ai_events(self, request: ValidatedRequest, trace_id: str, *args, **kwargs) -> Response:
+        """List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
+        can show each model call inline with the spans.
+
+        The spans and the AI events live on different ClickHouse clusters, so one query cannot join
+        them; this returns the events half and the caller places them by time.
+        """
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        try:
+            bytes.fromhex(trace_id)
+        except ValueError:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        data = request.validated_data
+        events = fetch_trace_ai_events(
+            team=self.team, trace_id=trace_id, date_from=data["dateFrom"], date_to=data["dateTo"]
+        )
+
+        self._report_usage(request, "tracing trace ai events fetched", {"ai_events_count": len(events)})
+
+        response = _TracingTraceAiEventsResponseSerializer(instance={"results": events})
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         parameters=[_TracingAttributesQuerySerializer],

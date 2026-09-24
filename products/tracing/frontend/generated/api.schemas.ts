@@ -883,6 +883,76 @@ export interface _TracingTraceResponseApi {
     nextOffset: number | null
 }
 
+export interface _TracingTraceAiEventsRequestApi {
+    /** Start of the window the AI events must fall in. ISO 8601. */
+    dateFrom: string
+    /** End of the window the AI events must fall in. ISO 8601. */
+    dateTo: string
+}
+
+export interface _TracingTraceAiEventApi {
+    /** Event UUID. */
+    uuid: string
+    /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
+    event: string
+    /** When the call finished. Subtract `latency_seconds` for its start. */
+    timestamp: string
+    /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
+    ai_trace_id: string
+    /**
+     * The `$ai_span_id` of the event.
+     * @nullable
+     */
+    ai_span_id: string | null
+    /**
+     * The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.
+     * @nullable
+     */
+    ai_parent_id: string | null
+    /**
+     * The `$ai_span_name`, set on `$ai_span` events.
+     * @nullable
+     */
+    span_name: string | null
+    /**
+     * How long the call took, in seconds.
+     * @nullable
+     */
+    latency_seconds: number | null
+    /**
+     * The model the call used.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * The provider the call went to.
+     * @nullable
+     */
+    provider: string | null
+    /**
+     * Prompt tokens.
+     * @nullable
+     */
+    input_tokens: number | null
+    /**
+     * Completion tokens.
+     * @nullable
+     */
+    output_tokens: number | null
+    /**
+     * Total cost of the call, in USD.
+     * @nullable
+     */
+    total_cost_usd: number | null
+    /** Whether the call failed. */
+    is_error: boolean
+}
+
+export interface _TracingTraceAiEventsResponseApi {
+    /** AI events in the trace, earliest first. */
+    results: _TracingTraceAiEventApi[]
+}
+
 export interface _TracingTreeQueryBodyApi {
     /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
     spanName: string
