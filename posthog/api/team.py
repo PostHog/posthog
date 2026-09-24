@@ -1885,12 +1885,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        from products.conversations.backend.temporal.ticket_patterns.constants import (
+            LOOKBACK_MINUTES_RANGE,
+            MIN_REQUESTERS_RANGE,
+            MIN_TICKETS_RANGE,
+        )
+
         # Ticket spike detection thresholds. Reject rather than clamp, so a typo in the window
         # length is visible instead of silently becoming a different setting.
-        for threshold_key, low, high in (
-            ("ticket_patterns_lookback_minutes", 30, 1440),
-            ("ticket_patterns_min_tickets", 2, 50),
-            ("ticket_patterns_min_requesters", 2, 50),
+        for threshold_key, (low, high) in (
+            ("ticket_patterns_lookback_minutes", LOOKBACK_MINUTES_RANGE),
+            ("ticket_patterns_min_tickets", MIN_TICKETS_RANGE),
+            ("ticket_patterns_min_requesters", MIN_REQUESTERS_RANGE),
         ):
             if threshold_key not in value:
                 continue
