@@ -560,6 +560,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         log = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="created")
         self.assertIsNone(log.user)
+        self.assertEqual(log.credential_type, "team_secret_token")
         detail = log.detail
         assert detail is not None
         self.assertEqual(detail["trigger"]["job_type"], "hog_flow")

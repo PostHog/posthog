@@ -36,6 +36,7 @@ from posthog.api.id_jag import (
 )
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
@@ -837,6 +838,24 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
     def _call_authenticated(self, token: str) -> Any:
         return self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_write_is_attributed_to_the_resolved_user(self) -> None:
+        token = self._mint_access_token(scope="experiment:write feature_flag:write")
+
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "ID-JAG experiment", "feature_flag_key": "id-jag-attribution-flag"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        log = ActivityLog.objects.get(scope="Experiment", activity="created", item_id=str(resp.json()["id"]))
+        assert (log.user, log.is_system, log.credential_type, log.credential_id) == (
+            self.user,
+            False,
+            "id_jag",
+            _RESOURCE_CLIENT_ID,
+        )
 
     def test_valid_token_authenticates_user(self) -> None:
         token = self._mint_access_token(scope="user:read")

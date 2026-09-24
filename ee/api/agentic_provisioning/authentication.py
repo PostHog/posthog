@@ -18,6 +18,7 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
+from posthog.models.activity_logging.utils import oauth_activity_credential, record_activity_actor
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token
 from posthog.models.user import User
 
@@ -231,6 +232,7 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
         if user is None or not user.is_active:
             raise ProvisioningError("unauthorized", "Authentication failed", status=401)
 
+        record_activity_actor(user, oauth_activity_credential(access_token))
         return user, access_token
 
     def authenticate_header(self, request: Request) -> str:

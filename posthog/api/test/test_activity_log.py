@@ -15,6 +15,7 @@ from rest_framework import status
 from posthog.api.advanced_activity_logs import ActivityLogSerializer
 from posthog.api.my_notifications import MyNotificationsSerializer
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -451,14 +452,30 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return ActivityLog.objects.get(scope="Experiment", activity="created", item_id=str(response.json()["id"]))
 
-    def test_personal_api_key_write_is_attributed_to_key_owner(self) -> None:
+    def _create_personal_api_key(self) -> tuple[str, PersonalAPIKey]:
         value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(value), scopes=["*"])
+        key = PersonalAPIKey.objects.create(
+            label="Test", user=self.user, secure_value=hash_key_value(value), scopes=["*"]
+        )
+        return value, key
+
+    def test_personal_api_key_write_is_attributed_to_key_owner(self) -> None:
+        value, key = self._create_personal_api_key()
 
         log = self._create_experiment_and_get_activity(f"Bearer {value}", "pat-attribution-flag")
 
         assert log.is_system is False
         assert log.user == self.user
+        assert (log.credential_type, log.credential_id, log.impersonated_by_id) == ("personal_api_key", key.id, None)
+
+    def test_internal_jwt_write_is_attributed_to_the_token_user(self) -> None:
+        token = encode_jwt({"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER)
+
+        log = self._create_experiment_and_get_activity(f"Bearer {token}", "internal-jwt-attribution-flag")
+
+        assert log.is_system is False
+        assert log.user == self.user
+        assert (log.credential_type, log.credential_id) == ("internal_jwt", None)
 
     def _create_oauth_token(self, impersonated_by: User | None = None) -> OAuthAccessToken:
         application = OAuthApplication.objects.create(
@@ -487,6 +504,11 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert log.is_system is False
         assert log.user == self.user
         assert log.was_impersonated is False
+        assert (log.credential_type, log.credential_id, log.impersonated_by_id) == (
+            "oauth",
+            str(token.application_id),
+            None,
+        )
 
     def test_impersonation_minted_oauth_token_write_is_marked_impersonated(self) -> None:
         staff_user = User.objects.create_and_join(self.organization, "staff@posthog.com", None)
@@ -496,6 +518,7 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
 
         assert log.user == self.user
         assert log.was_impersonated is True
+        assert log.impersonated_by_id == staff_user.id
 
     @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
     def test_activity_log_export_preserves_oauth_authorization(self, _mock_exporter_task) -> None:
