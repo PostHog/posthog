@@ -3170,7 +3170,7 @@ def update_task_run(
     # (consecutive_failures would double-count). The workflow's status-update activity
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
-        if gateway_usage_enabled(run_id=run.id, team_id=run.team_id):
+        if gateway_usage_enabled(run):
             refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
             run.refresh_from_db(fields=["state", "updated_at"])
         handle_loop_run_terminal(run)

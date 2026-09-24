@@ -7,11 +7,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
-from products.tasks.backend.logic.services.gateway_usage import (
-    gateway_usage_enabled,
-    process_pending_gateway_usage,
-    refresh_task_run_spend,
-)
+from products.tasks.backend.logic.services.gateway_usage import gateway_usage_enabled, refresh_task_run_spend
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
@@ -53,15 +49,13 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     billed_cpu_usage_usec = None
     cpu_usage_measured_at = None
     run_id: UUID | None = None
-    run_team_id: int | None = None
-    accounting_enabled = False
+    accounting_run: TaskRun | None = None
     if input.run_id:
         try:
             run_id = UUID(input.run_id)
-            run_team_id = TaskRun.objects.filter(id=run_id).values_list("team_id", flat=True).first()
-            accounting_enabled = bool(
-                run_team_id is not None and gateway_usage_enabled(run_id=run_id, team_id=run_team_id)
-            )
+            run = TaskRun.objects.filter(id=run_id).only("id", "team_id", "environment", "state").first()
+            if run is not None and gateway_usage_enabled(run):
+                accounting_run = run
         except Exception:
             logger.warning(
                 "cleanup_sandbox_gateway_accounting_lookup_failed", extra={"run_id": input.run_id}, exc_info=True
@@ -78,7 +72,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
         sandbox = None
 
     if sandbox is not None:
-        if input.complete_stream_on_cleanup or input.stop_agent_server_on_cleanup or accounting_enabled:
+        if input.complete_stream_on_cleanup or input.stop_agent_server_on_cleanup:
             try:
                 stop_result = sandbox.stop_agent_server()
                 if stop_result.exit_code != 0:
@@ -93,14 +87,6 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
                     exc_info=True,
                 )
 
-        if accounting_enabled and run_id is not None and run_team_id is not None:
-            try:
-                process_pending_gateway_usage(run_id=run_id, team_id=run_team_id, limit=20)
-            except Exception:
-                logger.warning(
-                    "cleanup_sandbox_gateway_accounting_retry_failed", extra={"run_id": input.run_id}, exc_info=True
-                )
-
         cpu_usage_usec, cpu_usage_measured_at = measure_sandbox_cpu_usage(sandbox)
         billed_cpu_usage_usec = measure_sandbox_billed_cpu_usage(sandbox)
 
@@ -110,7 +96,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
         except Exception:
             logger.warning("cleanup_sandbox_destroy_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
             if strict_cleanup:
-                if not accounting_enabled:
+                if accounting_run is None:
                     close_sandbox_session(
                         input.sandbox_id,
                         reason=SandboxSession.EndedReason.CLEANUP,
@@ -120,15 +106,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
                     )
                 raise
 
-    if sandbox is None and accounting_enabled and run_id is not None and run_team_id is not None:
-        try:
-            process_pending_gateway_usage(run_id=run_id, team_id=run_team_id, limit=20)
-        except Exception:
-            logger.warning(
-                "cleanup_sandbox_gateway_accounting_retry_failed", extra={"run_id": input.run_id}, exc_info=True
-            )
-
-    if stream_completion_safe or not accounting_enabled:
+    if stream_completion_safe or accounting_run is None:
         close_sandbox_session(
             input.sandbox_id,
             reason=SandboxSession.EndedReason.CLEANUP,
@@ -137,8 +115,8 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
             cpu_usage_measured_at=cpu_usage_measured_at,
         )
 
-    if accounting_enabled and run_id is not None and run_team_id is not None:
-        refresh_task_run_spend(run_id=run_id, team_id=run_team_id)
+    if accounting_run is not None:
+        refresh_task_run_spend(run_id=accounting_run.id, team_id=accounting_run.team_id)
 
     if run_id is not None and stream_completion_safe:
         try:

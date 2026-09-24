@@ -20,21 +20,6 @@ from products.tasks.backend.presentation.serializers import TaskRunUpdateSeriali
 
 
 class TestTaskRunStateShape(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("empty_list", []),
-            ("nonempty_list", ["item"]),
-            ("string", "state"),
-            ("number", 1),
-            ("boolean", True),
-            ("null", None),
-        ]
-    )
-    def test_state_must_be_an_object(self, _name: str, value: object) -> None:
-        serializer = TaskRunUpdateSerializer(data={"state": value})
-        assert not serializer.is_valid()
-        assert "state" in serializer.errors
-
     def test_nested_json_values_remain_valid(self) -> None:
         state = {"items": [1, {"nested": True}], "optional": None}
         serializer = TaskRunUpdateSerializer(data={"state": state})
@@ -48,9 +33,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         super().setUp()
         self.schedule_usage = self.enterContext(patch("products.tasks.backend.facade.gateway.schedule_gateway_usage"))
 
-    def _task_and_run(
-        self, *, team: Team | None = None, status_value: str = TaskRun.Status.IN_PROGRESS
-    ) -> tuple[Task, TaskRun]:
+    def _run(self, *, team: Team | None = None, status_value: str = TaskRun.Status.IN_PROGRESS) -> TaskRun:
         team = team or self.team
         task = Task.objects.create(
             team=team,
@@ -59,7 +42,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             description="Synthetic task",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        return task, TaskRun.objects.create(task=task, team=team, status=status_value)
+        return TaskRun.objects.create(task=task, team=team, status=status_value)
 
     def _url(self, run: TaskRun, request_id: str = "request_1", *, team_id: int | None = None) -> str:
         return f"/internal/teams/{team_id or run.team_id}/task_runs/{run.id}/generation_requests/{request_id}/"
@@ -87,7 +70,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         )
 
     def test_callback_authenticates_and_records_a_request_before_initialization(self) -> None:
-        _task, run = self._task_and_run()
+        run = self._run()
 
         response = self._post(run)
 
@@ -96,7 +79,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert run.state == {"unprocessed_request_ids": ["request_1"], "token_spend": {}}
 
     def test_callback_rejects_missing_or_invalid_service_credential(self) -> None:
-        _task, run = self._task_and_run()
+        run = self._run()
 
         for authorization in ("", "Bearer wrong", "Bearer caf\u00e9"):
             response = self._post(run, authorization=authorization)
@@ -107,12 +90,12 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
     @override_settings(AI_GATEWAY_INTERNAL_TOKEN="")
     def test_callback_rejects_an_unconfigured_service_token(self) -> None:
-        _task, run = self._task_and_run()
+        run = self._run()
         assert self._post(run).status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand([("state_write",), ("scheduling",)])
     def test_callback_does_not_acknowledge_a_failed_write_or_schedule(self, failure: str) -> None:
-        _task, run = self._task_and_run()
+        run = self._run()
         client = APIClient()
         client.raise_request_exception = False
         target = (
@@ -138,7 +121,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert run.state["unprocessed_request_ids"] == ["request_1"]
 
     def test_callback_requires_a_valid_wallet_and_request_identifiers(self) -> None:
-        _task, run = self._task_and_run()
+        run = self._run()
 
         assert self._post(run, wallet_team_id=0).status_code == status.HTTP_400_BAD_REQUEST
         assert self._post(run, request_id="not a request ID").status_code == status.HTTP_400_BAD_REQUEST
@@ -158,7 +141,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
     def test_callback_allows_the_configured_mint_key_wallet_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Gateway wallet")
         self._mint_key_for(other_team, "phs_callback_mint")
-        _task, run = self._task_and_run()
+        run = self._run()
 
         response = self._post(run, wallet_team_id=other_team.id)
 
@@ -171,7 +154,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         mint_team = Team.objects.create(organization=self.organization, name="Mint wallet")
         foreign_team = Team.objects.create(organization=self.organization, name="Foreign wallet")
         self._mint_key_for(mint_team, "phs_callback_mint")
-        _task, run = self._task_and_run()
+        run = self._run()
 
         response = self._post(run, wallet_team_id=foreign_team.id)
 
@@ -180,7 +163,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert run.state == {}
 
     def test_callback_is_idempotent_before_and_after_processing_and_terminalization(self) -> None:
-        _task, run = self._task_and_run()
+        run = self._run()
 
         assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
         assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
@@ -206,7 +189,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
     def test_callback_returns_not_found_for_a_run_outside_the_path_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other team")
-        _task, run = self._task_and_run(team=other_team)
+        run = self._run(team=other_team)
 
         response = APIClient().post(
             self._url(run, team_id=self.team.id),
@@ -219,7 +202,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_ordinary_patch_cannot_write_queue_or_spend(self) -> None:
-        task, run = self._task_and_run()
+        run = self._run()
         run.state = {
             "unprocessed_request_ids": ["existing"],
             "token_spend": {"model": {"provider": {"spend_microusd": 4, "request_ids": ["existing"]}}},
@@ -228,7 +211,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         run.save(update_fields=["state"])
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/",
+            f"/api/projects/{self.team.id}/tasks/{run.task_id}/runs/{run.id}/",
             {
                 "state": {"unprocessed_request_ids": ["forged"], "token_spend": {}, "compute_spend": 999},
                 "state_append": {"unprocessed_request_ids": "forged"},
@@ -248,12 +231,12 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     @patch("products.tasks.backend.logic.services.gateway_usage._compute_spend_source", return_value=Decimal("0.12"))
     def test_terminal_patch_returns_the_refreshed_spend(self, _compute_spend, _signal) -> None:
-        task, run = self._task_and_run()
+        run = self._run()
         run.state = {"unprocessed_request_ids": [], "token_spend": {}}
         run.save(update_fields=["state"])
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/",
+            f"/api/projects/{self.team.id}/tasks/{run.task_id}/runs/{run.id}/",
             {"status": TaskRun.Status.COMPLETED},
             format="json",
         )

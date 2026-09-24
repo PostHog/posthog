@@ -17,10 +17,7 @@ from asgiref.sync import async_to_sync
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.facade.contracts import TaskRunSpend
-from products.tasks.backend.logic.services.sandbox_pricing import (
-    COMPUTE_RATE_CARDS,
-    calculate_sandbox_compute_cost as calculate_sandbox_compute_spend,
-)
+from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -37,7 +34,7 @@ class GatewayRequestSpend:
 
 
 @frozen
-class SpendSources:
+class _SpendSources:
     token_spend_microusd: int | None
     compute_spend_usd: Decimal | None
 
@@ -54,13 +51,13 @@ def _locked_run(run_id: UUID, team_id: int) -> TaskRun:
     return TaskRun.objects.select_for_update().get(id=run_id, team_id=team_id)
 
 
-def gateway_usage_enabled(*, run_id: UUID, team_id: int) -> bool:
-    return TaskRun.objects.filter(
-        id=run_id,
-        team_id=team_id,
-        environment=TaskRun.Environment.CLOUD,
-        state__has_keys=["unprocessed_request_ids", "token_spend"],
-    ).exists()
+def gateway_usage_enabled(run: TaskRun) -> bool:
+    state = run.state or {}
+    return (
+        run.environment == TaskRun.Environment.CLOUD
+        and isinstance(state.get("unprocessed_request_ids"), list)
+        and isinstance(state.get("token_spend"), dict)
+    )
 
 
 def _save_accounting_state(run: TaskRun) -> None:
@@ -77,6 +74,8 @@ def enable_gateway_usage(*, run_id: UUID, team_id: int) -> None:
         state = dict(run.state or {})
         state.setdefault("unprocessed_request_ids", [])
         state.setdefault("token_spend", {})
+        if state == run.state:
+            return
         run.state = state
         _save_accounting_state(run)
 
@@ -92,7 +91,7 @@ def _spend_buckets(state: dict[str, Any]) -> Iterable[dict[str, Any]]:
                     yield bucket
 
 
-def processed_gateway_request_ids(state: dict[str, Any]) -> set[str]:
+def _processed_gateway_request_ids(state: dict[str, Any]) -> set[str]:
     return {
         request_id
         for bucket in _spend_buckets(state)
@@ -108,10 +107,12 @@ def record_generation_request(*, team_id: int, run_id: UUID, request_id: str) ->
         pending = state.get("unprocessed_request_ids")
         if not isinstance(pending, list):
             pending = []
-        if request_id not in pending and request_id not in processed_gateway_request_ids(state):
+        if request_id not in pending and request_id not in _processed_gateway_request_ids(state):
             pending = [*pending, request_id]
         state["unprocessed_request_ids"] = pending
         state.setdefault("token_spend", {})
+        if state == run.state:
+            return
         run.state = state
         _save_accounting_state(run)
 
@@ -130,8 +131,8 @@ def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20
     with transaction.atomic():
         run = _locked_run(run_id, team_id)
         state = run.state or {}
-        if not _has_spend_state(run):
-            return _persist_spend(run).as_contract()
+        if not gateway_usage_enabled(run):
+            return _spend_sources(run).as_contract()
         pending = _pending_ids(state)[:limit]
     deadline = time.monotonic() + _PROCESSING_SECONDS
     for request_id in pending:
@@ -145,51 +146,43 @@ def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20
             if request_id not in remaining:
                 continue
             remaining.remove(request_id)
-            processed = processed_gateway_request_ids(state)
+            processed = _processed_gateway_request_ids(state)
             if request_id not in processed:
                 if request_spend is None:
                     # A missing response must not block the rest of the queue.
                     remaining.append(request_id)
                 else:
-                    models = dict(state["token_spend"])
-                    providers = dict(models.get(request_spend.model, {}))
-                    bucket = dict(providers.get(request_spend.provider, {}))
+                    providers = state["token_spend"].setdefault(request_spend.model, {})
+                    bucket = providers.setdefault(request_spend.provider, {})
                     bucket["spend_microusd"] = bucket.get("spend_microusd", 0) + request_spend.spend_microusd
                     bucket["request_ids"] = [*bucket.get("request_ids", []), request_id]
-                    providers[request_spend.provider] = bucket
-                    models[request_spend.model] = providers
-                    state["token_spend"] = models
             state["unprocessed_request_ids"] = remaining
             run.state = state
-            _persist_spend(run)
+            _save_accounting_state(run)
     return refresh_task_run_spend(run_id=run_id, team_id=team_id)
-
-
-def refresh_sandbox_run_spend(*, sandbox_id: str) -> TaskRunSpend | None:
-    session = SandboxSession.objects.unscoped().filter(sandbox_id=sandbox_id).only("task_run_id", "team_id").first()
-    if session is None:
-        return None
-    return refresh_task_run_spend(run_id=session.task_run_id, team_id=session.team_id)
 
 
 def refresh_task_run_spend(*, run_id: UUID, team_id: int) -> TaskRunSpend:
     with transaction.atomic():
-        return _persist_spend(_locked_run(run_id, team_id)).as_contract()
+        run = _locked_run(run_id, team_id)
+        spend = _spend_sources(run).as_contract()
+        state = dict(run.state or {})
+        if "compute_spend" not in state or state["compute_spend"] != spend.compute_spend:
+            state["compute_spend"] = spend.compute_spend
+            run.state = state
+            _save_accounting_state(run)
+        return spend
 
 
-def get_task_run_spend(*, run: TaskRun) -> TaskRunSpend:
-    return refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
+def get_task_run_spend(*, run_id: UUID, team_id: int) -> TaskRunSpend:
+    return _spend_sources(TaskRun.objects.get(id=run_id, team_id=team_id)).as_contract()
 
 
 def get_task_spend(*, team_id: int, task_id: UUID) -> TaskRunSpend:
-    run_ids = list(TaskRun.objects.filter(team_id=team_id, task_id=task_id).order_by("id").values_list("id", flat=True))
-    if not run_ids:
-        return TaskRunSpend.unavailable()
-    sources = []
-    for run_id in run_ids:
-        with transaction.atomic():
-            sources.append(_persist_spend(_locked_run(run_id, team_id)))
-    return SpendSources(
+    sources = [_spend_sources(run) for run in TaskRun.objects.filter(team_id=team_id, task_id=task_id)]
+    if not sources:
+        return TaskRunSpend(token_spend=None, compute_spend=None)
+    return _SpendSources(
         token_spend_microusd=None
         if any(s.token_spend_microusd is None for s in sources)
         else sum(s.token_spend_microusd or 0 for s in sources),
@@ -234,27 +227,13 @@ def _fetch_gateway_spend(request_id: str) -> GatewayRequestSpend | None:
         return None
 
 
-def _has_spend_state(run: TaskRun) -> bool:
-    state = run.state or {}
-    return (
-        run.environment == TaskRun.Environment.CLOUD
-        and isinstance(state.get("unprocessed_request_ids"), list)
-        and isinstance(state.get("token_spend"), dict)
-    )
-
-
-def _persist_spend(run: TaskRun) -> SpendSources:
-    state = dict(run.state or {})
-    sources = SpendSources(
-        token_spend_microusd=sum(bucket.get("spend_microusd", 0) for bucket in _spend_buckets(state))
-        if _has_spend_state(run)
+def _spend_sources(run: TaskRun) -> _SpendSources:
+    return _SpendSources(
+        token_spend_microusd=sum(bucket.get("spend_microusd", 0) for bucket in _spend_buckets(run.state or {}))
+        if gateway_usage_enabled(run)
         else None,
         compute_spend_usd=_compute_spend_source(run),
     )
-    state["compute_spend"] = sources.as_contract().compute_spend
-    run.state = state
-    _save_accounting_state(run)
-    return sources
 
 
 def _compute_spend_source(run: TaskRun) -> Decimal | None:
@@ -267,7 +246,7 @@ def _compute_spend_source(run: TaskRun) -> Decimal | None:
     try:
         return sum(
             (
-                calculate_sandbox_compute_spend(
+                calculate_sandbox_compute_cost(
                     session, COMPUTE_RATE_CARDS[0].effective_at, now, calculated_at=now, rate_cards=COMPUTE_RATE_CARDS
                 ).total_cost_usd
                 for session in sessions

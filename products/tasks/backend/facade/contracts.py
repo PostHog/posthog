@@ -88,12 +88,10 @@ class WizardCloudRunDTO:
 
 @dataclass(frozen=True)
 class TaskRunSpend:
+    """Recorded spend in integer cents, or None when a source is unavailable."""
+
     token_spend: int | None
     compute_spend: int | None
-
-    @classmethod
-    def unavailable(cls) -> "TaskRunSpend":
-        return cls(token_spend=None, compute_spend=None)
 
 
 @dataclass(frozen=True)

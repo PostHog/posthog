@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -71,21 +72,19 @@ class TaskRunGatewayUsageWorkflow(PostHogWorkflow):
             if workflow.now() >= self._retry_until:
                 break
 
-            def requests_available(wakeups: int = wakeups) -> bool:
+            def has_new_requests(wakeups: int = wakeups) -> bool:
                 return self._wakeups != wakeups
 
             try:
                 await workflow.wait_condition(
-                    requests_available,
+                    has_new_requests,
                     timeout=min(timedelta(seconds=delay), self._retry_until - workflow.now()),
                 )
             except TimeoutError:
                 pass
             delay = 30 if self._wakeups != wakeups else min(delay * 2, 300)
             if workflow.info().is_continue_as_new_suggested():
-                workflow.continue_as_new(
-                    GatewayUsageInput(run_id=input.run_id, team_id=input.team_id, retry_until=self._retry_until)
-                )
+                workflow.continue_as_new(replace(input, retry_until=self._retry_until))
 
         # A 404 can be unsettled or permanently unpriced; keep the IDs for recovery.
         workflow.logger.warning(

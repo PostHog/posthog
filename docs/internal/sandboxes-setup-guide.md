@@ -122,7 +122,9 @@ A missing usage record is never treated as a confirmed zero cost; zero-charge ge
 An operator can restart reconciliation through `schedule_gateway_usage(run_id=..., team_id=...)` after resolving a gateway outage.
 
 `token_spend` contains the recorded model/provider buckets and processed IDs.
-`compute_spend` is a projection of the existing `SandboxSession` records and published rate cards, refreshed during cleanup and spend reads.
+`compute_spend` is a projection of the existing `SandboxSession` records and published rate cards, refreshed during cleanup, terminal status updates, and after each reconciliation batch.
+Spend reads calculate current totals without changing stored state.
+Cleanup closes the compute session and refreshes its projection; the reconciliation workflow owns token retries, so stream completion can precede final token settlement.
 Spend helpers return integer cents, or `None` when a source is unavailable; token totals can be incomplete while IDs remain pending.
 Ordinary task-run PATCH requests cannot modify accounting state.
 These projections do not change customer billing.

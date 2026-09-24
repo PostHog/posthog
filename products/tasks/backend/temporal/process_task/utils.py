@@ -1358,7 +1358,6 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
         return {}
     try:
         env_vars = ai_gateway_env_vars(
-            run_id=ctx.run_id,
             team_id=ctx.team_id,
             origin_product=ctx.origin_product,
             ai_stage=(ctx.state or {}).get("ai_stage"),
@@ -1369,6 +1368,12 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             model=ctx.model,
             runtime=ctx.task_runtime,
         )
+        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
+            # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
+            env_vars.pop("AI_GATEWAY_TOKEN", None)
+            env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
+        if env_vars.get("AI_GATEWAY_TOKEN") and ctx.task_runtime != "pi":
+            enable_gateway_usage(run_id=UUID(ctx.run_id), team_id=ctx.team_id)
     except Exception:
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
@@ -1378,10 +1383,6 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             exc_info=True,
         )
         return {}
-    if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
-        # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
-        env_vars.pop("AI_GATEWAY_TOKEN", None)
-        env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
     return env_vars
 
 
@@ -1418,7 +1419,6 @@ def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_produ
 
 def ai_gateway_env_vars(
     *,
-    run_id: str | None = None,
     team_id: int | None = None,
     origin_product: str | None = None,
     ai_stage: str | None = None,
@@ -1482,8 +1482,6 @@ def ai_gateway_env_vars(
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
-                if run_id is not None and runtime != "pi":
-                    enable_gateway_usage(run_id=UUID(run_id), team_id=team_id)
     return env_vars
 
 

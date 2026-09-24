@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
-    from products.tasks.backend.facade.contracts import TaskRunSpend
     from products.tasks.backend.logic.services.sandbox import SandboxResources
 
 from django.conf import settings
@@ -2465,11 +2464,6 @@ class TaskRun(models.Model):
     def mode(self) -> str:
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
-
-    def get_current_spend(self) -> "TaskRunSpend":
-        from products.tasks.backend.logic.services.gateway_usage import get_task_run_spend
-
-        return get_task_run_spend(run=self)
 
     def get_sandbox_environment(self) -> Optional["SandboxEnvironment"]:
         """Resolve the SandboxEnvironment for this run, scoped to team and respecting privacy.

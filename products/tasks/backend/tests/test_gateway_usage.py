@@ -9,11 +9,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.tasks.backend.facade.billing import TaskRunSpend, get_task_run_spend, get_task_spend
 from products.tasks.backend.logic.services.gateway_usage import (
     enable_gateway_usage,
-    get_task_spend,
     process_pending_gateway_usage,
     record_generation_request,
+    refresh_task_run_spend,
 )
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
@@ -43,7 +44,7 @@ class TestGatewayUsage(BaseTest):
             ),
         )
 
-    def _process(self, run: TaskRun, *, limit: int = 20):
+    def _process(self, run: TaskRun, *, limit: int = 20) -> TaskRunSpend:
         return process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, limit=limit)
 
     @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
@@ -155,7 +156,7 @@ class TestGatewayUsage(BaseTest):
         enable_gateway_usage(run_id=run.id, team_id=self.team.id)
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["pending"]
-        assert run.get_current_spend().token_spend == 2
+        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 2
         run.status = TaskRun.Status.IN_PROGRESS
         run.save(update_fields=["status"])
         self._report(run, ["old-request", "pending"])
@@ -174,17 +175,17 @@ class TestGatewayUsage(BaseTest):
             get.return_value = self._response(request_id, "0.005")
             self._process(run)
         get.reset_mock()
-        assert first.get_current_spend().token_spend == 0
-        assert second.get_current_spend().token_spend == 0
+        assert get_task_run_spend(run_id=first.id, team_id=self.team.id).token_spend == 0
+        assert get_task_run_spend(run_id=second.id, team_id=self.team.id).token_spend == 0
         assert get_task_spend(team_id=self.team.id, task_id=first.task_id).token_spend == 1
         get.assert_not_called()
 
     def test_untracked_runs_have_no_recorded_token_spend(self) -> None:
         run = self._run()
-        assert run.get_current_spend().token_spend == 0
+        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 0
         run.state = {}
         run.save(update_fields=["state"])
-        assert run.get_current_spend().token_spend is None
+        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend is None
 
     def test_compute_spend_uses_existing_ledger_attribution_and_resource_floors(self) -> None:
         run = self._run()
@@ -204,10 +205,14 @@ class TestGatewayUsage(BaseTest):
                 user_attributed_at=attributed,
                 ended_at=now,
             )
-        spend = run.get_current_spend()
+        spend = get_task_run_spend(run_id=run.id, team_id=self.team.id)
         card = COMPUTE_RATE_CARDS[-1]
         expected = int(((card.cpu_core_second_usd + card.memory_gib_second_usd) * 3600 * 100).quantize(Decimal(1)))
         assert spend.compute_spend == expected
+        assert get_task_spend(team_id=self.team.id, task_id=run.task_id) == spend
+        run.refresh_from_db()
+        assert "compute_spend" not in run.state
+        assert refresh_task_run_spend(run_id=run.id, team_id=self.team.id) == spend
         run.refresh_from_db()
         assert run.state["compute_spend"] == expected
         assert set(run.state) == {"unprocessed_request_ids", "token_spend", "compute_spend"}
@@ -223,5 +228,5 @@ class TestGatewayUsage(BaseTest):
             enable_gateway_usage(run_id=run.id, team_id=run.team_id)
             record_generation_request(run_id=run.id, team_id=run.team_id, request_id="late-request")
             assert self._process(run).token_spend == 2
-            assert run.get_current_spend().token_spend == 2
+            assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 2
             track_result.assert_not_called()

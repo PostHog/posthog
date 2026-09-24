@@ -1,7 +1,6 @@
 import json
 import logging
 from pathlib import Path
-from uuid import UUID
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -346,31 +345,6 @@ class TestAiGatewayEnvVars:
         assert "AI_GATEWAY_PRODUCT" not in env
         assert env["AI_GATEWAY_URL"] == "https://ai-gateway.dev.posthog.dev"
 
-    @pytest.mark.parametrize(
-        "task_runtime,token,initializes_spend",
-        [("acp", "phe_abc", True), ("pi", "phe_abc", False), ("acp", None, False)],
-    )
-    def test_gateway_spend_initializes_automatically_for_go_runs(
-        self, mint_settings, task_runtime, token, initializes_spend
-    ):
-        run_id = UUID("00000000-0000-4000-8000-000000000001")
-        with (
-            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value=token),
-            patch("products.tasks.backend.temporal.process_task.utils.enable_gateway_usage") as initialize_spend,
-        ):
-            env = ai_gateway_env_vars(
-                run_id=str(run_id),
-                runtime=task_runtime,
-                team_id=123,
-                origin_product="signals_scout",
-                ai_stage="scout:logs",
-            )
-        assert env.get("AI_GATEWAY_TOKEN") == (token if task_runtime != "pi" else None)
-        if initializes_spend:
-            initialize_spend.assert_called_once_with(run_id=run_id, team_id=123)
-        else:
-            initialize_spend.assert_not_called()
-
     def test_no_run_context_still_sets_routing_pair(self, mint_settings):
         env = ai_gateway_env_vars()
         assert env == {
@@ -470,7 +444,6 @@ class TestProvisioningBoundaries:
         ctx = MagicMock()
         ctx.run_id = "00000000-0000-4000-8000-000000000007"
         ctx.team_id = 7
-        ctx.task_runtime = "acp"
         ctx.origin_product = "signals_scout"
         ctx.state = {"ai_stage": "scout:logs"}
         ctx.distinct_id = "user-1"
@@ -484,14 +457,35 @@ class TestProvisioningBoundaries:
         task.internal = True
         return task
 
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "task_runtime,token,initializes_spend",
+        [("acp", "phe_abc", True), ("pi", "phe_abc", False), ("acp", None, False)],
+    )
+    def test_gateway_spend_initializes_automatically_for_go_runs(
+        self, mint_settings, test_task_run, task_runtime, token, initializes_spend
+    ):
+        ctx = self._ctx()
+        ctx.run_id = str(test_task_run.id)
+        ctx.team_id = test_task_run.team_id
+        ctx.task_runtime = task_runtime
+        with patch.object(utils, "mint_scoped_token", return_value=token):
+            env = utils.run_gateway_env_vars(ctx, self._task())
+        assert env.get("AI_GATEWAY_TOKEN") == (token if task_runtime != "pi" else None)
+        test_task_run.refresh_from_db()
+        assert ("token_spend" in test_task_run.state) is initializes_spend
+        assert ("unprocessed_request_ids" in test_task_run.state) is initializes_spend
+
     def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils
 
-        with patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env:
+        with (
+            patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
+            patch.object(utils, "enable_gateway_usage"),
+        ):
             out = utils.run_gateway_env_vars(self._ctx(), self._task())
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
-            run_id="00000000-0000-4000-8000-000000000007",
             team_id=7,
             origin_product="signals_scout",
             ai_stage="scout:logs",
@@ -566,6 +560,7 @@ class TestProvisioningBoundaries:
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "enable_gateway_usage"),
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
             utils.run_gateway_env_vars(self._ctx(), self._task())
@@ -577,6 +572,7 @@ class TestProvisioningBoundaries:
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "enable_gateway_usage"),
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
             utils.run_gateway_env_vars(self._ctx(), self._task())
@@ -605,6 +601,7 @@ class TestProvisioningBoundaries:
         }
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "enable_gateway_usage"),
             patch(
                 "products.tasks.backend.models.TaskRun.update_state_atomic",
                 side_effect=RuntimeError("postgres is down"),
@@ -621,6 +618,7 @@ class TestProvisioningBoundaries:
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "enable_gateway_usage"),
             patch(
                 "products.tasks.backend.models.TaskRun.update_state_atomic",
                 side_effect=RuntimeError("postgres is down"),

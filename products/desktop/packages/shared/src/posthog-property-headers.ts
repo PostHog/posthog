@@ -66,11 +66,9 @@ export function buildPosthogPropertyHeaderRecord(
 export function buildPosthogPropertyHeaderLines(
   properties: PosthogProperties,
 ): string {
-  const taskRunId = taskRunIdHeader(properties);
-  return [
-    ...buildEntries(properties).map(([key, value]) => `${key}: ${value}`),
-    ...(taskRunId ? [`${POSTHOG_TASK_RUN_ID_HEADER}: ${taskRunId}`] : []),
-  ].join("\n");
+  return Object.entries(buildPosthogPropertyHeaderRecord(properties))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
 }
 
 /**
@@ -213,16 +211,13 @@ export function buildPosthogPropertiesHeaderRecord(
 }
 
 /**
- * {@link buildPosthogPropertiesBlob} as a single `key: value` line for
+ * {@link buildPosthogPropertiesHeaderRecord} as `key: value` lines for
  * `ANTHROPIC_CUSTOM_HEADERS`, empty when there is nothing to send.
  */
 export function buildPosthogPropertiesHeaderLines(
   properties: PosthogProperties,
 ): string {
-  const blob = buildPosthogPropertiesBlob(properties);
-  const taskRunId = taskRunIdHeader(properties);
-  return [
-    ...(blob ? [`${POSTHOG_PROPERTIES_HEADER}: ${blob}`] : []),
-    ...(taskRunId ? [`${POSTHOG_TASK_RUN_ID_HEADER}: ${taskRunId}`] : []),
-  ].join("\n");
+  return Object.entries(buildPosthogPropertiesHeaderRecord(properties))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
 }
