@@ -20,6 +20,14 @@ if [ -z "$native_git" ]; then
     exit 127
 fi
 
+# No terminal is attached, so a git operation with no usable credential must
+# fail with a message the caller can classify, not block on a prompt nobody
+# can answer or hang on an ssh passphrase. Defaults only: a caller that sets
+# either variable keeps its own value.
+: "${GIT_TERMINAL_PROMPT:=0}"
+: "${GIT_SSH_COMMAND:=ssh -o BatchMode=yes}"
+export GIT_TERMINAL_PROMPT GIT_SSH_COMMAND
+
 if [ "${POSTHOG_ALLOW_UNSIGNED_GIT:-}" = "1" ]; then
     exec "$native_git" "$@"
 fi

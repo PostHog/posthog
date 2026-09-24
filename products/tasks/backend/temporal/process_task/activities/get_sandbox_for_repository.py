@@ -19,6 +19,7 @@ from products.tasks.backend.exceptions import (
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.logic.services.git_auth import is_git_auth_failure
 from products.tasks.backend.logic.services.sandbox import (
     Sandbox,
     SandboxConfig,
@@ -27,6 +28,7 @@ from products.tasks.backend.logic.services.sandbox import (
     parse_sandbox_repo_mount_map,
     workload_for_origin_product,
 )
+from products.tasks.backend.metrics import record_git_auth_failure
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -383,6 +385,15 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
+                # Named so the run reports the missing credential rather than an opaque clone
+                # failure the user cannot act on.
+                if is_git_auth_failure(clone_result.stderr, clone_result.stdout, clone_result.error):
+                    record_git_auth_failure("clone")
+                    raise GitHubAuthenticationError(
+                        f"Git clone of {repository} could not authenticate to GitHub",
+                        {"repository": repository, "stderr": clone_result.stderr[:500]},
+                        cause=RuntimeError(clone_result.stderr[:200]),
+                    )
                 raise RuntimeError(f"Failed to clone repository {repository}: {clone_result.stderr}")
 
         if has_repo and ctx.branch:
@@ -419,6 +430,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if result.exit_code != 0:
                 sandbox.destroy()
                 logger.warning("Branch checkout failed", extra={"branch": ctx.branch, "stderr": result.stderr})
+                if is_git_auth_failure(result.stderr, result.stdout, result.error):
+                    record_git_auth_failure("fetch")
+                    raise GitHubAuthenticationError(
+                        f"Git fetch of branch {ctx.branch} could not authenticate to GitHub",
+                        {"repository": repository, "branch": ctx.branch, "stderr": result.stderr[:500]},
+                        cause=RuntimeError(result.stderr[:200]),
+                    )
                 raise RuntimeError(f"Failed to checkout branch {ctx.branch}")
 
         credentials = sandbox.get_connect_credentials()

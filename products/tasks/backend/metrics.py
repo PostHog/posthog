@@ -120,6 +120,22 @@ WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
 WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
     "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
 )
+# Where a git operation ran out of credential. `phase` is the operation that failed
+# (`clone`, `fetch`), so a run blocked before it could read the repository is countable.
+# There is no baseline for this: the failure used to reach the user as a stalled prompt or
+# an opaque ssh error, neither of which was recorded anywhere. Drive it to zero.
+GIT_AUTH_FAILURE_TOTAL = Counter(
+    "posthog_tasks_git_auth_failure_total",
+    "Git operations in a task sandbox that failed for lack of a usable GitHub credential",
+    labelnames=["phase"],
+)
+GitAuthFailurePhase = Literal["clone", "fetch"]
+
+
+def record_git_auth_failure(phase: GitAuthFailurePhase) -> None:
+    GIT_AUTH_FAILURE_TOTAL.labels(phase=phase).inc()
+
+
 SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL = Counter(
     "posthog_tasks_scheduled_task_run_materialization_total",
     "Scheduled task runs processed by the due-run materializer",

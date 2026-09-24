@@ -6,21 +6,23 @@ import {
   execGitWithRetry,
   type GitExecResult,
 } from "@posthog/git/git-exec";
+import {
+  describeGitAuthFailure,
+  GITHUB_AUTH_CONFIG_KEY,
+  GITHUB_BASE_URL,
+  isGitAuthFailure,
+  withGithubAuth,
+  withNonInteractiveGit,
+} from "@posthog/git/github-auth";
 import { parseGithubUrl } from "@posthog/git/utils";
 import { z } from "zod";
 import { resolveGithubToken } from "../github-token";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 
 const GIT_TIMEOUT_MS = 10 * 60 * 1000;
-const GITHUB_BASE_URL = "https://github.com/";
 const CLOUD_CLONE_ROOT = "/tmp/workspace/repos";
 
-/**
- * Scoping the auth header to github.com is what keeps the token from being
- * sent to other hosts; an unscoped `http.extraHeader` rides along on every
- * HTTP remote git talks to.
- */
-export const GITHUB_AUTH_CONFIG_KEY = `http.${GITHUB_BASE_URL}.extraHeader`;
+export { GITHUB_AUTH_CONFIG_KEY };
 
 const cloneRepoSchema = {
   repo: z
@@ -40,23 +42,11 @@ function fail(text: string): LocalToolResult {
   return { content: [{ type: "text", text }], isError: true };
 }
 
-/**
- * Carries the token as an `http.extraHeader` in the child's environment, so it
- * never reaches `.git/config` the way a credential embedded in the remote URL
- * would.
- */
 function gitEnv(token: string | undefined): Record<string, string> {
   // Repos declaring `filter=lfs` fail outright when git-lfs isn't installed;
   // skipping the smudge filter leaves pointer files instead.
   const env: Record<string, string> = { GIT_LFS_SKIP_SMUDGE: "1" };
-  if (!token) return env;
-  const basicAuth = Buffer.from(`x-access-token:${token}`).toString("base64");
-  return {
-    ...env,
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: GITHUB_AUTH_CONFIG_KEY,
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basicAuth}`,
-  };
+  return withGithubAuth(withNonInteractiveGit(env), token);
 }
 
 /**
@@ -314,10 +304,11 @@ export const cloneRepoTool = defineLocalTool({
         // A partial clone would make the retry above take the "already cloned"
         // path against a broken checkout.
         await fsPromises.rm(targetPath, { recursive: true, force: true });
+        const detail = redact(err instanceof Error ? err.message : String(err));
         return fail(
-          `clone_repo failed: ${redact(
-            err instanceof Error ? err.message : String(err),
-          )}`,
+          isGitAuthFailure(detail)
+            ? `clone_repo failed: ${describeGitAuthFailure(slug, detail)}`
+            : `clone_repo failed: ${detail}`,
         );
       }
     };

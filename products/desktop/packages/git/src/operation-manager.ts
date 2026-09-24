@@ -1,4 +1,9 @@
 import { createGitClient, type GitClient } from "./client";
+import {
+  readGithubTokenFromEnv,
+  withGithubAuth,
+  withNonInteractiveGit,
+} from "./github-auth";
 import { removeLock, waitForUnlock } from "./lock-detector";
 import { AsyncReaderWriterLock } from "./rw-lock";
 
@@ -20,6 +25,12 @@ import { AsyncReaderWriterLock } from "./rw-lock";
  * would otherwise hit `git-lfs: command not found` and fail the op.
  * Pointer files are preserved; real LFS content can be fetched later
  * with `git lfs pull` if the user installs git-lfs.
+ *
+ * Every git subprocess also gets the GitHub token (as a github.com-scoped
+ * `http.extraHeader`) and the non-interactive settings. Wiring auth here
+ * rather than per-caller is what stops an ordinary fetch or pull from
+ * prompting for a username, or falling through to SSH on a machine with no
+ * agent, while a clone in the same session succeeds.
  */
 export function getCleanEnv(): Record<string, string> {
   const env: Record<string, string> = {};
@@ -31,7 +42,7 @@ export function getCleanEnv(): Record<string, string> {
   }
   env.ELECTRON_RUN_AS_NODE = "1";
   env.GIT_LFS_SKIP_SMUDGE = "1";
-  return env;
+  return withGithubAuth(withNonInteractiveGit(env), readGithubTokenFromEnv());
 }
 
 interface RepoState {

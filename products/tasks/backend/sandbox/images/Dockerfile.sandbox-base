@@ -182,6 +182,12 @@ RUN chmod +x /tmp/install-skills.sh && \
 RUN git config --global user.email "code@posthog.com" && \
     git config --global user.name "PostHog Desktop"
 
+# No terminal is attached in a sandbox, so a git operation with no usable
+# credential must fail instead of waiting on a prompt nobody can answer. The
+# ssh setting does the same for a remote that falls through to SSH.
+ENV GIT_TERMINAL_PROMPT=0
+ENV GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+
 # Block `git commit`/`git push` so unsigned commits cannot leave the sandbox
 COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git
 RUN chmod +x /opt/posthog/bin/git

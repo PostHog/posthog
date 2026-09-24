@@ -15,6 +15,11 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
+# Same reason as Dockerfile.sandbox-base: no terminal is attached, so git must
+# fail on a missing credential rather than wait for a prompt.
+ENV GIT_TERMINAL_PROMPT=0
+ENV GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+
 # NODE_MAJOR must match the nodesource setup script used in Dockerfile.sandbox-base.
 ARG NODE_MAJOR=24
 

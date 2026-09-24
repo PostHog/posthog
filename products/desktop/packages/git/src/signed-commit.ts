@@ -7,6 +7,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mapWithConcurrency } from "./concurrency";
 import { execGh, execGhWithRetry, type GhExecResult } from "./gh";
+import {
+  GITHUB_TOKEN_ENV_VARS,
+  ghTokenEnv,
+  readGithubTokenFromEnv,
+} from "./github-auth";
 import { buildPostHogTrailers } from "./trailers";
 import { parseGithubUrl } from "./utils";
 
@@ -481,23 +486,6 @@ function deleteRef(
     ["api", "-X", "DELETE", `/repos/${repo}/git/refs/heads/${branch}`],
     `Failed to delete ref '${branch}'`,
   );
-}
-
-/** Env var names the GitHub CLI / git credential helper read a token from, in order. */
-export const GITHUB_TOKEN_ENV_VARS = ["GH_TOKEN", "GITHUB_TOKEN"] as const;
-
-/** First GitHub token found in `env` (defaults to the process env), if any. */
-export function readGithubTokenFromEnv(
-  env: Record<string, string | undefined> = process.env,
-): string | undefined {
-  for (const name of GITHUB_TOKEN_ENV_VARS) {
-    if (env[name]) return env[name];
-  }
-  return undefined;
-}
-
-export function ghTokenEnv(token: string): Record<string, string> {
-  return Object.fromEntries(GITHUB_TOKEN_ENV_VARS.map((name) => [name, token]));
 }
 
 // Concurrency for staged-blob reads; bounds spawned `git show` processes while
@@ -1341,3 +1329,6 @@ export async function createSignedMerge(
     localSyncWarning,
   };
 }
+
+// Re-exported from their new home so existing importers of this module keep working.
+export { ghTokenEnv, GITHUB_TOKEN_ENV_VARS, readGithubTokenFromEnv };

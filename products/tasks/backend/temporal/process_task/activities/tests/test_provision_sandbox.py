@@ -14,6 +14,7 @@ from asgiref.sync import async_to_sync
 from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
+    GitHubAuthenticationError,
     OrganizationExecutionError,
     RepositoryCloneError,
     SandboxCleanupError,
@@ -584,6 +585,48 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         }
     )
     assert str(capture_exception.call_args.args[0]) == "clone output"
+
+
+def test_clone_without_a_usable_credential_fails_fatally_instead_of_retrying(mocker, activity_environment):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(
+        stdout="",
+        stderr="fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+        exit_code=128,
+        error=None,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(GitHubAuthenticationError) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="posthog/posthog",
+                github_token="",
+                shallow_clone=True,
+            ),
+        )
+
+    assert error.value.non_retryable is True
+    assert "could not authenticate to GitHub" in str(error.value)
 
 
 def _prepared_for_create() -> PrepareSandboxForRepositoryOutput:
