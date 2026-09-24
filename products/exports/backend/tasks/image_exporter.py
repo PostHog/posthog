@@ -351,7 +351,7 @@ def _export_to_png(
         raise
 
 
-def _build_cdp_endpoint(cdp_url: str, token: str, session_timeout_ms: int) -> str:
+def build_cdp_endpoint(cdp_url: str, token: str, session_timeout_ms: int) -> str:
     parsed = urlparse(cdp_url)
     query = {
         key: value for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key not in ("token", "timeout")
@@ -362,7 +362,7 @@ def _build_cdp_endpoint(cdp_url: str, token: str, session_timeout_ms: int) -> st
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
-def _redact_browserless_token(message: str) -> str:
+def redact_browserless_token(message: str) -> str:
     token = settings.BROWSERLESS_TOKEN
     if not token:
         return message
@@ -439,7 +439,7 @@ def _screenshot_asset_browserless(
     max_height_pixels: Optional[int] = None,
     page_load_timeout: int = 40,
 ) -> None:
-    endpoint = _build_cdp_endpoint(
+    endpoint = build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
     )
 
@@ -448,7 +448,7 @@ def _screenshot_asset_browserless(
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
         except (PlaywrightError, PlaywrightTimeoutError) as e:
             raise BrowserlessUnavailable(
-                f"Failed to connect to browserless: {_redact_browserless_token(str(e))}"
+                f"Failed to connect to browserless: {redact_browserless_token(str(e))}"
             ) from None
 
         disconnected = [False]
@@ -512,7 +512,7 @@ def _screenshot_asset_browserless(
             raise
         except PlaywrightError as e:
             if disconnected[0] or _is_browserless_connection_error(e):
-                raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
+                raise BrowserlessUnavailable(redact_browserless_token(str(e))) from None
 
             with posthoganalytics.new_context():
                 posthoganalytics.tag("url_to_render", url_to_render)

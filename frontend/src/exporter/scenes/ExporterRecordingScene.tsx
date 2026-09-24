@@ -1,5 +1,9 @@
+import { useEffect } from 'react'
+
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { installReplayAnalysisBridge } from 'products/web_analytics/frontend/heatmaps/historical/replayAnalysisBridge'
 
 import { ExportedData } from '../types'
 
@@ -18,6 +22,11 @@ export default function ExporterRecordingScene({
     exportToken: ExportedData['exportToken']
     showInspector: ExportedData['showInspector']
 }): JSX.Element {
+    useEffect(() => {
+        if (exportToken && new URLSearchParams(window.location.search).has('historical_heatmap')) {
+            return installReplayAnalysisBridge(recording.id)
+        }
+    }, [recording.id, exportToken])
     return (
         <SessionRecordingPlayer
             playerKey="exporter"
