@@ -56,11 +56,6 @@ Use `--json` to inspect result metadata, including `hasMore`, and `/tmp` for exp
 The interactive Bash shell completes `ph` command names, aliases, connected tools, and argument names with Tab.
 The terminal follows the current resource's folder while its prompt is empty.
 Running commands, editors, and partially typed input prevent a folder change.
-Directory listings use only the filesystem API, including content types for notebook and SQL filenames; file contents load on open.
-`open` reveals folders in the Files tab when `simple-sidepanel` is enabled, or opens the Files page with its `folder` query parameter otherwise.
-Optional tools include Node.js, pi, nyancat, and Doom.
-Doom uses W/S to move, A/D to strafe, arrow keys to turn, Space to fire, E to open doors, and Shift to run.
-Select **Capture mouse** to turn with the mouse and fire with a left click.
 
 ### `posthog`
 
