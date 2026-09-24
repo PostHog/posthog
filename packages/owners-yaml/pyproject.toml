@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "owners-yaml"
-version = "0.2.0"
+version = "0.2.1"
 description = "Code ownership in owners.yaml files next to the code: resolver, linter, and CODEOWNERS export"
 readme = "README.md"
 license = "MIT"

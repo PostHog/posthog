@@ -74,7 +74,7 @@
                 {
                     "properties": {
                         "source": {
-                            "description": "Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
+                            "description": "Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.",
                             "minLength": 1,
                             "type": "string"
                         }
@@ -166,22 +166,79 @@
             "type": "string"
         },
         "output_config": {
-            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.",
+            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.",
             "properties": {
                 "allows_na": {
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
                     "type": "boolean"
                 },
+                "max": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Inclusive maximum numeric score. Omit for no upper bound."
+                },
+                "min": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Inclusive minimum numeric score. Omit for no lower bound."
+                },
+                "passing_rule": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "operator": {
+                                    "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+                                    "enum": ["gte", "lte"],
+                                    "type": "string"
+                                },
+                                "threshold": {
+                                    "description": "Finite passing threshold within any configured score bounds.",
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["operator", "threshold"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional numeric passing rule. Null removes the rule; historical scores use the current rule."
+                },
+                "step": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional positive input increment. Does not round evaluation results."
+                },
                 "true_is_failure": {
-                    "description": "Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+                    "description": "Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
                     "type": "boolean"
                 }
             },
             "type": "object"
         },
         "output_type": {
-            "description": "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment",
-            "enum": ["boolean", "sentiment"],
+            "description": "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `sentiment` - Sentiment",
+            "enum": ["boolean", "numeric", "sentiment"],
             "type": "string"
         },
         "target": {

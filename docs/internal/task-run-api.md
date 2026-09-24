@@ -9,6 +9,7 @@ Requests through a PostHog connection keep the sandbox origin and the same run r
 The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
 Repository-backed report discussions also require Desktop access.
+Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
 The response has status `201` and contains the task and its `latest_run`.
 If task creation succeeds but run creation or dispatch fails, the response also contains `run_error`.
