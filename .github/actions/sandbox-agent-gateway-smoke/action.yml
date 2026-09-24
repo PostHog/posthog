@@ -12,6 +12,10 @@ inputs:
     registry-token:
         description: 'Token that can pull the image from ghcr.io'
         required: true
+    agent-version:
+        description: 'The @posthog/agent version the image must contain'
+        required: false
+        default: ''
     gateway-url:
         description: 'Go ai-gateway base URL'
         required: false
@@ -33,6 +37,7 @@ runs:
           shell: bash
           env:
               IMAGE: ${{ inputs.image }}
+              AGENT_VERSION: ${{ inputs.agent-version }}
               MINT_KEY: ${{ inputs.mint-key }}
               REGISTRY_TOKEN: ${{ inputs.registry-token }}
               AI_GATEWAY_URL: ${{ inputs.gateway-url }}
@@ -62,6 +67,13 @@ runs:
               elif [ "$probe" != 0 ]; then
                 echo "Could not run the image." >> "$summary"
                 finish infra
+              fi
+              if [ -n "$AGENT_VERSION" ]; then
+                installed=$(docker run --rm "$IMAGE" node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
+                if [ "$installed" != "$AGENT_VERSION" ]; then
+                  echo "The image has @posthog/agent ${installed:-unknown}, not ${AGENT_VERSION}." >> "$summary"
+                  finish infra
+                fi
               fi
               if [ -z "$MINT_KEY" ]; then
                 echo "No gateway mint key is configured." >> "$summary"
