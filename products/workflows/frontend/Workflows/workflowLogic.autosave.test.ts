@@ -105,31 +105,33 @@ describe('workflowLogic auto-save', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         }
 
-        it.each([
-            {
-                description: 'managed by code keeps the edit in the form',
-                overrides: codeManagedFields,
-                expectedName: 'Edited in the UI',
-                // The badge tooltip shows this, and it has to name the file
-                expectedSaveReason: expect.stringContaining('workflows/welcome.ts'),
-            },
-            {
-                description: 'a viewer may only see refuses the edit',
-                overrides: { user_access_level: AccessControlLevel.Viewer },
-                expectedName: 'Autosave test',
-                expectedSaveReason: expect.any(String),
-            },
-        ])('a workflow $description and never saves it', async ({ overrides, expectedName, expectedSaveReason }) => {
-            useMocks(mocksFor(makeWorkflow(overrides)))
+        it('keeps an edit to a code-managed workflow in the form and never saves it', async () => {
+            useMocks(mocksFor(makeWorkflow(codeManagedFields)))
             await mountLogic()
             jest.useFakeTimers()
 
             logic.actions.setWorkflowInfo({ name: 'Edited in the UI' })
             await jest.advanceTimersByTimeAsync(5000)
 
-            expect(logic.values.workflow.name).toBe(expectedName)
+            expect(logic.values.workflow.name).toBe('Edited in the UI')
             expect(updateCalls).toBe(0)
-            expect(logic.values.workflowSaveDisabledReason).toEqual(expectedSaveReason)
+            // The badge tooltip shows this, and it has to name the file
+            expect(logic.values.workflowSaveDisabledReason).toContain('workflows/welcome.ts')
+        })
+
+        it('leaves a viewer edit to an ordinary workflow for the API to refuse', async () => {
+            useMocks(mocksFor(makeWorkflow({ user_access_level: AccessControlLevel.Viewer })))
+            await mountLogic()
+            jest.useFakeTimers()
+
+            logic.actions.partialSetWorkflowActionConfig('exit_node', { reason: 'Edited in the UI' })
+            await jest.advanceTimersByTimeAsync(5000)
+
+            expect(logic.values.workflow.actions.find((action) => action.id === 'exit_node')?.config).toEqual({
+                reason: 'Edited in the UI',
+            })
+            expect(patchBodies).toHaveLength(1)
+            expect(logic.values.workflowSaveDisabledReason).toBeNull()
         })
 
         it('sends only the status of a code-managed workflow and keeps the edits in the form', async () => {

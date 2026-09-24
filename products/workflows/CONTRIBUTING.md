@@ -391,13 +391,11 @@ Three costs of that rule, all deliberate:
 A person can edit a code-managed workflow in the editor like any other workflow: the canvas, the step panels, the name and the description.
 The edits stay in the editor and are never sent to the API, because only a push changes the content.
 
-`workflowLogic` keeps "may edit" apart from "may save":
+In `workflowLogic`:
 
-- `workflowEditDisabledReason` and `canEditWorkflow` carry the access level only. The canvas mutation listeners and the header title read them, so a viewer cannot edit.
-  A missing `user_access_level` is treated as no opinion rather than as no access, so a response without it does not lock the editor.
 - `isCodeManaged` says whether a repository owns the workflow.
-- `workflowSaveDisabledReason` and `canSaveWorkflow` add code ownership on top of the access level. The auto-save, the schedule write, publish, discard and "Restore as draft" read them.
-  Code ownership shadows the access level, because naming the file is more useful than telling someone their access is too low.
+- `workflowSaveDisabledReason` and `canSaveWorkflow` carry code ownership only. The auto-save, the schedule write, publish, discard and "Restore as draft" read them.
+  The access level is not part of them. A viewer edits any workflow in the editor as before, and the API refuses the save.
   The `saveWorkflow` loader also throws before a content `PATCH` on a code-managed workflow, as a backstop for a path that does not check.
 
 Enable and disable still work, because they send a status-only `PATCH`.
