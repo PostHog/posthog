@@ -3,13 +3,11 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from ..facade.contracts import DEFAULT_DECISION_MODEL, MAX_QUESTIONS_PER_REQUEST
+from ..facade.contracts import DEFAULT_DECISION_MODEL, MAX_OPTIONS_PER_QUESTION, MAX_QUESTIONS_PER_REQUEST
 from ..facade.enums import DecisionQuestionType
 
 MAX_STATE_CHARS = 65_536
 MAX_INSTRUCTIONS_CHARS = 2_000
-# JevK5 answers with one letter per option, A to P.
-MAX_OPTIONS_PER_QUESTION = 16
 MAX_OPTION_CHARS = 500
 
 

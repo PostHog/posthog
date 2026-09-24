@@ -57,6 +57,17 @@ def test_a_request_refuses_more_questions_than_the_cap() -> None:
         DecisionRequest(team_id=1, state="text", questions={f"q{i}": question for i in range(33)})
 
 
+@pytest.mark.parametrize(
+    "criteria",
+    [{str(i): "m" for i in range(17)}, [str(i) for i in range(17)]],
+    ids=["choice", "score"],
+)
+def test_a_question_refuses_more_options_than_the_model_has_letters(criteria: dict[str, str] | list[str]) -> None:
+    question_type = DecisionQuestionType.CHOICE if isinstance(criteria, dict) else DecisionQuestionType.SCORE
+    with pytest.raises(ValueError, match="at most 16 options"):
+        DecisionQuestion(type=question_type, instructions="?", criteria=criteria)
+
+
 class TestDecide:
     @pytest.mark.parametrize(
         "gateway_url",

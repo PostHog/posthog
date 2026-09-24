@@ -159,7 +159,11 @@ export function questionsFromJson(text: string): PlaygroundQuestion[] {
             throw new Error(`Question "${key}" needs instructions`)
         }
         const questionType = type as PlaygroundQuestionType
-        return { key, type: questionType, instructions, options: optionsFromCriteria(key, questionType, criteria) }
+        const options = optionsFromCriteria(key, questionType, criteria)
+        if (options.length > MAX_OPTIONS_PER_QUESTION) {
+            throw new Error(`Question "${key}" takes at most ${MAX_OPTIONS_PER_QUESTION} options`)
+        }
+        return { key, type: questionType, instructions, options }
     })
 }
 
