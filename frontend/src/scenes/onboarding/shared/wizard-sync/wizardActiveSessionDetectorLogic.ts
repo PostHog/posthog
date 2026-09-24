@@ -390,12 +390,15 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 return
             }
 
-            for (const err of errors.filter(shouldReportApiFailure)) {
-                // Transient REST failure (including a deploy-window 404) — surface it via
-                // lastError + Sentry. The next poll retries.
-                posthog.captureException(err, {
-                    tags: { feature: 'wizard-active-session-detector', reason: 'transient' },
-                })
+            // Transient REST failure (including a deploy-window 404) — surface it via
+            // lastError + Sentry. The next poll retries. Only the first failure of a streak is
+            // captured, so a tab that fails for days files one exception, not one per poll.
+            if (values.consecutivePollFailures === 0) {
+                for (const err of errors.filter(shouldReportApiFailure)) {
+                    posthog.captureException(err, {
+                        tags: { feature: 'wizard-active-session-detector', reason: 'transient' },
+                    })
+                }
             }
             if (errors.length > 0) {
                 actions.setLastError(errors[0] instanceof Error ? (errors[0] as Error).message : String(errors[0]))

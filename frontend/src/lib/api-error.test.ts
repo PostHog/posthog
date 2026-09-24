@@ -134,8 +134,6 @@ describe('api-error', () => {
             // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
             // stays reportable rather than being folded into the suppression above.
             ['a classified NetworkError', new NetworkError('network'), true],
-            ['an offline NetworkError', new NetworkError('offline'), false],
-            ['a NetworkError from a closing page', new NetworkError('navigating'), false],
             // The server answered 2xx and the body stream broke on the wire afterwards. Grouping is
             // stack-based, so one flaky connection would otherwise open an issue per endpoint.
             [

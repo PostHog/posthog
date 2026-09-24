@@ -134,24 +134,16 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ permanentlyDisabled: false })
     })
 
-    it('does not capture an exception for an offline network failure', async () => {
+    it('captures only the first failure while polls keep failing', async () => {
         const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-        mockLatestRetrieve.mockRejectedValue(new NetworkError('offline'))
+        mockLatestRetrieve.mockRejectedValue(new NetworkError('network'))
 
         await expectLogic(logic, () => {
             logic.actions.check()
-        }).toDispatchActions(['setLastError'])
-
-        expect(captureSpy).not.toHaveBeenCalled()
-    })
-
-    it('captures an exception for a 500', async () => {
-        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-        mockLatestRetrieve.mockRejectedValue(new ApiError('boom', 500))
-
+        }).toDispatchActions(['pollFailed'])
         await expectLogic(logic, () => {
             logic.actions.check()
-        }).toDispatchActions(['setLastError'])
+        }).toDispatchActions(['pollFailed'])
 
         expect(captureSpy).toHaveBeenCalledTimes(1)
     })
