@@ -2479,7 +2479,8 @@ Diffed against: <https://docs.devin.ai/llms.txt>
 
 Note: docs.devin.ai/llms.txt enumerates every v1/v2/v3 API reference page; v3 alone spans sessions, consumption, metrics, users, repositories, pr-reviews, audit-logs, code-scans, guardrails and more, so 9 synced tables (one of which, secrets, is plumbing) is still a small fraction.
 That page count overstates what this source can reach, though: checked against the v3 OpenAPI spec (<https://docs.devin.ai/v3-openapi.json>), a large share of v3 lives under `/v3/enterprise/` or `/v3beta1/enterprise/` and needs an enterprise-level service user, while this source stores an org-level one.
-The remaining org-scoped gaps above (audit-logs, metrics, repositories, knowledge folders) are the ones worth re-checking on the next sweep.
+Of the gaps left above, metrics, repositories and knowledge folders are org-scoped and worth re-checking on the next sweep.
+Audit logs are not: v3 places them at `/v3/enterprise/audit-logs` and `/v3/enterprise/organizations/{org_id}/audit-logs` only, so they need an enterprise service user too.
 
 ## DigitalOcean — gaps
 
