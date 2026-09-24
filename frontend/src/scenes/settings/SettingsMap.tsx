@@ -1005,12 +1005,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                     <span>
                         How long to retain logs before they are automatically deleted.{' '}
                         <strong>Changes only affect the retention for new logs</strong>. You can only change the
-                        environment default at most once per 24 hours. Keep matching logs longer or shorter than that
-                        default using ordered rules — the first matching rule sets a log's retention.
+                        environment default at most once per 24 hours.
                     </span>
                 ),
                 searchDescription:
-                    "How long to retain logs before they are automatically deleted. Changes only affect the retention for new logs. You can only change the environment default at most once per 24 hours. Keep matching logs longer or shorter than that default using ordered rules — the first matching rule sets a log's retention.",
+                    'How long to retain logs before they are automatically deleted. Changes only affect the retention for new logs. You can only change the environment default at most once per 24 hours.',
                 component: <LogsRetentionSettingsBlock />,
                 keywords: ['retention', 'storage', 'delete', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
@@ -1472,12 +1471,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                     <span>
                         How long to keep spans before they are automatically deleted.{' '}
                         <strong>Changes only affect the retention for new spans</strong>. You can only change the
-                        environment default at most once per 24 hours. Keep matching spans longer or shorter than that
-                        default using ordered rules — the first matching rule sets a span's retention.
+                        environment default at most once per 24 hours.
                     </span>
                 ),
                 searchDescription:
-                    "How long to keep spans before they are automatically deleted. Changes only affect the retention for new spans. You can only change the environment default at most once per 24 hours. Keep matching spans longer or shorter than that default using ordered rules — the first matching rule sets a span's retention.",
+                    'How long to keep spans before they are automatically deleted. Changes only affect the retention for new spans. You can only change the environment default at most once per 24 hours.',
                 component: <TracingRetentionSettingsBlock />,
                 keywords: ['retention', 'storage', 'delete', 'ttl', 'rules', 'filter', 'keep', 'expire', 'span'],
             },
