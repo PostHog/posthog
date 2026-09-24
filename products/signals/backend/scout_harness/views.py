@@ -2610,16 +2610,14 @@ def create_scout_for_source(
             adopted_config = (
                 SignalScoutConfig.objects.for_team(team.id).select_for_update().filter(skill_name=name).first()
             )
-            lifecycle_changes = _lock_protected_changes(tunables, config=adopted_config)
-            if adopted_config is not None and lifecycle_changes:
-                assert_can_change_scout_lifecycle(
-                    request=request,
-                    team=team,
-                    skill_name=name,
-                    config=adopted_config,
-                    action="create_scout",
-                    fields=lifecycle_changes,
-                )
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=name,
+                config=adopted_config,
+                requested=tunables,
+                action="create_scout",
+            )
         if source_product and source_id:
             # Reusing a name adopts the existing config, and the source pair is what the owning
             # product's report route trusts — so adopting an unowned scout would expose everything it
@@ -2946,6 +2944,24 @@ def _lock_protected_changes(requested: object, *, config: SignalScoutConfig | No
     if not changed:
         return []
     return changed if config.lifecycle_locked or "lifecycle_locked" in changed else []
+
+
+def guard_scout_lifecycle_fields(
+    *,
+    request: Request,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig | None,
+    requested: object,
+    action: str,
+) -> None:
+    """Apply the lock gate to a write body. A no-op unless the body changes a protected field."""
+    fields = _lock_protected_changes(requested, config=config)
+    if config is None or not fields:
+        return
+    assert_can_change_scout_lifecycle(
+        request=request, team=team, skill_name=skill_name, config=config, action=action, fields=fields
+    )
 
 
 def assert_can_change_scout_lifecycle(
@@ -3330,16 +3346,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             # This endpoint upserts, so a create body lands on an existing row as an edit — and
             # `enabled` / `emit` are among the fields it applies.
-            lifecycle_changes = _lock_protected_changes(request.data, config=existing)
-            if existing is not None and lifecycle_changes:
-                assert_can_change_scout_lifecycle(
-                    request=request,
-                    team=team,
-                    skill_name=skill_name,
-                    config=existing,
-                    action="create",
-                    fields=lifecycle_changes,
-                )
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=skill_name,
+                config=existing,
+                requested=request.data,
+                action="create",
+            )
             if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
                 raise exceptions.ValidationError(
                     {"skill_name": "No skill with this name exists on this project. Author the skill first."}
@@ -3410,16 +3424,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Read off the raw body, like the grant gate above, and under the same row lock: the
             # serializer has not run yet, and a lock cleared between the check and the save would
             # otherwise let the same request pause the scout.
-            lifecycle_changes = _lock_protected_changes(request.data, config=config)
-            if lifecycle_changes:
-                assert_can_change_scout_lifecycle(
-                    request=request,
-                    team=team,
-                    skill_name=config.skill_name,
-                    config=config,
-                    action="partial_update",
-                    fields=lifecycle_changes,
-                )
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=config.skill_name,
+                config=config,
+                requested=request.data,
+                action="partial_update",
+            )
             serializer = SignalScoutConfigUpdateSerializer(
                 config,
                 data=request.data,
