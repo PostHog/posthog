@@ -31,7 +31,10 @@ from products.experiments.backend.facade.timeseries import (
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
-from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
+from products.experiments.backend.hogql_queries.error_handling import (
+    capture_experiment_metric_error_event,
+    classify_experiment_query_error,
+)
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
@@ -287,6 +290,10 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     except Exception as e:
+        # A broken metric config fails deterministically: return it (not raise) so Temporal
+        # doesn't retry and the worker interceptor doesn't report it to error tracking.
+        is_permanent = classify_experiment_query_error(e) == "validation_error"
+
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -302,15 +309,23 @@ def _calculate_experiment_regular_metric_sync(
             },
         )
 
-        logger.exception(
-            "Experiment metric calculation failed",
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-        )
+        if is_permanent:
+            logger.warning(
+                "Experiment metric calculation failed due to invalid metric configuration",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                error=str(e),
+            )
+        else:
+            logger.exception(
+                "Experiment metric calculation failed",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+            )
 
-        # Temporal retries this activity; emit only when retries are exhausted so a transient
+        # Temporal retries this activity; emit only on the terminal attempt so a transient
         # failure that recovers on a later attempt is never counted.
-        if attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
+        if is_permanent or attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
             capture_experiment_metric_error_event(
                 team=experiment.team,
                 error=e,
@@ -320,6 +335,15 @@ def _calculate_experiment_regular_metric_sync(
                 metric_uuid=metric_uuid,
                 metric_kind=metric_type,
                 user=experiment.created_by,
+            )
+
+        if is_permanent:
+            return ExperimentRegularMetricResult(
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                success=False,
+                error_message=str(e),
             )
 
         raise
@@ -588,6 +612,10 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     except Exception as e:
+        # A broken metric config fails deterministically: return it (not raise) so Temporal
+        # doesn't retry and the worker interceptor doesn't report it to error tracking.
+        is_permanent = classify_experiment_query_error(e) == "validation_error"
+
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -603,15 +631,23 @@ def _calculate_experiment_saved_metric_sync(
             },
         )
 
-        logger.exception(
-            "Experiment saved metric calculation failed",
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-        )
+        if is_permanent:
+            logger.warning(
+                "Experiment saved metric calculation failed due to invalid metric configuration",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                error=str(e),
+            )
+        else:
+            logger.exception(
+                "Experiment saved metric calculation failed",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+            )
 
-        # Temporal retries this activity; emit only when retries are exhausted so a transient
+        # Temporal retries this activity; emit only on the terminal attempt so a transient
         # failure that recovers on a later attempt is never counted.
-        if attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
+        if is_permanent or attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
             capture_experiment_metric_error_event(
                 team=experiment.team,
                 error=e,
@@ -621,6 +657,15 @@ def _calculate_experiment_saved_metric_sync(
                 metric_uuid=metric_uuid,
                 metric_kind=metric_type,
                 user=experiment.created_by,
+            )
+
+        if is_permanent:
+            return ExperimentSavedMetricResult(
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                success=False,
+                error_message=str(e),
             )
 
         raise
