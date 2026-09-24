@@ -3981,6 +3981,14 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
                   fetch-depth: 1
 
+            - name: Require snapshot conflict checks
+              if: steps.check-patches.outputs.has-patches == 'true'
+              run: |
+                  if ! grep -Fq 'echo "::error::$file in $patch could not be applied"' .github/actions/commit-snapshots/action.yml; then
+                      echo "::error::Rebase onto master before committing snapshots. This PR head cannot reject conflicting snapshot patches."
+                      exit 1
+                  fi
+
             - name: Commit snapshots
               if: steps.check-patches.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots

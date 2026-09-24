@@ -46,3 +46,6 @@ Track quarantine growth and CI failures after the change: more visible retry fai
 This configuration covers the suites with Trunk upload gates.
 Standalone Vitest jobs, Go jobs, Rust doctests, and separate desktop workflows need their own report and exit-code checks before adopting the same policy.
 Lint, type checks, builds, test discovery errors, and process crashes do not receive a test retry.
+
+Django shards select and run tests on the PR merge commit, while snapshot commits target the PR head.
+If CI reports that the head's snapshot action cannot reject conflicting patches, rebase onto master before requesting snapshot updates again.

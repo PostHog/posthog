@@ -3626,13 +3626,13 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
                   fetch-depth: 1
 
-            # The commit action loads from the PR head, and a head that predates it would fail
-            # with "action manifest not found" instead of saying what to do.
-            - name: Require a PR head with the commit action
-              if: steps.check-patches.outputs.has-patches == 'true' && hashFiles('.depot/actions/commit-snapshots/action.yml') == ''
+            - name: Require snapshot conflict checks
+              if: steps.check-patches.outputs.has-patches == 'true'
               run: |
-                  echo "::error::This PR head predates Depot CI snapshot commits. Rebase onto master so CI can commit the updated snapshots."
-                  exit 1
+                  if ! grep -Fq 'echo "::error::$file in $patch could not be applied"' .depot/actions/commit-snapshots/action.yml; then
+                      echo "::error::Rebase onto master before committing snapshots. This PR head cannot reject conflicting snapshot patches."
+                      exit 1
+                  fi
 
             - name: Get app token for CI report
               # continue-on-error: an empty token skips the CI report section, not the commit.
