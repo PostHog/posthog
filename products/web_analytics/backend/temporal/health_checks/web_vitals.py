@@ -36,15 +36,26 @@ class WebVitalsCheck(HealthCheck):
         human="""
             Open the Web analytics health page. Web vitals are collected by posthog-js when performance
             capture is enabled, so make sure you're on a recent posthog-js and that `capture_performance`
-            (web vitals) hasn't been turned off.
+            (web vitals) hasn't been turned off. If both look right, check your Content-Security-Policy.
+            posthog-js loads the web vitals code from the PostHog assets host, which is a different host
+            from the one you send events to (for example `us-assets.i.posthog.com` next to
+            `us.i.posthog.com`). If the policy doesn't allow it, the browser blocks the script and no web
+            vitals are collected. Allow the assets host in `script-src` and `connect-src`.
         """,
         agent="""
             Confirm none are arriving with `execute-sql` (`SELECT count() FROM events WHERE event =
-            '$web_vitals' AND timestamp > now() - INTERVAL 7 DAY`). Then fix it in the user's codebase:
-            bump posthog-js to a recent version and enable web vitals in the `posthog.init` config (the
-            `capture_performance: { web_vitals: true }` option). Use `docs-search` for the web vitals /
-            `capture_performance` docs. Once $web_vitals events start arriving, the issue resolves on the
-            next check run.
+            '$web_vitals' AND timestamp > now() - INTERVAL 7 DAY`). Check for a blocked script before you
+            touch the SDK config: posthog-js loads the web vitals code from the assets host, which
+            `requestRouter` derives from the ingestion host (`us.i.posthog.com` becomes
+            `us-assets.i.posthog.com`), and the load fails silently when a Content-Security-Policy blocks
+            it. Look for evidence with `execute-sql` (`SELECT properties.$csp_blocked_url,
+            properties.$csp_effective_directive, count() FROM events WHERE event = '$csp_violation' AND
+            timestamp > now() - INTERVAL 7 DAY GROUP BY 1, 2 ORDER BY 3 DESC`), and for any blocked URL on
+            the assets host add that host to `script-src` and `connect-src` in the user's codebase.
+            Otherwise fix the SDK in the user's codebase: bump posthog-js to a recent version and enable
+            web vitals in the `posthog.init` config (the `capture_performance: { web_vitals: true }`
+            option). Use `docs-search` for the web vitals / `capture_performance` docs. Once $web_vitals
+            events start arriving, the issue resolves on the next check run.
         """,
     )
 
@@ -64,8 +75,9 @@ class WebVitalsCheck(HealthCheck):
             description=(
                 f"This project is sending `$pageview` events but no `$web_vitals` events over the last "
                 f"{WEB_VITALS_LOOKBACK_DAYS} days, so Core Web Vitals (LCP, CLS, INP, FCP) won't appear in web "
-                "analytics. This usually means web-vitals autocapture is disabled in the SDK config. Recommend "
-                "enabling it to track page performance."
+                "analytics. The common causes are web-vitals autocapture disabled in the SDK config, an old "
+                "posthog-js, or a Content-Security-Policy that blocks the PostHog assets host, which posthog-js "
+                "loads the web vitals code from. Recommend checking all three to track page performance."
             ),
             weight=_SEVERITY_WEIGHT[issue.severity],
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
