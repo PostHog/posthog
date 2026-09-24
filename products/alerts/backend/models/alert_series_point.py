@@ -44,3 +44,23 @@ class AlertSeriesPoint(TeamScopedRootMixin):
 
     def __str__(self) -> str:
         return f"{self.alert_config_id} @ {self.bucket.isoformat()} = {self.value}"
+
+
+class AlertSeriesState(TeamScopedRootMixin):
+    """Per-alert bookkeeping for the cached series: how fresh it is and where the probe left off.
+
+    ``watermark`` is the insert-time instant up to which changed buckets have been detected and
+    applied; the next check probes ``events_recent`` for rows inserted after it. ``seeded_at``
+    records the last full scan, so identity drift the probe cannot see (person merges, dedup
+    collapses) is bounded by a scheduled reseed rather than accumulating forever.
+
+    One row per alert. A fingerprint mismatch on read means the series it describes is gone, so
+    the state counts as absent and the next check reseeds.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    alert_config = models.OneToOneField("alerts.AlertConfiguration", on_delete=models.CASCADE, related_name="+")
+
+    fingerprint = models.CharField(max_length=64)
+    watermark = models.DateTimeField()
+    seeded_at = models.DateTimeField()

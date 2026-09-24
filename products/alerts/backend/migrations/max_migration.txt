@@ -1,1 +1,1 @@
-0008_alert_series_point
+0008_alertseriesstate_alertseriespoint

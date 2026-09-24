@@ -1,5 +1,5 @@
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -147,12 +147,17 @@ def test_rejects_projections_that_are_not_bucket_local(mutation: tuple[str, str]
     assert match_detector_series_query(_query(NESTED_SQL.replace(before, after)), column="value") is None
 
 
+def _last_buckets(at: datetime, hours: int) -> list[datetime]:
+    floor = at.replace(minute=0, second=0, microsecond=0)
+    return [floor - timedelta(hours=back) for back in range(1, hours + 1)]
+
+
 def test_narrowing_a_projection_bounds_the_inner_query() -> None:
     matched = match_detector_series_query(_query(NESTED_SQL), column="value")
     assert matched is not None
     at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
-    narrowed_sql = matched.narrowed_to(3, at=at, tz="UTC")["query"]
-    assert "toIntervalHour(3)" in narrowed_sql
+    narrowed_sql = matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="UTC")["query"]
+    assert "in(toStartOfHour(timestamp), tuple(" in narrowed_sql
     assert "toIntervalHour(48)" in narrowed_sql
     assert "now()" not in narrowed_sql
 
@@ -168,26 +173,27 @@ def test_narrowing_tightens_the_lower_bound_and_leaves_the_saved_query_alone() -
     assert matched is not None
 
     at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
-    narrowed = matched.narrowed_to(3, at=at, tz="UTC")
+    narrowed = matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="UTC")
     assert query == original
     assert narrowed["display"] == original["display"]
     assert narrowed["source"]["filters"] == original["source"]["filters"]
     narrowed_sql = narrowed["source"]["query"]
-    assert "toIntervalHour(3)" in narrowed_sql
+    newest = int(_last_buckets(at, 1)[0].timestamp())
+    assert f"toTimeZone(fromUnixTimestamp({newest}), 'UTC')" in narrowed_sql
     assert "toIntervalHour(48)" in narrowed_sql
     assert "signup" in narrowed_sql
     # The clock is pinned, so the warehouse cannot evaluate the bounds at a different hour.
     assert "now()" not in narrowed_sql
     assert f"toTimeZone(fromUnixTimestamp({int(at.timestamp())}), 'UTC')" in narrowed_sql
     # Narrowing twice must not accumulate bounds on a shared tree.
-    assert matched.narrowed_to(3, at=at, tz="UTC")["source"]["query"] == narrowed_sql
+    assert matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="UTC")["source"]["query"] == narrowed_sql
 
 
 def test_narrowing_renders_the_anchor_in_the_team_timezone() -> None:
     matched = match_detector_series_query(_query(), column="value")
     assert matched is not None
     at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
-    narrowed_sql = matched.narrowed_to(3, at=at, tz="Asia/Kolkata")["query"]
+    narrowed_sql = matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="Asia/Kolkata")["query"]
     assert f"toTimeZone(fromUnixTimestamp({int(at.timestamp())}), 'Asia/Kolkata')" in narrowed_sql
     assert "now()" not in narrowed_sql
 
@@ -196,8 +202,10 @@ def test_pinning_distinguishes_the_two_occurrences_of_a_dst_fold_hour() -> None:
     matched = match_detector_series_query(_query(), column="value")
     assert matched is not None
     # Amsterdam leaves DST on 2026-10-25 01:00 UTC: 00:37 and 01:37 UTC are both 02:37 local.
-    first = matched.narrowed_to(3, at=datetime(2026, 10, 25, 0, 37, tzinfo=UTC), tz="Europe/Amsterdam")
-    second = matched.narrowed_to(3, at=datetime(2026, 10, 25, 1, 37, tzinfo=UTC), tz="Europe/Amsterdam")
+    first_at = datetime(2026, 10, 25, 0, 37, tzinfo=UTC)
+    second_at = datetime(2026, 10, 25, 1, 37, tzinfo=UTC)
+    first = matched.narrowed_to_buckets(_last_buckets(first_at, 3), at=first_at, tz="Europe/Amsterdam")
+    second = matched.narrowed_to_buckets(_last_buckets(second_at, 3), at=second_at, tz="Europe/Amsterdam")
     assert first["query"] != second["query"]
 
 
@@ -205,4 +213,8 @@ def test_narrowing_refuses_a_window_it_would_not_shorten() -> None:
     matched = match_detector_series_query(_query(), column="value")
     assert matched is not None
     with pytest.raises(ValueError):
-        matched.narrowed_to(48, at=datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC), tz="UTC")
+        matched.narrowed_to_buckets(
+            _last_buckets(datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC), 48),
+            at=datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC),
+            tz="UTC",
+        )

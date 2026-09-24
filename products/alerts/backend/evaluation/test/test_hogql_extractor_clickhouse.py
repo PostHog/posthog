@@ -316,6 +316,32 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
         assert "now()" not in narrowed_sql
         assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
 
+    def test_a_late_insert_beyond_the_margin_is_probed_and_folded_in(self) -> None:
+        # Frozen near the real clock: the probe compares real insert times against the
+        # watermark, and a frozen future instant would hide every insert from it.
+        instant = datetime.now(UTC).replace(minute=37, second=0, microsecond=0)
+        with time_machine.travel(instant, tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id="late-actor",
+                timestamp=(instant - timedelta(hours=10)).isoformat(),
+            )
+            flush_persons_and_events()
+            with patch(FLAG_PATH, return_value=True):
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        # A margin-only rescan cannot see an insert ten hours back, so equality here is the
+        # probe working end to end against the real events_recent table.
+        assert self._values(incremental) == self._values(full)
+
     def test_shadow_sampling_reports_the_full_scan_comparison(self) -> None:
         with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
             self._events(list(range(1, 41)))
