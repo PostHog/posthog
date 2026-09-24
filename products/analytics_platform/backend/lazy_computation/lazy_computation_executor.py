@@ -1753,6 +1753,7 @@ def ensure_precomputed(
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
+        print_start = time.monotonic()
         insert_sql, values = _build_manual_insert_sql(
             team=t,
             job=job,
@@ -1770,14 +1771,26 @@ def ensure_precomputed(
         }
         if query_type:
             tag_kwargs["query_type"] = query_type
+        execute_start = time.monotonic()
         with tags_context(**tag_kwargs):
-            return _written_rows(
+            rows_written = _written_rows(
                 sync_execute(
                     insert_sql,
                     values,
                     settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
                 )
             )
+        # Splits the job's insert_duration_ms: printing builds the team's HogQL database, which can cost
+        # as much as the ClickHouse INSERT itself.
+        logger.info(
+            "lazy_computation.insert_phases",
+            team_id=t.id,
+            job_id=str(job.id),
+            table=str(table),
+            print_ms=round((execute_start - print_start) * 1000),
+            execute_ms=round((time.monotonic() - execute_start) * 1000),
+        )
+        return rows_written
 
     # A caller can hand in a fully-built TtlSchedule (e.g. one carrying a max_window_days
     # cap) to bound job width — "switch the schedule"; otherwise parse int/dict as usual.
