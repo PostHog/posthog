@@ -88,7 +88,7 @@ class PendingOAuthConnection:
         )
 
 
-def _cookie_domain(request: HttpRequest) -> str | None:
+def shared_cookie_domain(request: HttpRequest) -> str | None:
     host = request.get_host().rsplit(":", 1)[0].lower()
     if host == _SHARED_COOKIE_DOMAIN or host.endswith("." + _SHARED_COOKIE_DOMAIN):
         return _SHARED_COOKIE_DOMAIN
@@ -104,7 +104,7 @@ def set_pending_oauth_connection_cookie(
         value=connection.to_cookie_value(),
         max_age=PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS,
         path="/",
-        domain=_cookie_domain(request),
+        domain=shared_cookie_domain(request),
         secure=request.is_secure(),
         httponly=False,
         samesite="Lax",
@@ -116,7 +116,9 @@ def clear_pending_oauth_connection_cookie(request: HttpRequest, response: HttpRe
     attached to the many authorizations that started from an already signed-in session."""
     if PENDING_OAUTH_CONNECTION_COOKIE not in request.COOKIES:
         return
-    response.delete_cookie(PENDING_OAUTH_CONNECTION_COOKIE, path="/", domain=_cookie_domain(request), samesite="Lax")
+    response.delete_cookie(
+        PENDING_OAUTH_CONNECTION_COOKIE, path="/", domain=shared_cookie_domain(request), samesite="Lax"
+    )
 
 
 def read_pending_oauth_connection(request: HttpRequest) -> PendingOAuthConnection | None:

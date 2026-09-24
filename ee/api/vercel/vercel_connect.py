@@ -15,7 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
-from posthog.frontend_views import region_host_from_current_instance
+from posthog.helpers.oauth_pending_connection import shared_cookie_domain
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -51,29 +51,25 @@ def _load_connect_session(token: str) -> dict:
         raise signing.BadSignature("Invalid or expired token")
 
 
-def _browser_nonce_cookie_domain() -> str | None:
-    # The callback and the link page can run in different cloud regions, so both regions must receive the cookie.
-    return "posthog.com" if region_host_from_current_instance(settings.SITE_URL) else None
-
-
-def _set_browser_nonce_cookie(response: HttpResponse, browser_nonce: str) -> None:
+def _set_browser_nonce_cookie(request: Request, response: HttpResponse, browser_nonce: str) -> None:
     response.set_cookie(
         CONNECT_NONCE_COOKIE,
         browser_nonce,
         max_age=CONNECT_SESSION_TIMEOUT,
         path=CONNECT_NONCE_COOKIE_PATH,
-        domain=_browser_nonce_cookie_domain(),
+        # The link page can run on the other cloud region, so the cookie must reach both regions.
+        domain=shared_cookie_domain(request),
         secure=settings.SESSION_COOKIE_SECURE,
         httponly=True,
         samesite="Lax",
     )
 
 
-def _clear_browser_nonce_cookie(response: HttpResponse) -> None:
+def _clear_browser_nonce_cookie(request: Request, response: HttpResponse) -> None:
     response.delete_cookie(
         CONNECT_NONCE_COOKIE,
         path=CONNECT_NONCE_COOKIE_PATH,
-        domain=_browser_nonce_cookie_domain(),
+        domain=shared_cookie_domain(request),
         samesite="Lax",
     )
 
@@ -86,16 +82,18 @@ def _load_browser_bound_session(request: Request, token: str) -> dict:
 
     cookie_nonce = request.COOKIES.get(CONNECT_NONCE_COOKIE, "")
     session_nonce = session.get(_BROWSER_NONCE_KEY)
-    if (
-        cookie_nonce
-        and isinstance(session_nonce, str)
-        and secrets.compare_digest(cookie_nonce.encode(), session_nonce.encode())
-    ):
+    if not isinstance(session_nonce, str):
+        reason = "token_without_nonce"
+    elif not cookie_nonce:
+        reason = "missing_cookie"
+    elif secrets.compare_digest(cookie_nonce.encode(), session_nonce.encode()):
         return session
+    else:
+        reason = "nonce_mismatch"
 
     capture_exception(
         Exception("Vercel connect: session used by a browser that did not start it"),
-        {"has_nonce_cookie": cookie_nonce != "", "integration": "vercel"},
+        {"reason": reason, "integration": "vercel"},
     )
     raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
 
@@ -251,7 +249,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
         else:
             response = HttpResponseRedirect(redirect_to=link_url)
 
-        _set_browser_nonce_cookie(response, browser_nonce)
+        _set_browser_nonce_cookie(request, response, browser_nonce)
         return response
 
 
@@ -382,7 +380,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         from ee.vercel.integration import VercelIntegration
 
         production_resource = resources[production_team_id]
-        secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
+        env_secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
 
         client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
@@ -390,7 +388,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             resource_id=str(production_resource.pk),
             product_id="posthog",
             name=production_team.name,
-            secrets=secrets,
+            secrets=env_secrets,
         )
         if not import_result.success:
             logger.error(
@@ -434,7 +432,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             },
             status=201,
         )
-        _clear_browser_nonce_cookie(response)
+        _clear_browser_nonce_cookie(request, response)
         return response
 
     @staticmethod
@@ -455,9 +453,9 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         all_same = production_id == preview_id == development_id
         host = absolute_uri()
 
-        secrets: list[dict] = []
+        env_secrets: list[dict] = []
         for prefix in CLIENT_ENV_PREFIXES:
-            secrets.append(
+            env_secrets.append(
                 {
                     "name": f"{prefix}POSTHOG_PROJECT_TOKEN",
                     "value": prod_team.api_token,
@@ -473,8 +471,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     ),
                 }
             )
-            secrets.append({"name": f"{prefix}POSTHOG_HOST", "value": host})
-        return secrets
+            env_secrets.append({"name": f"{prefix}POSTHOG_HOST", "value": host})
+        return env_secrets
 
     @decorators.action(detail=False, methods=["get"], url_path="session")
     def session_info(self, request: Request) -> Response:
