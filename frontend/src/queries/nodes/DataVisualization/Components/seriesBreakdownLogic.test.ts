@@ -374,7 +374,7 @@ describe('seriesBreakdownLogic', () => {
         }
     )
 
-    it('rounds breakdown series values to zero decimal places', async () => {
+    it('rounds breakdown series values to zero decimal places after summing each bucket', async () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
 
@@ -387,6 +387,8 @@ describe('seriesBreakdownLogic', () => {
             results: [
                 ['signed_up', 'Safari', 42.195],
                 ['logged_out', 'Safari', 11.7],
+                ['downloaded_file', 'Safari', 0.49],
+                ['downloaded_file', 'Safari', 0.49],
             ],
             columns: ['event', 'browser', 'total_count'],
             types: [
@@ -405,7 +407,7 @@ describe('seriesBreakdownLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             seriesBreakdownData: expect.objectContaining({
-                seriesData: [expect.objectContaining({ name: 'Safari', data: [42, 12] })],
+                seriesData: [expect.objectContaining({ name: 'Safari', data: [42, 12, 1] })],
             }),
         })
     })

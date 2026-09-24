@@ -82,18 +82,23 @@ const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis)
 
     try {
         const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
-
-        if (selectedYAxis.settings.formatting?.decimalPlaces != null) {
-            const parsed = parseFloat(
-                (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
-            )
-            return Number.isNaN(parsed) ? null : parsed
-        }
-
         const parsed = Number.isInteger(value)
             ? parseInt(String(value), 10) * multiplier
             : parseFloat(String(value)) * multiplier
         return Number.isNaN(parsed) ? null : parsed
+    } catch {
+        return null
+    }
+}
+
+const roundBreakdownSeriesTotal = (total: number, selectedYAxis: SelectedYAxis): number | null => {
+    const decimalPlaces = selectedYAxis.settings.formatting?.decimalPlaces
+    if (decimalPlaces == null) {
+        return total
+    }
+
+    try {
+        return parseFloat(total.toFixed(decimalPlaces))
     } catch {
         return null
     }
@@ -441,7 +446,13 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                                 return showNullsAsZero ? 0 : null
                             }
 
-                            return numericValues.reduce((a, b) => a + b, 0)
+                            // Round the bucket total, not each row. Unaggregated data can put many
+                            // rows in one bucket, and rounding each row first compounds the error.
+                            const total = roundBreakdownSeriesTotal(
+                                numericValues.reduce((a, b) => a + b, 0),
+                                selectedYAxis
+                            )
+                            return total ?? (showNullsAsZero ? 0 : null)
                         })
 
                         return {
