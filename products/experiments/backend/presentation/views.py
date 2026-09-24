@@ -161,9 +161,7 @@ tracer = trace.get_tracer(__name__)
 
 
 class RecalculationSchedulingUnavailable(APIException):
-    # The service that runs the recalculation is separate, so a failure to queue the run is transient and
-    # the same click works a moment later. A bare 500 carries no detail, which leaves the client with a
-    # generic message and no reason to retry.
+    # Queueing runs through a separate service, so a start failure is transient and retryable.
     status_code = 503
     default_detail = (
         "Couldn't start the recalculation. The service that runs it is temporarily unavailable, "

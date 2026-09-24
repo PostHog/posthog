@@ -663,6 +663,7 @@ describe('experimentMetricsLogic', () => {
         })
 
         describe('create failure', () => {
+            const SCHEDULER_DOWN_DETAIL = 'Scheduler is unavailable. Try again in a moment.'
             const useFailingCreate = (): void => {
                 useMocks({
                     get: {
@@ -674,7 +675,7 @@ describe('experimentMetricsLogic', () => {
                     post: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
                             503,
-                            { detail: 'Scheduler is unavailable. Try again in a moment.' },
+                            { detail: SCHEDULER_DOWN_DETAIL },
                         ],
                     },
                 })
@@ -698,30 +699,24 @@ describe('experimentMetricsLogic', () => {
                 expect(logic.values.recalculationLoading).toBe(false)
             })
 
-            it('shows the backend message on a manual trigger', async () => {
+            it.each([
+                ['manual', true],
+                ['cold_run', false],
+                ['experiment_config_change', false],
+            ] as const)('toasts on a %s trigger: %s', async (trigger, toasts) => {
                 useFailingCreate()
                 mountLogic()
 
                 await expectLogic(logic, () => {
-                    logic.actions.triggerRecalculation('manual')
+                    logic.actions.triggerRecalculation(trigger)
                 }).toFinishAllListeners()
 
-                expect(lemonToast.error).toHaveBeenCalledWith('Scheduler is unavailable. Try again in a moment.')
-            })
-
-            it.each(['cold_run', 'experiment_config_change'] as const)(
-                'stays quiet when the %s trigger fails, since the user never asked',
-                async (trigger) => {
-                    useFailingCreate()
-                    mountLogic()
-
-                    await expectLogic(logic, () => {
-                        logic.actions.triggerRecalculation(trigger)
-                    }).toFinishAllListeners()
-
+                if (toasts) {
+                    expect(lemonToast.error).toHaveBeenCalledWith(SCHEDULER_DOWN_DETAIL)
+                } else {
                     expect(lemonToast.error).not.toHaveBeenCalled()
                 }
-            )
+            })
         })
 
         describe('queuing', () => {

@@ -809,6 +809,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
 
+                // Only a user-initiated run is worth a toast either way; the automatic triggers stay quiet.
+                const userInitiated = trigger === 'manual'
+
                 /**
                  * Mark loading up front so the reload button disables on click, not only once the create POST
                  * returns. Without this there's a window (the POST round-trip) where the button stays clickable.
@@ -871,7 +874,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                             actions.triggerRecalculation(queued)
                         }
                     } else {
-                        if (trigger === 'manual' && !recalculation.is_existing) {
+                        if (userInitiated && !recalculation.is_existing) {
                             lemonToast.info(
                                 'Recalculating metrics in the background. Results will update as they finish.'
                             )
@@ -883,11 +886,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * Re-enable the reload button: the run never started, so nothing else will clear loading.
                      */
                     actions.setRecalculationLoading(false)
-                    /**
-                     * The run never started, so no terminal event will ever fire for it. Without this the
-                     * whole create-failure class is invisible in analytics: `failed_to_start` separates it
-                     * from a run that started and then failed.
-                     */
+                    // A run that never started emits no terminal event, so `failed_to_start` is the only
+                    // signal that separates this class from a run that started and then failed.
                     actions.reportExperimentMetricRecalculation('failed', {
                         experiment_id: resolvedIds.experimentId,
                         recalculation_id: null,
@@ -895,11 +895,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         failed_to_start: true,
                         status_code: error?.status,
                     })
-                    /**
-                     * Only the manual button asks for a recalculation, so only it gets told one failed. The
-                     * automatic triggers stay quiet on failure the way they already do on success.
-                     */
-                    if (trigger === 'manual') {
+                    if (userInitiated) {
                         lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                     }
                 } finally {
