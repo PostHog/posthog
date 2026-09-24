@@ -213,6 +213,8 @@ tools:
     workflows-get-code:
         operation: hog_flows_code_retrieve
         enabled: true
+        feature_flag: workflows-get-code
+        feature_flag_behavior: enable
         scopes:
             - hog_flow:read
         annotations:
