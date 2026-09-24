@@ -48,12 +48,13 @@ export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element
                         label="Project access token"
                         help={
                             <>
-                                Learn how to{' '}
+                                Use the Reporter role and the <code>api</code> and <code>read_repository</code> scopes.
+                                PostHog reads the repository to link stack frames to files.{' '}
                                 <Link
                                     target="_blank"
                                     to="https://docs.gitlab.com/user/project/settings/project_access_tokens"
                                 >
-                                    create a project access token
+                                    Create a project access token
                                 </Link>
                             </>
                         }

@@ -59,7 +59,23 @@ class GitLabIntegration:
 
     @classmethod
     def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> model.Integration:
+        # The error tracking product imports the integration models, so a module-level import is circular.
+        from products.error_tracking.backend.facade import api as error_tracking_api  # noqa: PLC0415
+
         project = cls.get(hostname, f"projects/{project_id}", project_access_token)
+        path_with_namespace = project.get("path_with_namespace")
+        if not isinstance(path_with_namespace, str) or not path_with_namespace:
+            raise common.IntegrationError(
+                "Couldn't read the GitLab project. Check the project ID and that the token belongs to this project."
+            )
+
+        # Error tracking lists the repository files with git to link stack frames to them. A token
+        # without the read_repository scope passes the API call above and fails only there.
+        repository_url = f"{hostname.rstrip('/')}/{path_with_namespace}.git"
+        if error_tracking_api.gitlab_token_can_read_repository(repository_url, project_access_token) is False:
+            raise common.IntegrationError(
+                "This token can't read the repository. Create a project access token with the read_repository scope and try again."
+            )
 
         integration = model.Integration.objects.create(
             team_id=team_id,

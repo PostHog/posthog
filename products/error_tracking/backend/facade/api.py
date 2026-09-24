@@ -18,6 +18,7 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import EMBEDDING_TABLES
 from ..logic import external_references, github_external_references, rules
+from ..logic.repo_paths.git_lister import GitListError, GitRemote, can_read_repository, gitlab_auth_header
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -803,3 +804,19 @@ def document_embedding_tables() -> list[DocumentEmbeddingTable]:
         )
         for table in EMBEDDING_TABLES
     ]
+
+
+GITLAB_READ_PROBE_TIMEOUT_SECONDS = 15
+
+
+def gitlab_token_can_read_repository(repository_url: str, token: str) -> bool | None:
+    """Whether a GitLab project access token can read the repository over git.
+
+    Returns None when the check could not run (a network failure, a timeout), so a caller can
+    decide not to block on an unrelated outage.
+    """
+    try:
+        remote = GitRemote(url=repository_url, auth_header=gitlab_auth_header(token))
+        return can_read_repository(remote, timeout_seconds=GITLAB_READ_PROBE_TIMEOUT_SECONDS)
+    except (ValueError, GitListError):
+        return None

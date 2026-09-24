@@ -1109,6 +1109,61 @@ class TestAWSIntegration:
         )
 
 
+class TestGitLabIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @pytest.mark.parametrize(
+        "project, can_read, expected_status, expected_detail",
+        [
+            ({"path_with_namespace": "acme/shop", "id": 42}, True, status.HTTP_201_CREATED, None),
+            ({"path_with_namespace": "acme/shop", "id": 42}, None, status.HTTP_201_CREATED, None),
+            (
+                {"path_with_namespace": "acme/shop", "id": 42},
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "This token can't read the repository",
+            ),
+            ({"message": "401 Unauthorized"}, True, status.HTTP_400_BAD_REQUEST, "Couldn't read the GitLab project"),
+        ],
+        ids=["readable", "check_unavailable", "not_readable", "project_not_found"],
+    )
+    def test_create_checks_the_token_can_read_the_repository(
+        self, client: HttpClient, project, can_read, expected_status, expected_detail
+    ):
+        client.force_login(self.user)
+        with (
+            patch("posthog.models.integration.gitlab.GitLabIntegration.get", return_value=project),
+            patch(
+                "products.error_tracking.backend.facade.api.gitlab_token_can_read_repository", return_value=can_read
+            ) as probe,
+        ):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations",
+                {
+                    "kind": "gitlab",
+                    "config": {
+                        "hostname": "https://gitlab.example.com",
+                        "project_id": "42",
+                        "project_access_token": "glpat-example-token",
+                    },
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_detail:
+            assert expected_detail in response.json()["detail"]
+        assert Integration.objects.filter(team=self.team, kind="gitlab").exists() == (expected_detail is None)
+        if "path_with_namespace" in project:
+            probe.assert_called_once_with("https://gitlab.example.com/acme/shop.git", "glpat-example-token")
+
+
 class TestAWSRoleBasedIntegration:
     @pytest.fixture(
         params=[
