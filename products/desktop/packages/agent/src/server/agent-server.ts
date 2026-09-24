@@ -243,6 +243,32 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function describeFatalError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (!(error instanceof RequestError)) return error.message;
+  const data: unknown = error.data;
+  const details =
+    typeof data === "object" && data !== null && "details" in data
+      ? data.details
+      : data;
+  if (typeof details === "string") {
+    return details && details !== error.message
+      ? `${error.message}: ${details}`
+      : error.message;
+  }
+  if (
+    details == null ||
+    (typeof details === "object" && Object.keys(details).length === 0)
+  ) {
+    return error.message;
+  }
+  try {
+    return `${error.message}: ${JSON.stringify(details)}`;
+  } catch {
+    return error.message;
+  }
+}
+
 function budgetSnapshotFromUsageUpdate(
   message: unknown,
 ): Record<string, unknown> | undefined {
@@ -1161,9 +1187,7 @@ export class AgentServer {
     const errorMessage = redactSecrets(
       error instanceof CredentialRelayError
         ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
-        : error instanceof Error
-          ? error.message
-          : String(error),
+        : describeFatalError(error),
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
