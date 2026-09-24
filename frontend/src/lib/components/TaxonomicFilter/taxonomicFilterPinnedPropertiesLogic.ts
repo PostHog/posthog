@@ -41,9 +41,16 @@ export function stripPinnedContext<T extends Record<string, any>>(item: T): Omit
  * the obvious PII / heavy-blob fields that source-group items may carry — Person
  * `email` and `properties`, Group `group_properties`, etc. Everything else flows
  * through so source-group `getValue` and `getName` keep working without us having
- * to enumerate every identifier field they read.
+ * to enumerate every identifier field they read. Person `matched_fields` describes the
+ * search that listed the person, so a pin must not carry it into later lists.
  */
-const PINNED_ITEM_DENYLIST = new Set<string>(['email', 'properties', 'group_properties', '_pinnedContext'])
+const PINNED_ITEM_DENYLIST = new Set<string>([
+    'email',
+    'properties',
+    'group_properties',
+    'matched_fields',
+    '_pinnedContext',
+])
 
 export function pickMinimalPinnedItem(item: unknown, fallbackValue: TaxonomicFilterValue): Record<string, any> {
     if (typeof item !== 'object' || item == null || Array.isArray(item)) {

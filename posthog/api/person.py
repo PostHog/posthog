@@ -46,6 +46,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.properties_timeline import PropertiesTimeline
 from posthog.hogql_queries.serialized_actors import SerializedPerson, get_serialized_people
@@ -709,9 +710,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 OpenApiTypes.STR,
                 description=(
                     "Search persons by email, name, person ID, or distinct ID. Partial values match. "
-                    "A UUID that exactly matches a person ID or distinct ID returns only that person. "
+                    "A UUID that exactly matches a person ID or distinct ID returns only the persons it matches. "
                     "A complete email address that exactly matches a distinct ID returns that person first, "
-                    "then every person whose email property contains the address. "
+                    "then every person whose email or name property contains the address. "
                     "Each result carries `matched_fields`, the searched fields the term was found in."
                 ),
             ),
@@ -804,10 +805,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     slo.tag(answered_by="exact_identifier", result_count=0)
                     return self._person_list_response(request, [], filter, total_count=0 if include_total else None)
                 if can_answer_from_identifier and not search:
-                    slo.tag(answered_by="exact_identifier", result_count=1)
+                    page = [str(matched.uuid)][filter.offset : filter.offset + filter.limit]
+                    slo.tag(answered_by="exact_identifier", result_count=len(page))
                     return self._person_list_response(
                         request,
-                        [str(matched.uuid)],
+                        page,
                         filter,
                         total_count=1 if include_total else None,
                         has_next=False,
@@ -832,9 +834,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         exact_hits=exact_hits,
                     )
                 if email_property_search:
-                    # One predicate joins the identifier hit to the email arms of the fuzzy search, so
-                    # every page and the total come from one query. The identifier arms of the fuzzy
-                    # search stay out, because the distinct ID scan they need is what makes it slow.
+                    # One predicate joins the identifier hit to the property arms of the fuzzy search,
+                    # so every page and the total come from one query. The distinct ID arm stays out,
+                    # because its scan is what makes the fuzzy search slow. The person ID arm cannot
+                    # match an address.
                     identifier_hit = " or ".join(f"id = toUUID('{person_uuid}')" for person_uuid in exact_hits)
                     properties = {
                         "type": "OR",
@@ -842,7 +845,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             {"type": "hogql", "key": identifier_hit},
                             *(
                                 {"type": "person", "key": key, "value": search, "operator": "icontains"}
-                                for key in _EMAIL_PROPERTY_KEYS
+                                for key in (*_EMAIL_PROPERTY_KEYS, "name")
                             ),
                         ],
                     }
@@ -862,15 +865,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
             actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+            # Tagged before the query, so a failed or cancelled search still records which path it took.
+            slo.tag(answered_by=answered_by)
+            # personhog found the hit without ClickHouse, which can lag behind it or fail, so the hit
+            # leads the first page whatever the query returns.
+            hit_leads_page = email_property_search and filter.offset == 0
+            actor_ids: list[Any] = []
+            total_count: Optional[int] = None
             # A cancel kills every ClickHouse query the request has in flight, so both queries below
-            # sit inside one handler. Anything that is not a cancellation is re-raised untouched.
+            # sit inside one handler.
             try:
                 actor_ids = [row[0] for row in actors_runner.calculate().results]
 
                 # If the undocumented include_total param is set to true, we'll return the total count of people
                 # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
                 # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-                total_count: Optional[int] = None
                 if include_total:
                     count_inner = actors_runner.to_query()
                     count_inner.limit = None
@@ -883,24 +892,33 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
                     total_count = execute_hogql_query(count_query, team=team).results[0][0]
             except Exception as err:
-                if classify_query_error(err) is not QueryErrorCategory.CANCELLED:
+                if classify_query_error(err) is QueryErrorCategory.CANCELLED:
+                    # The caller killed this search, so there is no body to return and nothing went
+                    # wrong. Raising would report a server error for every cancelled search.
+                    #
+                    # Returning also leaves the SLO block without an exception, so it records a
+                    # success with however long the kill took. A cancel is not a failure, so the
+                    # outcome stays as it is and this tag is what keeps an abandoned search from
+                    # reading as a fast one in the latency percentiles.
+                    slo.tag(cancelled=True)
+                    return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
+                if not hit_leads_page:
                     raise
-                # The caller killed this search, so there is no body to return and nothing went
-                # wrong. Raising would report a server error for every cancelled search.
-                #
-                # Returning also leaves the SLO block without an exception, so it records a
-                # success with however long the kill took. A cancel is not a failure, so the
-                # outcome stays as it is and this tag is what keeps an abandoned search from
-                # reading as a fast one in the latency percentiles.
-                slo.tag(cancelled=True)
-                return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
+                # personhog already answered the hit, so a failed property search returns the hit alone
+                # instead of failing the request. The SLO still records the failure.
+                capture_exception(err)
+                slo.fail(error_type=type(err).__name__)
+            finally:
+                if email_property_search:
+                    # The runner tagged `has_search` from its query, which carries the address as a
+                    # property filter rather than a search term. The request did search.
+                    slo.tag(has_search=True)
 
-            if email_property_search:
-                # The runner tagged `has_search` from its query, which carries the address as a
-                # property filter rather than a search term. The request did search.
-                slo.tag(has_search=True)
+            if hit_leads_page:
+                listed = {str(actor_id) for actor_id in actor_ids}
+                actor_ids = [*(hit for hit in exact_hits if hit not in listed), *actor_ids]
 
-            slo.tag(answered_by=answered_by, result_count=len(actor_ids))
+            slo.tag(result_count=len(actor_ids))
             return self._person_list_response(
                 request, actor_ids, filter, total_count=total_count, search=search, exact_hits=exact_hits
             )
