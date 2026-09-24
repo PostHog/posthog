@@ -886,11 +886,14 @@ describe('infiniteListLogic', () => {
             }
         })
 
-        it('clears the error state when a retry succeeds', async () => {
+        it.each([null, 'page_opened'])('clears the error state on retry after selecting %p', async (selectedEvent) => {
             let attempts = 0
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': () => {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        if (!new URL(request.url).searchParams.get('search')) {
+                            return [200, { results: [{ name: 'page_opened', id: 'uuid-2' }], count: 1 }]
+                        }
                         attempts += 1
                         return attempts === 1
                             ? [500, { detail: 'server error' }]
@@ -904,23 +907,41 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
                 showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                groupType: TaxonomicFilterGroupType.Events,
+                value: selectedEvent,
             })
             retryingLogic.mount()
+            if (selectedEvent) {
+                await expectLogic(retryingLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+                expect(retryingLogic.values.results).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ name: selectedEvent })])
+                )
+            }
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.setSearchQuery('user_signed_up')
             })
                 .toDispatchActions(['loadRemoteItemsFailure'])
                 .toFinishAllListeners()
-                .toMatchValues({ showErrorState: true })
+                .toMatchValues({
+                    showErrorState: true,
+                    showEmptyState: false,
+                    showNonCapturedEventOption: false,
+                    results: [],
+                    value: selectedEvent,
+                })
 
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.retryRemoteItems()
+                expect(retryingLogic.values.results).toEqual([])
+                expect(retryingLogic.values.showNonCapturedEventOption).toBe(false)
             })
                 .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     showErrorState: false,
                     showEmptyState: false,
+                    value: selectedEvent,
                 })
             expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
         })
