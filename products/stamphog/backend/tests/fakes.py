@@ -492,7 +492,7 @@ class FakeSlackIntegration:
     # the digest is expected to swallow.
     fail_thread_replies: bool = False
 
-    def __init__(self, integration: Any) -> None:
+    def __init__(self, integration: Any, *, source: str = "integration") -> None:
         self.integration = integration
 
     @property
