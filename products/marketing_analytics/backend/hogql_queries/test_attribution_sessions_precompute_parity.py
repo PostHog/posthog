@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -618,11 +619,15 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             if state != "mapping_first":
                 override(distinct_id, identified.uuid, 1)
             if state == "squashed":
-                sync_execute(
-                    "ALTER TABLE sharded_events UPDATE person_id = %(person)s "
-                    "WHERE team_id = %(team)s AND distinct_id = %(distinct)s SETTINGS mutations_sync = 2",
-                    {"person": identified.uuid, "team": self.team.pk, "distinct": distinct_id},
-                )
+                squashed_tables = ["sharded_events"]
+                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                    squashed_tables.append("sharded_events_json")
+                for table in squashed_tables:
+                    sync_execute(
+                        f"ALTER TABLE {table} UPDATE person_id = %(person)s "
+                        "WHERE team_id = %(team)s AND distinct_id = %(distinct)s SETTINGS mutations_sync = 2",
+                        {"person": identified.uuid, "team": self.team.pk, "distinct": distinct_id},
+                    )
                 override(distinct_id, identified.uuid, 2, deleted=True)
 
         query_args = {

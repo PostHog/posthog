@@ -823,6 +823,17 @@ class SignalSourceSliceOutcomes:
     report_count: int
     pr_count: int
     merged_pr_count: int
+    # Newest first, so a caller can link to what the counts are counting.
+    reports: "list[SignalSourceSliceReport]"
+    pull_requests: "list[SignalSourceSlicePullRequest]"
+
+
+@frozen
+class SignalSourceSlicePullRequest:
+    """One implementation PR opened on a report the slice's signals were grouped into."""
+
+    url: str
+    merged: bool
 
 
 @frozen
@@ -886,13 +897,21 @@ def get_outcomes_for_signal_source_slice(
     )
     report_ids = [report.id for report in reports]
     prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
-    pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs}
-    merged_pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs if pr.merged}
+    # Reports arrive newest first, so the first sighting of a URL keeps that order; several reports can share a PR.
+    pull_requests: dict[str, SignalSourceSlicePullRequest] = {}
+    for report_id in report_ids:
+        for pr in prs.get(report_id, []):
+            known = pull_requests.get(pr.url)
+            pull_requests[pr.url] = SignalSourceSlicePullRequest(
+                url=pr.url, merged=pr.merged or bool(known and known.merged)
+            )
     return SignalSourceSliceOutcomes(
         signal_count=stats.signal_count,
         report_count=len(report_ids),
-        pr_count=len(pr_urls),
-        merged_pr_count=len(merged_pr_urls),
+        pr_count=len(pull_requests),
+        merged_pr_count=sum(1 for pr in pull_requests.values() if pr.merged),
+        reports=reports,
+        pull_requests=list(pull_requests.values()),
     )
 
 

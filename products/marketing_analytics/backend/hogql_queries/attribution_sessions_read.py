@@ -24,7 +24,7 @@ from products.analytics_platform.backend.lazy_computation.stale_policy import re
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSION_READ_REACHBACK_DAYS,
     ensure_marketing_sessions_precomputed,
-    precompute_window_days,
+    precompute_window_start,
 )
 
 from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
@@ -114,9 +114,7 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         return "test_account_filters"
 
     read = window(runner, date_range)
-    if (read.end - read.start).total_seconds() > (
-        precompute_window_days(runner.team) - SESSION_READ_REACHBACK_DAYS
-    ) * 86400:
+    if read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS) < precompute_window_start(runner.team, read.end):
         return "window_over_max"
 
     return None

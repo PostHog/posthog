@@ -165,6 +165,38 @@ The buffer-reuse test alternates dotted-object widths and verifies exact output,
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
 
+### `JSONDropKeysPool(json, keys)`
+
+Removes the given keys from a JSON document and returns the result as a `String`.
+It produces the same output as `JSONDropKeys(keys)(json)`, including dotted-key expansion.
+Each key is a dot-separated path, such as `properties.secret`.
+
+```sql
+SELECT JSONDropKeysPool('{"a":1,"b":{"c":2,"d":3}}', ['a', 'b.c']);
+-- {"b":{"d":3}}
+```
+
+`JSONDropKeys` receives its keys as a query parameter in the command line.
+ClickHouse accepts parameters only for the `executable` type, which starts a new process for every block.
+`JSONDropKeysPool` receives the keys as a regular argument, so it can use `executable_pool`.
+The worker stays alive across blocks and queries, and the keys can differ between rows.
+The worker keeps the parsed filter for the most recent key array and parses it again only when the array changes.
+
+Both functions use the `json_drop_keys_udf` executable. The pool entry point uses `--row-binary` with chunk headers.
+RowBinary transport lets the JSON contain raw newlines and tabs.
+Malformed JSON, truncated chunks, a JSON value above 1 GiB, more than 65,536 keys, and a key above 64 KiB fail the query.
+
+With 1,000,000 small synthetic rows, `max_threads = 1`, and ClickHouse 26.6.2.158 on an Apple M4 Pro, best of three runs, recorded September 24, 2026:
+
+| `max_block_size` | `JSONDropKeys` | `JSONDropKeysPool` |
+| ---------------- | -------------: | -----------------: |
+| 65,536           |        0.346 s |             0.26 s |
+| 8,192            |        0.873 s |             0.30 s |
+| 1,024            |        4.885 s |            0.504 s |
+
+A `countIf` comparison of both functions over the same rows returned zero differences.
+These timings measure process startup and transport, not production block sizes or concurrent load.
+
 ### `decompress(data, codec)`
 
 Returns the exact decompressed bytes as a ClickHouse `String`, including NUL, newlines, and non-UTF-8 bytes.

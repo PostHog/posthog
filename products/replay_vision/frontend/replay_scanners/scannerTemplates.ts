@@ -154,6 +154,7 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         // An unsaved scanner has no spend yet, so it can't have hit a limit it doesn't have.
         credits_used_against_limit: 0,
         limit_reached: false,
+        sweep_throttle_factor: 1,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)
