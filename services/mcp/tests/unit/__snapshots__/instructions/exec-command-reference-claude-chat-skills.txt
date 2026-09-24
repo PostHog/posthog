@@ -163,12 +163,10 @@ Only fall back to `tools` if you have no idea which domain to search, or if `sea
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query
+business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|project|query
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
-Defined group types: organization, project
+### Active environment
 
-You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
-Project timezone: America/New_York.
-The user's name is Jane Doe (jane@acme.com).
+Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range. For the project's group types, run `execute-sql` on `system.group_type_mappings`.
