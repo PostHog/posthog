@@ -76,7 +76,10 @@ def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) 
     task_ids = tasks_facade.task_ids_with_pr_url_subquery(
         team_id,
         pr_bearing_task_run_filter(),
-        Q(output__pr_url__startswith=_GITHUB_PR_URL_PREFIX) | Q(output__pr_urls__0__startswith=_GITHUB_PR_URL_PREFIX),
+        # `pr_urls` reads as text so any element can carry the URL. The first element is not the
+        # one to test: `read_pr_urls` takes the first *usable* entry, so `["", "…/pull/1"]` holds a
+        # pull request the report would otherwise lose.
+        Q(output__pr_url__startswith=_GITHUB_PR_URL_PREFIX) | Q(output__pr_urls__icontains=_GITHUB_PR_URL_PREFIX),
     )
     task_run_artefacts = (
         SignalReportArtefact.objects.filter(

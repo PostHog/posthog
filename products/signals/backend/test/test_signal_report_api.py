@@ -1441,6 +1441,20 @@ class TestSignalReportListAPI(APIBaseTest):
         # `count` is the true total (matches what a limit=1 count query returns).
         assert body["count"] == 1
 
+    @parameterized.expand(
+        [
+            ("only_url", ["https://github.com/org/repo/pull/42"]),
+            ("after_an_unusable_entry", ["", "https://github.com/org/repo/pull/42"]),
+        ]
+    )
+    def test_filter_has_implementation_pr_reads_a_pull_request_out_of_pr_urls(self, _name, pr_urls):
+        report = self._create_report(title="Report whose run recorded only pr_urls")
+        self._create_implementation_task_with_run(report, output={"pr_urls": pr_urls})
+
+        response = self.client.get(self._list_url(has_implementation_pr="true"))
+        assert response.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in response.json()["results"]} == {str(report.id)}
+
     def test_filter_has_implementation_pr_ignores_empty_pr_url(self):
         report_empty_pr = self._create_report(title="Report with empty PR url")
         self._create_assignment(report_empty_pr, pr_url="")
