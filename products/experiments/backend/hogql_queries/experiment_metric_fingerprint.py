@@ -26,7 +26,7 @@ def _strip_empty_breakdowns(clean_metric: dict) -> None:
     """Remove a breakdownFilter that carries no breakdowns before hashing.
 
     An empty breakdown list is the same metric config as no breakdowns, but the two dict shapes hash to
-    different values. Saved-metric resolution (`_merge_saved_metric_breakdowns`) injects
+    different values. Saved-metric resolution (`merge_saved_metric_breakdowns`) injects
     `breakdownFilter.breakdowns = []` when the experiment link has none, while the daily timeseries discovery
     and the experiment serializer hash the raw saved query. Without this normalization the same config gets
     two fingerprints, so readers on one convention (timeseries sync, cold-start fallback) never find rows

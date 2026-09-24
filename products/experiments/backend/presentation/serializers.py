@@ -75,6 +75,7 @@ from products.experiments.backend.setup_context import (
     SdkLibCategory,
     SetupContextSectionStatus,
 )
+from products.experiments.backend.temporal.metric_resolution import merge_saved_metric_breakdowns
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -612,10 +613,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
 
-                    # Add fingerprint to saved metric returned from API
-                    # so that frontend knows what timeseries records to query
+                    # Add fingerprint to saved metric returned from API so that the frontend knows what
+                    # timeseries records to query. Computed on the effective config (with link-metadata
+                    # breakdowns), the same dict the daily discovery fingerprints, so the chart read finds
+                    # the rows the daily workflow wrote.
                     saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        saved_metric["query"],
+                        merge_saved_metric_breakdowns(saved_metric["query"], saved_metric.get("metadata")),
                         instance.start_date,
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
