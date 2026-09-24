@@ -117,6 +117,16 @@ export function labelForModel(modelId: string): string | undefined {
   return catalogModelFor(modelId)?.label;
 }
 
+/**
+ * Whether a picker may offer this model. A model the catalog omits is not offered however
+ * the gateway answers, and a retired one stays listed only so a pinned session keeps
+ * running under a name and a price.
+ */
+export function isOfferedModel(modelId: string): boolean {
+  const model = catalogModelFor(modelId);
+  return model !== undefined && !model.retired;
+}
+
 export function supports1MContext(modelId: string): boolean {
   return catalogModelFor(modelId)?.supports1MContext ?? false;
 }
