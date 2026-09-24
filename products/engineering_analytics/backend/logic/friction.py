@@ -199,6 +199,13 @@ class _RankBand:
     high: int
 
 
+@frozen
+class _PullRequestScore:
+    pr: PullRequestFriction
+    score: float
+    groups: dict[FrictionGroup, float]
+
+
 class FrictionScorer:
     """Scores every author with at least ``MIN_PULL_REQUESTS`` pull requests against each other."""
 
@@ -280,18 +287,18 @@ class FrictionScorer:
             bands[author] = _RankBand(low=math.floor(deciles[0]), high=math.ceil(deciles[-1]))
         return bands
 
-    def pull_request_scores(self, author: str) -> list[tuple[PullRequestFriction, float, dict[FrictionGroup, float]]]:
+    def pull_request_scores(self, author: str) -> list[_PullRequestScore]:
         """Each of the author's pull requests as a multiple of the typical pull request, with the group split."""
         pooled = self._pooled(self._present(self._values))
         weight_in_use = sum(w for m, w in enumerate(self._weights) if pooled[m] > 0)
-        scored = []
+        scored: list[_PullRequestScore] = []
         for pr in self._by_author.get(author, []):
             groups = dict.fromkeys(GROUP_WEIGHTS, 0.0)
             for m, metric in enumerate(METRICS):
                 value = metric.value(pr)
                 if value is not None and pooled[m] > 0:
                     groups[metric.group] += self._weights[m] / weight_in_use * value / pooled[m]
-            scored.append((pr, sum(groups.values()), groups))
+            scored.append(_PullRequestScore(pr=pr, score=sum(groups.values()), groups=groups))
         return scored
 
     def pr_count(self, author: str) -> int:
@@ -510,9 +517,9 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
     scorer = FrictionScorer(pull_requests)
     items = scorer.score(_teams_by_author(members or {}))
     own_teams = {team: handles for team, handles in (members or {}).items() if author in handles}
-    top = sorted(scorer.pull_request_scores(author), key=lambda scored: (-scored[1], -scored[0].number))
+    top = sorted(scorer.pull_request_scores(author), key=lambda scored: (-scored.score, -scored.pr.number))
     top = top[:TOP_PULL_REQUESTS]
-    titles = _query_titles(curated, [pr.number for pr, _score, _groups in top])
+    titles = _query_titles(curated, [scored.pr.number for scored in top])
     return AuthorFrictionDetail(
         available=True,
         window_days=window_days,
@@ -523,13 +530,13 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
         teams=_team_friction(items, own_teams, leave_out=author, floor=MIN_OTHER_TEAM_AUTHORS),
         pull_requests=[
             PullRequestFrictionItem(
-                number=pr.number,
-                repo_owner=pr.repo_owner,
-                repo_name=pr.repo_name,
-                title=titles.get(pr.number, ""),
-                score=score,
-                groups=[FrictionGroupShare(group=group, score=value) for group, value in groups.items()],
+                number=scored.pr.number,
+                repo_owner=scored.pr.repo_owner,
+                repo_name=scored.pr.repo_name,
+                title=titles.get(scored.pr.number, ""),
+                score=scored.score,
+                groups=[FrictionGroupShare(group=group, score=value) for group, value in scored.groups.items()],
             )
-            for pr, score, groups in top
+            for scored in top
         ],
     )
