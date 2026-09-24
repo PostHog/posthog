@@ -28,7 +28,10 @@ from products.engineering_analytics.backend.logic.delivery_scope import (
     SummaryScope as SummaryScope,
 )
 from products.engineering_analytics.backend.logic.dora import build_dora_overview as build_dora_overview
-from products.engineering_analytics.backend.logic.friction import build_author_friction as build_author_friction
+from products.engineering_analytics.backend.logic.friction import (
+    build_author_friction as build_author_friction,
+    build_author_friction_detail as build_author_friction_detail,
+)
 from products.engineering_analytics.backend.logic.github_teams import (
     build_github_team_roster as build_github_team_roster,
 )

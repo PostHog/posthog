@@ -11554,11 +11554,58 @@ export namespace Schemas {
       rank_low: number;
       /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
       rank_high: number;
+      /** The author's GitHub teams. Empty when the membership table isn't synced. */
+      teams?: string[];
+    }
+
+    export interface TeamFriction {
+      /** GitHub team slug. */
+      github_team: string;
+      /** The median friction of the team's scored members, in 'x typical' units. */
+      median_score: number;
+      /** Members with enough merged pull requests to score. A team shows only above a floor, so one or two people never read as a team's figure. */
+      scored_author_count: number;
+    }
+
+    export interface PullRequestFrictionItem {
+      /** The pull request's friction split by kind. */
+      groups: FrictionGroupShare[];
+      /** Pull request number. */
+      number: number;
+      /** Repository owner. */
+      repo_owner: string;
+      /** Repository name. */
+      repo_name: string;
+      /** Pull request title, empty when the snapshot has none. */
+      title: string;
+      /** Friction as a multiple of the typical pull request in the repository. */
+      score: number;
+    }
+
+    export interface AuthorFrictionDetail {
+      /** The author's score and rank. Null below 3 merged pull requests in the window. */
+      author: AuthorFriction | null;
+      /** The author's teams without the author, each only with at least 2 other scored members. */
+      teams: TeamFriction[];
+      /** The author's pull requests that added the most friction, most first. */
+      pull_requests: PullRequestFrictionItem[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors ranked in the repository: the denominator of rank. */
+      ranked_author_count: number;
+      /** False when the team membership table isn't synced. */
+      has_membership_data: boolean;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
     }
 
     export interface AuthorFrictionList {
       /** Authors by friction, most first. */
       items: AuthorFriction[];
+      /** Teams with at least 3 scored members, by median member friction, most first. */
+      teams: TeamFriction[];
       /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
       available: boolean;
       /** Pull requests merged in this many days before the view last refreshed. */
@@ -107929,6 +107976,21 @@ export namespace Schemas {
      * GitHub team slug: list only the team's members, through the team membership table. Ranks stay repository-wide.
      */
     github_team?: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsAuthorFrictionDetailParams = {
+    /**
+     * GitHub login of the author to show.
+     */
+    author: string;
     /**
      * 'owner/name' repository, when the selected source syncs several.
      */

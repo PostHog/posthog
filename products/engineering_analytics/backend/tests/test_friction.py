@@ -16,7 +16,10 @@ from products.engineering_analytics.backend.logic.friction import (
     FrictionScorer,
     PullRequestFriction,
     build_author_friction,
+    build_author_friction_detail,
 )
+
+_MEMBERS = {"pair": ["typical", "calm"], "everyone": ["blocked", "typical", "calm", "newcomer"]}
 
 
 def _pr(author: str, number: int, **friction: Any) -> PullRequestFriction:
@@ -34,7 +37,9 @@ def _pr(author: str, number: int, **friction: Any) -> PullRequestFriction:
         "kickout_count": 0,
         **friction,
     }
-    return PullRequestFriction(number=number, author=author, author_avatar_url="", **values)
+    return PullRequestFriction(
+        number=number, repo_owner="PostHog", repo_name="posthog", author=author, author_avatar_url="", **values
+    )
 
 
 def _population() -> list[PullRequestFriction]:
@@ -59,8 +64,8 @@ def _population() -> list[PullRequestFriction]:
 def _row(pr: PullRequestFriction) -> tuple:
     return (
         pr.number,
-        "PostHog",
-        "posthog",
+        pr.repo_owner,
+        pr.repo_name,
         pr.author,
         pr.author_avatar_url,
         pr.push_count,
@@ -83,7 +88,7 @@ class _Curated:
     repository = "PostHog/posthog"
     source_id = "0192f000-0000-7000-8000-000000000001"
 
-    def __init__(self, rows: list[tuple] | None, members: list[str] | None) -> None:
+    def __init__(self, rows: list[tuple] | None, members: dict[str, list[str]] | None) -> None:
         self._rows = rows
         self._members = members
         self.friction_placeholders: dict[str, Any] = {}
@@ -91,14 +96,19 @@ class _Curated:
     def members_source(self) -> str | None:
         return None if self._members is None else "(SELECT 1)"
 
-    def run_paged(self, sql: str, **kwargs: Any) -> list[tuple]:
+    def pr_source(self) -> str:
+        return "(SELECT 1)"
+
+    def run_paged(self, sql: str, *, query_type: str, **kwargs: Any) -> list[tuple]:
+        if query_type == "engineering_analytics.author_friction_memberships":
+            return [(team, handle) for team, handles in (self._members or {}).items() for handle in handles]
         self.friction_placeholders = kwargs["placeholders"]
         if self._rows is None:
             raise QueryError("Unknown table `engineering_analytics_pr_friction`.")
         return self._rows
 
-    def run(self, sql: str, **kwargs: Any) -> SimpleNamespace:
-        return SimpleNamespace(results=[(member,) for member in self._members or []])
+    def run(self, sql: str, *, placeholders: dict[str, Any], **kwargs: Any) -> SimpleNamespace:
+        return SimpleNamespace(results=[(number, f"PR {number}") for number in placeholders["numbers"].value])
 
 
 class TestFrictionScore(SimpleTestCase):
@@ -125,28 +135,28 @@ class TestFrictionScore(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_view_yet", None, ["typical"], None, False, []),
-            ("whole_repository", _population(), None, None, True, [("blocked", 1), ("typical", 2), ("calm", 3)]),
+            ("no_view_yet", None, None, False, [], []),
             (
-                "team_keeps_repository_ranks",
+                "whole_repository",
                 _population(),
-                ["typical", "calm"],
-                "team-devex",
+                None,
                 True,
-                [("typical", 2), ("calm", 3)],
+                [("blocked", 1), ("typical", 2), ("calm", 3)],
+                ["everyone"],
             ),
+            ("team_keeps_repository_ranks", _population(), "pair", True, [("typical", 2), ("calm", 3)], ["everyone"]),
         ]
     )
     def test_read(
         self,
         _name: str,
         prs: list[PullRequestFriction] | None,
-        members: list[str] | None,
         github_team: str | None,
         available: bool,
         expected: list[tuple[str, int]],
+        expected_teams: list[str],
     ) -> None:
-        curated = _Curated([_row(pr) for pr in prs] if prs is not None else None, members)
+        curated = _Curated([_row(pr) for pr in prs] if prs is not None else None, _MEMBERS)
 
         friction = build_author_friction(curated=curated, github_team=github_team)  # type: ignore[arg-type]
 
@@ -154,3 +164,21 @@ class TestFrictionScore(SimpleTestCase):
         assert [(item.author, item.rank) for item in friction.items] == expected
         # The view unions every source of the team, so the read must keep to its own.
         assert curated.friction_placeholders["source_id"].value == curated.source_id
+        # A pair of scored members is below the team floor, so only the larger team shows.
+        assert [team.github_team for team in friction.teams] == expected_teams
+
+    @parameterized.expand(
+        [
+            ("scored_author", "typical", 2, ["everyone"], [205, 204, 203, 202, 201]),
+            ("below_the_minimum", "newcomer", None, ["everyone"], [401, 400]),
+        ]
+    )
+    def test_detail(self, _name: str, author: str, rank: int | None, teams: list[str], numbers: list[int]) -> None:
+        curated = _Curated([_row(pr) for pr in _population()], _MEMBERS)
+
+        detail = build_author_friction_detail(curated=curated, author=author)  # type: ignore[arg-type]
+
+        assert (detail.author.rank if detail.author else None) == rank
+        # The author stays out of their own team baseline, so "pair" drops below two other members.
+        assert [team.github_team for team in detail.teams] == teams
+        assert [(pr.number, pr.title) for pr in detail.pull_requests] == [(n, f"PR {n}") for n in numbers]
