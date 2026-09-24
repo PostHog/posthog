@@ -1226,6 +1226,11 @@ jobs:
             # Taken from the npm package rather than rebuilt from services/mcp, so
             # the crate ships the same bytes every other channel does. A rebuild
             # could drift.
+            #
+            # This path is not incidental: package/lib/posthog-api-cli.mjs is what
+            # `npm i -g @posthog/cli` installs and runs, so it cannot go missing
+            # without breaking npm first. If it ever does, tar exits non-zero here
+            # and the crate is not published, which is the outcome we want.
             - name: Take the API bundle from the npm package
               run: |
                   set -euo pipefail
