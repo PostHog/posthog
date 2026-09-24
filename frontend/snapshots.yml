@@ -5476,6 +5476,30 @@ snapshots:
         hash: v1.k794b7964.fda088b86665fa1e7f42ac158d9c5acf12b2afc030a90ad385d3d0fe16170d46.WqmQ9-wSSHQj0J-kUbJKkFI8DhDljOP6queW3e6jxDQ
     marketing-analytics-customer-acquisition-cards--unconfigured--light:
         hash: v1.k794b7964.40240d162f715f3da0d8363e08797fb8a9c131852a5d6356c892424e25dfa35c.yeHaH7ecKHVh7IOwmerxuVPzSGclQrUDBwWnoPV0rmw
+    marketing-analytics-dashboard-breakdown-table--empty--dark:
+        hash: v1.k794b7964.595e55eba52af8b27ddecd40dd1b59d636bcbae1ee0dc5d78be62dd3b892d981.IyZb58wgD9xEUOLcWOt5PP2o4wps9Oh7Sb6S1SfQKvE
+    marketing-analytics-dashboard-breakdown-table--empty--light:
+        hash: v1.k794b7964.60b8c75933454013c8d7539b3007c7caa6f0441f1dc23e3c334f7a5872187557.dxJ3aGIlzFEUyl7-pqdaOYuXFUdOXkNZTClmZbEJmaQ
+    marketing-analytics-dashboard-breakdown-table--error--dark:
+        hash: v1.k794b7964.eebc6e004f1842c2083110bc236d68d1bd02922262ecdd4616b834253c196c34.4CgdirQZGwGdbeZVm-0x2AV5qAMzKN6JzihBkSvcm3g
+    marketing-analytics-dashboard-breakdown-table--error--light:
+        hash: v1.k794b7964.be182f1ad0321aca7ecad66bf6542b1cb293dbb1feac6846e1a6d1cbec2c43bc.psYi72UaaE2V8n2EEl_eLM5trQb558iM-K9KiO_W6cY
+    marketing-analytics-dashboard-breakdown-table--interactive--dark:
+        hash: v1.k794b7964.26101b571687a3e276320f8614905e37e974878b8c97394bbcab3529071ed94b.g9JC1Dl369GaW2Smmnfhs0lE_r7QNMa-kQyhDtUyXpA
+    marketing-analytics-dashboard-breakdown-table--interactive--light:
+        hash: v1.k794b7964.48a01e6ed781d8cb4a8304fde452a48881a684635940aff184f4d368373991bc.MdNlqtUcdUAzW3cJznYE1DhoGbkhpYo9eBQFciZaNuc
+    marketing-analytics-dashboard-breakdown-table--loading--dark:
+        hash: v1.k794b7964.3ed4d155c3d1dc42a922ca9245738dd964be8ea64de45e8277098f8b8a72d6fb.LQIl_ubh4uCgp4CNTSJqZW7eLRntIFpgDPuQgIuJ6Pg
+    marketing-analytics-dashboard-breakdown-table--loading--light:
+        hash: v1.k794b7964.0452833de0d3a8ced6b8b1f792998f7f352c15398053ad67a9643459b62fae0f.8key9ACTC3rCKFjmq2LRfZKSDBh1q_TwwZU70LP_VX8
+    marketing-analytics-dashboard-breakdown-table--narrow--dark:
+        hash: v1.k794b7964.3146e200a27a61ff64e9e1ea91f195d5d1aae75bc431d368f4ff0c575db062bd.NwGD71k9q_I_ai9lpQUbnUTYOdX4-4-M7r1N_6zWc3o
+    marketing-analytics-dashboard-breakdown-table--narrow--light:
+        hash: v1.k794b7964.1b4e76ab2e17352db7d12e0437368b7991143c5ce31fd14c329d5ef07a2f27f7.Rw-g3rHkdH6cYXDCkLOpCgVXOwCuzZc6W1Lp670paaQ
+    marketing-analytics-dashboard-breakdown-table--narrow-comparison--dark:
+        hash: v1.k794b7964.31e41069d269db8708235ebe4532f1d192bbaa665684020f6fdb4027aa8acd46.ZUY6P6E0RJdx4a7g6MNz26VSupyhqYn89k6oTj8xmEM
+    marketing-analytics-dashboard-breakdown-table--narrow-comparison--light:
+        hash: v1.k794b7964.aeb0d17c3166922193e00df2ff2b294a46046f5f0dafb448eb378b03f45de07a.6g_f5vb1BIZzlbnBa0ii0axbN9XzPruR7CZfbKiDGK4
     marketing-analytics-dashboard-metric-cards--interactive--dark:
         hash: v1.k794b7964.4c13e857435c2bee42eea33c6f86ab2d46f0d3c1c9d997f32bcdc57cf1e7dafc.J9JahhAU6VQmtGCK8icH17WJvkELlNa7DkbabJ2wtRU
     marketing-analytics-dashboard-metric-cards--interactive--light:
