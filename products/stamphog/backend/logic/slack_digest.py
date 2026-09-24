@@ -194,7 +194,7 @@ def post_digest_details(team_id: int, destination: Destination, summary: DigestS
         return
     try:
         post_message(
-            SlackIntegration(integration),
+            SlackIntegration(integration, source="stamphog"),
             destination.channel_id,
             _detail_blocks(summary),
             _build_fallback_text(summary),
@@ -220,7 +220,7 @@ def post_digest_lead(team_id: int, destination: Destination, summary: DigestSumm
 
     try:
         return post_with_join(
-            SlackIntegration(integration),
+            SlackIntegration(integration, source="stamphog"),
             destination.channel_id,
             _lead_blocks(summary),
             _lead_text(summary),

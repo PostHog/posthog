@@ -26,7 +26,8 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
-from collections import defaultdict
+from collections import defaultdict, deque
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -67,10 +68,12 @@ from posthog.storage.hypercache_manager import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
+from products.feature_flags.backend.types import FlagProperty
 
 logger = structlog.get_logger(__name__)
 
@@ -95,26 +98,89 @@ def _is_unevaluable(flag_data: dict[str, Any]) -> bool:
     return not flag_data.get("active", True) or flag_data.get("deleted", False)
 
 
-def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
-    """
-    Extract direct flag dependency IDs from a serialized flag's filters.
-
-    Parses the ``key`` of each flag-reference property as an integer flag ID.
-    Inactive/deleted flags return empty deps before their filters are read, to
-    match Rust's extract_dependencies behavior. Any other flag stored in a config
-    format other than version 1 raises ``ConfigFormatError``, which fails the whole
-    team's rebuild; ``HyperCache.update_cache`` then keeps the previous entry and ETag.
-    """
-    if _is_unevaluable(flag_data):
-        return set()
-
+def _parse_dependency_ids(properties: list[FlagProperty]) -> set[int]:
+    """The integer flag ids the flag-reference properties name; any other ``key`` is skipped."""
     dep_ids: set[int] = set()
-    for prop in flag_dependency_properties(flag_data.get("filters", {})):
+    for prop in properties:
         try:
             dep_ids.add(int(prop["key"]))
         except (ValueError, KeyError, TypeError):
             continue
     return dep_ids
+
+
+def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
+    """
+    Extract direct flag dependency IDs from a serialized flag's filters.
+
+    Inactive/deleted flags return empty deps before their filters are read, to
+    match Rust's extract_dependencies behavior. Only flags that passed
+    ``_omit_unsupported_flags`` are serialized, so every other document here is a
+    readable config version 1.
+    """
+    if _is_unevaluable(flag_data):
+        return set()
+    return _parse_dependency_ids(flag_dependency_properties(flag_data.get("filters", {})))
+
+
+def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
+    """The flag ids a stored row's release conditions reference, or ``None`` when this
+    cache cannot carry the row.
+
+    A non-object or non-v1 document is rejected whatever the row's lifecycle, so an
+    inactive v2 row is never blanked into a v1-shaped entry. An unevaluable v1 object is
+    not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
+    conditions cannot be read is rejected instead of failing the team.
+    """
+    filters = flag.filters
+    if not isinstance(filters, Mapping):
+        return None
+    if detect_config_format(filters).kind != "v1":
+        return None
+    if not flag.active or flag.deleted:
+        return set()
+    try:
+        return _parse_dependency_ids(flag_dependency_properties(filters))
+    except (AttributeError, TypeError):
+        return None
+
+
+def _omit_unsupported_flags(team_id: int, flags: list[FeatureFlag]) -> list[FeatureFlag]:
+    """Drop the stored rows this cache cannot carry, and the rows whose dependency
+    conditions reference one, transitively.
+
+    A dependent goes with its target because the matcher pre-seeds every kept
+    unevaluable id as false: an unsupported target left in that bucket would satisfy a
+    ``flag_evaluates_to: false`` condition it never evaluated, and one dropped without
+    its dependents would leave them resolving a missing dependency. Ordinary inactive v1
+    targets keep their established kept-and-seeded-false behavior. Stored rows are not
+    modified; ``build_flags_cache`` in rust/feature-flags/src/flags/cache_builder.rs
+    applies the same rules, so both writers publish the same flag set.
+    """
+    excluded: set[int] = set()
+    dependents: dict[int, set[int]] = defaultdict(set)
+    for flag in flags:
+        dependency_ids = _stored_dependency_ids(flag)
+        if dependency_ids is None:
+            excluded.add(flag.id)
+            continue
+        for dependency_id in dependency_ids:
+            dependents[dependency_id].add(flag.id)
+    unsupported = sorted(excluded)
+    queue = deque(excluded)
+    while queue:
+        for dependent_id in dependents.get(queue.popleft(), ()):
+            if dependent_id not in excluded:
+                excluded.add(dependent_id)
+                queue.append(dependent_id)
+    if excluded:
+        logger.warning(
+            "Omitted flags the service cache cannot carry",
+            team_id=team_id,
+            unsupported_flag_ids=unsupported,
+            dependent_flag_ids=sorted(excluded.difference(unsupported)),
+        )
+    return [flag for flag in flags if flag.id not in excluded]
 
 
 # Cohort model fields that change only during recalculation, not definition edits.
@@ -148,9 +214,8 @@ _COHORT_RECALCULATION_FIELDS = frozenset(
 def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> set[int]:
     """Extract cohort IDs directly referenced in active flag filters.
 
-    Inactive/deleted flags are skipped before their filters are read. Any other flag
-    stored in a config format other than version 1 raises ``ConfigFormatError``,
-    which fails the whole team's rebuild.
+    Inactive/deleted flags are skipped before their filters are read; every other
+    flag here passed ``_omit_unsupported_flags``.
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
@@ -407,7 +472,8 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     Fetches the team's evaluable feature flags (active, not deleted), plus the
     inactive flags another flag's dependency conditions reference, wrapped in a
     dict that HyperCache can serialize. The actual flag data is in the "flags"
-    key as a list of flag dictionaries.
+    key as a list of flag dictionaries. Rows stored in a config format this cache
+    cannot carry, and their dependents, are omitted (``_omit_unsupported_flags``).
 
     Encrypted remote config flags are excluded since they can only be accessed via
     the dedicated /remote_config endpoint which handles decryption. Including them
@@ -419,7 +485,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
         dependency metadata (stages, missing deps, transitive deps), and cohorts contains
         serialized cohort definitions referenced by the flags (including transitive deps).
     """
-    flags = get_feature_flags(team=team, exclude_encrypted_payloads=True)
+    flags = _omit_unsupported_flags(team.id, get_feature_flags(team=team, exclude_encrypted_payloads=True))
     flags_data = serialize_feature_flags(flags)
     cohorts = _get_referenced_cohorts(team.id, flags_data)
     payload = _build_flags_payload(flags_data, cohorts)
@@ -491,7 +557,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     flags_data_by_team: dict[int, list[dict[str, Any]]] = {}
     all_cohort_ids: set[int] = set()
     for team in teams:
-        team_flags = flags_by_team_id.get(team.id, [])
+        team_flags = _omit_unsupported_flags(team.id, flags_by_team_id.get(team.id, []))
         flags_data = serialize_feature_flags(team_flags)
         flags_data_by_team[team.id] = flags_data
         all_cohort_ids.update(_extract_cohort_ids_from_flag_filters(flags_data))

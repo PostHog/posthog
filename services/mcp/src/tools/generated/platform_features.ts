@@ -786,7 +786,9 @@ const organizationsList = (): ToolBase<
 
 const RoleGetSchema = () => {
     const RolesRetrieveParams = orvalSchemas.RolesRetrieveParams()
-    return RolesRetrieveParams.omit({ organization_id: true })
+    return RolesRetrieveParams.omit({ organization_id: true }).extend({
+        id: RolesRetrieveParams.shape['id'].describe('Required. The role id from roles-list.'),
+    })
 }
 
 const roleGet = (): ToolBase<ReturnType<typeof RoleGetSchema>, Schemas.Role> => ({
@@ -805,9 +807,11 @@ const roleGet = (): ToolBase<ReturnType<typeof RoleGetSchema>, Schemas.Role> => 
 const RoleMembersListSchema = () => {
     const RolesRoleMembershipsListParams = orvalSchemas.RolesRoleMembershipsListParams()
     const RolesRoleMembershipsListQueryParams = orvalSchemas.RolesRoleMembershipsListQueryParams()
-    return RolesRoleMembershipsListParams.omit({ organization_id: true }).extend(
-        RolesRoleMembershipsListQueryParams.shape
-    )
+    return RolesRoleMembershipsListParams.omit({ organization_id: true })
+        .extend(RolesRoleMembershipsListQueryParams.shape)
+        .extend({
+            role_id: RolesRoleMembershipsListParams.shape['role_id'].describe('Required. The role id from roles-list.'),
+        })
 }
 
 const roleMembersList = (): ToolBase<

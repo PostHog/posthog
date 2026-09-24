@@ -10,6 +10,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
@@ -22,6 +23,14 @@ COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohor
 # and `detail.changes`. Unlike analytics events (whose properties are a flat map), these need dotted
 # keys resolved into nested field chains so the HogVM matches against the nested object.
 INTERNAL_NESTED_PROPERTY_EVENTS = frozenset({"$activity_log_entry_created"})
+
+# Filter sources whose rows come from the warehouse rather than from events: one invocation per
+# row, with the row under `event.properties` and no person attached.
+DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
+
+# The warehouse consumer writes the row's table name under this key. Keep it equal to
+# DWH_SOURCE_TABLE_PROPERTY in nodejs/src/cdp/schema/hogflow.ts.
+WAREHOUSE_SOURCE_TABLE_PROPERTY = "$source_table"
 
 
 class _NestedPropertyKeyResolver(CloningVisitor):
@@ -182,11 +191,76 @@ def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
     return result
 
 
+class _WarehouseRowFields(CloningVisitor):
+    """
+    A warehouse row reaches the filter with its columns under `properties`. A hand-written filter
+    names a column bare, the way the column hint lists it, or as `record.<column>` the way an input
+    template does. Both resolve there. Only the given roots move, and a lambda parameter or a `let`
+    inside a lambda body shadows them there. A global the runtime does provide, such as `timestamp` or `event`, is
+    never moved, so a column with such a name has to be read as `record.<column>`.
+    """
+
+    def __init__(self, roots: set[str]):
+        super().__init__()
+        self.roots = roots
+        self.locals: list[set[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self.locals.append(set(node.args))
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self.locals.pop()
+
+    def visit_block(self, node: ast.Block) -> ast.Block:
+        # A `let` shadows a column from its own declaration on, as in the compiler, so a read before
+        # it still means the column. A lambda initializer may call its own name, so that name is
+        # bound before the lambda body is visited, again as in the compiler.
+        self.locals.append(set())
+        try:
+            declarations = []
+            for declaration in node.declarations:
+                if isinstance(declaration, ast.VariableDeclaration) and isinstance(declaration.expr, ast.Lambda):
+                    self.locals[-1].add(declaration.name)
+                declarations.append(self.visit(declaration))
+                if isinstance(declaration, ast.VariableDeclaration):
+                    self.locals[-1].add(declaration.name)
+            return ast.Block(start=node.start, end=node.end, declarations=declarations)
+        finally:
+            self.locals.pop()
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        chain = list(node.chain)
+        root = str(chain[0]) if chain else ""
+        if any(root in scope for scope in self.locals):
+            return super().visit_field(node)
+        if root == "record":
+            return ast.Field(chain=["properties", *chain[1:]])
+        if root in self.roots:
+            return ast.Field(chain=["properties", *chain])
+        return super().visit_field(node)
+
+
+def _as_row_properties(properties: list[Any]) -> list[Any]:
+    """Read a `data_warehouse` column filter from `properties`, where the consumer puts the row.
+
+    Such a filter otherwise compiles to a bare field such as `organization`, which the filter
+    globals never carry, so the row fails the filter.
+    """
+    return [
+        {**prop, "type": "event"} if isinstance(prop, dict) and prop.get("type") == "data_warehouse" else prop
+        for prop in properties
+    ]
+
+
 def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
     """Build global property filters that apply to all events."""
     if not filters.get("properties"):
         return []
-    return [property_to_expr(prop, team) for prop in filters["properties"]]
+    properties = filters["properties"]
+    if filters.get("source") in DATA_WAREHOUSE_SOURCES:
+        properties = _as_row_properties(properties)
+    return [property_to_expr(prop, team) for prop in properties]
 
 
 def _build_event_filter_expr(filter: dict) -> ast.Expr:
@@ -250,6 +324,29 @@ def _combine_expressions(expressions: list[ast.Expr]) -> ast.Expr:
         return ast.And(exprs=expressions)
 
 
+def _build_warehouse_table_filters(filters: dict, team: Team) -> list[ast.Expr]:
+    if filters.get("source") not in DATA_WAREHOUSE_SOURCES:
+        return []
+    entries = [entry for entry in filters.get("data_warehouse") or [] if isinstance(entry, dict)]
+    if not any(entry.get("properties") for entry in entries):
+        return []
+
+    # Row filters apply only to rows from their own entry's table. Every entry checks its table name,
+    # because an entry without row filters would otherwise match rows from the filtered tables too.
+    entry_exprs: list[ast.Expr] = []
+    for entry in entries:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["properties", WAREHOUSE_SOURCE_TABLE_PROPERTY]),
+                right=ast.Constant(value=entry.get("table_name")),
+            )
+        ]
+        exprs.extend(property_to_expr(prop, team) for prop in _as_row_properties(entry.get("properties") or []))
+        entry_exprs.append(_combine_expressions(exprs))
+    return [ast.Or(exprs=entry_exprs) if len(entry_exprs) > 1 else entry_exprs[0]]
+
+
 def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
     """
     Build a HogQL expression from hog function filters.
@@ -260,13 +357,14 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     # Build component filters
     test_account_filters = _build_test_account_filters(filters, team)
     global_property_filters = _build_global_property_filters(filters, team)
+    warehouse_table_filters = _build_warehouse_table_filters(filters, team)
 
     # Get all event and action filters
     all_filters = filters.get("events", []) + filters.get("actions", [])
 
-    # If no event/action filters, return just the account and property filters
+    # If no event/action filters, return just the account, property and warehouse table filters
     if not all_filters:
-        return _combine_expressions(test_account_filters + global_property_filters)
+        return _combine_expressions(test_account_filters + global_property_filters + warehouse_table_filters)
 
     # Build expressions for each event/action filter (dotted keys on internal events are resolved
     # per-branch inside _build_single_filter_expr).
@@ -388,6 +486,46 @@ def _unknown_filter_globals(expr: ast.Expr) -> list[str]:
     )
 
 
+@frozen
+class _RuntimeCompilation:
+    bytecode: list[Any]
+    # Every root the program reads that the runtime does not provide.
+    unknown_roots: list[str]
+    context: HogQLContext
+
+
+def _compile_against_runtime(expr: ast.Expr, team: Team) -> _RuntimeCompilation:
+    # Declaring the globals turns the compiler's field resolution into a check: it warns on a
+    # root that is neither a local, an upvalue, nor one of ours.
+    context = HogQLContext(team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
+    bytecode = create_bytecode(expr, context=context).bytecode
+    unknown = sorted(
+        {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+    )
+    return _RuntimeCompilation(bytecode=bytecode, unknown_roots=unknown, context=context)
+
+
+def _own_filters_expr(filters: dict, team: Team, actions: Optional[dict[int, Action]]) -> ast.Expr:
+    """The destination's filters without the team's test account filters, with warehouse columns resolved."""
+    own = _LowerConstantMembership().visit(
+        compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
+    )
+    if filters.get("source") in DATA_WAREHOUSE_SOURCES:
+        own = _WarehouseRowFields(roots=set(_compile_against_runtime(own, team).unknown_roots)).visit(own)
+    return own
+
+
+def _resolve_warehouse_columns(filters: dict, team: Team, actions: Optional[dict[int, Action]]) -> ast.Expr:
+    """
+    Only the destination's own filters read the row. The team's test account filters are written
+    against events, so a root they read that the runtime lacks stays an error rather than becoming
+    a column.
+    """
+    return _combine_expressions(
+        [*_build_test_account_filters(filters, team), _own_filters_expr(filters, team, actions)]
+    )
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -396,16 +534,12 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception("Select queries are not allowed in filters")
 
         expr = _LowerConstantMembership().visit(expr)
-        # Declaring the globals turns the compiler's field resolution into a check: it warns on a
-        # root that is neither a local, an upvalue, nor one of ours.
-        context = HogQLContext(
-            team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS
-        )
-        filters["bytecode"] = create_bytecode(expr, context=context).bytecode
-
-        unknown = sorted(
-            {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
-        )
+        compiled = _compile_against_runtime(expr, team)
+        if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
+            compiled = _compile_against_runtime(_resolve_warehouse_columns(filters, team, actions), team)
+        filters["bytecode"] = compiled.bytecode
+        unknown = compiled.unknown_roots
+        context = compiled.context
         if unknown:
             # The person saving a destination did not write the team's test account filters, so a
             # message that only names the field sends them looking in the wrong place.
@@ -414,9 +548,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             if from_team:
                 # Compile the destination's own filters alone rather than subtracting the team's
                 # roots: a field that both sources read drops out of the difference and goes unnamed.
-                own = _unknown_filter_globals(
-                    compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
-                )
+                own = _unknown_filter_globals(_own_filters_expr(filters, team, actions))
                 raise Exception(
                     f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
                     f"cannot read. Check the spelling, or use a field or function that real-time filters support. "

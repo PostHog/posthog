@@ -19,6 +19,17 @@ function createContext(): { context: Context; requestMock: ReturnType<typeof vi.
 // and values those traces record, so dropping an alias map or making `provider` required again
 // fails here.
 describe('llma identifier contracts', () => {
+    it.each([
+        { min: 0, max: 10, passing_rule: { operator: 'gte', threshold: 7 }, allows_na: true },
+        { true_is_failure: true, allows_na: false },
+        { allows_na: true },
+        {},
+    ])('preserves output settings through the update schema: %j', (output_config) => {
+        const tool = GENERATED_TOOLS['llma-evaluation-update']!()
+        const parsed = tool.schema.parse({ id: 'evaluation-1', output_config }) as { output_config: unknown }
+        expect(parsed.output_config).toEqual(output_config)
+    })
+
     // The write tools share the mismatch, so they share the alias map. Without that, an agent that
     // succeeds with `evaluationId` on get is rejected the moment it updates or deletes.
     describe.each([['llma-evaluation-get'], ['llma-evaluation-update'], ['llma-evaluation-delete']])(

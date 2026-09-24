@@ -382,12 +382,46 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
         args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
         type=ast.StringType(nullable=False),
     )
-    datetime_string = ast.Call(
-        name="replaceOne",
+    # ClickHouse infers DateTime for ISO strings at ingest, and toString renders it as a wall clock in the
+    # session timezone with no zone marker. Take the wall clock from a UTC-typed cast instead, keep the
+    # fractional digits of the plain rendering (they don't depend on the zone), and mark the text 'Z'.
+    utc_wall_clock = ast.Call(
+        name="substring",
+        args=[
+            ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="accurateCastOrNull",
+                        args=[clone_expr(value), _sentinel("DateTime64(9, 'UTC')")],
+                    )
+                ],
+                type=ast.StringType(nullable=True),
+            ),
+            ast.Constant(value=1),
+            ast.Constant(value=19),
+        ],
+        type=ast.StringType(nullable=True),
+    )
+    fractional_seconds = ast.Call(
+        name="substring",
         args=[
             ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            _sentinel(" "),
-            _sentinel("T"),
+            ast.Constant(value=20),
+            ast.Constant(value=10),  # '.' plus at most nine digits
+        ],
+        type=ast.StringType(nullable=False),
+    )
+    datetime_string = ast.Call(
+        name="concat",
+        args=[
+            ast.Call(
+                name="replaceOne",
+                args=[utc_wall_clock, _sentinel(" "), _sentinel("T")],
+                type=ast.StringType(nullable=True),
+            ),
+            fractional_seconds,
+            _sentinel("Z"),
         ],
         type=ast.StringType(nullable=False),
     )
