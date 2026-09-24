@@ -43,8 +43,9 @@ export interface ResolvedClientIp {
 }
 
 /**
- * A failed edge signature gives no IP, because the ingress saw only a Cloudflare address for Worker
- * traffic. Envoy writes the rightmost X-Forwarded-For entry, so a client cannot forge it.
+ * Envoy writes the rightmost X-Forwarded-For entry, so a client cannot forge it. Worker traffic
+ * reaches the ingress from a Cloudflare range, so a request from one with no valid edge signature
+ * gives no IP.
  */
 export async function resolveClientIp(
     headers: Headers,
@@ -54,27 +55,24 @@ export async function resolveClientIp(
     const edgeIp = headers.get(EDGE_CLIENT_IP_HEADERS.ip)
     const edgeTimestamp = headers.get(EDGE_CLIENT_IP_HEADERS.timestamp)
     const edgeSignature = headers.get(EDGE_CLIENT_IP_HEADERS.signature)
+    let edgeOutcome: ResolvedClientIp['edgeOutcome'] = 'absent'
     if (edgeIp !== null || edgeTimestamp !== null || edgeSignature !== null) {
-        const edgeOutcome = await verifySignedClientIp(
-            edgeIp,
-            edgeTimestamp,
-            edgeSignature,
-            edgeSigningKeys,
-            nowSeconds
-        )
+        edgeOutcome = await verifySignedClientIp(edgeIp, edgeTimestamp, edgeSignature, edgeSigningKeys, nowSeconds)
         if (edgeOutcome === 'valid' && edgeIp && isIP(edgeIp)) {
             return { ip: edgeIp, source: 'edge', edgeOutcome }
         }
-        return { ip: undefined, source: 'none', edgeOutcome: edgeOutcome === 'valid' ? 'invalid_input' : edgeOutcome }
+        if (edgeOutcome === 'valid') {
+            edgeOutcome = 'invalid_input'
+        }
     }
 
     const forwardedIp = headers.get('x-forwarded-for')?.split(',').at(-1)?.trim()
     const family = forwardedIp ? isIP(forwardedIp) : 0
     if (forwardedIp && family) {
         if (cloudflareAddresses.check(forwardedIp, family === 6 ? 'ipv6' : 'ipv4')) {
-            return { ip: undefined, source: 'cloudflare', edgeOutcome: 'absent' }
+            return { ip: undefined, source: 'cloudflare', edgeOutcome }
         }
-        return { ip: forwardedIp, source: 'forwarded', edgeOutcome: 'absent' }
+        return { ip: forwardedIp, source: 'forwarded', edgeOutcome }
     }
-    return { ip: undefined, source: 'none', edgeOutcome: 'absent' }
+    return { ip: undefined, source: 'none', edgeOutcome }
 }
