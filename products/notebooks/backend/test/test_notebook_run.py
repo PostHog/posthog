@@ -14,7 +14,7 @@ from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
-from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS
+from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS, NotebookCellLimitExceeded
 from products.notebooks.backend.temporal.notebook_run import (
     NotebookRunCellInput,
     NotebookRunInput,
@@ -57,9 +57,22 @@ class TestRunPlanCellShapes(APIBaseTest):
     def test_a_sql_cell_carrying_its_query_prop_is_planned(self, _name: str, tag: str) -> None:
         notebook = Notebook(team=self.team, short_id="nbshape", content=markdown_content(f"# Doc\n\n{tag}\n"))
 
-        assert [cell["node_id"] for cell in plan_notebook_cells(notebook)] == ["s1"]
-        assert plan_notebook_cells(notebook)[0]["code"] == "select 1"
-        assert plan_notebook_cells(notebook)[0]["cell_type"] == "sql"
+        plan = plan_notebook_cells(notebook, include_prepared_insights=True)
+        assert [cell["node_id"] for cell in plan] == ["s1"]
+        assert plan[0]["code"] == "select 1"
+        assert plan[0]["cell_type"] == "sql"
+
+    def test_prepared_insights_do_not_change_the_default_run_or_cell_limit(self) -> None:
+        notebook = Notebook(
+            team=self.team,
+            content=markdown_content(
+                '<SQLV2 nodeId="sql" code="select 1" />\n\n'
+                + "\n\n".join(f'<Query nodeId="q{i}" dataframeQuery="select 1" />' for i in range(MAX_NOTEBOOK_CELLS))
+            ),
+        )
+        assert [cell["node_id"] for cell in plan_notebook_cells(notebook)] == ["sql"]
+        with self.assertRaises(NotebookCellLimitExceeded):
+            plan_notebook_cells(notebook, include_prepared_insights=True)
 
     def test_code_still_wins_when_a_cell_carries_both(self) -> None:
         notebook = Notebook(
@@ -94,6 +107,23 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert [cell["node_id"] for cell in notebook_run.cell_plan] == ["s1", "p1"]
         assert mock_start.call_args.args[0].node_ids == ["s1", "p1"]
 
+    @parameterized.expand([(False, 404), (True, 200)])
+    def test_prepared_insights_require_explicit_opt_in_and_widget_flag(
+        self, mock_start: MagicMock, _flag: MagicMock, enabled: bool, expected_status: int
+    ) -> None:
+        self.notebook.content = markdown_content('<Query nodeId="insight" dataframeQuery="select 1" />')
+        self.notebook.save(update_fields=["content"])
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=enabled
+        ):
+            response = self.client.post(self.runs_url, data={"include_prepared_insights": True}, format="json")
+        assert response.status_code == expected_status
+        if enabled:
+            assert response.json()["cell_count"] == 1
+            assert mock_start.call_args.args[0].node_ids == ["insight"]
+        else:
+            mock_start.assert_not_called()
+
     def test_a_notebook_with_nothing_to_run_is_refused(self, mock_start, _flag) -> None:
         notebook = Notebook.objects.create(
             team=self.team, short_id="nbrunemp", content=markdown_content("# Just prose\n")
@@ -123,9 +153,17 @@ class TestNotebookRunEndpoints(APIBaseTest):
             )
         )
         self.notebook.save(update_fields=["content"])
-        response = self.client.post(
-            self.runs_url, data={"variables": [{"name": "country", "type": "string", "value": "US"}]}, format="json"
-        )
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True
+        ):
+            response = self.client.post(
+                self.runs_url,
+                data={
+                    "include_prepared_insights": True,
+                    "variables": [{"name": "country", "type": "string", "value": "US"}],
+                },
+                format="json",
+            )
         assert response.status_code == status, response.json()
         if status == 200:
             assert response.json()["cell_count"] == count

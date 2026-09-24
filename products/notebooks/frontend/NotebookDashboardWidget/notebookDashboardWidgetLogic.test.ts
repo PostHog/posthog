@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -88,8 +90,10 @@ describe('notebookDashboardWidgetLogic', () => {
         })
     })
 
-    it('resumes polling after a network error without starting another notebook run', async () => {
+    it.each([false, true])('resumes polling after a network error when hidden=%s', async (hidden) => {
         jest.useFakeTimers()
+        const hiddenSpy = jest.spyOn(document, 'hidden', 'get').mockReturnValue(hidden)
+        document.dispatchEvent(new Event('visibilitychange'))
         try {
             jest.mocked(notebooksRunsCreate).mockResolvedValue({ run_id: 'run' } as NotebookRunStartResponseApi)
             jest.mocked(notebooksRunsRetrieve)
@@ -114,8 +118,22 @@ describe('notebookDashboardWidgetLogic', () => {
             expect(update).toHaveBeenCalledTimes(1)
             expect(notebooksRunsCreate).toHaveBeenCalledTimes(1)
         } finally {
+            hiddenSpy.mockRestore()
+            document.dispatchEvent(new Event('visibilitychange'))
             jest.useRealTimers()
         }
+    })
+
+    it.each([
+        [
+            new ApiError('Conflict', 409, undefined, { detail: 'Refresh this widget from the notebook.' }),
+            'Refresh this widget from the notebook.',
+        ],
+        [new Error('Network error'), 'Could not load the saved results. Check your notebook access and try again.'],
+    ])('shows the API detail or a fallback when saved results cannot load', async (error, message) => {
+        jest.mocked(notebooksWidgetSnapshotRetrieve).mockRejectedValueOnce(error)
+        await expectLogic(logic, () => logic.actions.loadSnapshot()).toFinishAllListeners()
+        expect(logic.values.error).toBe(message)
     })
 
     it.each(['run', 'publish'])('keeps the previous snapshot after a failed %s', async (step) => {

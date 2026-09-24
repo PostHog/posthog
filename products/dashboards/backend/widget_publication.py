@@ -20,6 +20,21 @@ from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layo
 from products.dashboards.backend.widget_registry import validate_widget_config
 
 
+def referenced_notebook_snapshot_ids(*, team_id: int, snapshot_ids: list[str]) -> set[str]:
+    return set(
+        DashboardTile.objects.filter(
+            team_id=team_id,
+            dashboard__team_id=team_id,
+            dashboard__deleted=False,
+            widget__team_id=team_id,
+            widget__widget_type="notebook_widget",
+            widget__config__snapshotId__in=snapshot_ids,
+        )
+        .exclude(deleted=True)
+        .values_list("widget__config__snapshotId", flat=True)
+    )
+
+
 class DashboardWidgetPublication:
     def __init__(self, *, team: Team, user: User, dashboard_id: int | None, tile_id: int | None) -> None:
         self.team = team

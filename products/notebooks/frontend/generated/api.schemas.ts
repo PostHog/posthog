@@ -964,6 +964,8 @@ export interface NotebookKernelStatusResponseApi {
 }
 
 export interface NotebookRunStartRequestApi {
+    /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+    include_prepared_insights?: boolean
     /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
     variables?: NotebookVariableApi[]
 }

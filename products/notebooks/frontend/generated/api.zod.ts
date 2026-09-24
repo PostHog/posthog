@@ -635,9 +635,16 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
  */
+export const notebooksRunsCreateBodyIncludePreparedInsightsDefault = false
 export const notebooksRunsCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
+    include_prepared_insights: zod
+        .boolean()
+        .default(notebooksRunsCreateBodyIncludePreparedInsightsDefault)
+        .describe(
+            'Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled.'
+        ),
     variables: zod
         .array(
             zod

@@ -42,8 +42,7 @@ from products.notebooks.backend.sql_v2_variables import build_notebook_variables
 
 logger = structlog.get_logger(__name__)
 
-# Embedded insights expose their prepared HogQL through dataframeQuery.
-RUNNABLE_CELL_TYPES = ("sql", "python", "saved_insight")
+RUNNABLE_CELL_TYPES = ("sql", "python")
 
 _NOTHING_TO_RUN = (
     "This notebook has no SQL or Python cells with code in them, so there is nothing to run. Add a cell first."
@@ -80,7 +79,7 @@ class NotebookRunStart:
     sandbox_hourly_price: float | None
 
 
-def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
+def plan_notebook_cells(notebook: Notebook, *, include_prepared_insights: bool = False) -> list[PlannedCell]:
     """The cells this run will execute, in document order, as the plan is stored.
 
     The whole cell is frozen here, code included, not just which cells run. Two reasons, and
@@ -101,7 +100,8 @@ def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
             send_raw_query=cell.send_raw_query,
         )
         for cell in extract_cells(notebook.content)
-        if cell.cell_type in RUNNABLE_CELL_TYPES and cell.code.strip()
+        if (cell.cell_type in RUNNABLE_CELL_TYPES or (include_prepared_insights and cell.cell_type == "saved_insight"))
+        and cell.code.strip()
     ]
     if len(plan) > MAX_NOTEBOOK_CELLS:
         raise NotebookCellLimitExceeded(
@@ -116,6 +116,7 @@ def _create_notebook_run(
     team: Team,
     *,
     trigger: str,
+    include_prepared_insights: bool = False,
 ) -> NotebookRunStart:
     """Create the run record for `notebook` and price the sandbox it may start.
 
@@ -123,7 +124,7 @@ def _create_notebook_run(
     matches the document a reader will compare the results against. Starting the workflow is
     the caller's last step, once the record exists.
     """
-    cell_plan = plan_notebook_cells(notebook)
+    cell_plan = plan_notebook_cells(notebook, include_prepared_insights=include_prepared_insights)
     if not cell_plan:
         raise NotebookRunNothingToRun(_NOTHING_TO_RUN)
 
@@ -172,7 +173,12 @@ class NotebookRunStarted:
 
 
 def start_notebook_run(
-    *, team_id: int, notebook_short_id: str, user_id: int | None, trigger: str
+    *,
+    team_id: int,
+    notebook_short_id: str,
+    user_id: int | None,
+    trigger: str,
+    include_prepared_insights: bool = False,
 ) -> NotebookRunStarted:
     """Create the run record for a notebook addressed by id, and price the sandbox it may start.
 
@@ -180,7 +186,13 @@ def start_notebook_run(
     `NotebookRunAlreadyRunning` when one is already in flight.
     """
     notebook = resolve_team_notebook(team_id, notebook_short_id)
-    start = _create_notebook_run(notebook, resolve_user(user_id), notebook.team, trigger=trigger)
+    start = _create_notebook_run(
+        notebook,
+        resolve_user(user_id),
+        notebook.team,
+        trigger=trigger,
+        include_prepared_insights=include_prepared_insights,
+    )
     return NotebookRunStarted(
         run_id=start.notebook_run.id,
         node_ids=[cell["node_id"] for cell in start.notebook_run.cell_plan],

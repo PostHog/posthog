@@ -44,7 +44,8 @@ from products.notebooks.backend.models import (
     NotebookWidgetSnapshot,
 )
 from products.notebooks.backend.presentation.widget_serializers import WidgetGenerateRequestSerializer
-from products.notebooks.backend.presentation.widget_throttles import WidgetFrameBurstThrottle
+from products.notebooks.backend.presentation.widget_throttles import WidgetFrameBurstThrottle, WidgetSnapshotThrottle
+from products.notebooks.backend.tasks.widget_snapshots import cleanup_widget_snapshots
 from products.notebooks.backend.widget_generation import (
     WIDGET_MODEL_MAX_TOKENS,
     WIDGET_MODEL_TEMPERATURE,
@@ -665,6 +666,9 @@ class TestWidgetData(APIBaseTest):
         assert frame["nextOffset"] == 2
         assert str(frame["runId"]) == str(run.id)
         authorize.assert_called_with(run)
+        assert snapshots.read_frame(saved, self.INPUT_NAME, 0, 1)["nextOffset"] == 1
+        assert snapshots.read_frame(saved, self.INPUT_NAME, 2, 1)["nextOffset"] is None
+        assert snapshots.read_frame(saved, self.INPUT_NAME, 3, 1)["rows"] == []
 
     def test_dashboard_refresh_uses_only_its_completed_notebook_run(self) -> None:
         version = self._pinned_version(self._mapping())
@@ -821,9 +825,94 @@ class TestWidgetData(APIBaseTest):
             assert self.client.get(path).status_code == 403
         other = Notebook.objects.create(team=self.team, created_by=self.user)
         assert self.client.get(path.replace(self.notebook.short_id, other.short_id)).status_code == 404
+        run.delete()
+        metadata_path = path.split("frames/")[0]
+        assert self.client.get(metadata_path).status_code == 200
+        response = self.client.get(path)
+        assert response.status_code == 409
+        assert response.json()["code"] == "snapshot_source_missing"
+        fresh_run = self._run()
+        fresh_run.envelope = {"types": [["lat", "float64"]], "first_page": [[2]], "row_count": 1}
+        fresh_run.save(update_fields=["envelope"])
+        response = self.client.post(
+            metadata_path.replace(f"{snapshot.id}/", ""),
+            {"node_id": self.NODE_ID, "version_id": str(version.id), "previous_snapshot_id": str(snapshot.id)},
+        )
+        assert response.status_code == 201, response.json()
+        assert self.client.get(path.replace(str(snapshot.id), response.json()["id"])).json()["rows"] == [[2]]
         snapshot.team = Team.objects.create(organization=self.organization, name="Other project")
         snapshot.save(update_fields=["team_id"])
         assert self.client.get(path).status_code == 404
+
+    def test_snapshot_cleanup_keeps_copied_tiles_and_recent_snapshots(self) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        snapshots = WidgetSnapshots(self.notebook, lambda _run: None)
+        referenced, orphan, recent = [snapshots.capture(self.NODE_ID, version.id) for _ in range(3)]
+        NotebookWidgetSnapshot.objects.for_team(self.team.id).filter(id__in=[referenced.id, orphan.id]).update(
+            created_at=timezone.now() - timedelta(days=8)
+        )
+        tiles = []
+        for _ in range(2):
+            dashboard = Dashboard.objects.create(team=self.team)
+            widget = DashboardWidget.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                widget_type="notebook_widget",
+                config={"notebookShortId": self.notebook.short_id, "snapshotId": str(referenced.id)},
+            )
+            tiles.append(DashboardTile.objects.create(team_id=self.team.id, dashboard=dashboard, widget=widget))
+        cleanup_widget_snapshots()
+        assert set(NotebookWidgetSnapshot.objects.for_team(self.team.id).values_list("id", flat=True)) == {
+            referenced.id,
+            recent.id,
+        }
+        tiles[0].delete()
+        cleanup_widget_snapshots()
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).filter(id=referenced.id).exists()
+        tiles[1].deleted = True
+        tiles[1].save(update_fields=["deleted"])
+        cleanup_widget_snapshots()
+        assert list(NotebookWidgetSnapshot.objects.for_team(self.team.id).values_list("id", flat=True)) == [recent.id]
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
+    @patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[])
+    def test_dashboard_refresh_does_not_share_the_snapshot_creation_bucket(self, *_mocks: MagicMock) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        dashboard = Dashboard.objects.create(team=self.team)
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/publish/"
+        payload = {"node_id": self.NODE_ID, "version_id": str(version.id), "dashboard_id": dashboard.id}
+        cache.clear()
+        with (
+            patch.object(WidgetSnapshotThrottle, "rate", "1/hour"),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+        ):
+            response = self.client.post(url, payload)
+            assert response.status_code == 201, response.json()
+            assert self.client.post(url, payload).status_code == 429
+            parent = NotebookRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id, notebook=self.notebook, user=self.user, status=NotebookRun.Status.DONE
+            )
+            run.notebook_run = parent
+            run.save(update_fields=["notebook_run"])
+            refresh = self.client.post(
+                url,
+                {
+                    "node_id": self.NODE_ID,
+                    "version_id": str(version.id),
+                    "tile_id": dashboard.tiles.get().id,
+                    "previous_snapshot_id": response.json()["id"],
+                    "notebook_run_id": str(parent.id),
+                },
+            )
+            assert refresh.status_code == 201, refresh.json()
 
     @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
     def test_inspection_uses_latest_successful_run_and_authorizes_it(self, _name: str, unrun_sibling: bool) -> None:

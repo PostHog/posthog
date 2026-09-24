@@ -25,11 +25,16 @@ The widget fills the dashboard tile below its header.
 Use the tile's **…** menu to open the notebook, refresh its results, view source, or check the saved time, automated review, and build ID.
 
 **Refresh from notebook** runs the saved notebook's data cells in document order through the backend notebook runner.
-Prepared embedded insights run their saved dataframe query alongside SQL and Python cells. Insights without a prepared dataframe query cannot supply widget inputs.
+Dashboard refresh opts into running prepared embedded insights alongside SQL and Python cells with `include_prepared_insights=true`.
+This option requires generated notebook widgets to be enabled. Ordinary **Run all** still runs SQL and Python cells only.
+Insights without a prepared dataframe query cannot supply widget inputs.
 Refresh keeps the existing results visible and replaces the snapshot only after every cell and the new capture succeed.
 The snapshot and dashboard tile are saved together. A refused dashboard save leaves no new snapshot, and a stale refresh cannot overwrite a newer snapshot.
-Keep the dashboard open until the refresh finishes. Closing it before publication leaves the previous snapshot in place and does not stop the backend notebook run.
-Notebook runs can execute up to 50 cells, including prepared insights. Display-only insights do not count toward this limit.
+Refresh continues when the dashboard tab is hidden. Keep the dashboard open until the refresh finishes: closing it before publication leaves the previous snapshot in place and does not stop the backend notebook run.
+Dashboard refresh can execute up to 50 cells, including prepared insights. Display-only insights do not count toward this limit.
+If source runs were deleted, snapshot metadata remains available so the widget can be refreshed, but saved rows cannot be read until source authorization can be checked again.
+Snapshot creation allows 10 requests per hour per credential or user. Refresh publication uses a separate limit of 60 requests per hour.
+A daily cleanup removes snapshots created more than seven days ago if no active dashboard tile references them. Copies on other dashboards keep their shared snapshot.
 Dashboard date ranges and filters do not change notebook variables. Refresh uses the notebook's saved variables and can incur Python compute charges.
 The dashboard keeps the selected generated version; generating a new version in the notebook does not replace dashboard widgets.
 

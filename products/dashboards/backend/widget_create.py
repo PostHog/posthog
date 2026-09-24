@@ -16,6 +16,7 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import check_widget_tile_product_access
 from products.dashboards.backend.widget_layouts import stack_widget_layout_at_bottom
 from products.dashboards.backend.widget_registry import validate_widget_config
+from products.dashboards.backend.widget_specs.configs import NOTEBOOK_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import get_widget_spec
 
 
@@ -52,6 +53,8 @@ def prepare_widget_tile_create(
     # team_id stays on probe_widget for RBAC; pydantic validation is shape-only — team
     # defaults (e.g. filterTestAccounts) resolve at query time in widgets/config.py.
     validated_config = validate_widget_config(widget_type, config)
+    if widget_type == NOTEBOOK_WIDGET_TYPE and not validated_config.get("snapshotId"):
+        raise serializers.ValidationError({"config": "Add this widget from a notebook to save its results first."})
     return widget_type, validated_config
 
 

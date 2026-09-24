@@ -146,6 +146,7 @@ from products.notebooks.backend.presentation.widget_snapshot_serializers import 
 from products.notebooks.backend.presentation.widget_throttles import (
     WidgetFrameBurstThrottle,
     WidgetFrameSustainedThrottle,
+    WidgetSnapshotPublishThrottle,
     WidgetSnapshotThrottle,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals
@@ -833,7 +834,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         url_path="widget_snapshots/publish",
         detail=True,
         required_scopes=["notebook:write", "query:read", "dashboard:write"],
-        throttle_classes=[WidgetSnapshotThrottle],
+        throttle_classes=[WidgetSnapshotPublishThrottle],
     )
     def widget_snapshot_publish(self, request: Request, **kwargs) -> Response:
         self._require_query_access()
@@ -2021,6 +2022,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         serializer = NotebookRunStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        include_prepared_insights = serializer.validated_data["include_prepared_insights"]
+        if include_prepared_insights and not is_notebook_widget_enabled(user):
+            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
@@ -2045,6 +2049,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     user_id=user.id if isinstance(user, User) else None,
                     # A session cookie is the editor; anything else is a programmatic client.
                     trigger=classify_request_source(request)[0],
+                    include_prepared_insights=include_prepared_insights,
                 )
         except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
             return Response({"detail": str(e)}, status=400)

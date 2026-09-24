@@ -2,15 +2,20 @@ import copy
 import json
 import time
 from collections.abc import Callable
+from datetime import timedelta
+from itertools import islice
 from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Func, IntegerField, JSONField, Value
+from django.db.models.fields.json import KeyTransform
 from django.http import Http404
+from django.utils import timezone
 
 from posthog.models import User
 
-from products.dashboards.backend.facade.widget_publication import publish_widget
+from products.dashboards.backend.facade.widget_publication import publish_widget, referenced_notebook_snapshot_ids
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun, NotebookWidgetSnapshot
 from products.notebooks.backend.sql_v2_direct import sync_direct_run
 from products.notebooks.backend.widgets import (
@@ -30,6 +35,27 @@ SNAPSHOT_CAPTURE_SECONDS = 30
 
 
 class WidgetSnapshots:
+    @staticmethod
+    def delete_unreferenced(team_id: int) -> int:
+        candidates = (
+            NotebookWidgetSnapshot.objects.for_team(team_id)
+            .filter(created_at__lt=timezone.now() - timedelta(days=7))
+            .order_by("id")
+            .values_list("id", flat=True)
+            .iterator(chunk_size=100)
+        )
+        deleted = 0
+        while batch := list(islice(candidates, 100)):
+            referenced = referenced_notebook_snapshot_ids(team_id=team_id, snapshot_ids=[str(pk) for pk in batch])
+            count, _ = (
+                NotebookWidgetSnapshot.objects.for_team(team_id)
+                .filter(id__in=batch)
+                .exclude(id__in=referenced)
+                .delete()
+            )
+            deleted += count
+        return deleted
+
     def __init__(self, notebook: Notebook, authorize_run: Callable[[NotebookNodeRun], None]) -> None:
         self.notebook = notebook
         self.authorize_run = authorize_run
@@ -217,19 +243,22 @@ class WidgetSnapshots:
         )
         if snapshot is None:
             raise Http404()
+        self._authorize_sources(snapshot, require_all=False)
+        return snapshot
+
+    def _authorize_sources(self, snapshot: NotebookWidgetSnapshot, *, require_all: bool) -> None:
         run_ids = set(snapshot.source_runs.values())
         runs = list(
             NotebookNodeRun.objects.for_team(self.notebook.team_id)
             .filter(notebook=self.notebook, id__in=run_ids)
             .defer("envelope", "code")
         )
-        if len(runs) != len(run_ids):
+        if require_all and len(runs) != len(run_ids):
             raise WidgetConflictError(
                 "The source results were deleted. Refresh this widget from the notebook.", "snapshot_source_missing"
             )
         for run in runs:
             self.authorize_run(run)
-        return snapshot
 
     def describe(self, snapshot: NotebookWidgetSnapshot) -> dict[str, Any]:
         from products.canvas.backend import (
@@ -261,18 +290,37 @@ class WidgetSnapshots:
     def read_frame(self, snapshot: NotebookWidgetSnapshot, name: str, offset: int, limit: int) -> dict[str, Any]:
         if name not in snapshot.source_runs:
             raise WidgetError("This dataframe is not available to this widget.", "frame_not_allowed")
-        frame = snapshot.frames[name]
+        self._authorize_sources(snapshot, require_all=True)
+        frame = KeyTransform(name, "frames")
+        rows = KeyTransform("rows", frame)
+        saved = (
+            NotebookWidgetSnapshot.objects.for_team(self.notebook.team_id)
+            .filter(id=snapshot.id, notebook=self.notebook)
+            .values(
+                run_id=KeyTransform("runId", frame),
+                columns=KeyTransform("columns", frame),
+                total=KeyTransform("totalRowCount", frame),
+                row_count=Func(rows, function="jsonb_array_length", output_field=IntegerField()),
+                page_rows=Func(
+                    rows,
+                    Value(f"$[{offset} to {offset + min(limit, MAX_FRAME_PAGE_ROWS) - 1}]"),
+                    function="jsonb_path_query_array",
+                    output_field=JSONField(),
+                ),
+            )
+            .get()
+        )
         page = _bounded_rows(
             name=name,
-            run_id=UUID(frame["runId"]),
-            columns=frame["columns"],
-            candidates=frame["rows"][offset : offset + min(limit, MAX_FRAME_PAGE_ROWS)],
-            total_row_count=frame["totalRowCount"],
+            run_id=UUID(saved["run_id"]),
+            columns=saved["columns"],
+            candidates=saved["page_rows"],
+            total_row_count=saved["total"],
             offset=offset,
         )
         end = offset + len(cast(list[list[object]], page["rows"]))
         return {
             **page,
-            "nextOffset": end if end < len(frame["rows"]) else None,
-            "truncated": end < frame["totalRowCount"],
+            "nextOffset": end if end < saved["row_count"] else None,
+            "truncated": end < saved["total"],
         }

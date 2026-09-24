@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api-error'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -36,7 +37,7 @@ export interface notebookDashboardWidgetValues {
 export interface notebookDashboardWidgetActions {
     loadSnapshot: () => void
     loadSnapshotSuccess: (snapshot: WidgetSnapshotApi | null) => { snapshot: WidgetSnapshotApi | null }
-    loadSnapshotFailure: (error: string) => { error: string }
+    loadSnapshotFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     loadSource: () => void
     loadSourceFailure: (error: string) => { error: string }
     setSourceOpen: (sourceOpen: boolean) => { sourceOpen: boolean }
@@ -113,8 +114,11 @@ export const notebookDashboardWidgetLogic = kea<notebookDashboardWidgetLogicType
         progress: [null as string | null, { setProgress: (_, { progress }) => progress }],
     }),
     listeners(({ actions, values, props, cache }) => ({
-        loadSnapshotFailure: () =>
-            actions.setError('Could not load the saved results. Check your notebook access and try again.'),
+        loadSnapshotFailure: ({ errorObject }) =>
+            actions.setError(
+                (errorObject instanceof ApiError && errorObject.detail) ||
+                    'Could not load the saved results. Check your notebook access and try again.'
+            ),
         loadSourceFailure: () => actions.setError('Could not load the widget source. Open the notebook to try again.'),
         setSourceOpen: ({ sourceOpen }) => {
             if (sourceOpen) {
@@ -130,16 +134,22 @@ export const notebookDashboardWidgetLogic = kea<notebookDashboardWidgetLogicType
             actions.setError(null)
             actions.setProgress('Starting notebook…')
             try {
-                const run = await notebooksRunsCreate(String(teamLogic.values.currentTeamId), props.notebookShortId)
+                const run = await notebooksRunsCreate(String(teamLogic.values.currentTeamId), props.notebookShortId, {
+                    include_prepared_insights: true,
+                })
                 if (signal.aborted) {
                     return
                 }
                 actions.setRunId(run.run_id)
                 actions.pollRun()
-                cache.disposables.add(() => {
-                    const timer = setInterval(() => actions.pollRun(), 2000)
-                    return () => clearInterval(timer)
-                }, 'notebook-run')
+                cache.disposables.add(
+                    () => {
+                        const timer = setInterval(() => actions.pollRun(), 2000)
+                        return () => clearInterval(timer)
+                    },
+                    'notebook-run',
+                    { pauseOnPageHidden: false }
+                )
             } catch (error) {
                 if (signal.aborted) {
                     return
@@ -164,10 +174,14 @@ export const notebookDashboardWidgetLogic = kea<notebookDashboardWidgetLogicType
                 if (run.status === 'running') {
                     actions.setError(null)
                     actions.setProgress(`Running cell ${run.current_index + 1} of ${run.cell_count}…`)
-                    cache.disposables.add(() => {
-                        const timer = setInterval(() => actions.pollRun(), 2000)
-                        return () => clearInterval(timer)
-                    }, 'notebook-run')
+                    cache.disposables.add(
+                        () => {
+                            const timer = setInterval(() => actions.pollRun(), 2000)
+                            return () => clearInterval(timer)
+                        },
+                        'notebook-run',
+                        { pauseOnPageHidden: false }
+                    )
                     return
                 }
                 cache.disposables.dispose('notebook-run')
