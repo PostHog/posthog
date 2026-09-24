@@ -14,6 +14,8 @@ export interface QueuedMessageListProps {
     onSteer?: () => void
     steerPending?: boolean
     steerDisabledReason?: string
+    /** The staged message is waiting on the user, not on the agent — say so instead of looking like a queue. */
+    held?: boolean
 }
 
 interface QueuedMessageItemProps {
@@ -118,6 +120,7 @@ export function QueuedMessageList({
     onSteer,
     steerPending = false,
     steerDisabledReason,
+    held = false,
 }: QueuedMessageListProps): JSX.Element | null {
     const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -128,7 +131,9 @@ export function QueuedMessageList({
     return (
         <div className="flex flex-col gap-0.5 pb-2">
             <div className="flex flex-wrap items-center justify-between gap-1 px-2">
-                <p className="text-xs font-medium text-muted mb-0">Up next</p>
+                <p className="text-xs font-medium text-muted mb-0">
+                    {held ? 'Not sent yet. Steer to send it.' : 'Up next'}
+                </p>
                 {onSteer && (
                     <LemonButton
                         size="xsmall"

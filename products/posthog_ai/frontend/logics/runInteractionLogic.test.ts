@@ -832,6 +832,24 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([])
     })
 
+    it('sends the held message together with the next one the user submits', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        setThinking(true)
+        logic.actions.enqueueMessage('first follow-up')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(logic.values.queueHeld).toBe(true)
+
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'are you there?' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenLastCalledWith(
+            ...userMessageCommand('first follow-up\n\nare you there?')
+        )
+        expect(logic.values.queuedMessages).toEqual([])
+        expect(logic.values.queueHeld).toBe(false)
+    })
+
     it('edits and removes staged messages', async () => {
         setThinking(true)
         logic.actions.setComposerFormValues({ draft: 'typo' })

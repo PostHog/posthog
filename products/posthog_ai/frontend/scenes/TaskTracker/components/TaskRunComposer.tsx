@@ -42,6 +42,7 @@ export function TaskRunComposer({
         isSubmitting,
         isBusy,
         queuedMessages,
+        queueHeld,
         isTerminal,
         selectedModel,
         defaultModel,
@@ -137,6 +138,7 @@ export function TaskRunComposer({
                             onSteer={steerQueue}
                             steerDisabledReason={!canSend && !isSubmitting ? 'Wait for the agent to start' : undefined}
                             steerPending={steerPending || isSubmitting || !!cancellationState}
+                            held={queueHeld}
                         />
                     </Composer.Banner>
                 )}

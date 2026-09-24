@@ -179,6 +179,7 @@ export interface runInteractionLogicValues {
     modeOverride: PermissionMode | null
     modelOverride: string | null
     pendingContextItems: AttachedContextItem[]
+    queueHeld: boolean
     queueNeedsRetry: boolean
     queuedMessages: QueuedMessage[]
     selectedEffort: ReasoningEffortEnumApi
@@ -321,7 +322,6 @@ export interface runInteractionLogicActions {
     }
     enqueueMessage: (content: string) => {
         content: string
-        wasEmpty: boolean
     }
     finishTaskDraftDelivery: () => {
         value: true
@@ -515,6 +515,7 @@ export interface runInteractionLogicMeta {
             taskId: string,
             runStarted: boolean
         ) => boolean
+        queueHeld: (queuedMessages: QueuedMessage[], queueNeedsRetry: boolean) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean, clearing: boolean) => boolean
         pendingContextItems: (
             arg: AttachedContextItem[],
@@ -636,7 +637,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // the staged buffer combined into this send).
         sendNow: (content: string, source: 'draft' | 'queue', steer: boolean = false) => ({ content, source, steer }),
         // Stage a follow-up, concatenating onto any message already queued so the buffer stays a single message.
-        enqueueMessage: (content: string) => ({ content, wasEmpty: values.queuedMessages.length === 0 }),
+        enqueueMessage: (content: string) => ({ content }),
         // Re-stage unsent content ahead of anything queued since — used to restore a failed queue flush.
         prependQueuedMessage: (content: string) => ({ content }),
         updateQueuedMessage: (id: string, content: string) => ({ id, content }),
@@ -671,10 +672,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 queueDeliveryFailed: () => true,
                 requestCancellation: () => true,
                 handleTerminalStatus: (state, { status }) => isTerminalRunStatus(status) || state,
-                // A Stop or a terminal run with nothing staged latches the hold against a message that does
-                // not exist. Whatever is staged next into an empty buffer is a fresh follow-up, not the held
-                // one, so it drains on turn end instead of waiting for a Steer click.
-                enqueueMessage: (state, { wasEmpty }) => (wasEmpty ? false : state),
+                // The hold covers the message the Stop, the terminal run, or the failed send caught — not
+                // what the user types afterwards. Submitting text is an explicit "send this", so it lifts
+                // the hold and the buffer drains on turn end instead of waiting for a Steer click.
+                // Without this, every later submit concatenates into a buffer nothing will ever deliver.
+                enqueueMessage: () => false,
                 clearQueue: () => false,
             },
         ],
@@ -991,6 +993,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 runStarted &&
                 (!activeRunId || activeRunId === runId) &&
                 (!activeTaskId || activeTaskId === taskId),
+        ],
+        // Whether the staged message is waiting on the user rather than on the agent. The queue looks the
+        // same in both cases, so the banner says which it is.
+        queueHeld: [
+            (s) => [s.queuedMessages, s.queueNeedsRetry],
+            (queued: QueuedMessage[], queueNeedsRetry: boolean): boolean => queued.length > 0 && queueNeedsRetry,
         ],
         // In-flight indicator for the composer's send button — a live send, a new-run start, or a clear.
         isSubmitting: [
