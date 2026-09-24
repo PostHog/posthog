@@ -344,6 +344,7 @@ export function ChannelItemsPane({
               onClearFilters={() =>
                 setFilters(DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS)
               }
+              defaultFilters={DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS}
               sort={sort}
               onSortChange={setSort}
               grouping={grouping}

@@ -616,6 +616,7 @@ export function WorkColumn() {
       filters={filters}
       onFilterChange={(key, value) => setFilters({ ...filters, [key]: value })}
       onClearFilters={() => setFilters(DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS)}
+      defaultFilters={DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS}
       sort={sort}
       onSortChange={setSort}
       grouping={grouping}

@@ -47,6 +47,7 @@ function Harness({
           setFilters((current) => ({ ...current, [key]: value }))
         }
         onClearFilters={() => setFilters(defaultFilters)}
+        defaultFilters={defaultFilters}
         sort={sort}
         onSortChange={setSort}
         grouping={grouping}
