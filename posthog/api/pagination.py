@@ -4,6 +4,11 @@ from django.db.models import QuerySet
 
 from rest_framework.pagination import LimitOffsetPagination
 
+# A page above this many rows is never a real product request, and a page this deep is past the
+# end of every list we serve.
+MAX_PAGE_LIMIT = 10_000
+MAX_PAGE_OFFSET = 1_000_000_000
+
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
     """Add the primary key as a final ordering term for a paginated queryset."""
@@ -22,7 +27,22 @@ def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
     return queryset.order_by(*ordering, f"{direction}pk")
 
 
-class PrecountedLimitOffsetPagination(LimitOffsetPagination):
+class ClampedLimitOffsetPagination(LimitOffsetPagination):
+    """Bounds `limit` and `offset` before they reach the database.
+
+    Plain `LimitOffsetPagination` passes any positive integer through as the SQL LIMIT and
+    OFFSET, and Postgres rejects a value above a bigint, so an oversized request answers with a
+    500 instead of a page. Clamping keeps the envelope correct: `count` and the `next` link stay
+    accurate, so a client that asked for more rows than one page holds reads the rest from `next`.
+    """
+
+    max_limit = MAX_PAGE_LIMIT
+
+    def get_offset(self, request) -> int:
+        return min(super().get_offset(request), MAX_PAGE_OFFSET)
+
+
+class PrecountedLimitOffsetPagination(ClampedLimitOffsetPagination):
     """Pages a queryset that the view has already bounded with LIMIT and OFFSET.
 
     `LimitOffsetPagination` counts with `len(queryset)` and then slices the result in Python. A

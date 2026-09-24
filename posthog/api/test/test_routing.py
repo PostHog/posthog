@@ -18,9 +18,16 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.test import APIRequestFactory
 
-from posthog.api.pagination import stable_queryset_ordering
+from posthog.api.pagination import (
+    MAX_PAGE_LIMIT,
+    MAX_PAGE_OFFSET,
+    ClampedLimitOffsetPagination,
+    stable_queryset_ordering,
+)
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
@@ -78,6 +85,15 @@ def test_stable_queryset_ordering_leaves_sliced_and_grouped_querysets_unchanged(
     grouped_queryset = Annotation.objects.values("team_id").annotate(count=Count("id")).order_by("team_id")
 
     assert stable_queryset_ordering(grouped_queryset).query.order_by == ("team_id",)
+
+
+def test_clamped_pagination_bounds_an_out_of_range_limit_and_offset() -> None:
+    # Views that page in SQL read both values from the paginator, so the offset needs a bound too.
+    request = Request(APIRequestFactory().get("/", {"limit": "99999999999999999999", "offset": "99999999999999999999"}))
+    paginator = ClampedLimitOffsetPagination()
+
+    assert paginator.get_limit(request) == MAX_PAGE_LIMIT
+    assert paginator.get_offset(request) == MAX_PAGE_OFFSET
 
 
 test_router = DefaultRouterPlusPlus()
@@ -182,6 +198,13 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.assertEqual(second_page.status_code, 200)
         self.assertEqual(first_page.json()["results"][0]["id"], first.id)
         self.assertEqual(second_page.json()["results"][0]["id"], second.id)
+
+    def test_team_nested_pagination_bounds_an_out_of_range_limit(self):
+        # Postgres rejects a LIMIT above a bigint, so an unbounded value answers with a 500.
+        response = self.client.get(f"/api/team_nested/{self.team.id}/foos/?limit=99999999999999999999")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
 
     def test_project_nested_filtering(self):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/")
