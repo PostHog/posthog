@@ -5,7 +5,7 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-import { retryBootImport } from 'lib/utils/retryImport'
+import { retryReloadableImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
@@ -15,8 +15,11 @@ type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 let appModulesPromise: Promise<AppModules> | undefined
 
 function loadAppModules(): Promise<AppModules> {
-    return (appModulesPromise ??= retryBootImport(() => import('lib/configureZod')).then(() =>
-        Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))])
+    return (appModulesPromise ??= retryReloadableImport(() => import('lib/configureZod')).then(() =>
+        Promise.all([
+            retryReloadableImport(() => import('scenes/App')),
+            retryReloadableImport(() => import('scenes/bootApp')),
+        ])
     ))
 }
 
