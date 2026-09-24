@@ -69,6 +69,7 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        ordering = ["-created_at", "id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["evaluation"],

@@ -4,9 +4,6 @@
 across requests. `post_process` maps each row's probability vector back onto the question it came from.
 """
 
-import threading
-import time
-from collections import deque
 from collections.abc import Sequence
 
 from transformers import AutoTokenizer
@@ -17,40 +14,10 @@ from vllm.plugins.io_processors.interface import IOProcessor
 from vllm.renderers import BaseRenderer
 
 from kev_vllm.kev_compat import SystemOneRequest, encode, output_tokens, rows_of, to_answers, to_record
+from kev_vllm.pending import PendingRequests
 
 # Serving limits, as kev.serve: the per-branch cap mirrors Jev's window and the base model bounds both.
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
-# A request aborted between pre_process and post_process never collects its entry, so old ones are swept. vLLM has no
-# abort hook for IO processors and bounds admission rather than request age, so the age is set far beyond any wait a
-# caller survives: the gateway gives up on a request in well under a minute.
-PENDING_SWEEP_SIZE, PENDING_MAX_AGE_SECONDS = 10_000, 3600
-
-
-class PendingRequests[T]:
-    """What pre_process knew about a request, kept until post_process; vLLM calls both with the same request id and
-    may run them on executor threads, so every access is serialised."""
-
-    def __init__(self) -> None:
-        self._entries: dict[str | None, deque[tuple[T, float]]] = {}
-        self._lock = threading.Lock()
-
-    def put(self, request_id: str | None, value: T) -> None:
-        with self._lock:
-            if len(self._entries) > PENDING_SWEEP_SIZE:
-                cutoff = time.monotonic() - PENDING_MAX_AGE_SECONDS
-                for stale in [rid for rid, entries in self._entries.items() if entries[0][1] < cutoff]:
-                    del self._entries[stale]
-            self._entries.setdefault(request_id, deque()).append((value, time.monotonic()))
-
-    def take(self, request_id: str | None) -> T:
-        with self._lock:
-            entries = self._entries.get(request_id)
-            if not entries:
-                raise ValueError(f"request {request_id} waited longer than {PENDING_MAX_AGE_SECONDS}s and was swept")
-            value, _ = entries.popleft()
-            if not entries:
-                del self._entries[request_id]
-            return value
 
 
 class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):

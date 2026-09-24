@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0055_validate_offline_evaluation_ownership"),
+        ("ai_observability", "0056_alter_evaluationbackfill_options"),
     ]
 
     operations = [

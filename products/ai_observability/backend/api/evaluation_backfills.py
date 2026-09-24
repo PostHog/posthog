@@ -313,7 +313,7 @@ class EvaluationBackfillViewSet(
         return (
             queryset.filter(team_id=self.team_id, evaluation=self._evaluation_for_url())
             .select_related("created_by")
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
 
     def _validated_request(self, request: Request) -> dict[str, Any]:
