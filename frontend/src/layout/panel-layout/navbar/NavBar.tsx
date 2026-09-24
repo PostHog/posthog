@@ -100,9 +100,8 @@ export function PanelIndicatorIcon(): JSX.Element | null {
     )
 }
 
-// The Products tab keeps the persisted tab ID and analytics identifiers used by Browse.
 const SIMPLE_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
-    { id: 'home', label: 'Products', icon: <IconApps /> },
+    { id: 'home', label: 'Browse', icon: <IconApps /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
 ]
