@@ -64,6 +64,14 @@ def _create_schema_with_running_job(team) -> tuple[ExternalDataSchema, ExternalD
 
 
 class TestDisableChokepointDispatch:
+    @pytest.fixture(autouse=True)
+    def _resume_redis(self) -> Generator[None]:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.schema_resume.get_client",
+            return_value=fakeredis.FakeRedis(),
+        ):
+            yield
+
     def test_save_disable_with_running_job_dispatches_teardown(self, team, django_capture_on_commit_callbacks):
         schema, _job = _create_schema_with_running_job(team)
 

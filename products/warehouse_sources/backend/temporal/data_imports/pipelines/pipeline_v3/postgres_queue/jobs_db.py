@@ -1639,6 +1639,74 @@ class BatchQueue:
         )
 
     @staticmethod
+    def is_resume_checkpoint_durable(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        job_id: str,
+        job_created_at: datetime,
+        run_uuid: str,
+        batch_index: int,
+    ) -> bool:
+        if batch_index < 0:
+            return False
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                WITH boundary AS MATERIALIZED (
+                    SELECT MAX(b.created_at) AS created_at
+                    FROM {BATCH_TABLE} b
+                    WHERE b.team_id = %(team_id)s
+                      AND b.schema_id = %(schema_id)s
+                      AND b.job_id = %(job_id)s
+                      AND b.run_uuid = %(run_uuid)s
+                      AND b.batch_index = %(batch_index)s
+                      AND b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+                      AND %(job_created_at)s::timestamptz > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+                      AND %(job_created_at)s::timestamptz <= now()
+                    HAVING COUNT(*) = 1
+                ),
+                covered_batches AS MATERIALIZED (
+                    SELECT b.id, b.run_uuid, b.batch_index
+                    FROM {BATCH_TABLE} b
+                    CROSS JOIN boundary c
+                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b.created_at <= c.created_at
+                      AND b.team_id = %(team_id)s
+                      AND b.schema_id = %(schema_id)s
+                      AND b.job_id = %(job_id)s
+                      AND (b.run_uuid != %(run_uuid)s OR b.batch_index BETWEEN 0 AND %(batch_index)s)
+                )
+                SELECT EXISTS (SELECT 1 FROM boundary)
+                    AND (
+                        SELECT COUNT(DISTINCT batch_index)
+                        FROM covered_batches
+                        WHERE run_uuid = %(run_uuid)s
+                    ) = %(expected_batches)s
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM covered_batches b
+                        {latest_status_lateral("b", "s")}
+                        WHERE s.job_state IS DISTINCT FROM 'succeeded'
+                    )
+                """,
+                {
+                    "team_id": team_id,
+                    "schema_id": schema_id,
+                    "job_id": job_id,
+                    "job_created_at": job_created_at,
+                    "run_uuid": run_uuid,
+                    "batch_index": batch_index,
+                    "expected_batches": batch_index + 1,
+                },
+            )
+            row = cur.fetchone()
+
+        return bool(row and row[0])
+
+    @staticmethod
     def get_run_activity_summary(
         conn: psycopg.Connection[Any],
         *,

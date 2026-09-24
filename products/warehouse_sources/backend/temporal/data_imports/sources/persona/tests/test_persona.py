@@ -1,13 +1,30 @@
+from contextlib import ExitStack, nullcontext
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 import pytest
-from unittest.mock import MagicMock, patch
+import time_machine
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import requests
 import requests_mock
+from fakeredis import FakeRedis
 from parameterized import parameterized
 
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
+
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema_resume import (
+    clear_schema_resume_state,
+    schema_resume_key,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona import persona
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
     PERSONA_BASE_URL,
@@ -22,6 +39,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.persona.pe
     persona_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.settings import PERSONA_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.persona.source import PersonaSource
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    ImportJobModels,
+)
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class _FakeResumableManager:
@@ -292,6 +314,164 @@ class TestIncrementalWatermarkGuard:
 
 
 class TestResume:
+    @pytest.mark.parametrize("reset_first_job", [False, True])
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-03-01T00:00:00Z", tick=False)
+    async def test_persona_successor_keeps_the_page_window_and_pass_high_water_mark(
+        self, reset_first_job: bool
+    ) -> None:
+        redis = FakeRedis()
+        window = datetime(2025, 1, 1, tzinfo=UTC)
+        highest = datetime(2025, 2, 5, tzinfo=UTC)
+        schema = ExternalDataSchema(
+            team_id=1,
+            source_id=uuid4(),
+            name="events",
+            sync_type="append",
+            sync_type_config={
+                "incremental_field": "created_at",
+                "incremental_field_type": IncrementalFieldType.DateTime,
+                "incremental_field_last_value": window.isoformat(),
+            },
+        )
+        source = MagicMock(id=schema.source_id, source_type="Persona", job_inputs={})
+        logger = MagicMock(
+            adebug=AsyncMock(), ainfo=AsyncMock(), awarning=AsyncMock(), aerror=AsyncMock(), aexception=AsyncMock()
+        )
+        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+        rows = [
+            {"id": f"evt_{index}", "attributes": {"created-at": f"2025-02-{5 - index:02d}T00:00:00Z"}}
+            for index in range(4)
+        ]
+        pipeline_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+        persona_module = "products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona"
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis)))
+            stack.enter_context(
+                patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.sources.common.schema_resume.get_client",
+                    return_value=redis,
+                )
+            )
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "handle_corrupted_delta_log",
+                "persist_primary_keys",
+                "update_row_tracking_after_batch",
+            ):
+                stack.enter_context(patch(f"{pipeline_module}.{name}", new_callable=AsyncMock))
+            reset = stack.enter_context(
+                patch(f"{pipeline_module}.handle_reset_or_full_refresh", new_callable=AsyncMock)
+            )
+            if reset_first_job:
+                reset.side_effect = lambda *args, **kwargs: (
+                    clear_schema_resume_state(team_id=1, schema_id=str(schema.id)) if args[0] else None
+                )
+            stack.enter_context(patch(f"{pipeline_module}.DeltaTableRef", return_value=MagicMock(is_first_sync=True)))
+            stack.enter_context(patch(f"{pipeline_module}.activity")).in_activity.return_value = False
+            stack.enter_context(patch(f"{pipeline_module}.current_activity_attempt", return_value=1))
+            stack.enter_context(patch(f"{pipeline_module}.current_workflow_id", return_value="workflow"))
+            stack.enter_context(patch(f"{pipeline_module}.current_workflow_run_id", return_value="workflow-run"))
+            stack.enter_context(
+                patch(
+                    f"{pipeline_module}.build_pipeline_sinks",
+                    return_value=MagicMock(
+                        clear=AsyncMock(),
+                        stage_chunk=AsyncMock(),
+                        cdp_producer=MagicMock(should_run=AsyncMock(return_value=False)),
+                    ),
+                )
+            )
+            producer = stack.enter_context(patch(f"{pipeline_module}.PostgresProducer")).return_value
+            producer.sync_type = "append"
+            producer.is_resume_checkpoint_durable.return_value = True
+            writer = stack.enter_context(patch(f"{pipeline_module}.S3BatchWriter")).return_value
+            writer.write_batch.side_effect = lambda table, index: BatchWriteResult(
+                s3_path=f"s3://test/batch-{index}", row_count=table.num_rows, byte_size=1, batch_index=index
+            )
+            stack.enter_context(patch.object(schema, "refresh_from_db"))
+            staged = stack.enter_context(patch.object(schema, "stage_incremental_field_value"))
+            stack.enter_context(
+                patch(f"{persona_module}.Batcher", side_effect=lambda **kwargs: Batcher(**{**kwargs, "chunk_size": 2}))
+            )
+            fetch = stack.enter_context(
+                patch(
+                    f"{persona_module}._fetch_page",
+                    side_effect=[
+                        {"data": rows, "links": {"next": "next-page"}},
+                        {"data": rows[1:], "links": {"next": None}},
+                    ],
+                )
+            )
+
+            for job_number in (1, 2):
+                job_id = f"job-{job_number}"
+                reset_pipeline = reset_first_job and job_number == 1
+                inputs = SourceInputs(
+                    schema_name="events",
+                    schema_id=str(schema.id),
+                    source_id=str(source.id),
+                    team_id=1,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=window,
+                    db_incremental_field_earliest_value=None,
+                    incremental_field="created_at",
+                    incremental_field_type=IncrementalFieldType.DateTime,
+                    job_id=job_id,
+                    logger=logger,
+                    reset_pipeline=reset_pipeline,
+                )
+                manager = PersonaSource().get_resumable_source_manager(inputs)
+                resource = persona_source(
+                    api_key="persona_test",
+                    endpoint="events",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=window,
+                )
+                job = MagicMock(
+                    id=job_id,
+                    team_id=1,
+                    workflow_run_id=f"run-{job_number}",
+                    created_at=datetime.now(UTC),
+                    billable=False,
+                )
+                writer.get_run_uuid.return_value = f"run-{job_number}-a1"
+                monitor = MagicMock()
+                if job_number == 1:
+                    monitor.raise_if_is_worker_shutdown.side_effect = [None, shutdown]
+                pipeline = PipelineV3(
+                    source_response=resource,
+                    logger=logger,
+                    job_id=job_id,
+                    reset_pipeline=reset_pipeline,
+                    shutdown_monitor=monitor,
+                    resumable_source_manager=manager,
+                    models=ImportJobModels(job=job, schema=schema, source=source, table=None),
+                )
+                if job_number == 1:
+                    with pytest.raises(WorkerShuttingDownError):
+                        await pipeline.run()
+                    assert redis.exists(schema_resume_key(1, str(schema.id)))
+                else:
+                    await pipeline.run()
+
+            first_query, second_query = [parse_qs(urlparse(call.args[1]).query) for call in fetch.call_args_list]
+            assert "page[after]" not in first_query
+            assert second_query["page[after]"] == ["evt_0"]
+            assert (
+                first_query["filter[created-at-start]"]
+                == second_query["filter[created-at-start]"]
+                == ["2025-01-01T00:00:00.000Z"]
+            )
+            assert staged.call_args.args == ("run-2-a1", highest)
+            assert schema.incremental_field_last_value == window.isoformat()
+            assert not manager.can_resume()
+            assert not redis.exists(schema_resume_key(1, str(schema.id)))
+
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(state=PersonaResumeConfig(after="inq_saved"))
         _collect(manager, monkeypatch, [{"data": [], "links": {"next": None}}])

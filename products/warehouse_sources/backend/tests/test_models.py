@@ -14,6 +14,7 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import fakeredis
 from dateutil import parser
 from parameterized import parameterized
 
@@ -46,6 +47,7 @@ from products.warehouse_sources.backend.models.util import (
     clean_type,
     clickhouse_column_to_dwh_column,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema_resume import schema_resume_key
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -86,6 +88,7 @@ def test_resolved_s3_folder_name(
     assert schema.resolved_s3_folder_name == expected
 
 
+@override_settings(DATA_WAREHOUSE_REDIS_HOST="test-redis", DATA_WAREHOUSE_REDIS_PORT=6379)
 class TestExternalDataSchemaSave(BaseTest):
     def _source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -98,6 +101,113 @@ class TestExternalDataSchemaSave(BaseTest):
 
     def _create(self, name: str, **kwargs) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name, **kwargs)
+
+    def _resume_client(self, schema: ExternalDataSchema) -> fakeredis.FakeRedis:
+        client = fakeredis.FakeRedis()
+        key = schema_resume_key(schema.team_id, str(schema.pk))
+        client.mset(
+            {
+                key: "checkpoint",
+                f"{key}:generation": "generation",
+                f"{key}:namespace:nested": "nested checkpoint",
+                schema_resume_key(schema.team_id + 1, str(schema.pk)): "other team",
+            }
+        )
+        client.sadd(f"{key}:keys", f"{key}:namespace:nested")
+        self.enterContext(
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.schema_resume.get_client",
+                return_value=client,
+            )
+        )
+        return client
+
+    @parameterized.expand(
+        [
+            ("sync_type", "save", {"sync_type": "append"}, {}, True),
+            ("field", "save", {}, {"incremental_field": "created_at"}, True),
+            ("field_type", "save", {}, {"incremental_field_type": "date"}, True),
+            ("unchanged", "save", {"sync_type": "incremental"}, {"incremental_field": "updated_at"}, False),
+            ("progress", "save", {}, {"incremental_field_last_value": "2026-01-01"}, False),
+            ("bulk_type", "bulk", {"sync_type": None}, {}, True),
+            ("bulk_field", "bulk", {}, {"incremental_field": "created_at"}, True),
+            ("reset_request", "locked", {}, {"reset_pipeline": True}, True),
+            ("locked_progress", "locked", {}, {"incremental_field_last_value": "2026-01-01"}, False),
+            ("rolled_back", "rollback", {}, {"incremental_field": "created_at"}, False),
+            ("unwritten_config", "status_only", {}, {"incremental_field": "created_at"}, False),
+        ]
+    )
+    def test_configuration_changes_clear_resume_state_after_commit(
+        self, _name: str, write: str, fields: dict[str, Any], config: dict[str, Any], cleared: bool
+    ) -> None:
+        schema = self._create(
+            "users",
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+        )
+        client = self._resume_client(schema)
+        key = schema_resume_key(schema.team_id, str(schema.pk))
+        keys = [key, f"{key}:generation", f"{key}:namespace:nested"]
+        before = client.mget(keys)
+        updates = {**fields, "sync_type_config": {**schema.sync_type_config, **config}}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if write == "bulk":
+                ExternalDataSchema.objects.filter(pk=schema.pk, team_id=schema.team_id).update(**updates)
+            elif write == "locked":
+                update_sync_type_config_keys(schema.pk, schema.team_id, updates=config, extra_model_fields=fields)
+            else:
+                for field, value in updates.items():
+                    setattr(schema, field, value)
+                if write == "rollback":
+                    with self.assertRaises(RuntimeError), transaction.atomic():
+                        schema.save(update_fields=list(updates))
+                        raise RuntimeError("rollback")
+                else:
+                    schema.save(update_fields=["status"] if write == "status_only" else list(updates))
+            assert client.mget(keys) == before
+
+        assert client.mget(keys) == ([None, None, None] if cleared else before)
+        assert client.get(schema_resume_key(schema.team_id + 1, str(schema.pk))) == b"other team"
+
+    @parameterized.expand(
+        [
+            ("disable", True),
+            ("bulk_disable", True),
+            ("delete", True),
+            ("bulk_delete", True),
+            ("delete_without_table", True),
+            ("reset", True),
+            ("routine_full_refresh", False),
+        ]
+    )
+    def test_stopping_or_resetting_schema_clears_resume_state_without_a_running_job(
+        self, operation: str, cleared: bool
+    ) -> None:
+        schema = self._create("users")
+        client = self._resume_client(schema)
+        key = schema_resume_key(schema.team_id, str(schema.pk))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if operation == "disable":
+                schema.should_sync = False
+                schema.save(update_fields=["should_sync"])
+            elif operation == "bulk_disable":
+                ExternalDataSchema.objects.filter(pk=schema.pk, team_id=schema.team_id).update(should_sync=False)
+            elif operation == "delete":
+                schema.soft_delete()
+            elif operation == "bulk_delete":
+                ExternalDataSchema.objects.filter(pk=schema.pk, team_id=schema.team_id).update(deleted=True)
+            elif operation == "delete_without_table":
+                schema.delete_table()
+            else:
+                schema.update_sync_type_config_for_reset_pipeline(
+                    clear_initial_sync_complete=operation != "routine_full_refresh"
+                )
+            assert client.get(key) == b"checkpoint"
+
+        assert client.get(key) == (None if cleared else b"checkpoint")
+        assert client.get(schema_resume_key(schema.team_id + 1, str(schema.pk))) == b"other team"
 
     def test_save_populates_s3_folder_name_from_name(self) -> None:
         # The folder is the normalized name — never NULL for a new row.
@@ -1363,6 +1473,29 @@ class TestStagedIncrementalCursor:
             result = schema.promote_staged_incremental_values("run-1")
         assert result is True
         assert schema.sync_type_config["incremental_field_earliest_value"] == 5
+
+    @parameterized.expand(
+        [
+            ("live_slot_of_a_later_attempt", {"run_uuid": "wf-1-a2", "last_value": 7}, [], 7),
+            (
+                "highest_across_live_and_parked_attempts",
+                {"run_uuid": "wf-1-a3", "earliest_value": 1},
+                [{"run_uuid": "wf-1-a1", "last_value": 42}, {"run_uuid": "wf-1-a2", "last_value": 9}],
+                42,
+            ),
+            ("another_run_is_ignored", {"run_uuid": "wf-2-a1", "last_value": 42}, [], None),
+            (
+                "a_run_id_that_merely_shares_a_prefix_is_ignored",
+                {"run_uuid": "wf-10-a1", "last_value": 42},
+                [{"run_uuid": "wf-1-a1", "last_value": 3}],
+                3,
+            ),
+            ("earliest_only_is_not_a_high_water_mark", {"run_uuid": "wf-1-a1", "earliest_value": 5}, [], None),
+        ]
+    )
+    def test_staged_last_value_for_run(self, _name: str, live: dict, parked: list[dict], expected: Any) -> None:
+        schema = self._make_schema(incremental_staged=live, incremental_staged_pending=parked)
+        assert schema.staged_incremental_last_value_for_run("wf-1") == expected
 
     def test_promote_rejects_wrong_run_uuid(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})

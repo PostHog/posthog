@@ -12,6 +12,19 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
+## Resuming Persona imports
+
+Persona incremental and append imports on V3 can continue a failed pass in a later job.
+A checkpoint stores the page position, the original query window, and the highest timestamp from the pass.
+The next job uses that position only after the queue confirms that all covered batches reached the table.
+If the newest batch did not load, the next job uses the last confirmed checkpoint or starts the window again.
+
+Checkpoints expire after 24 hours without an update.
+A completed pass, reset, pause, deletion, or change to the sync settings clears the checkpoint.
+A change to the source connection or query window also prevents reuse.
+The final batch must complete before the saved timestamp becomes the next sync watermark.
+Append mode can repeat rows after the last confirmed checkpoint.
+
 ## Importing your local Postgres instance
 
 1. Head to the [new source flow](http://localhost:8010/project/pipeline/new/source) in your local app, hit the link button next to Postgres
