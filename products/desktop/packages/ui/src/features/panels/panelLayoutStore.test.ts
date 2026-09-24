@@ -5,6 +5,7 @@ vi.mock("@posthog/ui/shell/analytics", () => ({
   setActiveTaskContext: vi.fn(),
 }));
 
+import { track } from "@posthog/ui/shell/analytics";
 import { usePanelLayoutStore } from "./panelLayoutStore";
 import {
   assertActiveTab,
@@ -628,6 +629,41 @@ describe("panelLayoutStore", () => {
           expect(newPanel.content.activeTabId).toBe("file-src/App.tsx");
         }
       }
+    });
+  });
+
+  describe("panel analytics", () => {
+    beforeEach(() => {
+      usePanelLayoutStore.getState().initializeTask("task-1");
+      vi.mocked(track).mockClear();
+    });
+
+    it("reports how a pane was split and closed", () => {
+      usePanelLayoutStore
+        .getState()
+        .splitPanelWithCopy("task-1", "main-panel", "right", "shortcut");
+      expect(track).toHaveBeenCalledWith("Panel split", {
+        source: "shortcut",
+        direction: "right",
+        task_id: "task-1",
+      });
+
+      const newPaneId = getLayout("task-1").focusedPanelId;
+      if (!newPaneId) throw new Error("expected the new pane to be focused");
+      usePanelLayoutStore.getState().closePanel("task-1", newPaneId, "button");
+      expect(track).toHaveBeenCalledWith("Panel closed", {
+        source: "button",
+        task_id: "task-1",
+      });
+      expect(getPanelTree("task-1").type).toBe("leaf");
+    });
+
+    it("leaves drag-and-drop splits untracked", () => {
+      usePanelLayoutStore
+        .getState()
+        .splitPanel("task-1", "logs", "main-panel", "main-panel", "right");
+
+      expect(track).not.toHaveBeenCalled();
     });
   });
 

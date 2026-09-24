@@ -28,6 +28,10 @@ export const SHORTCUTS = {
   NEXT_TASK: "mod+shift+],ctrl+tab",
   ARCHIVE_TASK: "mod+shift+a",
   CLOSE_TAB: "mod+w",
+  SPLIT_PANEL: "mod+\\",
+  // VS Code closes an editor group with the chord "mod+k w". react-hotkeys-hook
+  // v4 has no key sequences, so the closest single combination is used.
+  CLOSE_PANEL: "mod+shift+w",
   SWITCH_TAB: panelTabShortcut(isMac),
   SWITCH_TASK: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
   // No mod+0: the Electron View menu owns CmdOrCtrl+0 for "Actual Size", and a
@@ -251,6 +255,20 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     id: "close-tab",
     keys: SHORTCUTS.CLOSE_TAB,
     description: "Close active tab",
+    category: "panels",
+    context: "Task detail",
+  },
+  {
+    id: "split-panel",
+    keys: SHORTCUTS.SPLIT_PANEL,
+    description: "Split panel to the right",
+    category: "panels",
+    context: "Task detail",
+  },
+  {
+    id: "close-panel",
+    keys: SHORTCUTS.CLOSE_PANEL,
+    description: "Close panel",
     category: "panels",
     context: "Task detail",
   },

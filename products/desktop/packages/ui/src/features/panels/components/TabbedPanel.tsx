@@ -1,6 +1,10 @@
 import { useDroppable } from "@dnd-kit/react";
 import { Plus, SquareSplitHorizontalIcon, X } from "@phosphor-icons/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { CONTENT_CHROME_RIGHT_VAR } from "@posthog/ui/features/navigation/rightPanelSide";
 import { PanelDropZones } from "@posthog/ui/features/panels/components/PanelDropZones";
 import type { SplitDirection } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -286,14 +290,22 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
             >
               {rightContent}
               {onClosePanel && (
-                <Tooltip content="Close panel" side="bottom">
+                <Tooltip
+                  content="Close panel"
+                  shortcut={formatHotkey(SHORTCUTS.CLOSE_PANEL)}
+                  side="bottom"
+                >
                   <TabBarButton ariaLabel="Close panel" onClick={onClosePanel}>
                     <X size={14} />
                   </TabBarButton>
                 </Tooltip>
               )}
               {content.droppable && onSplitPanel && (
-                <Tooltip content="Split panel" side="bottom">
+                <Tooltip
+                  content="Split panel"
+                  shortcut={formatHotkey(SHORTCUTS.SPLIT_PANEL)}
+                  side="bottom"
+                >
                   <TabBarButton
                     ariaLabel="Split panel"
                     onClick={handleSplitClick}

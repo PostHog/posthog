@@ -1,5 +1,5 @@
 import { normalizeSizes, redistributeSizes } from "./panelSizeMath";
-import type { PanelNode, Tab } from "./panelTypes";
+import type { GroupPanel, LeafPanel, PanelNode, Tab } from "./panelTypes";
 
 const isLeafNode = (
   node: PanelNode | null,
@@ -8,6 +8,40 @@ const isLeafNode = (
 const isGroupNode = (
   node: PanelNode | null,
 ): node is Extract<PanelNode, { type: "group" }> => node?.type === "group";
+
+export const collectLeafPanels = (node: PanelNode): LeafPanel[] =>
+  isLeafNode(node) ? [node] : node.children.flatMap(collectLeafPanels);
+
+const findParentGroup = (
+  node: PanelNode,
+  childId: string,
+): GroupPanel | null => {
+  if (!isGroupNode(node)) return null;
+  if (node.children.some((child) => child.id === childId)) return node;
+  for (const child of node.children) {
+    const found = findParentGroup(child, childId);
+    if (found) return found;
+  }
+  return null;
+};
+
+/**
+ * The leaf that takes over when a pane goes away: the first leaf of the
+ * previous sibling, else of the next one, else any other leaf in the tree.
+ * Null when the pane is the only leaf.
+ */
+export const findNeighborLeaf = (
+  root: PanelNode,
+  panelId: string,
+): LeafPanel | null => {
+  const parent = findParentGroup(root, panelId);
+  if (parent) {
+    const index = parent.children.findIndex((child) => child.id === panelId);
+    const sibling = parent.children[index - 1] ?? parent.children[index + 1];
+    if (sibling) return collectLeafPanels(sibling)[0] ?? null;
+  }
+  return collectLeafPanels(root).find((leaf) => leaf.id !== panelId) ?? null;
+};
 
 export const removeTabFromPanel = (
   node: PanelNode,

@@ -5,6 +5,7 @@ import {
   addActionTab as coreAddActionTab,
   addTerminalTab as coreAddTerminalTab,
   closeOtherTabs as coreCloseOtherTabs,
+  closePanel as coreClosePanel,
   closeTab as coreCloseTab,
   closeTabsToRight as coreCloseTabsToRight,
   keepTab as coreKeepTab,
@@ -14,6 +15,7 @@ import {
   openTabInSplit as coreOpenTabInSplit,
   reorderTabs as coreReorderTabs,
   setActiveTab as coreSetActiveTab,
+  splitPanelWithCopy as coreSplitPanelWithCopy,
   updateSizes as coreUpdateSizes,
   updateTabLabel as coreUpdateTabLabel,
   updateTabMetadata as coreUpdateTabMetadata,
@@ -25,7 +27,11 @@ import {
   createFileTabId,
 } from "@posthog/core/panels/panelStoreHelpers";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
-import { ANALYTICS_EVENTS, getFileExtension } from "@posthog/shared";
+import {
+  ANALYTICS_EVENTS,
+  getFileExtension,
+  type PanelActionSource,
+} from "@posthog/shared";
 import {
   createJSONStorage,
   persist,
@@ -103,12 +109,25 @@ interface PanelLayoutStore {
     sourcePanelId: string,
     targetPanelId: string,
   ) => void;
+  /** Drag-and-drop splits pass no source and are not tracked. */
   splitPanel: (
     taskId: string,
     tabId: string,
     sourcePanelId: string,
     targetPanelId: string,
     direction: SplitDirection,
+    source?: PanelActionSource,
+  ) => void;
+  splitPanelWithCopy: (
+    taskId: string,
+    panelId: string,
+    direction: SplitDirection,
+    source: PanelActionSource,
+  ) => void;
+  closePanel: (
+    taskId: string,
+    panelId: string,
+    source: PanelActionSource,
   ) => void;
   updateSizes: (taskId: string, groupId: string, sizes: number[]) => void;
   updateTabMetadata: (
@@ -450,7 +469,14 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         );
       },
 
-      splitPanel: (taskId, tabId, sourcePanelId, targetPanelId, direction) => {
+      splitPanel: (
+        taskId,
+        tabId,
+        sourcePanelId,
+        targetPanelId,
+        direction,
+        source,
+      ) => {
         set((state) =>
           updateTaskLayout(
             state,
@@ -465,6 +491,47 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
               ) as Partial<TaskLayout>,
           ),
         );
+
+        if (source) {
+          track(ANALYTICS_EVENTS.PANEL_SPLIT, {
+            source,
+            direction,
+            task_id: taskId,
+          });
+        }
+      },
+
+      splitPanelWithCopy: (taskId, panelId, direction, source) => {
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreSplitPanelWithCopy(
+                layout,
+                panelId,
+                direction,
+              ) as Partial<TaskLayout>,
+          ),
+        );
+
+        track(ANALYTICS_EVENTS.PANEL_SPLIT, {
+          source,
+          direction,
+          task_id: taskId,
+        });
+      },
+
+      closePanel: (taskId, panelId, source) => {
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) => coreClosePanel(layout, panelId) as Partial<TaskLayout>,
+          ),
+        );
+
+        track(ANALYTICS_EVENTS.PANEL_CLOSED, { source, task_id: taskId });
       },
 
       updateSizes: (taskId, groupId, sizes) => {

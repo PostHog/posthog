@@ -98,8 +98,16 @@ const PanelLayoutRenderer: React.FC<{
           panelId,
           panelId,
           direction,
+          "button",
         );
       }
+    },
+    [layoutState, taskId],
+  );
+
+  const handleClosePanel = useCallback(
+    (panelId: string) => {
+      layoutState.closePanel(taskId, panelId, "button");
     },
     [layoutState, taskId],
   );
@@ -129,6 +137,7 @@ const PanelLayoutRenderer: React.FC<{
             onPanelFocus={handlePanelFocus}
             onAddTerminal={handleAddTerminal}
             onSplitPanel={handleSplitPanel}
+            onClosePanel={handleClosePanel}
           />
         );
       }
@@ -157,6 +166,7 @@ const PanelLayoutRenderer: React.FC<{
       handlePanelFocus,
       handleAddTerminal,
       handleSplitPanel,
+      handleClosePanel,
       setGroupRef,
       handleLayout,
     ],

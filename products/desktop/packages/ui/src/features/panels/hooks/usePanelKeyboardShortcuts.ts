@@ -1,10 +1,17 @@
-import { useHotkeys } from "react-hotkeys-hook";
+import { type Options, useHotkeys } from "react-hotkeys-hook";
 import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { usePanelLayoutStore } from "../panelLayoutStore";
 import { getLeafPanel } from "../panelStoreHelpers";
 
 export function usePanelKeyboardShortcuts(taskId: string): void {
   const layout = usePanelLayoutStore((state) => state.getLayout(taskId));
+
+  const hotkeyOptions: Options = {
+    enabled: !!layout,
+    enableOnFormTags: ["INPUT", "TEXTAREA", "SELECT"],
+    enableOnContentEditable: true,
+    scopes: ["taskDetail"],
+  };
 
   useHotkeys(
     SHORTCUTS.SWITCH_TAB,
@@ -32,12 +39,7 @@ export function usePanelKeyboardShortcuts(taskId: string): void {
         );
       }
     },
-    {
-      enabled: !!layout,
-      enableOnFormTags: ["INPUT", "TEXTAREA", "SELECT"],
-      enableOnContentEditable: true,
-      scopes: ["taskDetail"],
-    },
+    hotkeyOptions,
     [taskId],
   );
 
@@ -64,12 +66,37 @@ export function usePanelKeyboardShortcuts(taskId: string): void {
         state.closeTab(taskId, currentFocusedPanelId, activeTab.id);
       }
     },
-    {
-      enabled: !!layout,
-      enableOnFormTags: ["INPUT", "TEXTAREA", "SELECT"],
-      enableOnContentEditable: true,
-      scopes: ["taskDetail"],
+    hotkeyOptions,
+    [taskId],
+  );
+
+  useHotkeys(
+    SHORTCUTS.SPLIT_PANEL,
+    (event) => {
+      event.preventDefault();
+
+      const state = usePanelLayoutStore.getState();
+      const focusedPanelId = state.getLayout(taskId)?.focusedPanelId;
+      if (!focusedPanelId) return;
+
+      state.splitPanelWithCopy(taskId, focusedPanelId, "right", "shortcut");
     },
+    hotkeyOptions,
+    [taskId],
+  );
+
+  useHotkeys(
+    SHORTCUTS.CLOSE_PANEL,
+    (event) => {
+      event.preventDefault();
+
+      const state = usePanelLayoutStore.getState();
+      const focusedPanelId = state.getLayout(taskId)?.focusedPanelId;
+      if (!focusedPanelId) return;
+
+      state.closePanel(taskId, focusedPanelId, "shortcut");
+    },
+    hotkeyOptions,
     [taskId],
   );
 }

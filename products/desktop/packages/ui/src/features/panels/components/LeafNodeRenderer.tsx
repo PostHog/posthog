@@ -30,6 +30,7 @@ interface LeafNodeRendererProps {
   onPanelFocus: (panelId: string) => void;
   onAddTerminal: (panelId: string) => void;
   onSplitPanel: (panelId: string, direction: SplitDirection) => void;
+  onClosePanel: (panelId: string) => void;
 }
 
 export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
@@ -46,6 +47,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   onPanelFocus,
   onAddTerminal,
   onSplitPanel,
+  onClosePanel,
 }) => {
   const isCloud = useIsCloudTask(task);
   const { localWorkspaces } = useHostCapabilities();
@@ -62,14 +64,9 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   const activeTabId = tabs.some((t) => t.id === node.content.activeTabId)
     ? node.content.activeTabId
     : (tabs[0]?.id ?? node.content.activeTabId);
-  const hiddenTabIds = useMemo(() => {
-    const visibleTabIds = new Set(tabs.map((tab) => tab.id));
-    const hiddenIds: string[] = [];
-    for (const tab of node.content.tabs) {
-      if (!visibleTabIds.has(tab.id)) hiddenIds.push(tab.id);
-    }
-    return hiddenIds;
-  }, [node.content.tabs, tabs]);
+  // A pane whose only tabs are hidden shows nothing; the close button lets
+  // the user collapse it.
+  const hasOnlyHiddenTabs = tabs.length === 0 && node.content.tabs.length > 0;
 
   const cloudEmptyState = useMemo(
     () =>
@@ -112,15 +109,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
       onSplitPanel={
         isCloud ? undefined : (direction) => onSplitPanel(node.id, direction)
       }
-      onClosePanel={
-        tabs.length === 0 && hiddenTabIds.length > 0
-          ? () => {
-              for (const tabId of hiddenTabIds) {
-                closeTab(taskId, node.id, tabId);
-              }
-            }
-          : undefined
-      }
+      onClosePanel={hasOnlyHiddenTabs ? () => onClosePanel(node.id) : undefined}
       emptyState={cloudEmptyState}
     />
   );

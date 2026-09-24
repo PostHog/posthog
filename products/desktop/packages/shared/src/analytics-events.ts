@@ -248,6 +248,21 @@ export interface FileDiffViewedProperties {
   task_id?: string;
 }
 
+// Panel layout
+export type PanelActionSource = "button" | "shortcut";
+export type PanelSplitDirection = "left" | "right" | "top" | "bottom";
+
+export interface PanelSplitProperties {
+  source: PanelActionSource;
+  direction: PanelSplitDirection;
+  task_id?: string;
+}
+
+export interface PanelClosedProperties {
+  source: PanelActionSource;
+  task_id?: string;
+}
+
 export interface ReviewPanelViewedProperties {
   task_id: string;
 }
@@ -1669,6 +1684,10 @@ export const ANALYTICS_EVENTS = {
   DIFF_VIEW_MODE_CHANGED: "Diff view mode changed",
   REVIEW_FILE_BROWSER_TOGGLED: "Review file browser toggled",
 
+  // Panel layout
+  PANEL_SPLIT: "Panel split",
+  PANEL_CLOSED: "Panel closed",
+
   // Workspace events
   WORKSPACE_CREATED: "Workspace created",
   WORKSPACE_SCRIPTS_STARTED: "Workspace scripts started",
@@ -1889,6 +1908,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.REVIEW_PANEL_VIEWED]: ReviewPanelViewedProperties;
   [ANALYTICS_EVENTS.DIFF_VIEW_MODE_CHANGED]: DiffViewModeChangedProperties;
   [ANALYTICS_EVENTS.REVIEW_FILE_BROWSER_TOGGLED]: ReviewFileBrowserToggledProperties;
+
+  // Panel layout
+  [ANALYTICS_EVENTS.PANEL_SPLIT]: PanelSplitProperties;
+  [ANALYTICS_EVENTS.PANEL_CLOSED]: PanelClosedProperties;
 
   // Workspace events
   [ANALYTICS_EVENTS.WORKSPACE_CREATED]: WorkspaceCreatedProperties;

@@ -5,6 +5,7 @@ import {
   Terminal,
 } from "@phosphor-icons/react";
 import { resolveTabAbsolutePath } from "@posthog/core/panels/resolveTabPath";
+import type { PanelActionSource } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ImperativePanelGroupHandle } from "react-resizable-panels";
@@ -37,6 +38,12 @@ export interface PanelLayoutState {
     sourcePanelId: string,
     targetPanelId: string,
     direction: SplitDirection,
+    source?: PanelActionSource,
+  ) => void;
+  closePanel: (
+    taskId: string,
+    panelId: string,
+    source: PanelActionSource,
   ) => void;
   draggingTabId: string | null;
   draggingTabPanelId: string | null;
@@ -56,6 +63,7 @@ export function usePanelLayoutState(taskId: string): PanelLayoutState {
         setFocusedPanel: state.setFocusedPanel,
         addTerminalTab: state.addTerminalTab,
         splitPanel: state.splitPanel,
+        closePanel: state.closePanel,
         draggingTabId: state.getLayout(taskId)?.draggingTabId ?? null,
         draggingTabPanelId: state.getLayout(taskId)?.draggingTabPanelId ?? null,
         focusedPanelId: state.getLayout(taskId)?.focusedPanelId ?? null,

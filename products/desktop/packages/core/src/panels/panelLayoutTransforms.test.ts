@@ -1,19 +1,42 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   addRecentFile,
+  closePanel,
   closeTab,
   createInitialTaskLayout,
   openTab,
+  setActiveTab,
+  splitPanelWithCopy,
 } from "./panelLayoutTransforms";
 import { createFileTabId, resetPanelIdCounter } from "./panelStoreHelpers";
-import { findTabInTree } from "./panelTree";
-import type { TaskLayout } from "./panelTypes";
+import { collectLeafPanels, findTabInTree } from "./panelTree";
+import type { LeafPanel, PanelNode, TaskLayout } from "./panelTypes";
 
 function applyUpdates(
   layout: TaskLayout,
   updates: Partial<TaskLayout>,
 ): TaskLayout {
   return { ...layout, ...updates };
+}
+
+function collectNodeIds(node: PanelNode): string[] {
+  return node.type === "leaf"
+    ? [node.id]
+    : [node.id, ...node.children.flatMap(collectNodeIds)];
+}
+
+function splitMainPanelRight(layout: TaskLayout): {
+  next: TaskLayout;
+  newPane: LeafPanel;
+} {
+  const next = applyUpdates(
+    layout,
+    splitPanelWithCopy(layout, "main-panel", "right"),
+  );
+  if (next.panelTree.type !== "group") throw new Error("expected a split");
+  const newPane = next.panelTree.children[1];
+  if (newPane.type !== "leaf") throw new Error("expected a leaf pane");
+  return { next, newPane };
 }
 
 describe("panelLayoutTransforms", () => {
@@ -72,6 +95,137 @@ describe("panelLayoutTransforms", () => {
       );
 
       expect(findTabInTree(closed.panelTree, tabId)).toBeNull();
+    });
+  });
+
+  describe("splitPanelWithCopy", () => {
+    it("shows a closeable copy of the active tab in a focused new pane and keeps the source tab", () => {
+      const layout = createInitialTaskLayout();
+      const { next, newPane } = splitMainPanelRight(layout);
+
+      expect(findTabInTree(next.panelTree, "logs")?.panelId).toBe("main-panel");
+      const copy = newPane.content.tabs[0];
+      expect(copy.id).not.toBe("logs");
+      expect(copy).toMatchObject({
+        label: "Chat",
+        data: { type: "logs" },
+        closeable: true,
+      });
+      expect(newPane.content.activeTabId).toBe(copy.id);
+      expect(next.focusedPanelId).toBe(newPane.id);
+    });
+
+    it("gives every copy and every pane an id of its own, also after the id counter restarts", () => {
+      const layout = createInitialTaskLayout();
+      const { next: once } = splitMainPanelRight(layout);
+      resetPanelIdCounter();
+      const { next: twice } = splitMainPanelRight(once);
+
+      const nodeIds = collectNodeIds(twice.panelTree);
+      expect(new Set(nodeIds).size).toBe(nodeIds.length);
+      const tabIds = collectLeafPanels(twice.panelTree).flatMap((leaf) =>
+        leaf.content.tabs.map((tab) => tab.id),
+      );
+      expect(new Set(tabIds).size).toBe(tabIds.length);
+    });
+
+    it.each([
+      ["right", "horizontal", 1],
+      ["left", "horizontal", 0],
+      ["bottom", "vertical", 1],
+      ["top", "vertical", 0],
+    ] as const)(
+      "places the new pane %s of the source",
+      (direction, expectedDirection, newPaneIndex) => {
+        const layout = createInitialTaskLayout();
+        const next = applyUpdates(
+          layout,
+          splitPanelWithCopy(layout, "main-panel", direction),
+        );
+
+        if (next.panelTree.type !== "group")
+          throw new Error("expected a split");
+        expect(next.panelTree.direction).toBe(expectedDirection);
+        expect(next.panelTree.children[newPaneIndex].id).toBe(
+          next.focusedPanelId,
+        );
+        expect(next.panelTree.children[1 - newPaneIndex].id).toBe("main-panel");
+      },
+    );
+
+    it("opens a fresh terminal instead of a second view of the same pty", () => {
+      const layout = createInitialTaskLayout();
+      const onShell = applyUpdates(
+        layout,
+        setActiveTab(layout, "main-panel", "shell"),
+      );
+      const { newPane } = splitMainPanelRight(onShell);
+
+      const tab = newPane.content.tabs[0];
+      expect(tab.data.type).toBe("terminal");
+      if (tab.data.type !== "terminal") return;
+      expect(tab.data.terminalId).toBe(tab.id);
+      expect(tab.data.terminalId).not.toBe("shell");
+    });
+  });
+
+  describe("closePanel", () => {
+    it("closes the pane's tabs, collapses the split and focuses the neighbor", () => {
+      const layout = createInitialTaskLayout();
+      const { next: split, newPane } = splitMainPanelRight(layout);
+      const appTab = createFileTabId("src/App.tsx");
+      const otherTab = createFileTabId("src/Other.tsx");
+      const withOther = applyUpdates(
+        split,
+        openTab(split, otherTab, false, newPane.id),
+      );
+      const withBoth = applyUpdates(
+        withOther,
+        openTab(withOther, appTab, false, "main-panel"),
+      );
+
+      const closed = applyUpdates(withBoth, closePanel(withBoth, newPane.id));
+
+      expect(closed.panelTree).toMatchObject({
+        type: "leaf",
+        id: "main-panel",
+      });
+      expect(findTabInTree(closed.panelTree, otherTab)).toBeNull();
+      expect(findTabInTree(closed.panelTree, appTab)).not.toBeNull();
+      expect(closed.focusedPanelId).toBe("main-panel");
+      expect(closed.openFiles).toEqual(["src/App.tsx"]);
+    });
+
+    it("moves tabs that cannot close into the neighbor before the pane collapses", () => {
+      const layout = createInitialTaskLayout();
+      const { next: split, newPane } = splitMainPanelRight(layout);
+
+      const closed = applyUpdates(split, closePanel(split, "main-panel"));
+
+      expect(closed.panelTree.type).toBe("leaf");
+      if (closed.panelTree.type !== "leaf") return;
+      expect(closed.panelTree.id).toBe(newPane.id);
+      expect(closed.panelTree.content.tabs.map((tab) => tab.id)).toEqual([
+        newPane.content.tabs[0].id,
+        "logs",
+      ]);
+      expect(closed.focusedPanelId).toBe(newPane.id);
+    });
+
+    it("keeps the last pane and its pinned tabs", () => {
+      const layout = createInitialTaskLayout();
+
+      const closed = applyUpdates(layout, closePanel(layout, "main-panel"));
+
+      expect(closed.panelTree).toMatchObject({
+        type: "leaf",
+        id: "main-panel",
+      });
+      if (closed.panelTree.type !== "leaf") return;
+      expect(closed.panelTree.content.tabs.map((tab) => tab.id)).toEqual([
+        "logs",
+      ]);
+      expect(closed.panelTree.content.activeTabId).toBe("logs");
     });
   });
 

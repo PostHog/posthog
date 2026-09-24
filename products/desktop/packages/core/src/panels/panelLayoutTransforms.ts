@@ -11,6 +11,7 @@ import {
 import {
   addTabToPanel,
   cleanupNode,
+  findNeighborLeaf,
   findTabInPanel,
   findTabInTree,
   removeTabFromPanel,
@@ -25,6 +26,18 @@ import type {
 } from "./panelTypes";
 
 const MAX_RECENT_FILES = 10;
+
+function createTerminalTab(cwd = ""): Tab {
+  const tabId = `shell-${Date.now()}`;
+  return {
+    id: tabId,
+    label: "Terminal",
+    data: { type: "terminal", terminalId: tabId, cwd },
+    component: null,
+    draggable: true,
+    closeable: true,
+  };
+}
 
 function createDefaultPanelTree(): PanelNode {
   return {
@@ -183,7 +196,7 @@ export function openTabInSplit(
     return { panelTree: updatedTree, ...metadata };
   }
 
-  const newPanelId = generatePanelId();
+  const newPanelId = generatePanelId(layout.panelTree);
   const newPanel: PanelNode = {
     type: "leaf",
     id: newPanelId,
@@ -207,7 +220,7 @@ export function openTabInSplit(
     DEFAULT_PANEL_IDS.MAIN_PANEL,
     (panel) => ({
       type: "group" as const,
-      id: generatePanelId(),
+      id: generatePanelId(layout.panelTree),
       direction: "horizontal" as const,
       sizes: [50, 50],
       children: [panel, newPanel],
@@ -307,7 +320,7 @@ export function openReadonlyTab(
   );
   if (!mainPanel) return {};
 
-  const newPanelId = generatePanelId();
+  const newPanelId = generatePanelId(layout.panelTree);
   const newPanel: PanelNode = {
     type: "leaf",
     id: newPanelId,
@@ -325,7 +338,7 @@ export function openReadonlyTab(
     DEFAULT_PANEL_IDS.MAIN_PANEL,
     (panel) => ({
       type: "group" as const,
-      id: generatePanelId(),
+      id: generatePanelId(layout.panelTree),
       direction: "horizontal" as const,
       sizes: [50, 50],
       children: [panel, newPanel],
@@ -532,28 +545,15 @@ export function splitPanelTree(
 
   if (sourcePanelId === targetPanelId && targetPanel.content.tabs.length <= 1) {
     const singleTabConfig = getSplitConfig(direction);
-    const newPanelId = generatePanelId();
-    const terminalTabId = `shell-${Date.now()}`;
+    const newPanelId = generatePanelId(layout.panelTree);
+    const terminalTab = createTerminalTab();
     const newPanel: PanelNode = {
       type: "leaf",
       id: newPanelId,
       content: {
         id: newPanelId,
-        tabs: [
-          {
-            id: terminalTabId,
-            label: "Terminal",
-            data: {
-              type: "terminal",
-              terminalId: terminalTabId,
-              cwd: "",
-            },
-            component: null,
-            draggable: true,
-            closeable: true,
-          },
-        ],
-        activeTabId: terminalTabId,
+        tabs: [terminalTab],
+        activeTabId: terminalTab.id,
         showTabs: true,
         droppable: true,
       },
@@ -564,7 +564,7 @@ export function splitPanelTree(
       targetPanelId,
       (panel) => ({
         type: "group" as const,
-        id: generatePanelId(),
+        id: generatePanelId(layout.panelTree),
         direction: singleTabConfig.splitDirection,
         sizes: [50, 50],
         children: singleTabConfig.isAfter
@@ -577,7 +577,7 @@ export function splitPanelTree(
   }
 
   const config = getSplitConfig(direction);
-  const newPanelId = generatePanelId();
+  const newPanelId = generatePanelId(layout.panelTree);
   const newPanel: PanelNode = {
     type: "leaf",
     id: newPanelId,
@@ -602,7 +602,7 @@ export function splitPanelTree(
     (panel) => {
       const newGroup: PanelNode = {
         type: "group",
-        id: generatePanelId(),
+        id: generatePanelId(layout.panelTree),
         direction: config.splitDirection,
         sizes: [50, 50],
         children: config.isAfter ? [panel, newPanel] : [newPanel, panel],
@@ -617,6 +617,153 @@ export function splitPanelTree(
   );
 
   return { panelTree: cleanedTree };
+}
+
+const COPY_TAB_ID_PATTERN = /^copy-\d+:(.*)$/;
+
+// Tab ids key React lists, drag sources and findTabInTree, so a second tab
+// with the source id would collide across panes. The copy gets its own id;
+// the "copy-" prefix keeps it out of the file-tab id parsing in
+// updateMetadataForTab, which tracks open files by the source tab only.
+function createCopyTabId(tree: PanelNode, sourceTabId: string): string {
+  const baseId = sourceTabId.match(COPY_TAB_ID_PATTERN)?.[1] ?? sourceTabId;
+  let copyNumber = 2;
+  while (findTabInTree(tree, `copy-${copyNumber}:${baseId}`)) {
+    copyNumber++;
+  }
+  return `copy-${copyNumber}:${baseId}`;
+}
+
+function copyTab(tree: PanelNode, tab: Tab): Tab {
+  // A terminal tab owns one pty, and two views of the same pty would fight
+  // over its input. Open a fresh shell in the same directory instead, as
+  // VS Code does when it splits a terminal.
+  if (tab.data.type === "terminal") {
+    return createTerminalTab(tab.data.cwd);
+  }
+  // The source may be pinned (Chat) or a preview; the copy is an ordinary tab.
+  return {
+    ...tab,
+    id: createCopyTabId(tree, tab.id),
+    closeable: true,
+    isPreview: false,
+  };
+}
+
+/**
+ * The VS Code "Split editor" behavior: a new pane beside the source pane that
+ * shows a copy of the source pane's active tab, while the source pane keeps
+ * its tab. Focus moves to the new pane.
+ */
+export function splitPanelWithCopy(
+  layout: TaskLayout,
+  panelId: string,
+  direction: SplitDirection,
+): Partial<TaskLayout> {
+  const sourcePanel = getLeafPanel(layout.panelTree, panelId);
+  if (!sourcePanel) return {};
+
+  const activeTab = findTabInPanel(
+    sourcePanel,
+    sourcePanel.content.activeTabId,
+  );
+  if (!activeTab) return {};
+
+  const copy = copyTab(layout.panelTree, activeTab);
+  const config = getSplitConfig(direction);
+  const newPanelId = generatePanelId(layout.panelTree);
+  const newPanel: PanelNode = {
+    type: "leaf",
+    id: newPanelId,
+    content: {
+      id: newPanelId,
+      tabs: [copy],
+      activeTabId: copy.id,
+      showTabs: true,
+      droppable: true,
+    },
+  };
+
+  const panelTree = updateTreeNode(layout.panelTree, panelId, (panel) => ({
+    type: "group" as const,
+    id: generatePanelId(layout.panelTree),
+    direction: config.splitDirection,
+    sizes: [50, 50],
+    children: config.isAfter ? [panel, newPanel] : [newPanel, panel],
+  }));
+
+  return { panelTree, focusedPanelId: newPanelId };
+}
+
+/**
+ * Closes every closeable tab in the pane and collapses its split. Tabs that
+ * cannot close (Chat) move to the neighbor pane. The last pane stays, as the
+ * last editor group does in VS Code, and only loses its closeable tabs.
+ */
+export function closePanel(
+  layout: TaskLayout,
+  panelId: string,
+): Partial<TaskLayout> {
+  const panel = getLeafPanel(layout.panelTree, panelId);
+  if (!panel) return {};
+
+  const closingTabs = panel.content.tabs.filter(
+    (tab) => tab.closeable !== false,
+  );
+  const pinnedTabs = panel.content.tabs.filter(
+    (tab) => tab.closeable === false,
+  );
+  const openFiles = closingTabs.reduce(
+    (files, tab) =>
+      updateMetadataForTab({ ...layout, openFiles: files }, tab.id, "remove")
+        .openFiles,
+    layout.openFiles,
+  );
+
+  const neighbor = findNeighborLeaf(layout.panelTree, panelId);
+  if (!neighbor) {
+    if (closingTabs.length === 0) return {};
+    const activeTabId = pinnedTabs.some(
+      (tab) => tab.id === panel.content.activeTabId,
+    )
+      ? panel.content.activeTabId
+      : (pinnedTabs[0]?.id ?? "");
+    const panelTree = updateTreeNode(layout.panelTree, panelId, (node) =>
+      node.type !== "leaf"
+        ? node
+        : {
+            ...node,
+            content: { ...node.content, tabs: pinnedTabs, activeTabId },
+          },
+    );
+    return { panelTree, openFiles };
+  }
+
+  const emptiedTree = updateTreeNode(layout.panelTree, panelId, (node) =>
+    node.type !== "leaf"
+      ? node
+      : { ...node, content: { ...node.content, tabs: [], activeTabId: "" } },
+  );
+  const treeWithPinnedTabs =
+    pinnedTabs.length === 0
+      ? emptiedTree
+      : updateTreeNode(emptiedTree, neighbor.id, (node) =>
+          node.type !== "leaf"
+            ? node
+            : {
+                ...node,
+                content: {
+                  ...node.content,
+                  tabs: [...node.content.tabs, ...pinnedTabs],
+                },
+              },
+        );
+  const panelTree = applyCleanupWithFallback(
+    cleanupNode(treeWithPinnedTabs),
+    layout.panelTree,
+  );
+
+  return { panelTree, focusedPanelId: neighbor.id, openFiles };
 }
 
 export function updateSizes(
@@ -714,17 +861,9 @@ export function addTerminalTab(
   layout: TaskLayout,
   panelId: string,
 ): Partial<TaskLayout> {
-  const tabId = `shell-${Date.now()}`;
   const updatedTree = updateTreeNode(layout.panelTree, panelId, (panel) => {
     if (panel.type !== "leaf") return panel;
-    return addTabToPanel(panel, {
-      id: tabId,
-      label: "Terminal",
-      data: { type: "terminal", terminalId: tabId, cwd: "" },
-      component: null,
-      draggable: true,
-      closeable: true,
-    });
+    return addTabToPanel(panel, createTerminalTab());
   });
 
   return { panelTree: updatedTree };
