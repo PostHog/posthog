@@ -31,6 +31,8 @@ from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
+    redact_destination_data,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_destination_data,
@@ -487,6 +489,48 @@ class VisionAlertDestinationResponseSerializer(serializers.Serializer):
     )
 
 
+class VisionAlertDestinationConfigSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="HogFunctions backing this destination. Pass them all to delete the destination.",
+    )
+    type = serializers.ChoiceField(choices=VISION_DESTINATION_TYPES, help_text="Notification destination type.")
+    enabled = serializers.BooleanField(
+        help_text="Whether every HogFunction in the group is enabled, so the destination notifies on every event kind."
+    )
+    slack_workspace_id = serializers.IntegerField(
+        required=False, help_text="Integration ID of the Slack workspace, for Slack destinations."
+    )
+    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID, for Slack destinations.")
+    webhook_url = serializers.CharField(
+        required=False,
+        help_text="Webhook endpoint reduced to scheme and host, because the path, query and userinfo can carry a secret.",
+    )
+
+
+class VisionAlertConfigurationDetailSerializer(VisionAlertConfigurationSerializer):
+    destinations = serializers.SerializerMethodField(
+        help_text="This alert's notification destinations, one entry per destination, with credential-bearing URL parts removed."
+    )
+
+    class Meta(VisionAlertConfigurationSerializer.Meta):
+        fields = [*VisionAlertConfigurationSerializer.Meta.fields, "destinations"]
+
+    @extend_schema_field(VisionAlertDestinationConfigSerializer(many=True))
+    def get_destinations(self, obj: VisionAlertConfiguration) -> list[dict[str, Any]]:
+        groups = list_alert_destination_groups(
+            team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=VISION_ALERT_EVENT_IDS
+        )
+        return [
+            {
+                "hog_function_ids": list(group.hog_function_ids),
+                "enabled": group.fully_enabled,
+                **redact_destination_data(group.data),
+            }
+            for group in groups
+        ]
+
+
 @extend_schema_view(list=extend_schema(parameters=[VisionAlertListQuerySerializer]))
 class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_alert"
@@ -508,6 +552,12 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # Configuring an alert or its destinations routes recording-derived content off-platform,
     # so it needs the same session-recording read gate as vision actions.
     _CONFIG_ACTIONS = {"create", "update", "partial_update", "create_destination"}
+
+    def get_serializer_class(self) -> type[VisionAlertConfigurationSerializer]:
+        # Only a single-alert read lists destinations; other actions would pay for a HogFunction query per row.
+        if self.action == "retrieve":
+            return VisionAlertConfigurationDetailSerializer
+        return VisionAlertConfigurationSerializer
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action in self._CONFIG_ACTIONS:

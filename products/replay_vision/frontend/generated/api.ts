@@ -58,6 +58,7 @@ import type {
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
+    VisionAlertConfigurationDetailApi,
     VisionAlertCreateDestinationApi,
     VisionAlertDeleteDestinationApi,
     VisionAlertDestinationResponseApi,
@@ -150,8 +151,8 @@ export const visionAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<VisionAlertConfigurationApi> => {
-    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsRetrieveUrl(projectId, id), {
+): Promise<VisionAlertConfigurationDetailApi> => {
+    return apiMutator<VisionAlertConfigurationDetailApi>(getVisionAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

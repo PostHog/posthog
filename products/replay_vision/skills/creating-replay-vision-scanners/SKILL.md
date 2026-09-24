@@ -1,6 +1,6 @@
 ---
 name: creating-replay-vision-scanners
-description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query, sampling_rate, or sampling_mode (or moving it to a pricier model) via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against sessions on demand (vision-scanners-scan-session, vision-scanners-scan-sessions). For a one-off question about sessions you already have, use vision-scanners-inline-scan-create rather than creating a scanner — the skill's first section covers when that applies."
+description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query, sampling_rate, or sampling_mode (or moving it to a pricier model) via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against sessions on demand (vision-scanners-scan-session, vision-scanners-scan-sessions). For a one-off question about sessions you already have, use vision-scanners-inline-scan rather than creating a scanner — the skill's first section covers when that applies."
 ---
 
 # Creating Replay Vision scanners
@@ -19,7 +19,7 @@ the budget may already be gone.
 ## First: is a scanner even the right thing?
 
 A scanner is a **standing watch over future recordings**. If the user has specific sessions in front of them
-and a question about those sessions, they don't want a scanner at all — they want `vision-scanners-inline-scan-create`,
+and a question about those sessions, they don't want a scanner at all — they want `vision-scanners-inline-scan`,
 which takes `session_ids` plus a `prompt`, saves nothing, and schedules nothing.
 
 Use an inline scan when the sessions are already known: "what went wrong in these five recordings", "did any
@@ -89,12 +89,12 @@ miss what the scanner is looking for.
 
 Before creating, run both checks and reason about them together:
 
-1. **Estimate spend** — call `vision-scanners-estimate-create` with the proposed `query`, `sampling_rate`,
+1. **Estimate spend** — call `vision-scanners-estimate` with the proposed `query`, `sampling_rate`,
    `sampling_mode` and `model`. It returns `matched_sessions_in_window`, the `window_days` measured,
    `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and
    `other_enabled_scanners_monthly_credits` (what the org's other enabled scanners are already projected to
    spend). When editing an existing scanner, pass its `scanner_id` so its own estimate isn't counted twice.
-2. **Check budget** — call `vision-quota-retrieve` for `remaining` and `exhausted` against the org's
+2. **Check budget** — call `vision-quota-get` for `remaining` and `exhausted` against the org's
    `credit_limit` (credits, 1 credit = $0.01; `null` when uncapped), plus the `period_start`/`period_end`
    of the current period.
 

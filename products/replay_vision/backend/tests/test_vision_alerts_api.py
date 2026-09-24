@@ -284,6 +284,11 @@ class TestVisionAlertDestinations(_VisionAlertAPITestCase):
         hog_functions = HogFunction.objects.filter(id__in=ids)
         assert {(hf.filters or {})["events"][0]["id"] for hf in hog_functions} == expected_event_ids
 
+        detail = self.client.get(f"{self.base_url}{created['id']}/").json()
+        assert [(set(d["hog_function_ids"]), d["type"], d["webhook_url"]) for d in detail["destinations"]] == [
+            (set(ids), "webhook", "https://example.com")
+        ]
+
     def test_destroy_soft_deletes_destinations(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api(self._match_payload())

@@ -846,7 +846,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     # The only grant whose objects spend money as they run, and the only one whose delete the API
     # refuses rather than the token.
     scanner_reach = (
-        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-retrieve` and `vision-scanners-estimate-create` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, prompt tests, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
+        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-get` and `vision-scanners-estimate` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, prompt tests, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
         if "replay_scanner:write" in write_scopes
         else ""
     )

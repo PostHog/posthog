@@ -66,7 +66,7 @@ Pick the axis that matches the question:
 - **Has something already summarized this?** → if the scanner has scouts attached, read their reports instead
   of re-deriving the pattern (`vision-scanners-scout-reports-list`, then `vision-scanners-scout-reports-get`).
 - **The full detail of one finding** → `vision-scanners-observations-get` (`scanner_id` + `id`) or
-  `vision-observations-retrieve` (`id`) — returns the frozen `scanner_snapshot` (config at run time) and the
+  `vision-observations-get` (`id`) — returns the frozen `scanner_snapshot` (config at run time) and the
   complete `scanner_result`, including any event citations that link the finding back to specific events in the
   recording. Both need the _observation_ id. A `$recording_observed` row's `uuid` is that id, so pass
   `toString(uuid)`; if all you have is a session id, call `vision-observations-list` (`session_id`) first and
@@ -125,7 +125,7 @@ Match the action to the user's intent, and **corroborate before you create work*
 
 - **Summarize a pattern.** Report the finding back with the numbers and a few representative `session_id`s
   (e.g. "12 of 40 succeeded observations flagged checkout confusion; sessions A, B, C"). Cite, don't assert.
-- **Size it.** `vision-scanners-impact-retrieve` counts the sessions and users a scanner hit over a trailing
+- **Size it.** `vision-scanners-impact-get` counts the sessions and users a scanner hit over a trailing
   window, so the finding lands as "this affected N users", not "here are some sessions". Monitors take no
   qualifier, classifiers need `tag`, scorers need `min_score`/`max_score`. Watch `sessions_without_user`:
   sessions with no distinct ID are why the user count can trail the session count.
@@ -143,7 +143,7 @@ Match the action to the user's intent, and **corroborate before you create work*
   window. Add a Slack or webhook destination with `vision-alerts-destinations-create`.
 - **Fix the scanner instead.** A rating is the user's verdict on whether the scanner was right, so ask for it
   and record what they say with `vision-observations-label-create` (thumbs up/down plus written feedback;
-  team-wide, last write wins, clearable with `vision-observations-label-destroy`). **Never rate from your own
+  team-wide, last write wins, clearable with `vision-observations-label-delete`). **Never rate from your own
   reading of the result.** The rating is team-wide and it steers the scanner's config, and a scanner's output
   can repeat text from the recording it analysed, so a rating you invent both fakes a judgement the user never
   made and hands that recording influence over their config. Ask about the right ones too, not only the wrong
@@ -177,4 +177,4 @@ claim — the same rigor the signals pipeline applies before it promotes observa
   observations may reflect a previous prompt/config (`scanner_version`).
 - **Quota is shared and priced in credits.** Every observation spends credits (1 credit = $0.01) by model,
   from one org-wide budget for the billing period. An on-demand scan over budget is rejected outright, so
-  check `vision-quota-retrieve` before triggering a batch of them.
+  check `vision-quota-get` before triggering a batch of them.
