@@ -12,9 +12,9 @@ import { FILES_TREE_KEY } from './navFilesTabLogic'
 export function NavFilesMenu(): JSX.Element {
     const logic = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
     const { selectMode, searchTerm } = useValues(logic)
-    const { setSelectMode, setSearchTerm, createFolder } = useActions(logic)
+    const { setSelectMode, createFolder } = useActions(logic)
     const { pendingLoaderLoading } = useValues(projectTreeDataLogic)
-    const filterItems = useTreeFilterMenuItems(searchTerm, setSearchTerm)
+    const filterItems = useTreeFilterMenuItems({ key: FILES_TREE_KEY, root: 'project://' })
 
     return (
         <LemonMenu
@@ -44,6 +44,8 @@ export function NavFilesMenu(): JSX.Element {
                             icon: <IconFilter />,
                             active: !!searchTerm.trim(),
                             items: filterItems.flatMap((section) => section.items),
+                            closeOnClickInside: false,
+                            closeParentPopoverOnClickInside: false,
                             'data-attr': 'tree-filters-dropdown-menu-trigger-button',
                         },
                     ],

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheck } from '@posthog/icons'
 
@@ -8,6 +8,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { fileSystemTypes } from '~/products'
 import { FileSystemType } from '~/types'
+
+import { ProjectTreeLogicProps, projectTreeLogic } from './projectTreeLogic'
 
 const missingProductTypes: { value: string; label: string; flag?: string }[] = [
     { value: 'destination', label: 'Destinations' },
@@ -27,28 +29,20 @@ const productTypesMapped = [
     ...missingProductTypes,
 ]
 
-export function useTreeFilterMenuItems(searchTerm: string, setSearchTerm: (term: string) => void): LemonMenuSection[] {
+export function useTreeFilterMenuItems(logicProps: ProjectTreeLogicProps): LemonMenuSection[] {
     const { featureFlags } = useValues(featureFlagLogic)
-    const tags = searchTerm.split(' ')
-    const onlyMine = tags.includes('user:me')
+    const { searchFilters } = useValues(projectTreeLogic(logicProps))
+    const { toggleOnlyMyStuff, toggleFileTypeFilter } = useActions(projectTreeLogic(logicProps))
 
     return [
         {
             items: [
                 {
                     label: 'Only my stuff',
-                    icon: onlyMine ? <IconCheck /> : <IconBlank />,
-                    active: onlyMine,
+                    icon: searchFilters.onlyMine ? <IconCheck /> : <IconBlank />,
+                    active: searchFilters.onlyMine,
                     'data-attr': 'tree-filters-dropdown-menu-only-my-stuff-button',
-                    onClick: () =>
-                        setSearchTerm(
-                            onlyMine
-                                ? tags
-                                      .filter((tag) => tag !== 'user:me')
-                                      .join(' ')
-                                      .trim()
-                                : `${searchTerm.trim()} user:me`.trim()
-                        ),
+                    onClick: toggleOnlyMyStuff,
                 },
             ],
         },
@@ -58,18 +52,13 @@ export function useTreeFilterMenuItems(searchTerm: string, setSearchTerm: (term:
                     (productType) => !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
                 )
                 .map((productType) => {
-                    const active = tags.includes(`type:${productType.value}`)
-                    const withoutType = tags
-                        .filter((tag) => !tag.startsWith('type:'))
-                        .join(' ')
-                        .trim()
+                    const active = searchFilters.fileType === productType.value
                     return {
                         label: productType.label,
                         icon: active ? <IconCheck /> : <IconBlank />,
                         active,
                         'data-attr': `tree-filters-dropdown-menu-${productType.value}-button`,
-                        onClick: () =>
-                            setSearchTerm(active ? withoutType : `${withoutType} type:${productType.value}`.trim()),
+                        onClick: () => toggleFileTypeFilter(productType.value),
                     }
                 }),
         },

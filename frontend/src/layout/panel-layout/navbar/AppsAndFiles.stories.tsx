@@ -44,6 +44,7 @@ const files: FileSystemEntry[] = [
     },
     { id: 'flag-1', path: 'New checkout', type: 'feature_flag', ref: '1', href: '/feature_flags/1' },
 ]
+const ownedFileIds = new Set(['dashboard-1', 'notebook-1'])
 const starred: FileSystemEntry[] = [
     { id: 'star-home', path: 'Alex Example', type: 'folder', ref: 'Users/Alex Example' },
     { id: 'star-1', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
@@ -118,10 +119,12 @@ const meta: Meta<typeof SidebarStory> = {
                         .split(' ')
                         .filter((part) => !part.includes(':'))
                         .join(' ')
+                    const onlyMine = search.split(' ').includes('user:me')
                     const results = files.filter((file) =>
                         parent !== null
                             ? file.path.split('/').slice(0, -1).join('/') === parent
                             : file.type !== 'folder' &&
+                              (!onlyMine || ownedFileIds.has(file.id)) &&
                               (!type || file.type === type) &&
                               file.path.toLowerCase().includes(query)
                     )
@@ -153,7 +156,17 @@ export const Files: Story = { args: { tab: 'files' } }
 export const FilesOptions: Story = {
     ...Files,
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Files options'))
+        const canvas = within(canvasElement)
+        const body = within(canvasElement.ownerDocument.body)
+        const options = await canvas.findByLabelText('Files options')
+        await userEvent.click(options)
+        await userEvent.click(body.getByText('Filters', { exact: true }))
+        await userEvent.click(body.getByText('Only my stuff', { exact: true }))
+        await userEvent.click(body.getByText('Notebook', { exact: true }))
+        await userEvent.click(body.getByText('Only my stuff', { exact: true }))
+        await userEvent.click(body.getByText('Notebook', { exact: true }))
+        await userEvent.click(canvasElement.ownerDocument.body)
+        await userEvent.click(options)
     },
 }
 export const Chat: Story = {
@@ -182,6 +195,7 @@ export const Chat: Story = {
 }
 export const FilesSearch: Story = { args: { tab: 'files', search: 'Weekly' } }
 export const FilesFiltered: Story = { args: { tab: 'files', search: 'type:notebook' } }
+export const FilesOnlyMine: Story = { args: { tab: 'files', search: 'user:me' } }
 export const FilesNoResults: Story = { args: { tab: 'files', search: 'nothing-matches' } }
 export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }

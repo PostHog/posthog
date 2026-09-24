@@ -27,14 +27,22 @@ export function NavTabFiles(): JSX.Element {
             className="flex flex-col h-full min-h-0 group/colorful-product-icons colorful-product-icons-true"
             data-attr="nav-panel-files"
         >
-            <ScrollableShadows direction="vertical" className="flex-1 min-h-0" innerClassName="px-1" styledScrollbars>
+            <ScrollableShadows
+                direction="vertical"
+                className="flex-1 min-h-0"
+                innerClassName="relative px-1"
+                styledScrollbars
+            >
+                <div className="absolute top-0 right-1 z-10">
+                    <NavFilesMenu />
+                </div>
                 {showStarred ? (
                     <div className="pb-2">
                         <NavTabSection
                             label="Starred"
                             dataAttr="nav-files-starred-toggle"
                             key={`starred-${!!searchTerm.trim()}`}
-                            actions={<NavFilesMenu />}
+                            actions={<span className="size-6.5 shrink-0" aria-hidden />}
                         >
                             {!shortcutDataHasLoaded ? (
                                 <Spinner className="m-2" />
@@ -54,9 +62,7 @@ export function NavTabFiles(): JSX.Element {
                         </NavTabSection>
                     </div>
                 ) : (
-                    <div className="flex justify-end">
-                        <NavFilesMenu />
-                    </div>
+                    <div className="h-6.5" />
                 )}
                 <NavTabSection label="Files" dataAttr="nav-files-project-toggle" key={`files-${!!searchTerm.trim()}`}>
                     <ProjectTree

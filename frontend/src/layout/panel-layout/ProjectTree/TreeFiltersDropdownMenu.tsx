@@ -1,15 +1,15 @@
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { ProjectTreeLogicProps } from './projectTreeLogic'
 import { useTreeFilterMenuItems } from './useTreeFilterMenuItems'
 
 interface FiltersDropdownProps {
-    setSearchTerm: (searchTerm: string) => void
-    searchTerm: string
+    logicProps: ProjectTreeLogicProps
 }
 
-export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
-    const items = useTreeFilterMenuItems(searchTerm, setSearchTerm)
+export function TreeFiltersDropdownMenu({ logicProps }: FiltersDropdownProps): JSX.Element {
+    const items = useTreeFilterMenuItems(logicProps)
 
     return (
         <LemonMenu items={items} placement="bottom-end">
