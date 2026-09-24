@@ -255,8 +255,8 @@ class TestCSPMiddleware(APIBaseTest):
                 },
                 ("eu", "us"),
             ),
-            # An operator can turn reporting on for their own install, but the shadow names PostHog
-            # Cloud's hosts and token, so its reports would tell that operator nothing they can act on.
+            # The named hosts and the config token are PostHog Cloud's, so another install that swapped
+            # its wildcards for them would refuse loads from its own hosts.
             (
                 "self_hosted_with_reporting_on",
                 {
@@ -268,28 +268,28 @@ class TestCSPMiddleware(APIBaseTest):
             ),
         ]
     )
-    def test_only_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self, _name, overrides, regions):
-        # The shadow is the evidence for dropping the wildcards, so it must report on its own version
-        # and must not quietly keep a wildcard.
+    def test_only_cloud_pages_swap_the_wildcards_for_named_posthog_hosts(self, _name, overrides, regions):
         with override_settings(TEST=False, DEBUG=False, **overrides):
             response = self.client.get("/")
 
-        app_policy, *shadows = response["Content-Security-Policy-Report-Only"].split(", ")
-        assert "https://*.posthog.com" in app_policy
-        assert "&v=2&" in app_policy
-        assert len(shadows) == (1 if regions else 0)
-        if regions:
-            region, other_region = regions
-            shadow = shadows[0]
-            assert "*.posthog.com" not in shadow
-            assert "https://internal-cf.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
-            assert "&v=3&" in shadow
-            connect_src = next(part for part in shadow.split("; ") if part.startswith("connect-src ")).split()
-            assert f"https://live.{region}.posthog.com" in connect_src
-            assert f"https://{region}.i.posthog.com/decide/" in connect_src
-            assert f"https://agent-proxy.{region}.posthog.com" in connect_src
-            # Allowing the other region would hide a request that crossed regions by mistake.
-            assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
+        policy = response["Content-Security-Policy-Report-Only"]
+        directives = {name: sources for name, *sources in (part.split() for part in policy.split("; "))}
+        script_src, connect_src = directives["script-src"], directives["connect-src"]
+        wildcards = {"https://*.posthog.com", "https://*.i.posthog.com"}
+        if not regions:
+            assert wildcards <= set(script_src)
+            return
+
+        region, other_region = regions
+        assert not wildcards & {*script_src, *connect_src}
+        # The app cannot start without its bundle host.
+        assert overrides["JS_URL"] in script_src
+        assert "https://internal-cf.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in script_src
+        assert f"https://live.{region}.posthog.com" in connect_src
+        assert f"https://{region}.i.posthog.com/decide/" in connect_src
+        assert f"https://agent-proxy.{region}.posthog.com" in connect_src
+        # Allowing the other region would hide a request that crossed regions by mistake.
+        assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 
 
 class TestAppCspHeaderName(SimpleTestCase):
@@ -444,12 +444,13 @@ class TestNarrowedAppPolicy(SimpleTestCase):
             },
         )
 
-        # A source the shadow dropped besides the wildcards would report loads the app policy allows,
-        # and a directive it was not asked about would restrict what the shadow does not measure.
+        # This builds the enforced policy, so any directive or source it drops besides the wildcards
+        # changes what the app can load. img-src keeps its wildcard because no list replaces it.
         assert narrowed == [
+            "default-src 'self'",
             "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://js.stripe.com https://app-static-prod.posthog.com",
-            # Without it, workers fall back to script-src and the shadow reports the app's blob: workers.
             "worker-src 'self' blob:",
+            "img-src 'self' data: https://*.posthog.com",
             "connect-src 'self' https://api.github.com https://internal-j.posthog.com",
         ]
 
