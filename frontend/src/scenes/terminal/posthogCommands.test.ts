@@ -137,6 +137,8 @@ describe('PostHog terminal commands', () => {
         ['select 1', ['--filters', '[]'], 'requires a JSON object'],
         ['select 1', ['--field', 'kind="HogQuery"'], 'other than kind or query'],
         ['select 1', ['--field', 'query="select 2"'], 'other than kind or query'],
+        ['select 1', ['--raw'], 'Raw SQL requires --connection-id'],
+        ['select 1', ['--field', 'sendRawQuery=true'], 'Raw SQL requires --connection-id'],
         ['select 1', ['--unknown'], 'Unknown option'],
     ])('rejects invalid hogql input %j %j before executing a query', async (query, argv, message) => {
         await expect(commands.execute(['hogql', '--json', JSON.stringify({ query, argv })], cwd)).rejects.toThrow(

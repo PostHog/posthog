@@ -169,6 +169,9 @@ export function terminalHogqlQuery(text: string, argv: string[]): { query: HogQL
             fields[option.slice(2)] = parsed
         }
     }
+    if (fields.sendRawQuery && !fields.connectionId) {
+        throw new Error('Raw SQL requires --connection-id. Run hogql --help.')
+    }
     return {
         query: {
             tags: { productKey: 'sql_editor', scene: 'Terminal' },
