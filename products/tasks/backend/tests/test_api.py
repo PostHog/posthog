@@ -5276,6 +5276,27 @@ class TestTaskAPI(BaseTaskAPITest):
         assert run.state[f"{adapter}_subscription_user_id"] == self.user.id
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [(action, adapter) for action in ("start", "resume_in_cloud") for adapter in ("claude", "codex")]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_launch_refuses_a_run_on_another_users_plan(
+        self, action: str, adapter: str, mock_workflow: MagicMock
+    ) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        run.state = {
+            **(run.state or {}),
+            f"{adapter}_model_access": "own-subscription",
+            f"{adapter}_subscription_user_id": self.user.id + 1,
+        }
+        run.save(update_fields=["state"])
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{action}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_resume_rejects_inherited_invalid_reasoning_effort(self, mock_workflow):
         task = self.create_task()
