@@ -216,7 +216,7 @@ tools:
         enabled: false
     visual-review-repos-toleration-pileups-retrieve:
         operation: visual_review_repos_toleration_pileups_retrieve
-        enabled: false
+        enabled: true
         scopes:
             - visual_review:read
         annotations:
