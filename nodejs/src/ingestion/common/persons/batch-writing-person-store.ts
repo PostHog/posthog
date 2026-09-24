@@ -1,3 +1,4 @@
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
@@ -91,6 +92,8 @@ type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
 interface PersonUpdateResult {
     success: boolean
     messages: PersonMessage[]
+    /** The row's version after the write, when the write reports it. */
+    version?: number
     // If there's a updated person update, it will be returned here.
     // This is useful for the optimistic update case, where we need to update the cache with the latest version.
     personUpdate?: PersonUpdate
@@ -155,6 +158,17 @@ interface CacheMetrics {
     updateCacheMisses: number
     checkCacheHits: number
     checkCacheMisses: number
+}
+
+/** Anything the entry still has to write: property changes, or a scalar that moved since it last landed. */
+function hasPendingChanges(update: PersonUpdate): boolean {
+    return (
+        Object.keys(update.properties_to_set).length > 0 ||
+        update.properties_to_unset.length > 0 ||
+        update.is_identified !== update.original_is_identified ||
+        !update.created_at.equals(update.original_created_at) ||
+        (update.last_seen_at?.toMillis() ?? null) !== (update.original_last_seen_at?.toMillis() ?? null)
+    )
 }
 
 class BatchWritingPersonsCache {
@@ -424,7 +438,7 @@ class BatchWritingPersonsCache {
             }
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || !update.needs_write) {
+            if (!update || (!update.needs_write && !hasPendingChanges(update))) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
                 this.deferredEvictions.delete(distinctKey)
@@ -453,7 +467,7 @@ class BatchWritingPersonsCache {
         if (personId !== undefined) {
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || !update.needs_write) {
+            if (!update || (!update.needs_write && !hasPendingChanges(update))) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
             } else {
@@ -695,7 +709,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // that mutate an entry between this clear and the async DB write
         // will re-set `needs_write=true` and be picked up by the next flush.
         // DO NOT introduce any `await` inside this block.
-        // Write records are copies taken here, and the entry drains what they carry.
+        // Write records are copies taken here; the entry keeps its pending until the write lands.
         const updateEntries: [string, PersonUpdate][] = []
         for (const [key, update] of this.personCache.getUpdateCacheEntries()) {
             // Skip null entries - these are deleted persons or cleared cache entries
@@ -732,7 +746,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         properties_to_unset: [...update.properties_to_unset],
                     },
                 ])
-                this.drainSentChanges(update)
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -775,6 +788,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             }
 
+            this.settleLandedWrites(updateEntries, allKafkaMessages)
+
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
@@ -793,44 +808,55 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 errorMessage: error instanceof Error ? error.message : String(error),
                 errorStack: error instanceof Error ? error.stack : undefined,
             })
-            this.restoreUnsentChanges(updateEntries)
+            // Pending is untouched until a write lands, so the next flush carries it again.
+            const cache = this.personCache.getUpdateCache()
+            for (const [key] of updateEntries) {
+                const entry = cache.get(key)
+                if (entry) {
+                    entry.needs_write = true
+                }
+            }
             throw error
         }
     }
 
-    /** Folds the pending changes a record carries into the entry's base, so only later changes stay pending. */
-    private drainSentChanges(entry: PersonUpdate): void {
-        entry.properties = { ...entry.properties, ...entry.properties_to_set }
-        for (const key of entry.properties_to_unset) {
-            delete entry.properties[key]
-        }
-        entry.properties_to_set = {}
-        entry.properties_to_unset = []
-        entry.original_is_identified = entry.is_identified
-        entry.original_created_at = entry.created_at
-        entry.original_last_seen_at = entry.last_seen_at
-    }
-
-    /** Puts a failed flush's records back into pending under whatever the entries changed since. */
-    private restoreUnsentChanges(updateEntries: [string, PersonUpdate][]): void {
+    /**
+     * Folds each landed record into the live entry at its key and prunes the pending it carried.
+     * A cache write replaces the entry object, so the key is the handle. The fold applies only when
+     * the row version the write returned is newer than the entry's: responses can arrive out of
+     * landing order, and an older one must not move the base or prune a newer pending value.
+     */
+    private settleLandedWrites(updateEntries: [string, PersonUpdate][], results: FlushResult[]): void {
+        const recordsByUuid = new Map(updateEntries.map(([key, record]) => [record.uuid, { key, record }]))
         const cache = this.personCache.getUpdateCache()
-        for (const [key, record] of updateEntries) {
-            const entry = cache.get(key)
-            if (!entry) {
+        for (const result of results) {
+            const landed = result.uuid === undefined ? undefined : recordsByUuid.get(result.uuid)
+            const entry = landed === undefined ? undefined : cache.get(landed.key)
+            if (!landed || !entry || result.version === undefined) {
                 continue
             }
-            const toSet = { ...record.properties_to_set, ...entry.properties_to_set }
-            for (const unsetKey of entry.properties_to_unset) {
-                delete toSet[unsetKey]
+            if (result.version <= entry.version) {
+                // A newer write already settled; what this one carried is re-sent so it prunes then.
+                entry.needs_write = hasPendingChanges(entry)
+                continue
             }
-            entry.properties_to_set = toSet
-            entry.properties_to_unset = [
-                ...new Set([...record.properties_to_unset, ...entry.properties_to_unset]),
-            ].filter((unsetKey) => !(unsetKey in entry.properties_to_set))
-            entry.original_is_identified = record.original_is_identified
-            entry.original_created_at = record.original_created_at
-            entry.original_last_seen_at = record.original_last_seen_at
-            entry.needs_write = true
+            const { record } = landed
+            entry.properties = { ...entry.properties, ...record.properties_to_set }
+            for (const key of record.properties_to_unset) {
+                delete entry.properties[key]
+            }
+            for (const [key, value] of Object.entries(record.properties_to_set)) {
+                if (isEqual(entry.properties_to_set[key], value)) {
+                    delete entry.properties_to_set[key]
+                }
+            }
+            entry.properties_to_unset = entry.properties_to_unset.filter(
+                (key) => !record.properties_to_unset.includes(key)
+            )
+            entry.original_is_identified = record.is_identified
+            entry.original_created_at = record.created_at
+            entry.original_last_seen_at = record.last_seen_at
+            entry.version = result.version
         }
     }
 
@@ -866,6 +892,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     teamId: update.team_id,
                     uuid: update.uuid,
                     distinctId: update.distinct_id,
+                    version: result.version,
                 })
                 personWriteMethodAttemptCounter.inc({
                     db_write_mode: this.options.dbWriteMode,
@@ -934,6 +961,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                                     teamId: update.team_id,
                                     uuid: update.uuid,
                                     distinctId: update.distinct_id,
+                                    version: result.version,
                                 },
                             ]
                         } catch (error) {
@@ -985,6 +1013,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                                 teamId: update.team_id,
                                 uuid: update.uuid,
                                 distinctId: update.distinct_id,
+                                version: result.version,
                             },
                         ]
                     } catch (error) {
@@ -1049,6 +1078,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                                 teamId: update.team_id,
                                 uuid: update.uuid,
                                 distinctId: update.distinct_id,
+                                version: result.version,
                             },
                         ]
                     } catch (error) {
@@ -1135,6 +1165,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
             const fallbackResult = await this.updatePersonNoAssert(error.latestPersonUpdate)
             const fallbackMessages = fallbackResult.success ? fallbackResult.messages : []
+            const fallbackVersion = fallbackResult.success ? fallbackResult.version : undefined
 
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
@@ -1148,6 +1179,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     teamId: error.latestPersonUpdate.team_id,
                     uuid: error.latestPersonUpdate.uuid,
                     distinctId: error.latestPersonUpdate.distinct_id,
+                    version: fallbackVersion,
                 },
             ]
         }
@@ -2162,7 +2194,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (!result?.success) {
             throw result?.error ?? new NoRowsUpdatedError(`Person with uuid="${personUpdate.uuid}" was not updated`)
         }
-        return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [] }
+        return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [], version: result.version }
     }
 
     /**
@@ -2191,7 +2223,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 ...personUpdate,
                 version: actualVersion,
             }
-            return { success: true, messages: kafkaMessages, personUpdate: updatedPersonUpdate }
+            return {
+                success: true,
+                messages: kafkaMessages,
+                personUpdate: updatedPersonUpdate,
+                version: actualVersion,
+            }
         }
 
         // Optimistic update failed due to version mismatch

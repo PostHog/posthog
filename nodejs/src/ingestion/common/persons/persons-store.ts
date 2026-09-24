@@ -15,6 +15,8 @@ export type FlushResult = {
     teamId: number
     distinctId?: string
     uuid?: string
+    /** The row's version after the write, when the write reports it. */
+    version?: number
 }
 
 /** One source distinct id to merge into the target, with the event that asked for it. */

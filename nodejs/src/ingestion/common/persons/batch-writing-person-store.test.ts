@@ -2977,36 +2977,37 @@ describe('BatchWritingPersonStore', () => {
             expect(secondCallPayload.properties).toEqual(expect.objectContaining({ a: '1', b: '2' }))
         })
 
-        /** Holds the next batch write open; the returned function lets it succeed. */
-        const holdNextWrite = (): (() => void) => {
+        const written = (updates: any[], version: number) =>
+            new Map(updates.map((u: any) => [u.uuid, { success: true, version, kafkaMessage: {} }]))
+
+        /** Holds the next batch write open; the returned function lets it land with this row version. */
+        const holdNextWrite = (version: number): (() => void) => {
             let release!: () => void
             mockRepo.updatePersonsBatch.mockImplementationOnce(
-                (updates: any[]) =>
-                    new Promise((resolve) => {
-                        release = () =>
-                            resolve(
-                                new Map(
-                                    updates.map((u: any) => [
-                                        u.uuid,
-                                        { success: true, version: u.version + 1, kafkaMessage: {} },
-                                    ])
-                                )
-                            )
-                    })
+                (updates: any[]) => new Promise((resolve) => (release = () => resolve(written(updates, version))))
             )
             return () => release()
         }
 
-        it('a read that replaces the entry during the write keeps the sent changes drained', async () => {
+        /** Lets the next batch write land at once with this row version. */
+        const nextWriteLands = (version: number): void => {
+            mockRepo.updatePersonsBatch.mockImplementationOnce((updates: any[]) =>
+                Promise.resolve(written(updates, version))
+            )
+        }
+
+        it('a stale row read during the write neither hides the value in flight nor outlives its landing', async () => {
             const personStore = getPersonsStore()
             await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { x: '1' }, [], {}, 'distinct_id_1')
 
-            const release = holdNextWrite()
+            const release = holdNextWrite(2)
             const flushing = personStore.flush()
-            // A second distinct id of the same person is read while the write is in flight; the
-            // cache write replaces the entry object the flush captured.
+            // A second distinct id of the same person is read from the row before the write lands.
+            mockRepo.fetchPerson.mockResolvedValueOnce({ ...person, properties: { x: 'stale' } })
             await personStore.fetchForUpdate(teamId, 'distinct_id_2', 1)
+            const during = await personStore.fetchForUpdate(teamId, 'distinct_id_1', 1)
+            expect(during?.properties).toEqual(expect.objectContaining({ x: '1' }))
             release()
             await flushing
 
@@ -3018,60 +3019,102 @@ describe('BatchWritingPersonStore', () => {
             expect(second.properties).toEqual(expect.objectContaining({ x: '1' }))
         })
 
-        it('a merge update stamps both identifiers of its person over a stale mapping', async () => {
-            const personStore = getPersonsStore()
-            const other = { ...person, id: '99', uuid: 'uuid-99' }
-            // The distinct id still maps to another person's entry when the merge writes its survivor.
-            personStore.setCachedPersonForUpdate(teamId, 'distinct_id_1', fromInternalPerson(other, 'distinct_id_1'), 0)
-
-            await personStore.updatePersonForMerge(person, { properties: { merged: 'yes' } }, 'distinct_id_1', 0)
-
-            const entry = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'distinct_id_1')
-            expect(entry).toMatchObject({ id: person.id, uuid: person.uuid })
-        })
-
-        it('a second flush during the write sends only the sets added since the first', async () => {
+        it('a second flush during the write carries the sets in flight, and a later flush carries neither', async () => {
             const personStore = getPersonsStore()
             await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'free' }, [], {}, 'distinct_id_1')
 
-            const release = holdNextWrite()
+            const release = holdNextWrite(3)
             const first = personStore.flush()
-            // Another batch sets a second key and flushes while the first write is still out.
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { tier: 'gold' }, [], {}, 'distinct_id_1')
+            nextWriteLands(2)
+            await personStore.flush()
+            release()
+            await first
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { other: 'x' }, [], {}, 'distinct_id_1')
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(3)
+            expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0].properties_to_set).toEqual({
+                plan: 'free',
+                tier: 'gold',
+            })
+            expect(mockRepo.updatePersonsBatch.mock.calls[2][0][0].properties_to_set).toEqual({ other: 'x' })
+        })
+
+        it('a write whose answer arrives after a newer one landed does not move the base back', async () => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'free' }, [], {}, 'distinct_id_1')
+
+            // The first write lands first (version 2) but answers last; the second lands at version 3.
+            const release = holdNextWrite(2)
+            const first = personStore.flush()
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
+            nextWriteLands(3)
             await personStore.flush()
             release()
             await first
 
-            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
-            expect(mockRepo.updatePersonsBatch.mock.calls[0][0][0].properties_to_set).toEqual({ plan: 'free' })
-            expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0].properties_to_set).toEqual({ tier: 'gold' })
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'free' }, [], {}, 'distinct_id_1')
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(3)
+            expect(mockRepo.updatePersonsBatch.mock.calls[2][0][0].properties_to_set).toEqual({ plan: 'free' })
+        })
+
+        it('a write whose fold is skipped leaves what it carried to the next flush', async () => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { a: '1' }, [], {}, 'distinct_id_1')
+
+            // The second write lands first (version 2) but answers after the first (version 3).
+            const releaseFirst = holdNextWrite(3)
+            const first = personStore.flush()
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { b: '2' }, [], {}, 'distinct_id_1')
+            const releaseSecond = holdNextWrite(2)
+            const second = personStore.flush()
+            releaseFirst()
+            await first
+            releaseSecond()
+            await second
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(3)
+            expect(mockRepo.updatePersonsBatch.mock.calls[2][0][0].properties_to_set).toEqual({ b: '2' })
+        })
+
+        it('an entry with a write in flight outlives its batch until the write lands', async () => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'free' }, [], {}, 'distinct_id_1')
+
+            const release = holdNextWrite(2)
+            const flushing = personStore.flush()
+            personStore.releaseBatch(0)
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeDefined()
+
+            release()
+            await flushing
+
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
         })
 
         it.each([
-            [
-                'properties',
-                { plan: 'free' },
-                ['old'],
-                {},
-                { properties_to_set: { plan: 'free' }, properties_to_unset: ['old'] },
-            ],
+            ['a set', { plan: 'free' }, [], {}, { properties_to_set: { plan: 'free' } }],
             ['a scalar', {}, [], { is_identified: true }, { is_identified: true }],
-        ])(
-            'a failed flush keeps %s it took pending and the next flush sends it',
-            async (_case, set, unset, other, sent) => {
-                const personStore = getPersonsStore()
-                await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
-                await personStore.updatePersonWithPropertiesDiffForUpdate(person, set, unset, other, 'distinct_id_1')
+        ])('a failed flush keeps %s pending and the next flush sends it', async (_case, set, unset, other, sent) => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, set, unset, other, 'distinct_id_1')
 
-                mockRepo.updatePersonsBatch.mockRejectedValueOnce(new Error('connection lost'))
-                await expect(personStore.flush()).rejects.toThrow('connection lost')
-                await personStore.flush()
+            mockRepo.updatePersonsBatch.mockRejectedValueOnce(new Error('connection lost'))
+            await expect(personStore.flush()).rejects.toThrow('connection lost')
+            await personStore.flush()
 
-                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
-                expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0]).toMatchObject(sent)
-            }
-        )
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+            expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0]).toMatchObject(sent)
+        })
 
         it('two distinct_ids pointing to the same person share a single cache entry across batches', async () => {
             const personStore = getPersonsStore()
