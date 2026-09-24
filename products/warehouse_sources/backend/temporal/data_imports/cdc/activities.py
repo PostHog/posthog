@@ -90,6 +90,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     captures_to_buffer,
     consolidated_resource_name,
+    has_batches_in_flight,
     snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -115,6 +116,10 @@ SLOT_INVALIDATION_RECOVERY_MESSAGE = (
     "slot and scheduled a full re-sync of this table; change data capture resumes automatically "
     "once the re-sync completes."
 )
+
+# Marks a table whose reset waits for its running sync to stop. The slot moves past the TRUNCATE
+# meanwhile, so this key is what makes a later capture run finish the reset.
+CDC_RESET_PENDING_KEY = "cdc_reset_pending"
 
 # The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
 # engine invalidates the slot first and we lose the chance to act cleanly.
@@ -274,6 +279,9 @@ class CDCExtractActivity:
         self._source_buffered = False
         self._buffered_snapshot_flag: bool | None = None
         self._truncated_tables: list[str] = []
+        # Tables whose reset waits for a sync that can still hand over. The reset re-snapshots them, so
+        # this run drops their changes.
+        self._tables_awaiting_reset: set[str] = set()
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -729,7 +737,7 @@ class CDCExtractActivity:
 
         for table_name, raw_table in tables.items():
             schema = self.schema_by_name.get(table_name)
-            if schema is None:
+            if schema is None or table_name in self._tables_awaiting_reset:
                 continue
 
             self._safe_heartbeat()
@@ -883,6 +891,7 @@ class CDCExtractActivity:
             self.log.warning("cdc_orphan_reconcile_unexpected_failed", exc_info=True)
 
         try:
+            self._finish_pending_resets()
             self._require_configured_slot()
             self.reader.connect()
             # Taken before the peek, so anything committed after it stays above this position and
@@ -1464,8 +1473,9 @@ class CDCExtractActivity:
         """Process any truncated tables observed during decoding.
 
         Runs before every slot advance, so a failed reset or purge fails the run while the slot still
-        holds the TRUNCATE and the retry repeats it. Returns every table truncated this run, so the
-        no-changes path can decide whether to advance the slot.
+        holds the TRUNCATE and the retry repeats it. A reset that must wait for a sync to stop is
+        recorded on the table instead, so the slot can move on. Returns every table truncated this
+        run, so the no-changes path can decide whether to advance the slot.
         """
         truncated_tables = list(self.reader.truncated_tables)
         self.reader.clear_truncated_tables()
@@ -1480,18 +1490,37 @@ class CDCExtractActivity:
             self._schema_log(trunc_schema).warning(
                 "truncate_detected", table=table_name, schema_id=str(trunc_schema.id)
             )
-            self._reset_schema_to_snapshot(trunc_schema)
-            self._unpause_schema_schedule(trunc_schema)
+            if self._reset_schema_to_snapshot(trunc_schema):
+                self._unpause_schema_schedule(trunc_schema)
         return list(self._truncated_tables)
 
-    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
-        """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
-        # A snapshot already running may have read the table before changes this reset drops, as
-        # when a retry reads a TRUNCATE again. It must not reach its hand-over. A failed cancel fails
-        # the run while the slot still holds the TRUNCATE, so the retry repeats the reset.
-        cancelled = cancel_running_sync(schema)
-        if cancelled:
-            self._schema_log(schema).info("cdc_reset_cancelled_running_sync", workflow_id=cancelled)
+    def _finish_pending_resets(self) -> None:
+        """Retry the resets earlier runs left pending, before this run reads the WAL.
+
+        Repeating a reset that already happened is safe: its schedule stayed paused, so no new sync
+        has started since.
+        """
+        for schema in self.cdc_schemas:
+            if (schema.sync_type_config or {}).get(CDC_RESET_PENDING_KEY) and self._reset_schema_to_snapshot(schema):
+                self._unpause_schema_schedule(schema)
+
+    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> bool:
+        """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch.
+
+        Returns False when a sync of the table could still hand over, which leaves the reset pending.
+        """
+        # A sync that hands over after the reset flips the table to streaming with reset_pipeline still
+        # set, so its next run wipes the table. A cancel only asks the workflow to stop, and the loader
+        # still applies its queued batches, so the reset waits until neither can happen. A failed pause
+        # or cancel fails the run while the slot still holds the TRUNCATE.
+        pending = (schema.sync_type_config or {}).get(CDC_RESET_PENDING_KEY)
+        if isinstance(pending, dict) and pending.get("clear_deferred_runs"):
+            clear_deferred_runs = True
+        self._pause_schema_schedule(schema)
+        stopping = cancel_running_sync(schema)
+        if stopping is not None or has_batches_in_flight(schema):
+            self._defer_reset(schema, clear_deferred_runs=clear_deferred_runs, stopping_workflow_id=stopping)
+            return False
         # The re-seeding snapshot starts after this run, so it covers every change this run read.
         # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
         if self.batcher is not None:
@@ -1503,7 +1532,12 @@ class CDCExtractActivity:
         removes = ["cdc_last_log_position"]
         if clear_deferred_runs:
             removes.append("cdc_deferred_runs")
-        updates: dict[str, typing.Any] = {"cdc_mode": "snapshot", "reset_pipeline": True}
+        # Pending until the schedule is unpaused, so a failed unpause repeats on the next run.
+        updates: dict[str, typing.Any] = {
+            "cdc_mode": "snapshot",
+            "reset_pipeline": True,
+            CDC_RESET_PENDING_KEY: {"clear_deferred_runs": clear_deferred_runs},
+        }
         # Later runs write the table's changes to the emptied buffer as an unbroken run, so the next
         # snapshot stays in the buffer with them.
         if schema.name in self._buffered_table_names and (
@@ -1523,10 +1557,31 @@ class CDCExtractActivity:
             removes=removes,
             extra_model_fields={"initial_sync_complete": False},
         )
+        self._tables_awaiting_reset.discard(schema.name)
         if clear_deferred_runs:
             self._emit_deferred_runs_depth()
+        return True
+
+    def _defer_reset(
+        self, schema: ExternalDataSchema, *, clear_deferred_runs: bool, stopping_workflow_id: str | None
+    ) -> None:
+        """Leave the table out of capture until a later run can reset it."""
+        if self.batcher is not None:
+            self.batcher.discard(schema.name)
+        self._tables_awaiting_reset.add(schema.name)
+        self._update_schema_sync_type_config(
+            schema, updates={CDC_RESET_PENDING_KEY: {"clear_deferred_runs": clear_deferred_runs}}
+        )
+        self._schema_log(schema).info("cdc_reset_waits_for_running_sync", stopping_workflow_id=stopping_workflow_id)
+
+    def _pause_schema_schedule(self, schema: ExternalDataSchema) -> None:
+        # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+        from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+
+        pause_external_data_schedule(str(schema.id))
 
     def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
+        """Let a reset table's schedule start its snapshot. A failure leaves the reset pending for the next run."""
         schema_log = self._schema_log(schema)
         try:
             from products.data_warehouse.backend.facade.api import unpause_external_data_schedule
@@ -1535,6 +1590,8 @@ class CDCExtractActivity:
             schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
         except Exception:
             schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
+            return
+        self._update_schema_sync_type_config(schema, removes=[CDC_RESET_PENDING_KEY])
 
     def _pause_cdc_extraction_schedule(self) -> None:
         """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""
@@ -1709,9 +1766,12 @@ class CDCExtractActivity:
         # fails below, the next run hits the invalidation again and recovery reruns
         # idempotently — no schema keeps streaming across the gap unnoticed. Deferred
         # runs are dropped: they reference WAL from the dead slot, the re-snapshot
-        # supersedes them, and flushing them later would merge stale rows over fresh ones.
+        # supersedes them, and flushing them later would merge stale rows over fresh ones. A schema
+        # whose sync is still stopping keeps its reset pending, and a later run finishes it.
+        reset_schemas = []
         for schema in self.cdc_schemas:
-            self._reset_schema_to_snapshot(schema, clear_deferred_runs=True)
+            if self._reset_schema_to_snapshot(schema, clear_deferred_runs=True):
+                reset_schemas.append(schema)
             schema.status = ExternalDataSchema.Status.FAILED
             schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
             schema.save(update_fields=["status", "latest_error", "updated_at"])
@@ -1726,7 +1786,7 @@ class CDCExtractActivity:
 
         # Unpause only after the new slot exists, so no snapshot can run before change
         # capture has a consistent point to resume from.
-        for schema in self.cdc_schemas:
+        for schema in reset_schemas:
             self._unpause_schema_schedule(schema)
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))

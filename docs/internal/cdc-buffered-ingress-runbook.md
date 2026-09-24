@@ -53,7 +53,11 @@ The consumer replays all of them over the snapshot, including changes the snapsh
 Replaying an unbroken run in order converges on the source's state, because the merge is an upsert by primary key.
 A gap would break that, so capture empties the table's buffer when it starts a snapshot there, which drops files left from before a re-enable.
 A TRUNCATE resets the table, empties its buffer, and drops that run's pending changes for it.
-The reset also cancels the table's running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
+The reset also pauses the table's schedule and cancels its running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
+A cancel only asks the workflow to stop, and the loader still applies batches the sync queued, so while either is in progress the reset waits (`cdc_reset_waits_for_running_sync`).
+The table then carries `cdc_reset_pending`, capture leaves it out, and each later run tries the reset again before it reads the WAL.
+The new snapshot reads the table after the reset, so nothing skipped is lost.
+The key stays until the schedule is unpaused, so a failed unpause is retried too.
 Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
 Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
 Without the marker, the hand-over purges the whole buffer, as legacy always did.

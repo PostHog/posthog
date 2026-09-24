@@ -172,6 +172,11 @@ def _stub_sync_type_config_merge():
             return_value=None,
         ),
         patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_batches_in_flight",
+            return_value=False,
+        ),
+        patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
+        patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_schema_running_unless_halted",
             side_effect=_fake_mark_schema_running_unless_halted,
         ),
@@ -3880,14 +3885,27 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("cancelled", None),
-            ("already_finished", RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")),
-            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+            ("sync_still_stopping", None, False, "waits"),
+            (
+                "sync_closed_with_batches_still_loading",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                True,
+                "waits",
+            ),
+            (
+                "sync_closed_and_nothing_queued",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                False,
+                "resets",
+            ),
+            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), False, "raises"),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.ExternalDataJob")
-    def test_a_reset_stops_the_tables_running_sync_first(self, _name, cancel_error, MockJob, mock_purge):
+    def test_a_reset_stops_the_tables_running_sync_first(
+        self, _name, cancel_error, batches_in_flight, outcome, MockJob, mock_purge
+    ):
         # A snapshot that started before a repeated reset missed the changes the reset drops, so it
         # must not reach its hand-over.
         source = _make_source()
@@ -3895,7 +3913,6 @@ class TestBufferedIngressCapture:
         act = _make_extract_activity(source)
         running = MockJob.objects.filter.return_value.exclude.return_value.exclude.return_value
         running.order_by.return_value.first.return_value = MagicMock(workflow_id="users-snapshot")
-        fails = cancel_error is not None and cancel_error.status != RPCStatusCode.NOT_FOUND
 
         with (
             patch(
@@ -3906,17 +3923,56 @@ class TestBufferedIngressCapture:
                 "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
                 side_effect=cancel_error,
             ) as cancel,
+            patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule") as pause,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_batches_in_flight",
+                return_value=batches_in_flight,
+            ),
         ):
-            if fails:
+            if outcome == "raises":
                 with pytest.raises(RPCError):
                     act._reset_schema_to_snapshot(schema)
             else:
                 act._reset_schema_to_snapshot(schema)
 
+        assert mock_purge.called is (outcome == "resets")
+        assert schema.sync_type_config.get("reset_pipeline") is (True if outcome == "resets" else None)
+        assert ("cdc_reset_pending" in schema.sync_type_config) is (outcome != "raises")
+        assert (schema.name in act._tables_awaiting_reset) is (outcome == "waits")
+        pause.assert_called_once_with(str(schema.id))
         cancel.assert_called_once_with("users-snapshot")
-        # A cancel that did not go through fails the run before the reset, so the retry repeats both.
-        assert mock_purge.called is not fails
-        assert schema.sync_type_config.get("reset_pipeline") is (None if fails else True)
+
+    @parameterized.expand(
+        [
+            ("sync_still_stopping", "users-snapshot", True),
+            ("sync_stopped", None, False),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(
+        self, _name, stopping_workflow_id, waits, MockBufferWriter, mock_purge
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": False}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=stopping_workflow_id,
+            ),
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+        ):
+            reader, _s3, _producer = self._run(MockBufferWriter, events, [schema], source)
+
+        assert mock_purge.called is not waits
+        assert unpause.called is not waits
+        assert schema.sync_type_config.get("reset_pipeline") is (None if waits else True)
+        assert ("cdc_reset_pending" in schema.sync_type_config) is waits
+        assert MockBufferWriter.return_value.write_batch.called is not waits
+        reader.confirm_position.assert_called_once_with("0/100")
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
