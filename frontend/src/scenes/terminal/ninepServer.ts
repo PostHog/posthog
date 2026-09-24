@@ -27,7 +27,9 @@ function qid(writer: NinePWriter, node: TerminalNode): NinePWriter {
 
 export class NinePServer {
     private fids = new Map<number, Fid>()
-    private writers = new Set<string | number>()
+    private get writers(): Set<string | number> {
+        return this.filesystem.writers
+    }
     private requests = new Map<number, AbortController>()
     private queue: Promise<void> = Promise.resolve()
     private messageSize = 256 * 1024

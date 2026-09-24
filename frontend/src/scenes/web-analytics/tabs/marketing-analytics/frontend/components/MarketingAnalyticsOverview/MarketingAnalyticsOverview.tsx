@@ -12,6 +12,7 @@ import {
     MarketingAnalyticsAggregatedQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
@@ -41,7 +42,7 @@ export function MarketingAnalyticsOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -69,7 +70,13 @@ export function MarketingAnalyticsOverview(props: {
 
     const hasResults = overviewItems.length > 0
     if (responseError && !responseLoading && !hasResults) {
-        return <InsightErrorState title={responseError} />
+        return <InsightErrorState title={responseError} queryId={responseErrorObject?.queryId ?? queryId} />
+    }
+
+    // A cold precompute window comes back as an empty result, which the metric grid would render as a row
+    // of blanks. Say it is still being prepared instead.
+    if (!responseLoading && marketingOverviewQueryResponse?.precomputeNotReady) {
+        return <MarketingAnalyticsNotReady />
     }
 
     // Combine validation warnings with any backend warnings (e.g. skipped conversion goals)

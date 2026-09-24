@@ -203,6 +203,17 @@ class TestErrorFormattingEmbedding:
 
 
 class TestEvaluationFormatting:
+    @parameterized.expand([(0, True, "0"), (7.25, True, "7.25"), (None, False, "N/A")])
+    def test_numeric_evaluation(self, score: float | None, applicable: bool, expected: str) -> None:
+        event = {
+            "properties": {
+                "$ai_evaluation_result_type": "numeric",
+                "$ai_evaluation_numeric_result": score,
+                "$ai_evaluation_applicable": applicable,
+            }
+        }
+        assert f"Result: {expected}" in format_evaluation_text_repr(event)
+
     def test_evaluation_pass_with_reasoning(self):
         event = {
             "properties": {

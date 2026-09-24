@@ -124,16 +124,18 @@ def registry_repo(tmp_path: Path) -> Path:
     _write(
         tmp_path,
         "owners.yaml",
-        "version: 1\nowners: []\nteams:\n"
+        "version: 1\nowners: []\nproducers: [review-bot]\nteams:\n"
         "  team-registry:\n    slack: '#registry-chan'\n"
         "  team-silent:\n    slack: false\n"
-        "  team-split:\n    slack: '#split-people'\n    notifications: '#split-bots'\n",
+        "  team-split:\n    slack: '#split-people'\n    notifications: '#split-bots'\n"
+        "  team-mapped:\n    slack: '#mapped-people'\n    notifications:\n      review-bot: '#mapped-reviews'\n",
     )
     _write(tmp_path, "reg/owners.yaml", "version: 1\nowners: [team-registry]\n")
     _write(tmp_path, "silent/owners.yaml", "version: 1\nowners: [team-silent]\n")
     _write(tmp_path, "derive/owners.yaml", "version: 1\nowners: [team-nonreg]\n")
     _write(tmp_path, "indiv/owners.yaml", "version: 1\nowners: ['@alice', team-registry]\n")
     _write(tmp_path, "split/owners.yaml", "version: 1\nowners: [team-split]\n")
+    _write(tmp_path, "mapped/owners.yaml", "version: 1\nowners: [team-mapped]\n")
     return tmp_path
 
 
@@ -870,6 +872,43 @@ def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry
     assert wire["derive/x.py"]["slack"] == "#team-nonreg"
 
 
+def _resolve_json(front_door: str, repo: Path, args: list[str]) -> tuple[int, str]:
+    """`resolve --json` and `python -m owners_yaml` on one path, as (exit code, output)."""
+    if front_door == "cli":
+        result = CliRunner().invoke(main, ["resolve", "--json", "--repo-root", str(repo), *args])
+        return result.exit_code, result.output
+    completed = _run_entrypoint(repo, "--repo-root", str(repo), *args)
+    return completed.returncode, completed.stdout + completed.stderr
+
+
+@pytest.mark.parametrize("front_door", ["cli", "module"])
+@pytest.mark.parametrize(
+    "producer,channel",
+    [
+        (None, "#mapped-people"),
+        ("review-bot", "#mapped-reviews"),
+        ("typo-bot", None),
+    ],
+    ids=["no-producer", "mapped-producer", "undeclared-producer"],
+)
+def test_both_front_doors_pass_the_producer_to_the_channel_lookup(
+    registry_repo: Path, front_door: str, producer: str | None, channel: str | None
+) -> None:
+    # Without the flag a per-producer mapping is never selected, so every bot lands on the people
+    # channel; with an undeclared name it would land there too, which is why that is an error.
+    args = ["--purpose", "notifications", *(["--producer", producer] if producer else []), "mapped/x.py"]
+
+    exit_code, output = _resolve_json(front_door, registry_repo, args)
+
+    if channel is None:
+        assert exit_code != 0
+        assert "unknown producer 'typo-bot'" in output
+        assert "review-bot" in output
+        return
+    assert exit_code == 0, output
+    assert json.loads(output)["mapped/x.py"]["slack"] == channel
+
+
 @pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])
 def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_repo: Path, root: str) -> None:
     # An empty root is the unset "$VAR" case: Path("") is Path("."), which would
@@ -1047,8 +1086,9 @@ def test_cli_lints_a_tree_that_is_not_a_git_worktree(registry_repo: Path) -> Non
     result = CliRunner().invoke(main, ["lint", "--repo-root", str(registry_repo)])
 
     assert result.exit_code == 0, result.output
-    # The walk finds the six ownership files plus the two code files, and only loose/code.py is unowned.
-    assert "coverage: 2 of 8 tracked file(s) resolve to unowned" in result.output
+    # The walk finds the seven ownership files plus the two code files. The root file declares no
+    # owners, so it and loose/code.py are the unowned two.
+    assert "coverage: 2 of 9 tracked file(s) resolve to unowned" in result.output
 
 
 def test_cli_live_lint_validates_names_used_only_in_additions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

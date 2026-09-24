@@ -52,6 +52,7 @@ import { calculateMovePath } from './utils'
 interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
     beforeTree?: ReactNode
+    renderTree?: (tree: JSX.Element) => ReactNode
     showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
@@ -126,7 +127,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         root,
         shortcutScope,
         onlyTree = false,
-        disableScroll = onlyTree || !!props.beforeTree,
+        disableScroll = onlyTree || !!props.beforeTree || !!props.renderTree,
         searchPlaceholder,
         treeSize = 'default',
         showRecents,
@@ -138,7 +139,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
-    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
+    const { reorderShortcutByDrag, setStarredNavigationRef } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
         fullFileSystemFiltered,
@@ -170,7 +171,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         setEditingItemId,
         setSortMethod,
         setSelectMode,
-        setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
     const selectMode = selectModeOverride ?? projectTreeSelectMode
@@ -286,9 +286,15 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 onItemClicked?.(item)
 
                 if (item?.record?.href) {
-                    router.actions.push(
+                    const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
+                    setStarredNavigationRef(
+                        root === 'shortcuts://' && shortcutScope === 'files' && item.record.type && item.record.ref
+                            ? { type: item.record.type, ref: item.record.ref }
+                            : null,
+                        href
                     )
+                    router.actions.push(href)
                 }
 
                 if (item?.record?.path) {
@@ -659,11 +665,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     />
                 </BindLogic>
             }
-            filterDropdown={
-                showFilterDropdown ? (
-                    <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
-                ) : null
-            }
+            filterDropdown={showFilterDropdown ? <TreeFiltersDropdownMenu logicProps={projectTreeLogicProps} /> : null}
             panelMenuItems={
                 showSortMenuItems ? <TreeSortMenuItems sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
@@ -737,10 +739,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 </>
             )}
 
-            {props.beforeTree ? (
+            {props.beforeTree || props.renderTree ? (
                 <ScrollableShadows direction="vertical" className="flex-1 min-h-0" styledScrollbars>
                     {props.beforeTree}
-                    {tree}
+                    {props.renderTree ? props.renderTree(tree) : tree}
                 </ScrollableShadows>
             ) : (
                 tree

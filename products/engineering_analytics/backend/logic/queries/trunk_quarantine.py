@@ -8,12 +8,15 @@ under ``'unowned'``.
 
 from datetime import UTC, datetime, timedelta
 
+from posthog.egress.limiter.policies import Priority
+
 from products.engineering_analytics.backend.facade.contracts import (
     TrunkQuarantineDebt,
     TrunkQuarantinedTest,
     TrunkQuarantineTeamDebt,
 )
 from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, resolve_test_ownership
+from products.engineering_analytics.backend.logic.ownership_files import repo_files
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 # Oldest first, so a repo past the cap keeps the debt that has aged past its TTL.
@@ -90,7 +93,12 @@ def query_trunk_quarantine_debt(
         (runner, nodeid, QuarantinedTestFile(source_path=source_path, crate=crate), status, setting, case_id, at)
         for runner, nodeid, source_path, crate, status, setting, case_id, at in rows
     ]
-    owned_by_test = resolve_test_ownership(curated.repository, [row[2] for row in parsed])
+    owned_by_test = resolve_test_ownership(
+        curated.repository,
+        [row[2] for row in parsed],
+        # A person is waiting on the board, so the reads run on the interactive lane.
+        files=repo_files(curated.team, curated.repository, source_id=curated.source_id, priority=Priority.NORMAL),
+    )
     tests: list[TrunkQuarantinedTest] = []
     for (runner, nodeid, _file, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
         parsed, owned_by_test.tests, strict=True

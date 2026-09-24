@@ -22,7 +22,7 @@ from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client.connection import ClickHouseCredentials
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 from posthog.security.outbound_proxy import internal_requests_session
 
@@ -311,7 +311,7 @@ class ClickHouseClient:
         if database:
             self.params["database"] = database
 
-        self.params["max_query_size"] = "1048576"  # 1MB
+        self.params["max_query_size"] = str(MAX_QUERY_SIZE_BYTES)
 
         self.params.update(kwargs)
 
@@ -380,6 +380,9 @@ class ClickHouseClient:
             # as format placeholders
             escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
             query = query % escaped_parameters
+            # HogQL prints the empty-object sentinel '{}' inline for every property read on the native-JSON
+            # events table, and the formatter would auto-number it to '{0}'. An empty pair is never a placeholder.
+            query = re.sub(r"(?<!\{)\{\}(?!\})", "{{}}", query)
             query = KeywordOnlyFormatter().format(query, **format_parameters)
         else:
             query = query % format_parameters

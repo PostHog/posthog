@@ -969,6 +969,7 @@ export function TaskInput({
 
   useWarmTask({
     claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
+    codexModelAccess: adapter === "codex" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -979,9 +980,10 @@ export function TaskInput({
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     agentRuntime: runtime,
-    runtimeAdapter: adapter ?? null,
+    runtimeAdapter: adapter ?? "claude",
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
+    permissionMode: currentExecutionMode,
     sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
     customImageId: cloudIds.customImageId ?? null,
   });
