@@ -83,6 +83,14 @@ describe("TaskRepositoryChip", () => {
       query: "acme",
       expected: ["acme/docs", "acme/web"],
     },
+    {
+      name: "drops results left over from the previous query",
+      pinned: [],
+      selected: [],
+      fetched: ["acme/docs", "acme/web"],
+      query: "web",
+      expected: ["acme/web"],
+    },
   ])("$name", ({ pinned, selected, fetched, query, expected }) => {
     expect(
       orderTaskRepositoryItems({ pinned, selected, fetched, query }),

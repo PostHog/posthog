@@ -72,7 +72,10 @@ export function orderTaskRepositoryItems({
   const matches = (repository: string) =>
     repository.toLowerCase().includes(needle);
   const leading = pinned.filter(matches);
-  const results = fetched.filter((repository) => !pinned.includes(repository));
+  // `fetched` can still hold the previous query's page while the next loads.
+  const results = fetched.filter(
+    (repository) => matches(repository) && !pinned.includes(repository),
+  );
   // Selected repositories stay listed (and checked) even when the remote
   // search page doesn't include them.
   const unlisted = selected.filter(
