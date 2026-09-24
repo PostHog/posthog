@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconChevronDown, IconPencil, IconStack, IconTrash, IconX } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconChevronDown, IconPencil, IconStack, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -151,26 +151,26 @@ export function QueuedMessageList({
                     <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
                         <IconStack />
                         <span data-attr="run-queue-label">
-                            {held
-                                ? `Not sent yet. Steer to send ${messages.length > 1 ? 'them' : 'it'}.`
-                                : `${messages.length} queued`}
+                            {messages.length} queued{held && ', not sent yet'}
                         </span>
                     </span>
                 </LemonButton>
                 {onSteer && (
                     <LemonButton
                         size="xsmall"
-                        type="tertiary"
+                        // The only way forward once the queue is held, so it carries the weight there.
+                        type={held ? 'secondary' : 'tertiary'}
+                        icon={<IconArrowRight />}
                         data-attr="run-queue-steer"
                         onClick={onSteer}
                         loading={steerPending}
                         disabledReason={
                             steerDisabledReason ?? (editingId ? 'Save or cancel your edit first' : undefined)
                         }
-                        tooltip="Send queued messages before the turn ends"
+                        tooltip="Sends without waiting for the agent to finish this turn."
                         sideIcon={<KeyboardShortcut escape />}
                     >
-                        Steer
+                        Send now
                     </LemonButton>
                 )}
             </div>
