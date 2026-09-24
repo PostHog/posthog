@@ -276,6 +276,19 @@ class DataWarehouseSavedQuerySerializer(
         validated_data.pop("sync_frequency", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
+        dag_obj = None
+        if dag_id:
+            # Resolved before the save, and outside the sync below whose failures are swallowed. A
+            # caller that named a DAG it may not write to must hear about it, rather than get a
+            # saved view the sync then refuses to place.
+            dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
+            if dag_obj is None:
+                raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
+            if dag_obj.is_managed:
+                raise serializers.ValidationError(
+                    {"dag_id": "PostHog manages this DAG, so a view can't be added to it."}
+                )
+
         if not soft_update:
             try:
                 # The columns will be inferred from the query
@@ -334,15 +347,6 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-        dag_obj = None
-        if dag_id:
-            # Resolved outside the sync below, whose failures are swallowed: a caller that named a
-            # DAG that is not theirs must hear about it rather than get a view in the default DAG.
-            try:
-                dag_obj = DAG.objects.get(id=dag_id, team_id=view.team_id)
-            except DAG.DoesNotExist:
-                raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
-
         # best effort sync to new data modeling DAG representation
         try:
             sync_saved_query_to_dag(view, dag=dag_obj)
