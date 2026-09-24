@@ -126,7 +126,7 @@ describe('observationSearchLogic', () => {
                 ],
             },
         ])
-        const recordingsSpy = jest.fn(() => [200, { results: [{ id: 's-playable' }], has_next: false }])
+        const recordingsSpy: jest.Mock = jest.fn(() => [200, { results: [{ id: 's-playable' }], has_next: false }])
         useMocks({ get: { '/api/environments/:team_id/session_recordings': recordingsSpy } })
 
         const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
