@@ -342,6 +342,41 @@ describe("groupToolRuns", () => {
     expect(out[1]).toMatchObject({ id: "chart-2" });
   });
 
+  it("keeps a finished turn's standalone chart in place once a new turn starts", () => {
+    const finishedTurn = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = finishedTurn;
+      finishedTurn.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+    const chartCall = chart("chart-1");
+
+    const before = groupToolRuns([toolItem("before"), chartCall]);
+    const after = groupToolRuns([
+      toolItem("before"),
+      chartCall,
+      toolItem("next-turn-1"),
+      toolItem("next-turn-2"),
+    ]);
+
+    expect(before[1]).toMatchObject({ id: "chart-1" });
+    expect(after[1]).toMatchObject({ id: "chart-1" });
+  });
+
   it("still groups an MCP tool call whose result has no UI app", () => {
     const execCall = toolItem("exec", {
       toolCallId: "exec",
