@@ -205,10 +205,9 @@ tools:
             `agent_context` that agents must use for semantic-layer metric references, data sources, tile-specific
             assumptions, caveats, and editing guidance. Resolve metric names with metric-describe instead of treating
             the dashboard as the metric definition. Widget tiles include a `widget` object with `widget_type` and
-            `config` but no live data — use dashboard-widgets-run
-            with tile IDs from this response. Insight results, filters, and query metadata are omitted to save context
-            — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or
-            insight-query for a single insight. Supports
+            `config` but no live data — use dashboard-widgets-run with tile IDs from this response. Insight results,
+            filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual
+            data for every insight on the dashboard in one call, or insight-query for a single insight. Supports
             variables_override and filters_override query params; on this endpoint they affect only the merged `filters`
             and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same
             query params to dashboard-insights-run.
