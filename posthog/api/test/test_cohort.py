@@ -195,6 +195,11 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 8,
                 "deleted": False,
+                "is_static": False,
+                # The legacy `groups` payload leaves `filters` empty, so neither classification
+                # is computed for it.
+                "cohort_type": None,
+                "condition_type": None,
             },
             team=ANY,
             request=ANY,
@@ -238,10 +243,59 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 9,
                 "deleted": False,
+                "is_static": False,
+                "cohort_type": None,
+                "condition_type": None,
                 "updated_by_creator": True,
             },
             team=ANY,
             request=ANY,
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cohort_created_reports_realtime_classification(
+        self, patch_calculate_cohort, patch_capture, patch_on_commit
+    ):
+        """ "cohort created" carries the realtime classification: it is the only way to tell
+        realtime adoption apart from any other cohort in analytics."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "performed an action",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort = Cohort.objects.get(id=response.json()["id"])
+        reported = patch_capture.call_args[0][2]
+        self.assertEqual(reported["cohort_type"], cohort.cohort_type)
+        self.assertEqual(reported["cohort_type"], CohortType.REALTIME)
+        self.assertFalse(reported["is_static"])
+        self.assertEqual(
+            reported["condition_type"],
+            {"person_properties": False, "behavioral": True, "lifecycle": False, "cohorts": False},
         )
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())

@@ -698,6 +698,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
             "deleted": self.deleted,
+            "is_static": self.is_static,
+            # A realtime cohort is only distinguishable by these two columns, so without them
+            # "cohort created" cannot tell realtime adoption from any other cohort. `cohort_type`
+            # is what the cohort was classified as at this moment: a later calculation clears it
+            # when the cohort grows past the realtime member ceiling.
+            "cohort_type": self.cohort_type,
+            "condition_type": self.condition_type,
         }
 
     def _safe_reset_calculating_state(self, completed_version: int) -> None:
