@@ -107,6 +107,13 @@ export function copyIndexHtml(
             : `
                         await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})`
         const scriptCode = `
+            // The server has already applied ?stable_chunks (it sets or clears the opt-in cookie),
+            // so drop it from the address bar. A bookmarked or shared URL must not keep forcing a build.
+            if (window.location.search.indexOf('stable_chunks=') !== -1) {
+                var cleanUrl = new URL(window.location.href)
+                cleanUrl.searchParams.delete('stable_chunks')
+                window.history.replaceState(window.history.state, '', cleanUrl.toString())
+            }
             window.ESBUILD_LOAD_SCRIPT = async function (file) {
                 try {
                     await import((window.JS_URL || '') + '/static/' + file)
