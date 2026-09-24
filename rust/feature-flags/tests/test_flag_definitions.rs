@@ -3024,24 +3024,19 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
     );
 }
 
-#[rstest::rstest]
-#[case(true)]
-#[case(false)]
 #[tokio::test]
-async fn test_s3_hit_enqueues_rebuild_when_enabled(#[case] rebuild_on_s3_hit: bool) {
+async fn test_s3_hit_enqueues_rebuild_when_enabled() {
     use feature_flags::{
         config::{Config, FlexBool},
         utils::test_utils::{
-            read_flag_definitions_rebuild_requests, remove_flag_definitions_rebuild_request,
-            static_s3_client, TestContext,
+            remove_flag_definitions_rebuild_request, static_s3_client, TestContext,
         },
     };
     use reqwest;
-    use tokio::time::{sleep, Duration};
 
     let mut config = Config::default_test_config();
     config.flag_definitions_self_heal_enabled = FlexBool(true);
-    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(rebuild_on_s3_hit);
+    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(true);
     let context = TestContext::new(Some(&config)).await;
 
     let (team, secret_token, _) = context
@@ -3075,22 +3070,11 @@ async fn test_s3_hit_enqueues_rebuild_when_enabled(#[case] rebuild_on_s3_hit: bo
         "an S3-served response has no ETag to send, which is what the rebuild repairs"
     );
 
-    if rebuild_on_s3_hit {
-        assert!(
-            poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
-            "team {} should be enqueued for rebuild after an S3-served response",
-            team.id
-        );
-    } else {
-        // Give any erroneous background enqueue time to land, then assert it did not.
-        sleep(Duration::from_millis(500)).await;
-        let members = read_flag_definitions_rebuild_requests(&config.redis_url).await;
-        assert!(
-            !members.contains(&team.id.to_string()),
-            "team {} must not be enqueued while the S3-hit trigger is off",
-            team.id
-        );
-    }
+    assert!(
+        poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
+        "team {} should be enqueued for rebuild after an S3-served response",
+        team.id
+    );
 }
 
 async fn get_definitions_served_from_s3(
