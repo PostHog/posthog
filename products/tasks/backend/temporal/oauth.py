@@ -110,6 +110,34 @@ def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
     return [scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES]
 
 
+def _scopes_from_state_value(raw: object) -> PosthogMcpScopes | None:
+    """A scope posture as run state holds it after a JSON round trip, or None for anything else."""
+    if isinstance(raw, list):
+        return [str(scope) for scope in raw]
+    if isinstance(raw, str) and raw in get_args(McpScopePreset):
+        return cast(McpScopePreset, raw)
+    if isinstance(raw, dict):
+        # A stored scout posture. Passed through unchecked because `resolve_scopes` reads it
+        # defensively: an unrecognized preset resolves to `read_only`, and the extra write
+        # scopes are intersected with the grantable allowlist there.
+        return cast(ScoutScopePosture, raw)
+    return None
+
+
+def _dispatched_scopes(state: dict[str, Any] | None) -> PosthogMcpScopes:
+    """The scopes the run was dispatched with, as `pending_dispatch` recorded them at creation.
+
+    The launch activities receive this value on their input; the provisioning activities do
+    not, and the token they place in the sandbox environment must carry the same grant as the
+    MCP session, or a shell fallback runs with less than the run was given. `read_only` is the
+    floor for a run whose state predates `pending_dispatch`.
+    """
+    pending = (state or {}).get("pending_dispatch")
+    raw = pending.get("posthog_mcp_scopes") if isinstance(pending, dict) else None
+    scopes = _scopes_from_state_value(raw)
+    return scopes if scopes is not None else "read_only"
+
+
 def _workflow_run_scopes(requested: PosthogMcpScopes, state: dict[str, Any] | None) -> list[str]:
     """Scopes for a workflow-fired run: the request intersected with the run's snapshotted
     choice (neither side can widen the other), minus the automation-editing scopes loop
@@ -117,18 +145,10 @@ def _workflow_run_scopes(requested: PosthogMcpScopes, state: dict[str, Any] | No
     resolved = set(resolve_scopes(requested, include_internal_scopes=True))
     connectors = ((state or {}).get("config_snapshot") or {}).get("connectors")
     raw = connectors.get("posthog_mcp_scopes") if isinstance(connectors, dict) else None
-    snapshot: PosthogMcpScopes | None = None
-    if isinstance(raw, list):
-        snapshot = [str(scope) for scope in raw]
-    elif isinstance(raw, str) and raw in get_args(McpScopePreset):
-        snapshot = cast(McpScopePreset, raw)
-    elif isinstance(raw, dict):
-        # A snapshotted scout posture. Passed through unchecked because `resolve_scopes` reads
-        # it defensively: an unrecognized preset resolves to `read_only`, and the extra write
-        # scopes are intersected with the grantable allowlist there. Skipping the dict instead
-        # would drop the snapshot leg of the intersection, which is the half that stops a
-        # widened request from taking effect.
-        snapshot = cast(ScoutScopePosture, raw)
+    # Skipping an unparseable snapshot would drop the snapshot leg of the intersection, which
+    # is the half that stops a widened request from taking effect; `_scopes_from_state_value`
+    # keeps every shape the JSON column can hold.
+    snapshot = _scopes_from_state_value(raw)
     if snapshot is not None:
         resolved &= set(resolve_scopes(snapshot, include_internal_scopes=True))
     return sorted(scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES)
@@ -189,7 +209,7 @@ def create_oauth_access_token_for_run(
     task: Task,
     state: dict[str, Any] | None,
     *,
-    scopes: PosthogMcpScopes = "read_only",
+    scopes: PosthogMcpScopes | None = None,
 ) -> str:
     """Mint the sandbox OAuth token for a run, resolving the acting user from run state.
 
@@ -199,7 +219,11 @@ def create_oauth_access_token_for_run(
     hand — passing ``user``/``allow_task_creator_fallback`` separately makes it possible
     to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
+    ``scopes`` defaults to what the run was dispatched with (see ``_dispatched_scopes``), so
+    a caller without the value on its activity input still mints the run's own grant.
     """
+    if scopes is None:
+        scopes = _dispatched_scopes(state)
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))

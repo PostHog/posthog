@@ -493,6 +493,43 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("state", "requested", "granted"),
+    [
+        # The provisioning activities pass no scopes, and the token they place in the sandbox
+        # environment must match what the run was dispatched with, not the read-only floor.
+        ({"pending_dispatch": {"posthog_mcp_scopes": "full"}}, None, "full"),
+        (
+            {"pending_dispatch": {"posthog_mcp_scopes": ["canvas:write", "task:read"]}},
+            None,
+            ["canvas:write", "task:read"],
+        ),
+        ({}, None, "read_only"),
+        ({"pending_dispatch": {"posthog_mcp_scopes": "not-a-preset"}}, None, "read_only"),
+        # An explicit request is never widened by the recorded dispatch.
+        ({"pending_dispatch": {"posthog_mcp_scopes": "full"}}, "read_only", "read_only"),
+    ],
+)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_run_token_defaults_to_the_dispatched_scopes(
+    mock_create: MagicMock, state: dict, requested: PosthogMcpScopes | None, granted: PosthogMcpScopes
+) -> None:
+    organization = Organization.objects.create(name="dispatch-scope-org")
+    team = Team.objects.create(organization=organization, name="dispatch-scope-team")
+    owner = User.objects.create(email="dispatch-scope-owner@example.com")
+    task = Task.objects.create(
+        team=team, title="Setup run", created_by=owner, origin_product=Task.OriginProduct.SPACE_SETUP
+    )
+
+    if requested is None:
+        create_oauth_access_token_for_run(task, state)
+    else:
+        create_oauth_access_token_for_run(task, state, scopes=requested)
+
+    assert mock_create.call_args.kwargs["scopes"] == granted
+
+
+@pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_workflow_fired_run_excludes_loop_write_scope(mock_create: MagicMock) -> None:
     from posthog.models.organization import OrganizationMembership
