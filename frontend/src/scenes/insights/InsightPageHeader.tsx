@@ -2,13 +2,12 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightModalsLogic } from 'scenes/insights/insightModalsLogic'
@@ -86,11 +85,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
-
-    const sharingDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.SharingConfiguration,
-        AccessControlLevel.Viewer
-    )
 
     const readDataMaxToolProps = useMemo(
         () =>
@@ -190,19 +184,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightShortId={insight.short_id!}
                                 canCreateAlert={canCreateAlertForInsight}
                             />
-                        )}
-
-                        {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconShare />}
-                                data-attr="insight-share-prominent-button"
-                                disabledReason={sharingDisabledReason ?? undefined}
-                                onClick={() => push(urls.insightSharing(insight.short_id!))}
-                            >
-                                Share
-                            </LemonButton>
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
