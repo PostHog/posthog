@@ -60,6 +60,8 @@ export function ChartPreviewTile({
                 <span
                     className={clsx(
                         'flex h-full flex-col [&_.text-7xl]:text-lg [&_.text-7xl]:leading-tight',
+                        // BoldNumber's full-page padding overflows the tile and shows a scrollbar.
+                        option.display === ChartDisplayType.BoldNumber && '[&_.BoldNumber]:p-4',
                         option.display === ChartDisplayType.CalendarHeatmap &&
                             '[zoom:0.3] [&_.CalendarHeatMapContainer+div]:hidden',
                         // MetricCard hardcodes its headline at text-4xl, which truncates at tile width.
