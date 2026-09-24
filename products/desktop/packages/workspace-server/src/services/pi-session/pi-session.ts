@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   buildSessionContext,
   type FileEntry,
@@ -86,6 +87,7 @@ interface ManagedPiSession {
   pendingMcpPermissions: Map<string, McpToolPermissionRequest>;
   runtime: PiRuntime;
   cwd: string;
+  usesSubscriptionProvider: boolean;
   state: PiPoolSessionState;
   lastUsedAt: number;
   activeRequestCount: number;
@@ -166,9 +168,11 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const runtime = await this.runtimeFactory.create({
       taskContext: input.taskContext,
       model: input.model,
+      piSubscriptionProvider: input.piSubscriptionProvider,
     });
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);
+    session.usesSubscriptionProvider = Boolean(input.piSubscriptionProvider);
 
     return this.startSession(taskId, client, session, async () => {
       if (input.thinkingLevel) {
@@ -201,6 +205,40 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     );
   }
 
+  async switchSubscriptionSessionsToGateway(): Promise<number> {
+    const taskIds = [...this.sessions.entries()]
+      .filter(([, session]) => session.usesSubscriptionProvider)
+      .map(([taskId]) => taskId);
+
+    for (const taskId of taskIds) {
+      await this.runExclusive(taskId, async () => {
+        try {
+          await this.switchToGatewayLocked(taskId);
+        } catch (error) {
+          this.log.error("Failed to switch Pi session to the gateway", {
+            taskId,
+            error,
+          });
+        }
+      });
+    }
+    return taskIds.length;
+  }
+
+  private async switchToGatewayLocked(taskId: string): Promise<void> {
+    const session = this.sessions.get(taskId);
+    if (!session?.usesSubscriptionProvider) {
+      return;
+    }
+    const cwd = session.cwd;
+    this.log.warn("Switching Pi session to PostHog gateway after sign-out", {
+      taskId,
+    });
+
+    await this.stopLocked(taskId);
+    await this.resumeLocked({ taskContext: { taskId, cwd } });
+  }
+
   private async resumeLocked(input: ResumePiSessionInput): Promise<void> {
     const { taskId, cwd } = input.taskContext;
     const existingSession = this.sessions.get(taskId);
@@ -220,14 +258,21 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       throw new Error(`Pi session metadata is missing for task ${taskId}`);
     }
 
+    const resumedModel = piSubscriptionModelFromSessionFile(sessionFile);
+    const piSubscriptionProvider =
+      resumedModel?.provider === "openai-codex" ? "openai-codex" : undefined;
+
     await this.stopLocked(taskId);
 
     const runtime = await this.runtimeFactory.create({
       taskContext: input.taskContext,
       sessionFile,
+      piSubscriptionProvider,
+      model: piSubscriptionProvider ? resumedModel?.modelId : undefined,
     });
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);
+    session.usesSubscriptionProvider = Boolean(piSubscriptionProvider);
 
     await this.startSession(taskId, client, session, async () => {});
   }
@@ -532,6 +577,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       pendingMcpPermissions,
       runtime,
       cwd,
+      usesSubscriptionProvider: false,
       state: "starting",
       lastUsedAt: Date.now(),
       activeRequestCount: 0,
@@ -750,5 +796,22 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         return;
       }
     }
+  }
+}
+
+export function piSubscriptionModelFromSessionFile(
+  sessionFile: string,
+): { provider: string; modelId: string } | null {
+  try {
+    const fileEntries = parseSessionEntries(
+      readFileSync(sessionFile, "utf8"),
+    ) as FileEntry[];
+    migrateSessionEntries(fileEntries);
+    const entries = fileEntries.filter(
+      (entry): entry is SessionEntry => entry.type !== "session",
+    );
+    return buildSessionContext(entries).model;
+  } catch {
+    return null;
   }
 }

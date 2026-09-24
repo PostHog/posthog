@@ -44,6 +44,13 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import {
+  type PiSubscriptionLoginSession,
+  piSubscriptionModels as piNativeSubscriptionModels,
+  piSubscriptionLoginState,
+  signOutPiSubscription as signOutPiNativeSubscription,
+  startPiSubscriptionLogin as startPiNativeSubscriptionLogin,
+} from "@posthog/agent/pi/subscription-login-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -98,6 +105,8 @@ import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
+import { PI_SESSION_SERVICE } from "../pi-session/identifiers";
+import type { PiSessionService } from "../pi-session/pi-session";
 import { POSTHOG_PLUGIN_SERVICE } from "../posthog-plugin/identifiers";
 import type { PosthogPluginService } from "../posthog-plugin/posthog-plugin";
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
@@ -135,6 +144,8 @@ import {
   type Credentials,
   type EffortLevel,
   type InterruptReason,
+  type PiSubscriptionModels,
+  type PiSubscriptionStatus,
   type PromptOutput,
   type ReconnectSessionInput,
   type RtkStatus,
@@ -453,6 +464,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private posthogPluginService: PosthogPluginService;
   private agentAuthAdapter: AgentAuthAdapter;
   private mcpAppsService: AgentMcpApps;
+  private piSessionService: PiSessionService;
   private readonly log: AgentScopedLogger;
   private readonly onAgentLog: AgentTypes.OnLogCallback;
 
@@ -469,6 +481,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     agentAuthAdapter: AgentAuthAdapter,
     @inject(AGENT_MCP_APPS)
     mcpAppsService: AgentMcpApps,
+    @inject(PI_SESSION_SERVICE)
+    piSessionService: PiSessionService,
     @inject(POWER_MANAGER_SERVICE)
     powerManager: IPowerManager,
     @inject(BUNDLED_RESOURCES_SERVICE)
@@ -491,6 +505,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     this.posthogPluginService = posthogPluginService;
     this.agentAuthAdapter = agentAuthAdapter;
     this.mcpAppsService = mcpAppsService;
+    this.piSessionService = piSessionService;
     this.log = loggerFactory.scope("agent-service");
     this.onAgentLog = makeOnAgentLog(loggerFactory);
 
@@ -532,6 +547,13 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
   private claudeAuthGeneration = 0;
+  private piSubscriptionLogin?: PiSubscriptionLoginSession;
+  private piSubscriptionLoginGeneration = 0;
+
+  private bumpPiSubscriptionGeneration(): number {
+    this.piSubscriptionLoginGeneration += 1;
+    return this.piSubscriptionLoginGeneration;
+  }
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
     if (this.codexLogin) return { loginState: "logged-out" };
@@ -613,6 +635,58 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     await signOutCodexChatgpt({
       binaryPath: this.getCodexBinaryPath(),
     });
+  }
+
+  async getPiSubscriptionStatus(): Promise<PiSubscriptionStatus> {
+    if (this.piSubscriptionLogin) {
+      return { loginState: "logged-out" };
+    }
+    return { loginState: await piSubscriptionLoginState() };
+  }
+
+  async getPiSubscriptionModels(): Promise<PiSubscriptionModels> {
+    return { models: await piNativeSubscriptionModels() };
+  }
+
+  async startPiSubscriptionLogin(): Promise<{ authUrl: string }> {
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
+    const generation = this.bumpPiSubscriptionGeneration();
+
+    const login = await startPiNativeSubscriptionLogin();
+    if (this.piSubscriptionLoginGeneration !== generation) {
+      await login.cancel();
+      throw new Error("Pi sign-in was cancelled");
+    }
+
+    this.piSubscriptionLogin = login;
+    void login.completed.then((loggedIn) => {
+      if (this.piSubscriptionLogin === login) {
+        this.piSubscriptionLogin = undefined;
+      }
+      this.log.info("Pi subscription login finished", { loggedIn });
+    });
+    return { authUrl: login.authUrl };
+  }
+
+  async signOutPiSubscription(): Promise<void> {
+    this.bumpPiSubscriptionGeneration();
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
+    await signOutPiNativeSubscription();
+    const switched =
+      await this.piSessionService.switchSubscriptionSessionsToGateway();
+    if (switched > 0) {
+      this.log.info("Moved running Pi sessions to PostHog credits", {
+        sessions: switched,
+      });
+    }
+  }
+
+  async cancelPiSubscriptionLogin(): Promise<void> {
+    this.bumpPiSubscriptionGeneration();
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
   }
 
   private async prepareCodexAccountChange(): Promise<void> {
@@ -1861,6 +1935,8 @@ For git operations while detached:
   async cleanupAll(): Promise<void> {
     await this.codexLogin?.cancel();
     this.codexLogin = undefined;
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
     const sessionIds = Array.from(this.sessions.keys());

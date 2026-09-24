@@ -37,8 +37,10 @@ function argumentValue(name: string): string | undefined {
 const bootstrap = JSON.parse(
   readFileSync(3, "utf8"),
 ) as Partial<PiRpcBootstrap>;
-const providerOptions = bootstrap.providerOptions;
-if (!providerOptions?.apiKey) {
+const { provider: requestedProvider, ...harnessProviderOptions } =
+  bootstrap.providerOptions ?? {};
+const provider = requestedProvider ?? "posthog";
+if (provider === "posthog" && !harnessProviderOptions.apiKey) {
   throw new Error("Pi RPC host requires PostHog provider credentials");
 }
 sanitizePiHostEnvironment();
@@ -106,7 +108,7 @@ const runtime = await createHarnessRuntime({
   sessionManager,
   projectTrusted: () => true,
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
-  ...providerOptions,
+  ...harnessProviderOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,
   mcpToolPolicies: bootstrap.mcpToolPolicies,
   requestMcpToolPermission,
@@ -132,14 +134,17 @@ runtime.session.subscribe((event) => {
   );
 });
 
-const requestedModel = argumentValue("--model")?.replace(/^posthog\//, "");
+const requestedModel = argumentValue("--model")?.replace(
+  new RegExp(`^${provider}/`),
+  "",
+);
 if (requestedModel) {
   const model = runtime.services.modelRuntime.getModel(
-    "posthog",
+    provider,
     requestedModel,
   );
   if (!model) {
-    throw new Error(`PostHog model not found: ${requestedModel}`);
+    throw new Error(`Model not found: ${provider}/${requestedModel}`);
   }
   await runtime.session.setModel(model);
 }

@@ -1,4 +1,4 @@
-import type { Adapter, ModelAccess } from "./adapter";
+import type { Adapter, ModelAccess, PiSubscriptionProvider } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
 import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { Task } from "./domain-types";
@@ -39,6 +39,7 @@ export interface TaskCreationInput {
   adapter?: Adapter;
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
+  piSubscriptionProvider?: PiSubscriptionProvider;
   claudeCloudModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;

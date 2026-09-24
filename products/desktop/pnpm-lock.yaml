@@ -147,6 +147,9 @@ importers:
 
   apps/code:
     dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 'catalog:'
+        version: 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@inversifyjs/strongly-typed':
         specifier: 2.2.0
         version: 2.2.0(inversify@7.11.0(reflect-metadata@0.2.2))

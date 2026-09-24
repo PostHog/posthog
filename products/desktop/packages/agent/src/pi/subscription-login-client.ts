@@ -1,0 +1,210 @@
+import { type ChildProcess, fork } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import type { PiSubscriptionLoginState } from "@posthog/shared";
+import { safePiEnvironment } from "./rpc-environment";
+
+export type { PiSubscriptionLoginState };
+
+const REQUEST_TIMEOUT_MS = 15_000;
+const LOGIN_TIMEOUT_MS = 10 * 60_000;
+const MAX_CAPTURED_STDERR = 4_000;
+
+interface HostResponse {
+  id?: string;
+  type: "response" | "error";
+  data?: unknown;
+  error?: string;
+}
+
+interface HostNotification {
+  type: "login_completed";
+  loggedIn: boolean;
+}
+
+interface HostProcess {
+  child: ChildProcess;
+  getStderr: () => string;
+  kill: () => void;
+}
+
+function spawnHost(): HostProcess {
+  const hostPath = fileURLToPath(
+    new URL("./subscription-login-host.js", import.meta.url),
+  );
+  const child = fork(hostPath, [], {
+    stdio: ["ignore", "ignore", "pipe", "ipc"],
+    env: {
+      ...safePiEnvironment(process.env),
+      ELECTRON_RUN_AS_NODE: "1",
+    },
+  });
+
+  let stderr = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    if (stderr.length < MAX_CAPTURED_STDERR) {
+      stderr += chunk.toString("utf8");
+    }
+  });
+
+  return {
+    child,
+    getStderr: () => stderr,
+    kill: () => child.kill(),
+  };
+}
+
+function exitError(host: HostProcess, code: number | null): Error {
+  const stderr = host.getStderr().trim();
+  return new Error(
+    `Pi subscription login process exited unexpectedly (code ${code}).${
+      stderr ? ` Stderr: ${stderr}` : ""
+    }`,
+  );
+}
+
+function sendRequest<T>(
+  host: HostProcess,
+  type: "status" | "login" | "logout" | "cancel" | "models",
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  const id = randomUUID();
+  const { child } = host;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Pi subscription request timed out"));
+    }, timeoutMs);
+
+    const onMessage = (message: unknown) => {
+      const response = message as Partial<HostResponse>;
+      if (response.id !== id) {
+        return;
+      }
+      cleanup();
+      if (response.type === "error") {
+        reject(new Error(response.error ?? "Pi subscription request failed"));
+      } else {
+        resolve(response.data as T);
+      }
+    };
+    const onExit = (code: number | null) => {
+      cleanup();
+      reject(exitError(host, code));
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+
+    child.on("message", onMessage);
+    child.once("exit", onExit);
+    child.once("error", onError);
+    child.send({ id, type });
+  });
+}
+
+export async function piSubscriptionLoginState(): Promise<PiSubscriptionLoginState> {
+  const host = spawnHost();
+  try {
+    const { loginState } = await sendRequest<{
+      loginState: PiSubscriptionLoginState;
+    }>(host, "status");
+    return loginState;
+  } catch {
+    return "unknown";
+  } finally {
+    host.kill();
+  }
+}
+
+export async function signOutPiSubscription(): Promise<void> {
+  const host = spawnHost();
+  try {
+    await sendRequest(host, "logout");
+  } finally {
+    host.kill();
+  }
+}
+
+export interface PiSubscriptionModelInfo {
+  id: string;
+  name: string;
+}
+
+export async function piSubscriptionModels(): Promise<
+  PiSubscriptionModelInfo[]
+> {
+  const host = spawnHost();
+  try {
+    const { models } = await sendRequest<{
+      models: PiSubscriptionModelInfo[];
+    }>(host, "models");
+    return models;
+  } catch {
+    return [];
+  } finally {
+    host.kill();
+  }
+}
+
+export interface PiSubscriptionLoginSession {
+  authUrl: string;
+  completed: Promise<boolean>;
+  cancel: () => Promise<void>;
+}
+
+export async function startPiSubscriptionLogin(): Promise<PiSubscriptionLoginSession> {
+  const host = spawnHost();
+  const { child } = host;
+  let settled = false;
+
+  const completed = new Promise<boolean>((resolve) => {
+    const timeout = setTimeout(() => resolve(false), LOGIN_TIMEOUT_MS);
+    const onMessage = (message: unknown) => {
+      const notification = message as Partial<HostNotification>;
+      if (notification.type !== "login_completed") {
+        return;
+      }
+      clearTimeout(timeout);
+      child.off("message", onMessage);
+      resolve(Boolean(notification.loggedIn));
+    };
+    child.on("message", onMessage);
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resolve(false);
+    });
+  }).finally(() => {
+    settled = true;
+    host.kill();
+  });
+
+  let authUrl: string;
+  try {
+    const response = await sendRequest<{ authUrl: string }>(host, "login");
+    authUrl = response.authUrl;
+  } catch (error) {
+    host.kill();
+    throw error;
+  }
+
+  return {
+    authUrl,
+    completed,
+    cancel: async () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      await sendRequest(host, "cancel").catch(() => undefined);
+      host.kill();
+    },
+  };
+}

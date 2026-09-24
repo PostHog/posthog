@@ -51,9 +51,10 @@ export type PiRpcClient = RpcClient & {
 
 export interface PiRpcProviderOptions {
   region?: CloudRegion;
-  apiKey: string;
+  apiKey?: string;
   baseUrl?: string;
   headers?: Record<string, string>;
+  provider?: string;
 }
 
 export interface PiRpcBootstrap {
@@ -477,7 +478,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       cwd: taskContext.cwd,
       args,
       cliPath,
-      provider: "posthog",
+      provider: providerOptions.provider ?? "posthog",
     },
     {
       providerOptions,

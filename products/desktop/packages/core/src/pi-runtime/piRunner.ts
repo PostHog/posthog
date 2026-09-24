@@ -1,4 +1,5 @@
 import type { PiThinkingLevel } from "@posthog/agent/pi/types";
+import type { PiSubscriptionProvider } from "@posthog/shared";
 import type { TaskContextInput } from "@posthog/shared/task-context";
 
 export interface PiRunInput {
@@ -6,6 +7,7 @@ export interface PiRunInput {
   prompt: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
+  piSubscriptionProvider?: PiSubscriptionProvider;
 }
 
 export interface PiResumeInput {

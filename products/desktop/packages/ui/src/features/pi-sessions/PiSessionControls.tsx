@@ -16,8 +16,18 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   MenuLabel,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@posthog/quill";
-import { customModelMeta } from "@posthog/shared";
+import {
+  customModelMeta,
+  PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  PI_SUBSCRIPTION_PROVIDER,
+  type PiModelAccess,
+  type PiSubscriptionProvider,
+} from "@posthog/shared";
 import {
   type AgentHarness,
   HarnessSubmenu,
@@ -29,8 +39,111 @@ import {
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
 import { toPickerOption } from "@posthog/ui/features/sessions/modelPickerOption";
+import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapterSubscription";
+import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  applyPiModelAccess,
+  usePiSubscription,
+  usePiSubscriptionModels,
+} from "@posthog/ui/features/settings/piSubscription";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
+
+const TOOLTIP_DELAY_MS = 150;
+
+const PI_SUBSCRIPTION_MODEL = {
+  provider: PI_SUBSCRIPTION_PROVIDER,
+  id: PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  name: "GPT-5.6 Terra",
+};
+
+const PI_BILLING_CLOUD_ONLY_REASON =
+  "ChatGPT billing only works for local and worktree tasks. Cloud tasks always use PostHog.";
+
+interface PiBillingSubmenuProps {
+  workspaceMode?: WorkspaceModeForAccess;
+  closeOnChange?: boolean;
+}
+
+function PiBillingSubmenu({
+  workspaceMode,
+  closeOnChange = false,
+}: PiBillingSubmenuProps): React.JSX.Element | null {
+  const modelAccess = useSettingsStore((state) => state.piModelAccess);
+  const subscription = usePiSubscription();
+  if (!subscription.flagEnabled) {
+    return null;
+  }
+
+  const cloudTask = workspaceMode === "cloud";
+  const chatgptBillingActive =
+    !cloudTask && modelAccess === PI_SUBSCRIPTION_PROVIDER;
+  const valueLabel = chatgptBillingActive ? "ChatGPT" : "PostHog";
+  const showLoginNote = chatgptBillingActive && !subscription.loggedIn;
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <span>Billing</span>
+        <span className="flex-1 text-right text-muted-foreground">
+          {valueLabel}
+        </span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <DropdownMenuRadioGroup
+          value={cloudTask ? "posthog-gateway" : modelAccess}
+          onValueChange={(next) => applyPiModelAccess(next as PiModelAccess)}
+        >
+          <DropdownMenuRadioItem
+            value="posthog-gateway"
+            closeOnClick={closeOnChange}
+          >
+            PostHog
+          </DropdownMenuRadioItem>
+          {cloudTask ? (
+            <TooltipProvider delay={TOOLTIP_DELAY_MS}>
+              <Tooltip disableHoverablePopup>
+                <TooltipTrigger render={<span className="flex" />}>
+                  <DropdownMenuRadioItem
+                    value={PI_SUBSCRIPTION_PROVIDER}
+                    closeOnClick={closeOnChange}
+                    disabled
+                    className="opacity-60"
+                  >
+                    ChatGPT
+                  </DropdownMenuRadioItem>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-60">
+                  {PI_BILLING_CLOUD_ONLY_REASON}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <DropdownMenuRadioItem
+              value={PI_SUBSCRIPTION_PROVIDER}
+              closeOnClick={closeOnChange}
+            >
+              ChatGPT
+            </DropdownMenuRadioItem>
+          )}
+        </DropdownMenuRadioGroup>
+        {showLoginNote && (
+          <div className="px-2 py-1.5 text-muted-foreground text-xs">
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() => openSettings("harness")}
+            >
+              Connect ChatGPT
+            </button>
+            {" to use ChatGPT billing."}
+          </div>
+        )}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
 
 type PiModelOption = PiModelSelection & { name?: string };
 
@@ -53,6 +166,9 @@ interface PiModelSelectorProps {
   onGatewayModelSelect?: (modelId: string) => void;
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
+  showBillingMenu?: boolean;
+  subscriptionProvider?: PiSubscriptionProvider;
+  workspaceMode?: WorkspaceModeForAccess;
 }
 
 function modelKey(model: PiModelSelection): string {
@@ -89,16 +205,40 @@ export function PiModelSelector({
   onGatewayModelSelect,
   menuOpen,
   onMenuOpenChange,
+  showBillingMenu,
+  subscriptionProvider,
+  workspaceMode,
 }: PiModelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
   const open = menuOpen ?? internalMenuOpen;
   const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
+  const activeSubscriptionProvider =
+    subscriptionProvider ??
+    (currentModel?.provider === PI_SUBSCRIPTION_PROVIDER
+      ? PI_SUBSCRIPTION_PROVIDER
+      : undefined);
+  const subscriptionModels = usePiSubscriptionModels(
+    Boolean(activeSubscriptionProvider),
+  );
+  const subscriptionModelList: PiModelOption[] =
+    subscriptionModels.length > 0
+      ? subscriptionModels.map((model) => ({
+          provider: PI_SUBSCRIPTION_PROVIDER,
+          id: model.id,
+          name: model.name,
+        }))
+      : [PI_SUBSCRIPTION_MODEL];
+  const availableModels = activeSubscriptionProvider
+    ? subscriptionModelList
+    : models;
   const gatewayModelSelect =
-    modelOption?.type === "select" && onGatewayModelSelect
+    !activeSubscriptionProvider &&
+    modelOption?.type === "select" &&
+    onGatewayModelSelect
       ? modelOption
       : undefined;
 
-  if (models.length === 0) {
+  if (availableModels.length === 0) {
     if (isLoading) {
       // Keep the dropdown mounted while the Pi catalog first loads (a
       // harness switch to Pi): unmounting it closes a menu the user is
@@ -145,9 +285,12 @@ export function PiModelSelector({
     return null;
   }
 
-  const currentValue = currentModel ? modelKey(currentModel) : "";
   const selectedModel =
-    models.find((model) => modelKey(model) === currentValue) ?? currentModel;
+    activeSubscriptionProvider &&
+    currentModel?.provider !== activeSubscriptionProvider
+      ? subscriptionModelList[0]
+      : currentModel;
+  const currentValue = selectedModel ? modelKey(selectedModel) : "";
   const currentLabel = modelLabel(selectedModel);
   const thinkingLabel = thinkingLevel
     ? (thinkingLevelLabels[thinkingLevel] ?? thinkingLevel)
@@ -211,7 +354,7 @@ export function PiModelSelector({
                 <DropdownMenuRadioGroup
                   value={currentValue}
                   onValueChange={(value) => {
-                    const model = models.find(
+                    const model = availableModels.find(
                       (candidate) => modelKey(candidate) === value,
                     );
                     if (model) {
@@ -219,7 +362,7 @@ export function PiModelSelector({
                     }
                   }}
                 >
-                  {models.map((model) => {
+                  {availableModels.map((model) => {
                     const pickerModel = toPickerOption({
                       value: model.id,
                       name: modelLabel(model),
@@ -260,6 +403,7 @@ export function PiModelSelector({
             }}
           />
         )}
+        {showBillingMenu && <PiBillingSubmenu workspaceMode={workspaceMode} />}
         {thinkingLevel &&
           onThinkingLevelChange &&
           thinkingLevels.length > 0 && (

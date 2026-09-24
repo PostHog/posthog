@@ -84,6 +84,11 @@ vi.mock("@posthog/ui/features/settings/hooks/useTaskAgentDefaults", () => ({
 vi.mock("@posthog/ui/features/pi-sessions/usePiModelCatalog", () => ({
   usePiModelCatalog: () => ({ data: PI_MODELS, isPending: false }),
 }));
+vi.mock("@posthog/ui/features/settings/piSubscription", () => ({
+  usePiSubscription: () => ({ flagEnabled: true, loggedIn: true }),
+  usePiSubscriptionModels: () => [],
+  applyPiModelAccess: vi.fn(),
+}));
 vi.mock("@posthog/ui/features/task-detail/hooks/usePreviewConfig", () => ({
   usePreviewConfig: (adapter: string) => {
     previewState.lastAdapter = adapter;

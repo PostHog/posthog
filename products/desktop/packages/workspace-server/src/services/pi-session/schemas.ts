@@ -24,6 +24,7 @@ export const startPiSessionInput = z.object({
   prompt: z.string(),
   model: z.string().optional(),
   thinkingLevel: z.enum(PI_THINKING_LEVELS).optional(),
+  piSubscriptionProvider: z.literal("openai-codex").optional(),
 });
 
 export type StartPiSessionInput = z.infer<typeof startPiSessionInput>;

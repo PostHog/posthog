@@ -37,6 +37,11 @@ export const requiredNativeModules = [
   "better-sqlite3",
 ];
 
+export const requiredExternalPackages = [
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-coding-agent",
+];
+
 // file-icon is only used on macOS; koffi only reads the macOS window list.
 export const macOnlyNativeModules = ["file-icon", "koffi"];
 
@@ -80,7 +85,7 @@ const scopeOf = (name: string) => {
  * shows up as the feature not working in a packaged build. @parcel earns its glob
  * via `@parcel/watcher` above; @koromix has no such entry.
  */
-const stagedOnlyScopes = ["@koromix"];
+const stagedOnlyScopes = ["@koromix", "@earendil-works"];
 
 export const packagedFileGlobs = [
   ...new Set([
@@ -89,9 +94,10 @@ export const packagedFileGlobs = [
   ]),
 ].map((scope) => `node_modules/${scope}/**/*`);
 
-export const asarUnpackGlobs = asarUnpackModules.map(
-  (name) => `node_modules/${scopeOf(name)}/**`,
-);
+export const asarUnpackGlobs = [
+  ...asarUnpackModules.map((name) => `node_modules/${scopeOf(name)}/**`),
+  "node_modules/@earendil-works/**",
+];
 
 // Mirrors electron-builder's Arch enum (ia32=0, x64=1, armv7l=2, arm64=3).
 const ARCH_X64 = 1;

@@ -105,6 +105,7 @@ export default defineConfig({
   splitting: false,
   outDir: "dist",
   target: "node20",
+  external: ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"],
   async onSuccess() {
     await cp(
       "src/extensions/orchestration/skills",

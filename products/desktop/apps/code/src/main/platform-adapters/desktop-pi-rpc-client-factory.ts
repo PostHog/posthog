@@ -6,12 +6,19 @@ import {
   createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
+import {
+  piSubscriptionLoginState,
+  piSubscriptionModels,
+} from "@posthog/agent/pi/subscription-login-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type CloudRegion,
   getCloudUrlFromRegion,
   type McpServerConnection,
+  PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  PI_SUBSCRIPTION_PROVIDER,
+  type PiSubscriptionProvider,
 } from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import type { TaskContext } from "@posthog/shared/task-context";
@@ -82,8 +89,16 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       ...input.taskContext,
     };
 
+    const subscription = await this.resolveSubscriptionProvider(
+      input.piSubscriptionProvider,
+    );
+    const model = await this.resolveSubscriptionModel(
+      subscription,
+      input.model,
+    );
+
     return createPiRpcClient({
-      model: input.model,
+      model,
       sessionFile: input.sessionFile,
       taskContext,
       enrichment: {
@@ -94,14 +109,57 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
-      providerOptions: {
-        region: credentials.region,
-        baseUrl,
-        apiKey: PROXY_API_KEY,
-      },
+      providerOptions: subscription
+        ? { provider: subscription }
+        : {
+            region: credentials.region,
+            baseUrl,
+            apiKey: PROXY_API_KEY,
+          },
       extensions: ["context-wiki"],
       contextWikiPath,
     });
+  }
+
+  private async resolveSubscriptionProvider(
+    requested: PiSubscriptionProvider | undefined,
+  ): Promise<PiSubscriptionProvider | undefined> {
+    if (!requested) {
+      return undefined;
+    }
+    const loginState = await piSubscriptionLoginState();
+    if (loginState !== "logged-in") {
+      this.rootLogger
+        .scope("pi-rpc-client-factory")
+        .warn("Pi own-subscription requested but login is not active", {
+          provider: requested,
+        });
+      return undefined;
+    }
+    return PI_SUBSCRIPTION_PROVIDER;
+  }
+
+  private async resolveSubscriptionModel(
+    subscription: PiSubscriptionProvider | undefined,
+    model: string | undefined,
+  ): Promise<string | undefined> {
+    if (!subscription) {
+      return model;
+    }
+    if (!model) {
+      return PI_SUBSCRIPTION_DEFAULT_MODEL_ID;
+    }
+    const known = await piSubscriptionModels();
+    if (known.some((entry) => entry.id === model)) {
+      return model;
+    }
+    this.rootLogger
+      .scope("pi-rpc-client-factory")
+      .warn(
+        "Pi own-subscription model is not in the provider catalog; using the default",
+        { model },
+      );
+    return PI_SUBSCRIPTION_DEFAULT_MODEL_ID;
   }
 
   private registerMcpAppsServers(servers: McpServerConnection[]): void {

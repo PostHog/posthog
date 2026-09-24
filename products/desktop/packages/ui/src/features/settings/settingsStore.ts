@@ -12,6 +12,7 @@ import type {
   AgentRuntime,
   ExecutionMode,
   ModelAccess,
+  PiModelAccess,
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
@@ -295,6 +296,7 @@ export interface SettingsStore {
   rtkEnabledCloud: boolean;
   codexModelAccess: ModelAccess;
   claudeModelAccess: ModelAccess;
+  piModelAccess: PiModelAccess;
   claudeCloudSubscriptionOn: boolean;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
@@ -304,6 +306,7 @@ export interface SettingsStore {
   setRtkEnabledCloud: (enabled: boolean) => void;
   setCodexModelAccess: (mode: ModelAccess) => void;
   setClaudeModelAccess: (mode: ModelAccess) => void;
+  setPiModelAccess: (mode: PiModelAccess) => void;
   setClaudeCloudSubscriptionOn: (enabled: boolean) => void;
 
   // Terminal
@@ -571,6 +574,7 @@ export const useSettingsStore = create<SettingsStore>()(
       codexModelAccess: "posthog-gateway",
       claudeModelAccess: "posthog-gateway",
       claudeCloudSubscriptionOn: false,
+      piModelAccess: "posthog-gateway",
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -584,6 +588,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
       setClaudeCloudSubscriptionOn: (enabled) =>
         set({ claudeCloudSubscriptionOn: enabled }),
+
+      setPiModelAccess: (mode) => set({ piModelAccess: mode }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -738,6 +744,8 @@ export const useSettingsStore = create<SettingsStore>()(
         codexModelAccess: state.codexModelAccess,
         claudeModelAccess: state.claudeModelAccess,
         claudeCloudSubscriptionOn: state.claudeCloudSubscriptionOn,
+
+        piModelAccess: state.piModelAccess,
 
         // Terminal
         terminalFont: state.terminalFont,

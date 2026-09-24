@@ -68,6 +68,7 @@ const config: Configuration = {
     ".vite/build/rpc-host.js",
     ".vite/build/rpc-host.js.map",
     ".vite/build/adapters/codex-app-server/local-tools-mcp-server.js",
+    ".vite/build/subscription-login-host.js",
     ...asarUnpackGlobs,
   ],
 

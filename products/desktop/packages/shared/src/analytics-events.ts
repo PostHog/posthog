@@ -1716,7 +1716,8 @@ export const ANALYTICS_EVENTS = {
   CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
   CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
   CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
-
+  PI_SUBSCRIPTION_CONNECTED: "Pi subscription connected",
+  PI_SUBSCRIPTION_SIGNED_OUT: "Pi subscription signed out",
   // Feedback events
   AI_METRIC: "$ai_metric",
   AI_FEEDBACK: "$ai_feedback",
@@ -1937,6 +1938,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
   [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT]: never;
+  [ANALYTICS_EVENTS.PI_SUBSCRIPTION_CONNECTED]: { provider: string };
+  [ANALYTICS_EVENTS.PI_SUBSCRIPTION_SIGNED_OUT]: { provider: string };
 
   // Feedback events
   [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;

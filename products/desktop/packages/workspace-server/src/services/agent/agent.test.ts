@@ -251,6 +251,9 @@ function createMockDependencies() {
       notifyToolResult: vi.fn(),
       notifyToolCancelled: vi.fn(),
     },
+    piSessionService: {
+      switchSubscriptionSessionsToGateway: vi.fn().mockResolvedValue(0),
+    },
     powerManager: {
       onResume: vi.fn(() => () => {}),
       preventSleep: vi.fn(() => () => {}),
@@ -309,6 +312,7 @@ describe("AgentService", () => {
       deps.posthogPluginService as never,
       deps.agentAuthAdapter as never,
       deps.mcpAppsService as never,
+      deps.piSessionService as never,
       deps.powerManager as never,
       deps.bundledResources as never,
       deps.appMeta as never,

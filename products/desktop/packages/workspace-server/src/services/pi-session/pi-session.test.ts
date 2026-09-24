@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import type { RpcCommand, RpcResponse } from "@posthog/agent/pi/rpc-transport";
 import type { PiRuntime } from "@posthog/agent/pi/runtime";
@@ -7,7 +10,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { ITaskMetadataRepository } from "../../db/repositories/task-metadata-repository";
 import type { ProcessTrackingService } from "../process-tracking/process-tracking";
 import type { PiRuntimeFactory } from "./identifiers";
-import { PiSessionService, selectPiPoolEvictionCandidate } from "./pi-session";
+import {
+  PiSessionService,
+  piSubscriptionModelFromSessionFile,
+  selectPiPoolEvictionCandidate,
+} from "./pi-session";
 
 const scopedLogger = {
   debug: vi.fn(),
@@ -275,6 +282,135 @@ describe("PiSessionService start", () => {
       "call-2",
       "allow_always",
     );
+  });
+});
+
+describe("PiSessionService switchSubscriptionSessionsToGateway", () => {
+  function makeStartableClient(): PiRpcClient {
+    return {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn().mockResolvedValue({
+        isStreaming: false,
+        sessionFile: "/tmp/pi-session.jsonl",
+        sessionId: "session-1",
+      }),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      onMcpToolPermissionRequest: vi.fn(),
+    } as unknown as PiRpcClient;
+  }
+
+  function makeRuntimeFactory(client: PiRpcClient): PiRuntimeFactory {
+    return {
+      create: vi.fn(async () => ({
+        client,
+        process: undefined,
+        onRuntimeEvent: vi.fn(),
+        onConversationEvent: vi.fn(),
+      })),
+    } as unknown as PiRuntimeFactory;
+  }
+
+  it("recreates running subscription sessions after sign-out", async () => {
+    const client = makeStartableClient();
+    const runtimeFactory = makeRuntimeFactory(client);
+    const taskMetadataRepository = {
+      upsert: vi.fn(),
+      findByTaskId: vi
+        .fn()
+        .mockReturnValue({ piSessionFile: "/tmp/pi-session.jsonl" }),
+    } as unknown as ITaskMetadataRepository;
+    const processTracking = {
+      register: vi.fn(),
+      unregister: vi.fn(),
+    } as unknown as ProcessTrackingService;
+    const service = new PiSessionService(
+      runtimeFactory,
+      taskMetadataRepository,
+      processTracking,
+      { approveMcpTool: vi.fn() },
+      rootLogger,
+    );
+
+    await service.start({
+      taskContext: { taskId: "task-1", cwd: "/tmp" },
+      prompt: "hello",
+      piSubscriptionProvider: "openai-codex",
+    });
+
+    const switched = await service.switchSubscriptionSessionsToGateway();
+
+    expect(switched).toBe(1);
+    expect(client.stop).toHaveBeenCalled();
+    expect(runtimeFactory.create).toHaveBeenLastCalledWith({
+      taskContext: { taskId: "task-1", cwd: "/tmp" },
+      sessionFile: "/tmp/pi-session.jsonl",
+      piSubscriptionProvider: undefined,
+      model: undefined,
+    });
+  });
+
+  it("reports zero when no subscription sessions are running", async () => {
+    const client = makeStartableClient();
+    const runtimeFactory = makeRuntimeFactory(client);
+    const service = new PiSessionService(
+      runtimeFactory,
+      {} as ITaskMetadataRepository,
+      {} as ProcessTrackingService,
+      { approveMcpTool: vi.fn() },
+      rootLogger,
+    );
+
+    await expect(service.switchSubscriptionSessionsToGateway()).resolves.toBe(
+      0,
+    );
+    expect(runtimeFactory.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("piSubscriptionModelFromSessionFile", () => {
+  it("returns the provider and model from the last model change", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pi-session-test-"));
+    const sessionFile = path.join(dir, "session.jsonl");
+    writeFileSync(
+      sessionFile,
+      [
+        JSON.stringify({
+          type: "session",
+          version: 3,
+          id: "session-1",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          cwd: "/repo",
+        }),
+        JSON.stringify({
+          type: "model_change",
+          id: "model-1",
+          parentId: null,
+          timestamp: "2026-01-01T00:00:01.000Z",
+          provider: "posthog",
+          modelId: "claude-opus-4-8",
+        }),
+        JSON.stringify({
+          type: "model_change",
+          id: "model-2",
+          parentId: "model-1",
+          timestamp: "2026-01-01T00:00:02.000Z",
+          provider: "openai-codex",
+          modelId: "gpt-5.6-terra",
+        }),
+      ].join("\n"),
+    );
+
+    expect(piSubscriptionModelFromSessionFile(sessionFile)).toEqual({
+      provider: "openai-codex",
+      modelId: "gpt-5.6-terra",
+    });
+  });
+
+  it("returns null for a missing or unreadable session file", () => {
+    expect(
+      piSubscriptionModelFromSessionFile("/nonexistent/session.jsonl"),
+    ).toBeNull();
   });
 });
 
