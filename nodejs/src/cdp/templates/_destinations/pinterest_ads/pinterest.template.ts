@@ -309,7 +309,7 @@ if (not empty(result?.warning_message)) {
                 external_id: '{person.id}',
                 client_ip_address: '{event.properties.$ip}',
                 client_user_agent: '{event.properties.$raw_user_agent}',
-                click_id: '{person.properties.epik ?? person.properties.$epik}',
+                click_id: '{person.properties.epik ?? person.properties.$initial_epik}',
             },
             secret: false,
             required: true,
