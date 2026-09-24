@@ -2750,7 +2750,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3,
+            type=BatchExportDestination.Destination.AWS_S3,
             config={"bucket_name": "my_production_s3_bucket"},
         )
         BatchExport.objects.create(
@@ -2794,7 +2794,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3,
+            type=BatchExportDestination.Destination.AWS_S3,
             config={"bucket_name": "test_bucket"},
         )
         batch_export = BatchExport.objects.create(

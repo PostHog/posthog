@@ -28,6 +28,7 @@ from posthog.api.file_system.file_system import (
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -693,7 +694,14 @@ class TestFileSystemAPI(APIBaseTest):
             self.assertEqual(folder.depth, depth_index)
             self.assertEqual(folder.type, "folder")
 
-    def test_move_files_and_folders(self):
+    @parameterized.expand(
+        [
+            ("short_path", "NewFolder"),
+            ("over_previous_shortcut_limit", "x" * 101),
+            ("maximum_nested_path", "x" * (MAX_PATH_LENGTH - len("/Notes"))),
+        ]
+    )
+    def test_move_files_and_folders(self, _name: str, new_path: str) -> None:
         """
         Moving a folder should update all child paths correctly.
         """
@@ -706,22 +714,69 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team, path="OldFolder/File2", type="feature_flag", created_by=self.user
         )
 
+        FileSystem.objects.create(team=self.team, path="OldFolder/Notes", type="folder", created_by=self.user)
+        other_user = User.objects.create_user(email="starred@example.com", first_name="Sam", password="test")
+        shortcuts = [
+            FileSystemShortcut.objects.create(team=self.team, user=user, path=label, type="folder", ref=ref)
+            for user in [self.user, other_user]
+            for label, ref in [("OldFolder", "OldFolder"), ("Notes", "OldFolder/Notes")]
+        ]
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        custom_shortcut = FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Pinned work", type="folder", ref="OldFolder"
+        )
+        sibling_folder = FileSystem.objects.create(
+            team=sibling_team, path="OldFolder", type="folder", created_by=self.user
+        )
+        FileSystem.objects.create(team=sibling_team, path="OldFolder/Notes", type="folder", created_by=self.user)
+        shortcuts.append(
+            FileSystemShortcut.objects.create(
+                team=sibling_team, user=self.user, path="Notes", type="folder", ref="OldFolder/Notes"
+            )
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        untouched = [
+            FileSystemShortcut.objects.create(
+                team=team, user=self.user, path=ref, type="folder", ref=ref, surface=surface
+            )
+            for team, ref, surface in [
+                (self.team, "OldFolderSuffix", None),
+                (self.team, "OldFolder", "desktop"),
+                (other_team, "OldFolder", None),
+                (sibling_team, "OldFolder", None),
+            ]
+        ]
+
         # Move the folder
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system/{folder.pk}/move",
-            {"new_path": "NewFolder"},
+            {"new_path": new_path},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         # Check that the folder and files have been moved
         folder.refresh_from_db()
-        self.assertEqual(folder.path, "NewFolder")
+        self.assertEqual(folder.path, new_path)
+        sibling_folder.refresh_from_db()
+        self.assertEqual(sibling_folder.path, "OldFolder")
 
         file1.refresh_from_db()
-        self.assertEqual(file1.path, "NewFolder/File1")
+        self.assertEqual(file1.path, f"{new_path}/File1")
 
         file2.refresh_from_db()
-        self.assertEqual(file2.path, "NewFolder/File2")
+        self.assertEqual(file2.path, f"{new_path}/File2")
+
+        for shortcut in shortcuts:
+            shortcut.refresh_from_db()
+            self.assertEqual(shortcut.ref, f"{new_path}/Notes" if shortcut.path == "Notes" else new_path)
+            self.assertIn(shortcut.path, [new_path, "Notes"])
+        for shortcut in untouched:
+            old_ref = shortcut.ref
+            shortcut.refresh_from_db()
+            self.assertEqual(shortcut.ref, old_ref)
+        custom_shortcut.refresh_from_db()
+        self.assertEqual(custom_shortcut.ref, new_path)
+        self.assertEqual(custom_shortcut.path, "Pinned work")
 
     def test_count_of_files(self):
         """

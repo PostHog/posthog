@@ -950,7 +950,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
 
         return {
             '/oauth/authorize': handleAuthorize,
-            '/oauth/authorize/': handleAuthorize,
         }
     }),
 ])
