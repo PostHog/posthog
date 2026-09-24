@@ -454,7 +454,7 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
         # typed columns, so a numeric comparison already has a common type — leave them alone.
         return value
 
-    property_type = (
+    matches = (
         PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
@@ -464,8 +464,12 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
         .exclude(property_type__isnull=True)
         .exclude(property_type="")
         .values_list("property_type", flat=True)
-        .first()
     )
+    # Slice instead of .first(): .first() appends ORDER BY id, which makes the planner walk the
+    # primary key index instead of seeking posthog_propdef_proj_uniq, the unique index that
+    # covers this exact filter. The walk is longest for a name with no row, the case that
+    # actually reaches the stringification below. load_property_metadata reads unordered too.
+    property_type = next(iter(matches[:1]), None)
 
     if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
         return value

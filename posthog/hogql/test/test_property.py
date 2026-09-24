@@ -6,7 +6,9 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -1352,6 +1354,18 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
             self._parse_expr("properties.count in (5, 6)"),
         )
+
+    def test_property_to_expr_numeric_value_lookup_is_unordered(self):
+        # The property-definition lookup must stay unordered: an ORDER BY id (what .first()
+        # appends) stops the planner using posthog_propdef_proj_uniq, the unique index that
+        # covers the filter, and makes it walk the primary key instead.
+        with CaptureQueriesContext(connection) as captured:
+            self._property_to_expr({"type": "event", "key": "undefined_prop", "value": 13, "operator": "exact"})
+
+        lookups = [q["sql"] for q in captured.captured_queries if "posthog_propertydefinition" in q["sql"]]
+        self.assertTrue(lookups)
+        for sql in lookups:
+            self.assertNotIn("ORDER BY", sql)
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
         with self.assertRaises(Exception) as e:
