@@ -116,11 +116,11 @@ export class StateManager {
             await Promise.all([this._cache.set('apiKey', apiKey), this._cache.set('apiKeyFetchedAt', Date.now())])
             return apiKey
         } catch (error) {
-            // A failed refresh must not end a live session. These scopes only filter the tool
-            // roster, and every API call is authorized again server-side.
             if (!cached) {
                 throw error
             }
+            // A failed refresh must not end a live session. These scopes only filter the tool
+            // roster, and every API call is authorized again server-side.
             this._reportException(error, 'api_key_refresh_failed')
             await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
             return cached
