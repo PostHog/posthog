@@ -17,10 +17,6 @@ export function parseCouponCampaign(path: string): string | null {
     return match?.[1] ?? null
 }
 
-/**
- * Formats the credit amount billing returns for a claimed code ("50.00") for display ("$50").
- * Returns null when the campaign has no fixed credit, so callers can skip the line.
- */
 export function formatCouponCreditAmount(creditAmountUsd: string | null | undefined): string | null {
     if (!creditAmountUsd) {
         return null
@@ -32,10 +28,7 @@ export function formatCouponCreditAmount(creditAmountUsd: string | null | undefi
     return humanFriendlyCurrency(amount, Number.isInteger(amount) ? 0 : 2)
 }
 
-/**
- * The line that tells the user about the credit from a claimed code, or null when there is nothing to say.
- * While billing is still syncing the credit ("processing"), it must not say the credit was added.
- */
+// While billing still retries the credit sync ("processing"), never say the credit was added.
 export function getCouponCreditMessage(
     creditAmountUsd: string | null | undefined,
     creditStatus: CouponCreditStatus | undefined

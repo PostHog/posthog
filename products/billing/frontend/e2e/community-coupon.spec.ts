@@ -40,8 +40,7 @@ test.describe('Community coupon', () => {
             await page.getByLabel('Coupon code').fill(code)
             await page.getByRole('button', { name: 'Redeem coupon' }).click()
             await expect(page.getByText('Coupon redeemed successfully!')).toBeVisible()
-            // The store sets each code's amount, so match any dollar amount. If billing is still retrying
-            // the credit sync, the page says the credit is on its way instead of added.
+            // The store sets each code's amount, and billing may still be retrying the credit sync.
             await expect(
                 page.getByText(
                     /^\$[\d,]+(\.\d{2})? of credit (was added to your organization|will appear on your account in a few minutes)\.$/

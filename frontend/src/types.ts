@@ -2487,7 +2487,7 @@ export interface BillingType {
     }
 }
 
-/** "processing" means the claim succeeded and billing is still retrying the credit sync, which finishes within a few minutes. */
+/** "processing": the claim succeeded and billing is still retrying the credit sync. */
 export type CouponCreditStatus = 'applied' | 'processing' | null
 
 export interface ClaimedCouponInfo {
@@ -2511,7 +2511,6 @@ export interface CouponClaimResponse {
     code: string
     campaign: string
     expires_at: string | null
-    /** Credit the code granted, e.g. "50.00". Null for campaigns without a fixed credit. */
     credit_amount_usd?: string | null
     credit_status?: CouponCreditStatus
 }
