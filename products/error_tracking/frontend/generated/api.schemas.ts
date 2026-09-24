@@ -2486,7 +2486,7 @@ export type ErrorTrackingSpikeEventsListParams = {
      */
     offset?: number
     /**
-     * Field to order by. Prefix with a hyphen for descending.
+     * Field to order by. Prefix with a hyphen for descending. An unknown field sorts by newest first.
      */
     order_by?: string
 }
