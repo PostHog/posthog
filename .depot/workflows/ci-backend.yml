@@ -2095,8 +2095,12 @@ jobs:
                   # test_ch_migrations_are_safe requires a local master branch, while the
                   # comparison checkout is registered as upstream/master.
                   git show-ref --verify --quiet refs/heads/master || git branch master upstream/master
-                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  added_ch_migrations() {
+                      git diff --name-only --diff-filter=A "$1"..HEAD -- posthog/clickhouse/migrations/ | grep -v README | sort
+                  }
+                  # A stacked PR that merged a newer master than its base branch also adds master's
+                  # migrations against that base, so a migration that master already has does not count.
+                  comm -12 <(added_ch_migrations "$DIFF_BASE") <(added_ch_migrations upstream/master) | python manage.py test_ch_migrations_are_safe
 
             - name: Render CH migration SQL per cloud environment
               # CH migrations can build different `operations` lists at import time depending on
