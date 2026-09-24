@@ -390,6 +390,40 @@ jobs:
                   echo "::error::The gateway smoke reported ${RESULT:-no result}, so PR #$PR waits for a person"
                   exit 1
 
+            # The nightly run catches a gateway deploy that breaks the pinned agent.
+            - name: Smoke the pinned agent on the Go ai-gateway
+              id: nightly-smoke
+              if: github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action)
+              timeout-minutes: 25
+              uses: ./.github/actions/sandbox-agent-gateway-smoke
+              with:
+                  image: ghcr.io/posthog/posthog-sandbox-base:master
+                  agent-version: ${{ steps.resolve.outputs.pinned }}
+                  mint-key: ${{ secrets.AGENT_SMOKE_AI_GATEWAY_MINT_KEY }}
+                  registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Post the nightly smoke failure
+              id: nightly-failure
+              if: ${{ !cancelled() && github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action) && steps.nightly-smoke.outputs.result != 'pass' && steps.nightly-smoke.outputs.result != 'unavailable' }}
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: ":red_circle: The nightly Go ai-gateway smoke reported `${{ steps.nightly-smoke.outputs.result || 'no result' }}` for @posthog/agent ${{ steps.resolve.outputs.pinned }} on `posthog-sandbox-base:master`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+
+            - name: Fail when the nightly smoke did not pass
+              if: ${{ !cancelled() && github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action) && steps.nightly-smoke.outputs.result != 'pass' && steps.nightly-smoke.outputs.result != 'unavailable' }}
+              env:
+                  RESULT: ${{ steps.nightly-smoke.outputs.result }}
+              run: |
+                  echo "::error::The nightly gateway smoke reported ${RESULT:-no result} for the pinned agent"
+                  exit 1
+
             - name: Get release approval token
               id: releaser-token
               if: steps.state.outputs.action == 'bump'
