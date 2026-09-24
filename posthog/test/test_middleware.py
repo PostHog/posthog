@@ -1092,6 +1092,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
             ),
+            ("hog_flows_user_blast_radius", "hog_flows/user_blast_radius/", {}),
             ("logs_query", "logs/query/", {}),
             # hyphenated action that the shorter `count` alternative must not shadow
             ("logs_count_ranges", "logs/count-ranges/", {"query": "not-a-dict"}),
