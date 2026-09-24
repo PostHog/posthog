@@ -189,3 +189,12 @@ class TestStepsToExprRegexValidation:
         step = ActionStepJSON(event="$pageview", url="/shardlibrary/\\d+\\", url_matching="regex")
         with pytest.raises(QueryError, match="Invalid regular expression"):
             steps_to_expr([step], team=None)  # type: ignore[arg-type]
+
+    def test_invalid_step_regex_is_not_logged(self, capfd):
+        from posthog.hogql.errors import QueryError
+
+        step = ActionStepJSON(event="$pageview", url="/token-abc123/\\d+\\", url_matching="regex")
+        with pytest.raises(QueryError):
+            steps_to_expr([step], team=None)  # type: ignore[arg-type]
+        _, err = capfd.readouterr()
+        assert "token-abc123" not in err

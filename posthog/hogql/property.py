@@ -650,6 +650,11 @@ def _multi_search_not_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
     return ast.Not(expr=_multi_search_found_for_values(expr, value))
 
 
+# log_errors=False keeps RE2 from writing rejected patterns to stderr.
+_RE2_QUIET = re2.Options()
+_RE2_QUIET.log_errors = False
+
+
 def _validate_regex(value: ValueT) -> None:
     """Reject an invalid regular expression with a clear user-facing error rather
     than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
@@ -657,7 +662,7 @@ def _validate_regex(value: ValueT) -> None:
     if not isinstance(value, str):
         return
     try:
-        re2.compile(value)
+        re2.compile(value, options=_RE2_QUIET)
     except re2.error as err:
         raise QueryError(f"Invalid regular expression: '{value}'") from err
 
