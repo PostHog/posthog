@@ -67,7 +67,6 @@ posthog/admin/test_admin.py::TestPluginAttachmentInline
 posthog/api/oauth/test_cimd.py::TestAuthorizationServerMetadata
 posthog/api/oauth/test_cimd.py::TestFetchCimdMetadata
 posthog/api/test/test_comment_slack_sync.py::TestDiscussionCardBlocks
-posthog/api/test/test_comment_slack_sync.py::TestEscapeSlackMrkdwn
 posthog/api/test/test_comments.py::TestCommentHelperFunctions
 posthog/api/test/test_csp.py::TestCSPModule
 posthog/api/test/test_event_definition_base.py::TestEventDefinitionGeneratorBase

@@ -57,6 +57,7 @@ function makeBus(overrides?: {
     completionVolume: 80,
     scaleSoundWithTaskLength: false,
     customSounds: [],
+    notificationsPausedUntil: null,
     ...overrides?.settings,
   };
 
@@ -167,6 +168,35 @@ describe("notifyPromptComplete", () => {
       bus.notifyPromptComplete("My task", "end_turn", TASK_ID),
     ).not.toThrow();
     expect(notify).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pause", () => {
+  it.each([
+    { label: "native tier", hasFocus: false, toast: false },
+    { label: "toast tier", hasFocus: true, toast: true },
+  ])("stays silent on the $label while paused", ({ hasFocus, toast }) => {
+    const { bus, notify, showUnreadIndicator, requestAttention, play } =
+      makeBus({
+        hasFocus,
+        settings: { notificationsPausedUntil: Date.now() + 60_000 },
+      });
+    bus.notifyPromptComplete("My task", "end_turn", TASK_ID);
+    expect(play).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(showUnreadIndicator).not.toHaveBeenCalled();
+    expect(requestAttention).not.toHaveBeenCalled();
+    expect(toastMock.success).toHaveBeenCalledTimes(toast ? 1 : 0);
+  });
+
+  it("alerts again once the pause ends", () => {
+    const { bus, notify, play } = makeBus({
+      hasFocus: false,
+      settings: { notificationsPausedUntil: Date.now() - 1 },
+    });
+    bus.notifyPromptComplete("My task", "end_turn", TASK_ID);
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 });
 

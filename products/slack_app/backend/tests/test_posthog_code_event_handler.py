@@ -1643,6 +1643,31 @@ class TestQueueWorkflowDispatch(TestCase):
         mock_slack.return_value.client.reactions_add.assert_not_called()
 
 
+class TestUntaggedFollowupPrompt(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("linked", {"app_id": "A123"}, "<slack://app?team=T12345&id=A123&tab=home|PostHog app Home tab>"),
+            ("no_app_id", {}, "PostHog app Home tab"),
+        ]
+    )
+    def test_prompt_shows_where_to_change_the_setting(self, _name, config, expected_label):
+        from products.slack_app.backend.api import _post_untagged_followup_prompt
+
+        slack = MagicMock()
+        integration = MagicMock(id=1, integration_id="T12345", config=config)
+        event = {"channel": "C001", "user": "U123", "thread_ts": "1234.5678"}
+
+        assert _post_untagged_followup_prompt(slack, integration, event, is_ext_shared_channel=False)
+
+        blocks = slack.client.chat_postEphemeral.call_args.kwargs["blocks"]
+        assert blocks[-1] == {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {expected_label} you can set what happens in threads you start."}
+            ],
+        }
+
+
 class TestPostSlackUserEphemeral(SimpleTestCase):
     def test_request_timeout_applies_to_the_client_that_makes_the_call(self):
         # ``SlackIntegration.client`` builds a fresh WebClient on every access, so setting
