@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
+    DEPOT_JOB_ATTEMPTS_SCHEMA,
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
@@ -487,6 +488,22 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
             },
         )
+        # A Depot source joins only the repository it syncs, matched case-insensitively.
+        depot = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src-depot",
+            connection_id="src-depot",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.DEPOT,
+            prefix="ci",
+            job_inputs={"repository": "posthog/PostHog"},
+        )
+        link_schema(
+            self.team,
+            depot,
+            name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+            table=create_warehouse_table_row(self.team, name="cidepot_job_attempts", source=depot),
+        )
         # pull_requests stays None here: these views qualify on jobs + runs, so a repo reaches them
         # with no PR snapshot and the run builder's PR attribution degrades to the message suffix.
         assert set(resolve_job_source_tables(self.team)) == {
@@ -495,6 +512,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
                 source_id=str(source.id),
+                depot_job_attempts="cidepot_job_attempts",
             ),
             JobSourceTables(
                 workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",

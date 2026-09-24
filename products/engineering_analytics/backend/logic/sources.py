@@ -62,6 +62,10 @@ DEPLOYMENT_STATUSES_SCHEMA = "deployment_statuses"
 # at the source, so reads must degrade gracefully (no review data) exactly like issue_events.
 REVIEWS_SCHEMA = "reviews"
 
+# The Depot source's one table: a row per Depot CI job attempt. Optional, and resolved from a Depot
+# source rather than the GitHub one, so reads degrade to GitHub-only CI exactly like workflow_jobs.
+DEPOT_JOB_ATTEMPTS_SCHEMA = "job_attempts"
+
 # GitHub adds this column to an issue event only for a team review request, so it lands only once some
 # pull request in the repo requested a team, and a read of it fails before that.
 REQUESTED_TEAM_COLUMN = "requested_team"
@@ -111,6 +115,8 @@ class GitHubTables:
     deployment_statuses: str | None = None
     # Optional: present only once reviews are synced; None means "no review data".
     reviews: str | None = None
+    # Optional: present only once a Depot source syncs this repository; None means "no Depot CI data".
+    depot_job_attempts: str | None = None
     # True when the issue-events table has the requested_team column (see REQUESTED_TEAM_COLUMN).
     issue_events_team_requests: bool = False
     # Used to scope cross-store reads such as CI traces to the selected source's repository.
@@ -189,6 +195,7 @@ def resolve_github_tables(
                 deployments=tables.get(DEPLOYMENTS_SCHEMA),
                 deployment_statuses=tables.get(DEPLOYMENT_STATUSES_SCHEMA),
                 reviews=tables.get(REVIEWS_SCHEMA),
+                depot_job_attempts=_depot_job_attempts_table(team, candidate.repository, user_access_control),
                 issue_events_team_requests=candidate.tables.issue_events_team_requests,
                 repository=candidate.repository,
                 source_id=candidate.source_id,
@@ -210,6 +217,7 @@ class JobSourceTables:
     issue_events: str | None = None
     reviews: str | None = None
     source_id: str = ""
+    depot_job_attempts: str | None = None
 
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
@@ -224,12 +232,20 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     team scoping is the boundary.
     """
     resolved: list[JobSourceTables] = []
+    # The views union every entry, so a repository that two GitHub sources sync gets its Depot table
+    # on the first entry only. Otherwise every Depot job and its cost would count twice.
+    repositories_with_depot: set[str] = set()
     for source in _github_sources(team):
-        for repo_tables in _synced_tables_by_repo(team=team, source=source).values():
+        for repository, repo_tables in _synced_tables_by_repo(team=team, source=source).items():
             tables = repo_tables.names
             runs = tables.get(WORKFLOW_RUNS_SCHEMA)
             jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
             if runs and jobs:
+                depot_job_attempts = (
+                    None if repository in repositories_with_depot else _depot_job_attempts_table(team, repository)
+                )
+                if depot_job_attempts:
+                    repositories_with_depot.add(repository)
                 resolved.append(
                     JobSourceTables(
                         workflow_jobs=jobs,
@@ -238,6 +254,7 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
                         issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
                         reviews=tables.get(REVIEWS_SCHEMA),
                         source_id=str(source.id),
+                        depot_job_attempts=depot_job_attempts,
                     )
                 )
     return resolved
@@ -503,6 +520,33 @@ def _as_source_uuid(source_id: str) -> UUID:
         return UUID(source_id)
     except ValueError as err:
         raise ValueError(f"source_id must be a UUID, got: {source_id!r}") from err
+
+
+def _depot_job_attempts_table(
+    team: Team, repository: str, user_access_control: "UserAccessControl | None" = None
+) -> str | None:
+    """The synced Depot CI job attempts of ``repository``, or None.
+
+    A Depot source syncs only the repository its ``repository`` input names, so that input decides
+    which GitHub repository its runs join. Oldest source first, like every other resolver here.
+    """
+    if not repository:
+        return None
+    for source in _accessible_sources(team, ExternalDataSourceType.DEPOT, user_access_control):
+        # job_inputs is an EncryptedJSONField and can hold any JSON shape.
+        inputs = source.job_inputs if isinstance(source.job_inputs, dict) else {}
+        if str(inputs.get("repository", "")).casefold() != repository.casefold():
+            continue
+        for schema in _synced_schemas(team=team, source=source):
+            table = schema.table
+            if (
+                schema.name == DEPOT_JOB_ATTEMPTS_SCHEMA
+                and table is not None
+                and not table.deleted
+                and _IDENTIFIER.match(table.name)
+            ):
+                return table.name
+    return None
 
 
 def _synced_schemas(*, team: Team, source: ExternalDataSource) -> QuerySet[ExternalDataSchema]:

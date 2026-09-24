@@ -87,6 +87,34 @@ WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
     "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
+# Contract for the Depot source's ``job_attempts`` table: one row per Depot CI job attempt, the
+# columns ``views.depot_ci`` reshapes into the two GitHub contracts above. Ids are Depot's strings.
+DEPOT_JOB_ATTEMPTS_COLUMNS: dict[str, dict[str, str]] = {
+    **{
+        name: {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"}
+        for name in (
+            "run_id",
+            "repo",
+            "ref",
+            "head_sha",
+            "run_status",
+            "run_created_at",
+            "run_started_at",
+            "run_finished_at",
+            "workflow_name",
+            "job_key",
+            "job_display_name",
+            "attempt_id",
+            "attempt_conclusion",
+            "attempt_created_at",
+            "attempt_started_at",
+            "attempt_finished_at",
+            "sandbox_id",
+        )
+    },
+    "attempt": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+}
+
 # Contract for the ``github_issue_events`` warehouse source: immutable issue/PR events, every
 # type kept (a source-side filter would pin the desc-walk watermark). ``actor`` / ``issue`` are
 # the nested GitHub objects verbatim as JSON. Same Nullable/string discipline as above.

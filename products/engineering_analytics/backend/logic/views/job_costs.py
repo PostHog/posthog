@@ -56,7 +56,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_vcpu,
 )
 from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
-from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -301,5 +301,11 @@ def build_team_view(team: "Team") -> str | None:
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    selects = [build_query(jobs_table=source.workflow_jobs, runs_table=source.workflow_runs) for source in sources]
+    selects = [
+        build_query(
+            jobs_table=depot_ci.with_depot_jobs(source.workflow_jobs, source.depot_job_attempts),
+            runs_table=depot_ci.with_depot_runs(source.workflow_runs, source.depot_job_attempts),
+        )
+        for source in sources
+    ]
     return "\nUNION ALL\n".join(selects)

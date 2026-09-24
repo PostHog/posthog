@@ -14,10 +14,19 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
     resolve_trunk_merge_queue_table,
 )
-from products.engineering_analytics.backend.logic.views import pull_requests, trunk_quarantined_tests, workflow_runs
+from products.engineering_analytics.backend.logic.views import (
+    depot_ci,
+    job_costs,
+    pull_requests,
+    trunk_quarantined_tests,
+    workflow_jobs,
+    workflow_runs,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TRUNK_QUARANTINED_TESTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
@@ -228,6 +237,73 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[3][6:] == (44, 1)
         # Spoofed shape without the queue actor: attribution stays on the run's own association.
         assert rows[4][6:] == (9002, 0)
+
+    def test_depot_ci_attempts_read_as_runs_jobs_and_cost(self) -> None:
+        runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [])
+
+        def attempt(
+            attempt_id: str, attempt: int, conclusion: str, started: str, finished: str, *, run_id: str = "427q556wmn"
+        ) -> dict[str, str | int]:
+            return {
+                "run_id": run_id,
+                "repo": "PostHog/posthog",
+                "ref": "refs/pull/101991/merge",
+                "head_sha": "abc123",
+                "run_status": "failed",
+                "run_created_at": "2026-09-24T14:51:17.948Z",
+                "run_started_at": "2026-09-24T14:51:18.000Z",
+                "run_finished_at": "2026-09-24T15:01:18.000Z",
+                "workflow_name": "Backend CI on Depot",
+                "job_key": "ci-backend.yml:turbo-tests:matrix-38",
+                "job_display_name": "Product tests (experiments)" if attempt_id != "b82nsv77wl" else "",
+                "attempt_id": attempt_id,
+                "attempt": attempt,
+                "attempt_conclusion": conclusion,
+                "attempt_created_at": started,
+                "attempt_started_at": started,
+                "attempt_finished_at": finished,
+                "sandbox_id": "sandbox",
+            }
+
+        depot_table = self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            [
+                attempt("zf6sbbn2wh", 1, "failure", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
+                attempt("3v4pbsqvfc", 2, "success", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
+                attempt("b82nsv77wl", 1, "success", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z"),
+                # A push run's id carries a prefix outside the base-30 alphabet, so it has no GitHub run id.
+                attempt(
+                    "q28m5dl5rg",
+                    1,
+                    "success",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:53:00.000Z",
+                    run_id="ps_59s92fgx6c",
+                ),
+            ],
+        )
+        runs = depot_ci.with_depot_runs(runs_table, depot_table)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot_table)
+
+        # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
+        assert self._select(
+            "SELECT id, workflow_name, conclusion, pr_number, duration_seconds, repo_owner, repo_name, run_attempt "
+            f"FROM ({workflow_runs.build_query(runs)}) AS r"
+        ) == [(80213453736890, "Backend CI on Depot", "failure", 101991, 600, "PostHog", "posthog", 2)]
+        assert self._select(
+            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
+            f"FROM ({workflow_jobs.build_query(jobs)}) AS j ORDER BY started_at"
+        ) == [
+            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
+            (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
+            (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
+        ]
+        assert self._select(
+            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0 "
+            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c"
+        ) == [("depot", 2, 1)]
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
