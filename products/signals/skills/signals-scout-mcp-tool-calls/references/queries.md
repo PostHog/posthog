@@ -380,9 +380,10 @@ Read it:
 
 - `HAVING problem_tools > 0` keeps healthy categories out of the result — they get no report,
   so they don't belong in the report-grain rollup.
-- This is aggregation, not detection — it catches the failure shape only. Struggle (query 2)
-  and latency (query 4) candidates join their category via the `category` column those queries
-  now carry; a category whose only problem tools are struggle/latency won't appear here (the
+- This is aggregation, not detection — it catches the failure shape only. Struggle (query 2),
+  latency (query 4) and session-share (query 10) candidates join their category via the
+  `category` column those queries now carry, and they count toward the category's problem tools.
+  A category whose only problem tools are struggle/latency/session-share won't appear here (the
   `HAVING` sees only the failure floor) — pull its `category_calls` denominators by re-running
   without the `HAVING`, filtered to that category.
 - The `Uncategorized` bucket is dominated by bare `exec` rows (discovery verbs, wrapper
