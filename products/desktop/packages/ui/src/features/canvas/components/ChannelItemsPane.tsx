@@ -6,7 +6,7 @@ import {
   type ChannelItemModel,
   channelItemSortEvent,
   channelItemSources,
-  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
   hasActiveChannelItemFilters,
@@ -47,7 +47,10 @@ import { useCommandCenterStore } from "@posthog/ui/features/command-center/comma
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import {
+  DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  useSidebarStore,
+} from "@posthog/ui/features/sidebar/sidebarStore";
 import { taskDragSiblings } from "@posthog/ui/features/sidebar/taskDrag";
 import { usePinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
@@ -158,7 +161,9 @@ export function ChannelItemsPane({
   const sources = useMemo(() => channelItemSources(items), [items]);
   const filters = useMemo<ChannelItemFilters>(() => {
     const sourceMissing =
-      rawFilters.source !== ANY_SOURCE && !sources.includes(rawFilters.source);
+      rawFilters.source !== ANY_SOURCE &&
+      rawFilters.source !== DESKTOP_SOURCE &&
+      !sources.includes(rawFilters.source);
     const scoped: ChannelItemFilters = {
       ...rawFilters,
       ...(hasMultipleAuthors ? {} : { createdBy: "anyone" as const }),
@@ -168,7 +173,10 @@ export function ChannelItemsPane({
       ? scoped
       : { ...scoped, attention: "any", environment: "any", source: ANY_SOURCE };
   }, [rawFilters, hasMultipleAuthors, hasRuns, sources]);
-  const filtersActive = hasActiveChannelItemFilters(filters);
+  const filtersActive = hasActiveChannelItemFilters(
+    filters,
+    DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  );
 
   const listItems = useMemo(() => {
     const ordered = sortChannelItems(
@@ -333,7 +341,10 @@ export function ChannelItemsPane({
               onFilterChange={(key, value) =>
                 setFilters({ ...rawFilters, [key]: value })
               }
-              onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
+              onClearFilters={() =>
+                setFilters(DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS)
+              }
+              defaultFilters={DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS}
               sort={sort}
               onSortChange={setSort}
               grouping={grouping}
