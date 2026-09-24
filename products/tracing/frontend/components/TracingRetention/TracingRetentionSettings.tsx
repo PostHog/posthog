@@ -5,7 +5,6 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -13,6 +12,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import {
     isValidLogsRetentionDays,
     logsRetentionDaysLabel,
+    retentionThrottleReason,
 } from 'products/logs/frontend/components/LogsRetention/logsRetentionPeriod'
 import { LogsRetentionPeriodPicker } from 'products/logs/frontend/components/LogsRetention/LogsRetentionPeriodPicker'
 import { RetentionRulesSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
@@ -35,19 +35,9 @@ export function TracingRetentionSettings(): JSX.Element {
         ? retentionDays
         : TRACES_RETENTION_DEFAULT_DAYS
 
-    const getThrottleReason = (): string | undefined => {
-        if (!retentionLastUpdated) {
-            return undefined
-        }
-        const hoursSinceUpdate = dayjs().diff(dayjs(retentionLastUpdated), 'hours')
-        if (hoursSinceUpdate < 24) {
-            const hoursRemaining = Math.max(1, 24 - hoursSinceUpdate)
-            return `You can update retention again in ${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''}`
-        }
-        return undefined
-    }
-
-    const disabledReason = tracingConfigLoading ? 'Loading...' : (restrictedReason ?? getThrottleReason())
+    const disabledReason = tracingConfigLoading
+        ? 'Loading...'
+        : (restrictedReason ?? retentionThrottleReason(retentionLastUpdated))
 
     const handleRetentionChange = (retentionDaysValue: number): void => {
         if (retentionDaysValue === currentRetention) {

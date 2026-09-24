@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -65,7 +66,7 @@ def retention_update_throttle_error(last_updated: datetime | str | None) -> str 
     hours_remaining = RETENTION_UPDATE_THROTTLE_HOURS - (time_since_update.total_seconds() / 3600)
     return (
         f"You can only update retention settings once per {RETENTION_UPDATE_THROTTLE_HOURS} hours. "
-        f"Please wait {int(hours_remaining)} more hour(s)."
+        f"Please wait {math.ceil(hours_remaining)} more hour(s)."
     )
 
 
