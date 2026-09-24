@@ -6,9 +6,11 @@ functions here reshape that table into ``WORKFLOW_RUNS_COLUMNS`` and ``WORKFLOW_
 and union them onto the GitHub tables, so every builder derives durations, PR numbers and cost for
 both engines with one set of rules.
 
-Depot ids are strings. Depot CI sets ``GITHUB_RUN_ID`` to the run id read as a base-30 number over
-``_ID_ALPHABET``, which the per-test traces its jobs emit confirm. Decoding every id with the same
-rule gives the integer ids the builders join on, and it joins those traces to these jobs.
+A Depot workflow is the counterpart of a GitHub workflow run, so it becomes one runs row. Depot ids
+are strings. Depot CI sets ``GITHUB_RUN_ID`` to the run id read as a base-30 number over
+``_ID_ALPHABET``, which the per-test traces its jobs emit confirm. A run with one workflow therefore
+takes its decoded run id, which joins those traces to its jobs. A run with several workflows takes
+each workflow's decoded id instead, because one shared id would fan every join on it out.
 """
 
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -47,50 +49,97 @@ def _conclusion(status: str) -> str:
     return f"multiIf({status} = 'finished', 'success', {status} = 'failed', 'failure', {status})"
 
 
-def _attempts_with_ids(attempts_table: str) -> str:
-    # Filtered in their own SELECT because the outer SELECTs alias the decoded ids over the raw
-    # column names, and ClickHouse would resolve a WHERE there against the aliases. A push run's id
-    # carries a prefix outside the alphabet, so it has no GitHub run id and is left out.
-    return f"(SELECT * FROM {attempts_table} WHERE {_is_id('run_id')} AND {_is_id('attempt_id')})"
+def _attempts(attempts_table: str, pull_requests_table: str | None) -> str:
+    # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
+    # filters then match it like a GitHub run of the same PR.
+    pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
+    if pull_requests_table:
+        head_branch = "nullIf(pr.head_branch, '')"
+        branch_join = f"""
+            LEFT JOIN (
+                SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch
+                FROM {pull_requests_table}
+                GROUP BY number
+            ) AS pr ON {pr_number} = pr.number"""
+    else:
+        head_branch = "NULL"
+        branch_join = ""
+    # The ids are filtered in their own SELECT because the outer SELECTs alias the decoded ids over
+    # the raw column names, and ClickHouse would resolve a WHERE there against the aliases. A push
+    # run's id carries a prefix outside the alphabet, and such a run holds no workflows.
+    return f"""(
+        SELECT
+            if(
+                workflows.count = 1,
+                {_id_to_int("a.run_id")},
+                {_id_to_int("a.workflow_id")}
+            ) AS github_run_id,
+            {pr_number} AS pr_number,
+            {head_branch} AS head_branch,
+            a.repo AS repo,
+            a.head_sha AS head_sha,
+            a.workflow_name AS workflow_name,
+            a.workflow_status AS workflow_status,
+            a.workflow_created_at AS workflow_created_at,
+            a.workflow_started_at AS workflow_started_at,
+            a.workflow_finished_at AS workflow_finished_at,
+            a.job_key AS job_key,
+            a.job_display_name AS job_display_name,
+            {_id_to_int("a.attempt_id")} AS attempt_id,
+            a.attempt AS attempt,
+            a.attempt_status AS attempt_status,
+            a.attempt_started_at AS attempt_started_at,
+            a.attempt_finished_at AS attempt_finished_at,
+            a.sandbox_id AS sandbox_id
+        FROM (
+            SELECT * FROM {attempts_table}
+            WHERE {_is_id("run_id")} AND {_is_id("workflow_id")} AND {_is_id("attempt_id")}
+        ) AS a
+        JOIN (
+            SELECT run_id, uniq(workflow_id) AS count FROM {attempts_table} GROUP BY run_id
+        ) AS workflows ON a.run_id = workflows.run_id
+        {branch_join}
+    )"""
 
 
-def _runs(attempts_table: str) -> str:
-    # One row per Depot run, because GITHUB_RUN_ID, and so every trace and job, identifies the run
-    # and not the workflow inside it.
-    pr_number = "ifNull(toInt(extract(any(ref), '^refs/pull/([0-9]+)/')), 0)"
+def _runs(attempts: str) -> str:
     return f"""
         SELECT
-            {_id_to_int("run_id")} AS id,
+            github_run_id AS id,
             any(workflow_name) AS name,
             any(head_sha) AS head_sha,
-            NULL AS head_branch,
+            any(head_branch) AS head_branch,
             'completed' AS status,
-            {_conclusion("any(run_status)")} AS conclusion,
-            any(run_created_at) AS created_at,
-            any(run_started_at) AS run_started_at,
-            any(run_finished_at) AS updated_at,
+            {_conclusion("any(workflow_status)")} AS conclusion,
+            any(workflow_created_at) AS created_at,
+            any(workflow_started_at) AS run_started_at,
+            any(workflow_finished_at) AS updated_at,
             max(attempt) AS run_attempt,
-            if({pr_number} > 0, concat('[{{"number":', toString({pr_number}), ',"base":{{"repo":{{"id":{_REPOSITORY_ID}}}}}}}]'), '[]') AS pull_requests,
+            if(
+                any(pr_number) > 0,
+                concat('[{{"number":', toString(any(pr_number)), ',"base":{{"repo":{{"id":{_REPOSITORY_ID}}}}}}}]'),
+                '[]'
+            ) AS pull_requests,
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
             NULL AS actor
-        FROM {_attempts_with_ids(attempts_table)}
-        GROUP BY run_id
+        FROM {attempts}
+        GROUP BY github_run_id
     """
 
 
-def _jobs(attempts_table: str) -> str:
+def _jobs(attempts: str) -> str:
     return f"""
         SELECT
-            {_id_to_int("attempt_id")} AS id,
-            {_id_to_int("run_id")} AS run_id,
+            attempt_id AS id,
+            github_run_id AS run_id,
             attempt AS run_attempt,
             if(ifNull(job_display_name, '') != '', job_display_name, job_key) AS name,
             workflow_name,
             if(ifNull(attempt_finished_at, '') != '', 'completed', 'in_progress') AS status,
             {_conclusion("attempt_status")} AS conclusion,
             head_sha,
-            NULL AS head_branch,
+            head_branch,
             '{_DEFAULT_SANDBOX_LABELS}' AS labels,
             sandbox_id AS runner_name,
             NULL AS runner_group_name,
@@ -99,7 +148,7 @@ def _jobs(attempts_table: str) -> str:
             attempt_started_at AS started_at,
             attempt_finished_at AS completed_at,
             NULL AS steps
-        FROM {_attempts_with_ids(attempts_table)}
+        FROM {attempts}
     """
 
 
@@ -109,11 +158,15 @@ def _union(github_table: str, columns: dict[str, dict[str, str]], depot_select: 
     return f"(SELECT {', '.join(columns)} FROM {github_table} UNION ALL {depot_select})"
 
 
-def with_depot_runs(runs_table: str, attempts_table: str | None) -> str:
+def with_depot_runs(runs_table: str, attempts_table: str | None, pull_requests_table: str | None = None) -> str:
     """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced."""
-    return _union(runs_table, WORKFLOW_RUNS_COLUMNS, _runs(attempts_table)) if attempts_table else runs_table
+    if not attempts_table:
+        return runs_table
+    return _union(runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_attempts(attempts_table, pull_requests_table)))
 
 
-def with_depot_jobs(jobs_table: str, attempts_table: str | None) -> str:
+def with_depot_jobs(jobs_table: str, attempts_table: str | None, pull_requests_table: str | None = None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced."""
-    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(attempts_table)) if attempts_table else jobs_table
+    if not attempts_table:
+        return jobs_table
+    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(attempts_table, pull_requests_table)))

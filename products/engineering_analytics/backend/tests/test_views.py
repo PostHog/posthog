@@ -242,19 +242,35 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
         jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [])
 
+        prs_table = self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot")],
+        )
+
         def attempt(
-            attempt_id: str, attempt: int, status: str, started: str, finished: str, *, run_id: str = "427q556wmn"
+            attempt_id: str,
+            attempt: int,
+            status: str,
+            started: str,
+            finished: str,
+            *,
+            run_id: str = "427q556wmn",
+            workflow: tuple[str, str, str] = ("6n4tghls33", "Backend CI on Depot", "failed"),
+            ref: str = "refs/pull/101991/merge",
         ) -> dict[str, str | int]:
+            workflow_id, workflow_name, workflow_status = workflow
             return {
                 "run_id": run_id,
                 "repo": "PostHog/posthog",
-                "ref": "refs/pull/101991/merge",
+                "ref": ref,
                 "head_sha": "abc123",
-                "run_status": "failed",
-                "run_created_at": "2026-09-24T14:51:17.948Z",
-                "run_started_at": "2026-09-24T14:51:18.000Z",
-                "run_finished_at": "2026-09-24T15:01:18.000Z",
-                "workflow_name": "Backend CI on Depot",
+                "workflow_id": workflow_id,
+                "workflow_name": workflow_name,
+                "workflow_status": workflow_status,
+                "workflow_created_at": "2026-09-24T14:51:17.948Z",
+                "workflow_started_at": "2026-09-24T14:51:18.000Z",
+                "workflow_finished_at": "2026-09-24T15:01:18.000Z",
                 "job_key": "ci-backend.yml:turbo-tests:matrix-38",
                 "job_display_name": "Product tests (experiments)" if attempt_id != "b82nsv77wl" else "",
                 "attempt_id": attempt_id,
@@ -265,6 +281,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "sandbox_id": "sandbox",
             }
 
+        schedule = {"run_id": "bbbbbbbbbb", "ref": "refs/heads/master"}
         depot_table = self._create_table(
             "depot_job_attempts",
             DEPOT_JOB_ATTEMPTS_COLUMNS,
@@ -272,32 +289,46 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 attempt("zf6sbbn2wh", 1, "failed", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
                 attempt("3v4pbsqvfc", 2, "finished", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
                 attempt("b82nsv77wl", 1, "finished", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z"),
-                # A push run's id carries a prefix outside the base-30 alphabet, so it has no GitHub run id.
+                # A run with two workflows keys each one by its own id, so no join on the id fans out.
                 attempt(
                     "q28m5dl5rg",
                     1,
                     "finished",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
-                    run_id="ps_59s92fgx6c",
+                    workflow=("cccccccccc", "Monitor", "finished"),
+                    **schedule,
+                ),
+                attempt(
+                    "h8qn5x801q",
+                    1,
+                    "failed",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:53:00.000Z",
+                    workflow=("dddddddddd", "Timing", "failed"),
+                    **schedule,
                 ),
             ],
         )
-        runs = depot_ci.with_depot_runs(runs_table, depot_table)
-        jobs = depot_ci.with_depot_jobs(jobs_table, depot_table)
+        runs = depot_ci.with_depot_runs(runs_table, depot_table, prs_table)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot_table, prs_table)
 
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
-            "SELECT id, workflow_name, conclusion, pr_number, duration_seconds, repo_owner, repo_name, run_attempt "
-            f"FROM ({workflow_runs.build_query(runs)}) AS r"
-        ) == [(80213453736890, "Backend CI on Depot", "failure", 101991, 600, "PostHog", "posthog", 2)]
-        assert self._select(
-            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
-            f"FROM ({workflow_jobs.build_query(jobs)}) AS j ORDER BY started_at"
+            "SELECT id, workflow_name, conclusion, pr_number, head_branch, duration_seconds, repo_owner, run_attempt "
+            f"FROM ({workflow_runs.build_query(runs)}) AS r ORDER BY id"
         ) == [
-            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
-            (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
-            (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
+            (80213453736890, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 2),
+            (223978965517241, "Monitor", "success", 0, None, 600, "PostHog", 1),
+            (244340689655172, "Timing", "failure", 0, None, 600, "PostHog", 1),
+        ]
+        assert self._select(
+            "SELECT run_id, run_attempt, name, conclusion, head_branch, duration_seconds, is_rerun_copy "
+            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at"
+        ) == [
+            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", "feature/depot", 30, 0),
+            (80213453736890, 1, "Product tests (experiments)", "failure", "feature/depot", 120, 0),
+            (80213453736890, 2, "Product tests (experiments)", "success", "feature/depot", 180, 0),
         ]
         assert self._select(
             "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0 "

@@ -193,7 +193,7 @@ Warehouse tables (GitHub source):
 
 Warehouse table (Depot source):
 
-- `depot_job_attempts`: one row per Depot CI job attempt, for the repository the Depot source names. Depot CI is its own engine, so these runs never reach the GitHub tables. `logic/views/depot_ci.py` reshapes the attempts into rows of the GitHub runs and jobs contracts and unions them onto those tables, so every builder reads both engines. Ids decode to the integer `GITHUB_RUN_ID` Depot CI gives its jobs, which joins them to the CI test spans. The PR number comes from the run's `refs/pull/<n>/merge` ref. Depot's API reports no `runs-on`, so every attempt is costed as the default `depot-ubuntu-24.04` sandbox. Optional, and reads degrade to GitHub-only CI when unsynced.
+- `depot_job_attempts`: one row per Depot CI job attempt, for the repository the Depot source names. Depot CI is its own engine, so these runs never reach the GitHub tables. `logic/views/depot_ci.py` reshapes the attempts into rows of the GitHub runs and jobs contracts and unions them onto those tables, so every builder reads both engines. Each Depot workflow is one runs row. A run with one workflow decodes its id to the integer `GITHUB_RUN_ID` Depot CI gives its jobs, which joins them to the CI test spans; a run with several workflows keys each by its own decoded workflow id, so no join fans out. The PR number comes from the run's `refs/pull/<n>/merge` ref, and the branch from that PR's snapshot. Depot's API reports no `runs-on`, so every attempt is costed as the default `depot-ubuntu-24.04` sandbox. Optional, and reads degrade to GitHub-only CI when unsynced.
 
 Other products read as sources:
 

@@ -217,7 +217,9 @@ class CuratedGitHubSource:
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
         query = workflow_runs.build_query(
-            depot_ci.with_depot_runs(self._tables.workflow_runs, self._tables.depot_job_attempts),
+            depot_ci.with_depot_runs(
+                self._tables.workflow_runs, self._tables.depot_job_attempts, self._tables.pull_requests
+            ),
             pull_requests_table=self._tables.pull_requests,
             started_floor=started_floor,
         )
@@ -231,7 +233,9 @@ class CuratedGitHubSource:
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
-        jobs_table = depot_ci.with_depot_jobs(self._tables.workflow_jobs, self._tables.depot_job_attempts)
+        jobs_table = depot_ci.with_depot_jobs(
+            self._tables.workflow_jobs, self._tables.depot_job_attempts, self._tables.pull_requests
+        )
         return f"({workflow_jobs.build_query(jobs_table, created_floor=created_floor)})"
 
     def trunk_merge_queue_source(self) -> str | None:
@@ -383,8 +387,12 @@ class CuratedGitHubSource:
         if not self._tables.workflow_jobs:
             return None
         query = job_costs.build_query(
-            jobs_table=depot_ci.with_depot_jobs(self._tables.workflow_jobs, self._tables.depot_job_attempts),
-            runs_table=depot_ci.with_depot_runs(self._tables.workflow_runs, self._tables.depot_job_attempts),
+            jobs_table=depot_ci.with_depot_jobs(
+                self._tables.workflow_jobs, self._tables.depot_job_attempts, self._tables.pull_requests
+            ),
+            runs_table=depot_ci.with_depot_runs(
+                self._tables.workflow_runs, self._tables.depot_job_attempts, self._tables.pull_requests
+            ),
             include_run_columns=True,
             created_floor=created_floor,
         )

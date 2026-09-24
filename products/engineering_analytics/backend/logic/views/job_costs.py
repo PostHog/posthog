@@ -303,8 +303,8 @@ def build_team_view(team: "Team") -> str | None:
         return None
     selects = [
         build_query(
-            jobs_table=depot_ci.with_depot_jobs(source.workflow_jobs, source.depot_job_attempts),
-            runs_table=depot_ci.with_depot_runs(source.workflow_runs, source.depot_job_attempts),
+            jobs_table=depot_ci.with_depot_jobs(source.workflow_jobs, source.depot_job_attempts, source.pull_requests),
+            runs_table=depot_ci.with_depot_runs(source.workflow_runs, source.depot_job_attempts, source.pull_requests),
         )
         for source in sources
     ]
