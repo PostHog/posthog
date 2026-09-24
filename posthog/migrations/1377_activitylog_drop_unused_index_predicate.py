@@ -4,6 +4,8 @@ from posthog.migration_helpers import SafeAddIndexConcurrently, SafeRemoveIndexC
 
 
 class Migration(migrations.Migration):
+    # Each index is added under a new name before its predecessor is dropped, so no read path
+    # loses an index for the length of a concurrent build on a large table.
     atomic = False
 
     dependencies = [

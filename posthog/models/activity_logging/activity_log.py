@@ -202,10 +202,9 @@ class ActivityLog(UUIDTModel):
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
             ),
-            # These three carry no partial condition on purpose. Their predecessors were partial on
-            # `was_impersonated=False AND is_system=False`, a predicate no history or list query
-            # filters on, so the planner could not use them. The predicate also held no row that
-            # leaves either nullable column unset.
+            # The three below are deliberately not partial. No history or list query filters on
+            # `was_impersonated` or `is_system`, so a predicate on them costs full maintenance and
+            # serves no read. Both columns are nullable, so it would also hold no unset row.
             # User-specific filtered queries
             models.Index(
                 fields=["team_id", "activity", "scope", "user"],
