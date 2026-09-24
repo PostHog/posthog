@@ -14,7 +14,7 @@ export interface QueuedMessageListProps {
     onSteer?: () => void
     steerPending?: boolean
     steerDisabledReason?: string
-    /** The staged message is waiting on the user, not on the agent — say so instead of looking like a queue. */
+    /** The staged messages wait on the user, not on the agent — say so instead of looking like a queue. */
     held?: boolean
 }
 
@@ -132,7 +132,7 @@ export function QueuedMessageList({
         <div className="flex flex-col gap-0.5 pb-2">
             <div className="flex flex-wrap items-center justify-between gap-1 px-2">
                 <p className="text-xs font-medium text-muted mb-0">
-                    {held ? 'Not sent yet. Steer to send it.' : 'Up next'}
+                    {held ? `Not sent yet. Steer to send ${messages.length > 1 ? 'them' : 'it'}.` : 'Up next'}
                 </p>
                 {onSteer && (
                     <LemonButton

@@ -96,14 +96,16 @@ export interface RunContinuationHandoff {
     draft: string
 }
 
-/** The follow-up staged in the "Up next" buffer while the agent is mid-turn. */
+/** One follow-up staged in the "Up next" buffer while the agent is mid-turn. */
 export interface QueuedMessage {
     id: string
     content: string
 }
 
-/** Stable id for the single staged "Up next" message — the queue never holds more than one. */
-const QUEUED_MESSAGE_ID = 'queued'
+// Identifies a staged message for the duration of its stay in the buffer, so editing or removing one row
+// leaves the others alone. Module-scoped because the ids only have to be unique within a single buffer.
+let queuedMessageSequence = 0
+const nextQueuedMessageId = (): string => `queued-${++queuedMessageSequence}`
 
 // Agent-server (ACP) session config option ids — see the `/code` agent's buildConfigOptions. The model
 // option's id is `model`; the effort option's id is `effort` (its category is `thought_level`).
@@ -322,6 +324,7 @@ export interface runInteractionLogicActions {
     }
     enqueueMessage: (content: string) => {
         content: string
+        id: string
     }
     finishTaskDraftDelivery: () => {
         value: true
@@ -340,6 +343,7 @@ export interface runInteractionLogicActions {
     }
     prependQueuedMessage: (content: string) => {
         content: string
+        id: string
     }
     queueDeliveryFailed: () => {
         value: true
@@ -540,11 +544,10 @@ export type runInteractionLogicType = MakeLogicType<
  * transport: the SSE stream, thread projection, run status, and permission routing all live in
  * `runStreamLogic`, which this connects to by `streamKey` (the `runId`).
  *
- * Queueing is client-side and holds at most a single message: a follow-up typed while the agent is working
- * a turn is staged here (editable, removable), and a second follow-up typed before the turn ends is
- * concatenated onto it rather than fanning out into separate messages. The single staged message is flushed
- * as one `user_message` when the turn completes. This mirrors the PostHog AI sandbox flush path without any
- * conversation/Max coupling.
+ * Queueing is client-side: a follow-up typed while the agent is working a turn is staged here, and each one
+ * keeps its own row so the user can edit or drop it on its own. The staged rows are flushed as a single
+ * `user_message` when the turn completes, so follow-ups never fan out into separate turns. This mirrors the
+ * PostHog AI sandbox flush path without any conversation/Max coupling.
  */
 export const runInteractionLogic = kea<runInteractionLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'runInteractionLogic']),
@@ -636,10 +639,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // clears the right place and a failed send preserves it for retry ('draft' → composer, 'queue' →
         // the staged buffer combined into this send).
         sendNow: (content: string, source: 'draft' | 'queue', steer: boolean = false) => ({ content, source, steer }),
-        // Stage a follow-up, concatenating onto any message already queued so the buffer stays a single message.
-        enqueueMessage: (content: string) => ({ content }),
+        // Stage a follow-up as its own row under the ones already queued.
+        enqueueMessage: (content: string) => ({ id: nextQueuedMessageId(), content }),
         // Re-stage unsent content ahead of anything queued since — used to restore a failed queue flush.
-        prependQueuedMessage: (content: string) => ({ content }),
+        prependQueuedMessage: (content: string) => ({ id: nextQueuedMessageId(), content }),
         updateQueuedMessage: (id: string, content: string) => ({ id, content }),
         removeQueuedMessage: (id: string) => ({ id }),
         clearQueue: true,
@@ -732,17 +735,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         queuedMessages: [
             [] as QueuedMessage[],
             {
-                // The buffer holds a single message under a stable id — a second follow-up concatenates onto
-                // the staged content rather than appending a new entry.
-                enqueueMessage: (state, { content }) =>
-                    state.length > 0
-                        ? [{ id: QUEUED_MESSAGE_ID, content: `${state[0].content}\n\n${content}` }]
-                        : [{ id: QUEUED_MESSAGE_ID, content }],
+                // Each follow-up keeps its own row, in the order it was typed, so the user can edit or drop
+                // one of them without rewriting the rest. They go out together as one message.
+                enqueueMessage: (state, { id, content }) => [...state, { id, content }],
                 // Restore the unsent content in front of anything staged since, preserving send order.
-                prependQueuedMessage: (state, { content }) =>
-                    state.length > 0
-                        ? [{ id: QUEUED_MESSAGE_ID, content: `${content}\n\n${state[0].content}` }]
-                        : [{ id: QUEUED_MESSAGE_ID, content }],
+                prependQueuedMessage: (state, { id, content }) => [{ id, content }, ...state],
                 updateQueuedMessage: (state, { id, content }) =>
                     state.flatMap((message) =>
                         message.id === id ? (content.trim() ? [{ ...message, content }] : []) : [message]
@@ -1115,7 +1112,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             // Clear before awaiting delivery so new follow-ups survive completion. Failed sends prepend
             // their text to those newer follow-ups, and require an explicit retry to avoid duplicate delivery.
             flushQueue: ({ steer }) => {
-                const [queued] = values.queuedMessages
+                // The staged rows go out as one `user_message`, so follow-ups never fan out into separate
+                // turns — the second would otherwise wait for the turn the first one starts.
+                const queued = values.queuedMessages.map((message) => message.content).join('\n\n')
                 if (
                     !queued ||
                     (!steer && (values.isBusy || values.queueNeedsRetry)) ||
@@ -1129,7 +1128,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     return
                 }
                 actions.clearQueue()
-                actions.sendNow(queued.content, 'queue', steer)
+                actions.sendNow(queued, 'queue', steer)
             },
 
             steerQueue: () => {

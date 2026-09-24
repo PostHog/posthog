@@ -301,7 +301,8 @@ describe('runInteractionLogic', () => {
             expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
             expect(pending.values.queuedMessages).toEqual([
-                { id: 'queued', content: 'first follow-up\n\nsecond follow-up' },
+                { id: expect.any(String), content: 'first follow-up' },
+                { id: expect.any(String), content: 'second follow-up' },
             ])
 
             pending.actions.hydrateTaskDraft(TASK_ID)
@@ -342,7 +343,7 @@ describe('runInteractionLogic', () => {
             expect(attached.values.selectedMode).toBe('plan')
             stream.actions.setCurrentMode('auto')
             expect(attached.values.selectedMode).toBe('auto')
-            expect(other.values.queuedMessages).toEqual([{ id: 'queued', content: 'another task follow-up' }])
+            expect(other.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'another task follow-up' }])
         } finally {
             unmountOther()
             unmount()
@@ -440,7 +441,7 @@ describe('runInteractionLogic', () => {
         }).toFinishAllListeners()
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('unsent draft')
-        expect(logic.values.queuedMessages).toEqual([{ id: 'queued', content: 'saved message' }])
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'saved message' }])
     })
 
     it('sends immediately and echoes the message when the agent is idle', async () => {
@@ -590,14 +591,17 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
-    it('concatenates follow-ups into a single staged message and flushes it when the turn completes', async () => {
+    it('stages each follow-up on its own row and flushes them as one message when the turn completes', async () => {
         setThinking(true)
         logic.actions.setComposerFormValues({ draft: 'first' })
         logic.actions.submitComposerForm()
         logic.actions.setComposerFormValues({ draft: 'second' })
         logic.actions.submitComposerForm()
-        // A second follow-up concatenates onto the first rather than fanning out into a separate message.
-        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+        // Each follow-up keeps its own row, so the user can edit or drop one without rewriting the other.
+        expect(logic.values.queuedMessages).toEqual([
+            { id: expect.any(String), content: 'first' },
+            { id: expect.any(String), content: 'second' },
+        ])
 
         // Turn completes → drain. The flush itself sends while idle.
         setThinking(false)
@@ -748,7 +752,7 @@ describe('runInteractionLogic', () => {
         logic.actions.steerQueue()
         await expectLogic(logic, () => complete(response)).toFinishAllListeners()
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
-        expect(logic.values.queuedMessages[0].content).toBe('first\n\nsecond')
+        expect(logic.values.queuedMessages.map((message) => message.content)).toEqual(['first', 'second'])
         expect(logic.values.composerForm.draft).toBe('unsent draft')
         expect(logic.values.steerPending).toBe(false)
         expect(lemonToast.error).toHaveBeenCalled()
@@ -1539,7 +1543,10 @@ describe('runInteractionLogic', () => {
 
         // The failed send re-stages 'first' in front of 'second', preserving order, and toasts.
         expect(lemonToast.error).toHaveBeenCalled()
-        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+        expect(logic.values.queuedMessages).toEqual([
+            { id: expect.any(String), content: 'first' },
+            { id: expect.any(String), content: 'second' },
+        ])
     })
 
     // The tasks run backend has no server-side consent check, so a follow-up (or a fresh-run send on a
