@@ -380,10 +380,11 @@ jobs:
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
-                        # Tests in other products read these from disk. The reader's
-                        # turbo.json depends on the owner's backend:mcp-surface task, so
-                        # turbo-discover selects the reader once this workflow starts.
-                        - 'products/*/mcp/tools.yaml'
+                        # Tests read these MCP manifests from disk. Each one is a turbo input of
+                        # its reader (tasks directly, posthog_ai through feature_flags'
+                        # backend:mcp-surface task). Add a manifest here only with that wiring.
+                        - products/feature_flags/mcp/tools.yaml
+                        - products/tasks/mcp/tools.yaml
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
