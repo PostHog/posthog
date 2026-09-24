@@ -134,9 +134,10 @@ describe('Hono MCP analytics contexts', () => {
         await trackInitEvent(makeState())
 
         expect(mockCaptureInitialize).toHaveBeenCalledTimes(1)
-        // Stamping `$mcp_conversation_id` in `properties` too would overwrite the SDK's own
-        // mapping, because it applies caller properties last.
+        // The SDK maps its own `conversationId` field, so the property is stamped only when a
+        // handle exists. An explicit `undefined` would erase the SDK's value.
         expect(mockCaptureInitialize.mock.calls[0]![0].conversationId).toBe('conversation-request')
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties.$mcp_conversation_id).toBe('conversation-request')
         expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
             $mcp_client_name: 'Claude Desktop',
             $mcp_client_version: '2.0',

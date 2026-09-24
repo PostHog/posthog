@@ -63,6 +63,9 @@ function buildBaseProperties(
         $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
         $mcp_transport: requestContext.transport,
         $mcp_session_id: requestContext.mcpSessionId,
+        // Present only when there is a handle. An explicit `undefined` would erase the value the
+        // SDK maps from its own `conversationId` field, because caller properties merge last.
+        ...(requestContext.mcpConversationId ? { $mcp_conversation_id: requestContext.mcpConversationId } : {}),
         $mcp_consumer: clientIdentity.mcpConsumer,
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
@@ -524,6 +527,7 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
