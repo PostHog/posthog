@@ -618,8 +618,14 @@ class TestVercelConnectComplete(VercelConnectTestBase):
     @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_failed_import_rolls_back_and_returns_400(
-        self, _name, import_result, expected_detail, mock_client_class, mock_vercel_integration, mock_capture
-    ):
+        self,
+        _name: str,
+        import_result: OperationResult,
+        expected_detail: str,
+        mock_client_class: MagicMock,
+        mock_vercel_integration: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = import_result
