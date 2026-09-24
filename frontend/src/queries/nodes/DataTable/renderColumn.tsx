@@ -79,20 +79,29 @@ const PERSON_LINK_COLUMNS = ['person', 'person_display_name']
 function personProfileFallbackUrl(
     key: string,
     record: Record<string, any> | any[],
-    query: DataTableNode
+    query: DataTableNode,
+    context?: QueryContext<DataTableNode>
 ): string | undefined {
     if (!isActorsQuery(query.source) || !Array.isArray(record)) {
         return undefined
     }
-    const names = (query.source.select ?? []).map((column) => removeExpressionComment(column))
+    const select = query.source.select ?? []
+    const personUuidIndex = select.findIndex((column) => removeExpressionComment(column) === 'id')
+    if (personUuidIndex === -1) {
+        return undefined
+    }
+    // The table drops hidden context columns before it renders, so the fallback follows the
+    // columns a person can see rather than everything the query selects.
+    const names = select
+        .filter((column) => !getContextColumn(column, context?.columns).queryContextColumn?.hidden)
+        .map((column) => removeExpressionComment(column))
     if (names.some((name) => PERSON_LINK_COLUMNS.includes(name))) {
         return undefined
     }
-    const fallbackColumn = names.find((name) => name !== 'id' && name !== 'person.$delete')
-    if (fallbackColumn !== key) {
+    if (names.find((name) => name !== 'id' && name !== 'person.$delete') !== key) {
         return undefined
     }
-    const personUuid = record[names.indexOf('id')]
+    const personUuid = record[personUuidIndex]
     return personUuid ? urls.personByUUID(String(personUuid)) : undefined
 }
 
@@ -123,7 +132,12 @@ export function renderColumn(
     context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
     const content = renderColumnContent(key, value, record, recordIndex, rowCount, query, setQuery, context)
-    const fallbackUrl = personProfileFallbackUrl(removeExpressionComment(key), record, query)
+    // A cell that already renders a link of its own, such as a URL property, must not end up
+    // inside a second anchor.
+    if (typeof content !== 'string' && content.type === Link) {
+        return content
+    }
+    const fallbackUrl = personProfileFallbackUrl(removeExpressionComment(key), record, query, context)
     return fallbackUrl ? <Link to={fallbackUrl}>{content}</Link> : content
 }
 

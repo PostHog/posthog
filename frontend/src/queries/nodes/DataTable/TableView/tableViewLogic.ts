@@ -233,14 +233,14 @@ export interface tableViewLogicActions {
             value: true
         }
     }
-    resetToDefaultColumns: () => {
-        value: true
-    }
     resetNewViewForm: (values?: { name: string; visibility: 'private' | 'shared' }) => {
         values?: {
             name: string
             visibility: 'private' | 'shared'
         }
+    }
+    resetToDefaultColumns: () => {
+        value: true
     }
     saveCurrentAsView: (
         name: string,

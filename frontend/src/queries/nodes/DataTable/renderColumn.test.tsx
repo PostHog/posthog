@@ -141,4 +141,27 @@ describe('renderColumn', () => {
             linked ? expect.stringContaining(urls.personByUUID(PERSON_UUID)) : undefined
         )
     })
+
+    it('leaves a url cell with its own link rather than nesting two anchors', () => {
+        const select = ['properties.$initial_current_url', 'id']
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select },
+        }) as DataTableNode
+
+        render(
+            <Provider>
+                {renderColumn(
+                    select[0],
+                    'https://example.com/pricing',
+                    ['https://example.com/pricing', PERSON_UUID],
+                    0,
+                    1,
+                    query
+                )}
+            </Provider>
+        )
+
+        expect(screen.getByRole('link').getAttribute('href')).toEqual('https://example.com/pricing')
+    })
 })
