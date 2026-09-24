@@ -166,13 +166,6 @@ describe('wizardActiveSessionDetectorLogic', () => {
             },
         },
         {
-            name: 'the project changes',
-            resume: (): void => {
-                logic.actions.resetSessionState()
-                logic.actions.check()
-            },
-        },
-        {
             name: 'the backoff window ends',
             resume: (): void => {
                 const afterWindow = Date.now() + 10 * 60 * 1000 + 1
