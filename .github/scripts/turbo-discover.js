@@ -41,6 +41,8 @@
 //         SELECTION_DISABLED ("true"/"false") — the DISABLE_BACKEND_TEST_SELECTION
 //         kill switch.
 //         PR_DRAFT ("true"/"false") — what an untrusted selection falls back to.
+//         .github/new-events-schema-targets.txt — the test paths of the events_json leg,
+//         which runs them against the native-JSON events table.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards, selection }
 //         Diagnostics on stderr
 
@@ -169,6 +171,8 @@ const DJANGO_OVERHEAD_SECONDS_BY_SEGMENT = {
     Core: 295,
     CorePOE: 280,
     Temporal: 182,
+    // The events_json leg is a Core job over its own path list, so it takes Core's overhead.
+    JsonTargets: 295,
 }
 const DJANGO_MIN_SHARDS = 3
 const DJANGO_MAX_SHARDS = 50
@@ -1046,8 +1050,46 @@ function getSegmentDuration(segment, durations, ranNodeIds = null) {
     return total
 }
 
+// --- events_json leg ---
+// The listed paths run a second time with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true, as
+// Core-style rows of the Django matrix. The file's header says what belongs in it.
+const JSON_TARGETS_FILE = '.github/new-events-schema-targets.txt'
+
+// The listed paths without comments, blank lines, or trailing slashes. A checkout that has
+// no list yields no paths, and the leg then runs nothing.
+function loadJsonTargets(file = JSON_TARGETS_FILE) {
+    let text
+    try {
+        text = fs.readFileSync(file, 'utf-8')
+    } catch {
+        console.error(`::warning::${file} is missing, so the events_json leg runs no tests`)
+        return []
+    }
+    return text
+        .split('\n')
+        .map((line) => line.replace(/#.*/, '').trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+}
+
+function isUnderPath(file, target) {
+    return file === target || file.startsWith(`${target}/`)
+}
+
+// Recorded seconds of every node id under the given files and directories.
+function pathsDuration(paths, durations) {
+    if (!durations) {return 0}
+    let total = 0
+    for (const [test, dur] of Object.entries(durations)) {
+        const file = test.split('::')[0]
+        if (paths.some((target) => isUnderPath(file, target))) {
+            total += dur
+        }
+    }
+    return total
+}
+
 // Fallback shard counts used when .test_durations is missing.
-const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
+const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7, JsonTargets: 5 }
 
 // A shard's wall is overhead + work/shards. Sizing solves that for the shared
 // TARGET_WALL_SECONDS: each shard carries (target - overhead) of work, so
@@ -1230,6 +1272,43 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
     }
 }
 
+// Which events_json paths this run executes. Null means the whole list at the full-run
+// shard count. An array is a narrowed list, and an empty one means the leg does not run.
+//   mode           the Django selection mode: 'selected', 'full', 'skip', or '' when this
+//                  run does not select
+//   runLegacy      whether the Django suite runs. When it does not, the leg still runs the
+//                  paths of the products in the product matrix, because their own jobs
+//                  read the legacy table only.
+//   selectedTests  every test file the selector picked, product tests included
+//   products       the product matrix after narrowing
+function decideJsonTargets({ targets, mode, runLegacy, selectedTests, products }) {
+    if (mode === 'skip') {
+        return []
+    }
+    const productPaths = targets.filter((target) => products.some((product) => target.startsWith(productPrefix(product))))
+    if (!runLegacy) {
+        return productPaths
+    }
+    if (mode !== 'selected') {
+        return null
+    }
+    // Product test files come in through productPaths instead, so that the leg tests the
+    // same products as the product matrix.
+    const legacyPaths = selectedTests.filter(
+        (file) => !file.startsWith(PRODUCTS_DIR) && targets.some((target) => isUnderPath(file, target))
+    )
+    return [...new Set([...legacyPaths, ...productPaths])].sort()
+}
+
+// Shards for a narrowed events_json leg: the full-run budget over the chosen paths' recorded
+// seconds, floored at one like a selected Django segment.
+function narrowedJsonTargetsShards(paths, durations) {
+    if (paths.length === 0) {
+        return 0
+    }
+    return calculateShards(pathsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.JsonTargets, 1)
+}
+
 // The run identity the selection telemetry event carries, from the runner's own env.
 function runContext() {
     let prNumber = null
@@ -1247,20 +1326,25 @@ function runContext() {
     }
 }
 
-function buildDjangoShards(durations, ranNodeIds = {}) {
+function sizeDjangoSegment(segment, duration, durations, source) {
+    const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
+    const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
+    const wall = overhead + duration / shards
+    console.error(
+        `  Django ${segment}: ${(duration / 60).toFixed(1)} min total, ${shards} shards (${durations ? source : 'fallback'}), ~${(wall / 60).toFixed(1)} min est. wall`
+    )
+    return { duration_seconds: duration, shards, estimated_wall_seconds: wall }
+}
+
+function buildDjangoShards(durations, ranNodeIds = {}, jsonTargets = []) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
-        const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
         const ran = ranNodeIds[segment] || null
         const duration = getSegmentDuration(segment, durations, ran)
-        const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
-        const wall = overhead + duration / shards
-        result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
-        const source = durations ? (ran ? 'auto, junit-scoped' : 'auto, union') : 'fallback'
-        console.error(
-            `  Django ${segment}: ${(duration / 60).toFixed(1)} min total, ${shards} shards (${source}), ~${(wall / 60).toFixed(1)} min est. wall`
-        )
+        result[segment] = sizeDjangoSegment(segment, duration, durations, ran ? 'auto, junit-scoped' : 'auto, union')
     }
+    // No per-segment file records what the events_json leg ran, so it sizes from the union.
+    result.JsonTargets = sizeDjangoSegment('JsonTargets', pathsDuration(jsonTargets, durations), durations, 'auto, union')
     return result
 }
 
@@ -1364,6 +1448,8 @@ function buildMatrix(products, durations, productsScaled = false) {
 module.exports = {
     narrowedProducts,
     decideSelection,
+    decideJsonTargets,
+    loadJsonTargets,
     selectedShards,
     calculateShards,
     pruneDeadDurations,
@@ -1635,8 +1721,20 @@ if (productsScaled) {
 const durations = pruneDeadDurations(rawDurations)
 const ranNodeIds = loadRanNodeIds()
 
+const jsonTargets = loadJsonTargets()
+const jsonTargetFiles = decideJsonTargets({
+    targets: jsonTargets,
+    mode: selectionDecision.mode,
+    runLegacy,
+    selectedTests: selection?.combined?.tests ?? [],
+    products,
+})
+
 console.error('\nDjango shard calculation:')
-const djangoShards = buildDjangoShards(durations, ranNodeIds)
+const djangoShards = buildDjangoShards(durations, ranNodeIds, jsonTargets)
+if (jsonTargetFiles !== null) {
+    console.error(`events_json leg narrowed to ${jsonTargetFiles.length} of ${jsonTargets.length} paths: ${JSON.stringify(jsonTargetFiles)}`)
+}
 
 const { mode, core_files, poe_files, temporal_files, compat_files, run_poe, run_temporal, segment_shards, ...metrics } =
     selectionDecision
@@ -1656,6 +1754,9 @@ const result = {
         run_poe,
         run_temporal,
         segment_shards: segment_shards ? JSON.stringify(segment_shards) : '',
+        // Empty on a run that takes the whole list, whose shard count is django_shards.JsonTargets.
+        json_targets_files: jsonTargetFiles === null ? '' : jsonTargetFiles.join(' '),
+        json_targets_shards: jsonTargetFiles === null ? '' : narrowedJsonTargetsShards(jsonTargetFiles, durations),
     },
     // The posthog-ci-test-selection event, ready for the capture-test-selection job.
     telemetry: {

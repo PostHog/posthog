@@ -1,0 +1,58 @@
+# Test paths the events_json leg of Backend CI runs with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true.
+# ci-backend.yml runs them on every backend run: all of them on the merge queue and a full run,
+# and on a narrowed PR run only the paths its test selection reaches. The test-new-events-schema
+# label runs the whole backend suite in that mode instead.
+#
+# Only tests that read event properties can behave differently between the two events tables,
+# so the list holds those directories plus the modules that own a *.new_events_schema.ambr
+# snapshot. A module outside the list runs against the legacy table only, and its JSON snapshot
+# goes stale. When you add a directory of tests that read event properties, add it here.
+#
+# One path per line, directory or file, relative to the repository root. A file under a listed
+# directory needs no line of its own.
+#
+# products/experiments stays out until HogQL reads $feature/<key> from the $feature_flags map
+# (PR #91506). Its tests fail against the native-JSON table until then.
+
+# HogQL, its query runners, and the ClickHouse layer below them
+posthog/hogql
+posthog/hogql_queries
+posthog/session_recordings/queries
+posthog/clickhouse/test
+ee/clickhouse
+products/customer_analytics/backend/hogql_queries
+products/error_tracking/backend/hogql_queries
+products/marketing_analytics/backend/hogql_queries
+products/mcp_analytics/backend/hogql_queries
+products/metrics/backend/hogql_queries
+products/product_analytics/backend/hogql_queries
+products/web_analytics/backend/hogql_queries
+
+# Code outside HogQL that builds events SQL itself and branches on the schema
+posthog/dags/tests/test_data_deletion_requests.py
+posthog/dags/tests/test_deletes.py
+posthog/models/team/test_production_event_activation.py
+posthog/models/test/test_deletion_targets.py
+posthog/tasks/test/test_ai_observability_usage_report.py
+posthog/tasks/test/test_usage_report.py
+posthog/temporal/tests/test_clickhouse.py
+products/batch_exports/backend/tests/api/test_serializers.py
+products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py
+products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py
+products/batch_exports/backend/tests/temporal/test_batch_exports.py
+products/batch_exports/backend/tests/temporal/test_filters.py
+products/batch_exports/backend/tests/temporal/test_record_batch_model.py
+products/batch_exports/backend/tests/test_hogql_source.py
+products/feature_flags/backend/test/test_request_usage.py
+
+# Other modules that own a *.new_events_schema.ambr snapshot, so the snapshot bot keeps it current
+posthog/api/test/test_event.py
+posthog/api/test/test_properties_timeline.py
+posthog/api/test/test_query.py
+posthog/models/test/test_async_deletion_model.py
+posthog/models/web_preaggregated/test_web_pre_aggregated_timezones.py
+posthog/tasks/test/test_stop_surveys_reached_target.py
+products/ai_observability/backend/api/test/test_personal_spend.py
+products/revenue_analytics/backend/views/test/test_mrr_views.py
+products/surveys/backend/api/test/test_survey.py
+products/web_analytics/backend/test/test_heatmaps_api.py

@@ -15,7 +15,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -158,4 +158,14 @@ test('isolation needs both the contract-check script and narrowed contract input
     }))
 
     assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
+})
+
+// The events_json rows skip a listed path that a checkout lacks, so a typo or a moved
+// directory in the list would drop that path from the leg without failing anything.
+test('every events_json path exists', () => {
+    const targets = loadJsonTargets(path.join(REPO_ROOT, '.github/new-events-schema-targets.txt'))
+    assert.ok(targets.length > 0)
+    for (const target of targets) {
+        assert.ok(fs.existsSync(path.join(REPO_ROOT, target)), `${target} is listed but does not exist`)
+    }
 })
