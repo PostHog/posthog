@@ -67,9 +67,8 @@ class SessionExposure:
     # resolving conditions on that renamed key would match no session. Carried so `condition` and
     # the stamped fallback agree with the population query, which strips it the same way.
     flag_key: str
-    # What this experiment's default exposure resolves to under the $experiment_exposure rollout.
-    # Carried rather than re-resolved so every clause in one response agrees on the event, even if
-    # the flag flips mid-request.
+    # What this experiment's default exposure resolves to. Carried rather than re-resolved so
+    # every clause in one response agrees on the event.
     default_exposure_event: str
     # None when the criteria name an action: an action can match several events, so there is no
     # single name to look up or to prune a query on.

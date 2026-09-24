@@ -14,7 +14,6 @@ import type { Experiment, FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
 import {
-    EXPERIMENT_EXPOSURE_EVENT,
     EXPOSURE_DEFAULT_EVENT,
     exposureEventLabel,
     getActivationConfig,
@@ -246,9 +245,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
     const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationOption = activationEventEnabled || isActivation
-    // A draft built locally has no server-resolved event yet, and it would start after the
-    // $experiment_exposure cutoff, so that is what the backend would resolve for it.
-    const defaultExposureEvent = resolvedExposureEvent(experiment, EXPERIMENT_EXPOSURE_EVENT)
+    const defaultExposureEvent = resolvedExposureEvent(experiment)
     const defaultExposureLabel = exposureEventLabel(defaultExposureEvent)
 
     const { currentTeam } = useValues(teamLogic)

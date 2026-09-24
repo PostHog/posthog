@@ -284,7 +284,7 @@ def _get_event_name_from_config(
 
     event = exposure_config.event
     # An explicit $feature_flag_called config is the stored default, so it resolves like an
-    # absent config instead of pinning the pre-rollout event.
+    # absent config instead of pinning the legacy event.
     if not event or event == DEFAULT_EXPOSURE_EVENT:
         return default_exposure_event
     return str(event)
@@ -361,7 +361,7 @@ def build_exposure_event_conditions(
     analysis, such as the freeze-exposure snapshot scan.
 
     `default_exposure_event` follows the same contract as in `get_exposure_event_and_property`:
-    resolve it per experiment to honor the $experiment_exposure rollout, or pass
+    resolve it per experiment to honor the $experiment_exposure cutoff, or pass
     DEFAULT_EXPOSURE_EVENT where staying on the legacy event is the deliberate choice.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)

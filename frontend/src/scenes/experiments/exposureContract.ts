@@ -29,14 +29,11 @@ export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend
- * (`resolve_default_exposure_event`). Falls back to the pre-rollout default for an experiment that
- * hasn't come from the API yet — a locally-constructed draft, or an older cached payload.
+ * (`resolve_default_exposure_event`). An experiment that hasn't come from the API yet is a draft
+ * built locally, and it would start after the cutoff, so that is what the backend would resolve.
  */
-export function resolvedExposureEvent(
-    experiment: Pick<Experiment, 'resolved_exposure_event'>,
-    fallbackEvent: string = EXPOSURE_DEFAULT_EVENT
-): string {
-    return experiment.resolved_exposure_event || fallbackEvent
+export function resolvedExposureEvent(experiment: Pick<Experiment, 'resolved_exposure_event'>): string {
+    return experiment.resolved_exposure_event || EXPERIMENT_EXPOSURE_EVENT
 }
 
 export function exposureEventLabel(event: string): string {
@@ -93,7 +90,7 @@ export function getActivationConfig(
  *
  * `resolvedExposureEvent` is the experiment's server-resolved default (`experimentLogic`'s
  * `resolvedExposureEvent`). Pass it whenever an experiment is in hand — omitting it assumes the
- * pre-rollout default and will name the wrong event for experiments on `$experiment_exposure`.
+ * legacy default and will name the wrong event for experiments on `$experiment_exposure`.
  */
 export function getExposureEventAndProperty({
     featureFlagKey,

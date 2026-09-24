@@ -416,8 +416,8 @@ def _cache_key(
             # Part of the key even though the cut happens on read: the scan over-fetches a
             # multiple of the limit, so a larger one looks further than a cached smaller one did.
             limit,
-            # A deploy can change which event the default exposure resolves to, and a scan
-            # computed on the other event must not be served afterwards.
+            # Derived from start_date, but kept in the key so a change to the cutoff cannot
+            # serve a scan computed on the other event.
             default_exposure_event,
             _restriction_signature(team, user),
         ]

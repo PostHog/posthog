@@ -9,14 +9,12 @@ import {
 } from './exposureContract'
 
 describe('exposureContract', () => {
-    it('uses the rollout event for a local draft without a server-resolved event', () => {
-        expect(resolvedExposureEvent({}, '$experiment_exposure')).toBe('$experiment_exposure')
+    it('uses the post-cutoff event for a local draft without a server-resolved event', () => {
+        expect(resolvedExposureEvent({})).toBe('$experiment_exposure')
     })
 
     it('prefers the server-resolved event over the local draft fallback', () => {
-        expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' }, '$experiment_exposure')).toBe(
-            '$feature_flag_called'
-        )
+        expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' })).toBe('$feature_flag_called')
     })
 
     it.each([

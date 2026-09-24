@@ -79,15 +79,14 @@ def get_exposure_config_params_for_builder(
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
+    default_config = ExperimentEventExposureConfig(event=resolve_default_exposure_event(start_date), properties=[])
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(event=resolve_default_exposure_event(start_date), properties=[])
+        exposure_config = default_config
         filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
-            exposure_config = ExperimentEventExposureConfig(
-                event=resolve_default_exposure_event(start_date), properties=[]
-            )
+            exposure_config = default_config
         elif (
             isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
             and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
