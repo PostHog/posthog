@@ -19,8 +19,10 @@ export interface WorkflowTreeNode {
 /** A step the list view cannot show because the walk from the trigger never reaches it. */
 export interface WorkflowTreeUnreachableStep {
     action: HogFlowAction
-    /** Steps that lead into this one but are unreachable too, so they must be fixed first. */
+    /** Unreachable steps outside this step's loop that lead into it, so they must be fixed first. */
     unreachablePredecessors: HogFlowAction[]
+    /** The other unreachable steps in a loop with this one. */
+    loopSteps: HogFlowAction[]
 }
 
 export interface WorkflowTreeBranch {
@@ -320,20 +322,80 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
 export function getWorkflowTreeUnreachableSteps(
     workflow: Pick<HogFlow, 'actions' | 'edges'>
 ): WorkflowTreeUnreachableStep[] {
-    const actionIds = new Set<string>()
-    collectWorkflowTreeActionIds(buildWorkflowTree(workflow), actionIds)
-    const unreachableActions = workflow.actions.filter((action) => !actionIds.has(action.id))
+    const reachableActionIds = new Set<string>()
+    collectWorkflowTreeActionIds(buildWorkflowTree(workflow), reachableActionIds)
+    const unreachableActions = workflow.actions.filter((action) => !reachableActionIds.has(action.id))
     const unreachableActionsById = new Map(unreachableActions.map((action) => [action.id, action]))
-
-    return unreachableActions.map((action) => {
-        const precedingActionIds = new Set(
-            workflow.edges.filter((edge) => edge.to === action.id && edge.from !== action.id).map((edge) => edge.from)
-        )
-        return {
-            action,
-            unreachablePredecessors: [...precedingActionIds].flatMap((id) => unreachableActionsById.get(id) ?? []),
+    const actionIndexById = new Map(unreachableActions.map((action, index) => [action.id, index]))
+    const nextActionIdsById = new Map<string, Set<string>>()
+    const previousActionIdsById = new Map<string, Set<string>>()
+    for (const edge of workflow.edges) {
+        if (unreachableActionsById.has(edge.from) && unreachableActionsById.has(edge.to)) {
+            nextActionIdsById.set(edge.from, (nextActionIdsById.get(edge.from) ?? new Set()).add(edge.to))
+            previousActionIdsById.set(edge.to, (previousActionIdsById.get(edge.to) ?? new Set()).add(edge.from))
         }
-    })
+    }
+
+    const inWorkflowOrder = (actionIds: Iterable<string>): HogFlowAction[] =>
+        [...actionIds]
+            .sort((left, right) => (actionIndexById.get(left) ?? 0) - (actionIndexById.get(right) ?? 0))
+            .flatMap((actionId) => unreachableActionsById.get(actionId) ?? [])
+
+    // Tarjan's algorithm emits each group after every group it leads to. Starting from the last step and
+    // reversing the output lists each step after the steps that lead into it, otherwise in workflow order.
+    const groups = groupStepsByLoop([...unreachableActionsById.keys()].reverse(), nextActionIdsById).reverse()
+    return groups.flatMap((group) =>
+        inWorkflowOrder(group).map((action) => ({
+            action,
+            unreachablePredecessors: inWorkflowOrder(
+                [...(previousActionIdsById.get(action.id) ?? [])].filter((actionId) => !group.has(actionId))
+            ),
+            loopSteps: inWorkflowOrder([...group].filter((actionId) => actionId !== action.id)),
+        }))
+    )
+}
+
+/** Groups steps that lead back to each other into one set (Tarjan's strongly connected components). */
+function groupStepsByLoop(actionIds: string[], nextActionIdsById: Map<string, Set<string>>): Set<string>[] {
+    const visitOrderById = new Map<string, number>()
+    const lowestReachableById = new Map<string, number>()
+    const stack: string[] = []
+    const onStack = new Set<string>()
+    const groups: Set<string>[] = []
+
+    const visit = (actionId: string): void => {
+        const visitOrder = visitOrderById.size
+        visitOrderById.set(actionId, visitOrder)
+        lowestReachableById.set(actionId, visitOrder)
+        stack.push(actionId)
+        onStack.add(actionId)
+        for (const nextActionId of nextActionIdsById.get(actionId) ?? []) {
+            if (!visitOrderById.has(nextActionId)) {
+                visit(nextActionId)
+            }
+            if (onStack.has(nextActionId)) {
+                lowestReachableById.set(
+                    actionId,
+                    Math.min(
+                        lowestReachableById.get(actionId) ?? visitOrder,
+                        lowestReachableById.get(nextActionId) ?? visitOrder
+                    )
+                )
+            }
+        }
+        if (lowestReachableById.get(actionId) === visitOrder) {
+            const group = new Set(stack.splice(stack.indexOf(actionId)))
+            group.forEach((groupActionId) => onStack.delete(groupActionId))
+            groups.push(group)
+        }
+    }
+
+    for (const actionId of actionIds) {
+        if (!visitOrderById.has(actionId)) {
+            visit(actionId)
+        }
+    }
+    return groups
 }
 
 export function isWorkflowTreeComplete(workflow: Pick<HogFlow, 'actions' | 'edges'>): boolean {

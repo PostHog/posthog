@@ -75,6 +75,48 @@ describe('buildWorkflowTree', () => {
         ])
     })
 
+    it('lists each unreachable step after the unreachable steps that lead into it', () => {
+        const steps = getWorkflowTreeUnreachableSteps(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('exit', 'exit'),
+                    action('s1'),
+                    action('s2'),
+                    action('s3'),
+                    action('s4'),
+                    action('s5'),
+                    action('s6'),
+                ],
+                [
+                    edge('trigger', 'exit'),
+                    edge('s6', 's5'),
+                    edge('s5', 's4'),
+                    edge('s4', 's3'),
+                    edge('s3', 's2'),
+                    edge('s2', 's1'),
+                    edge('s1', 'exit'),
+                ]
+            )
+        )
+
+        expect(steps.map((step) => step.action.id)).toEqual(['s6', 's5', 's4', 's3', 's2', 's1'])
+    })
+
+    it('tells each step in a disconnected loop to connect or delete the loop', () => {
+        const steps = getWorkflowTreeUnreachableSteps(
+            workflow(
+                [action('trigger', 'trigger'), action('exit', 'exit'), action('a'), action('b')],
+                [edge('trigger', 'exit'), edge('a', 'b'), edge('b', 'a')]
+            )
+        )
+
+        expect(steps.map(getWorkflowTreeUnreachableStepFix)).toEqual([
+            'Part of a loop with "b" that is not connected to the workflow. Connect one of these steps to the workflow, or delete them.',
+            'Part of a loop with "a" that is not connected to the workflow. Connect one of these steps to the workflow, or delete them.',
+        ])
+    })
+
     it('reports no unreachable steps for a connected workflow', () => {
         expect(
             getWorkflowTreeUnreachableSteps(

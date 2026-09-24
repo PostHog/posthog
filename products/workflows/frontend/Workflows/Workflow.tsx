@@ -6,6 +6,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
+import { ListViewDisabledReason } from './ListViewDisabledReason'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowStatusBar } from './WorkflowStatusBar'
 
@@ -25,7 +26,11 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                 editorLayout={editorLayout}
                 showEditorLayoutToggle={treeViewEnabled}
                 onEditorLayoutChange={setEditorLayout}
-                listViewUnreachableSteps={listViewUnreachableSteps}
+                listViewDisabledReason={
+                    listViewUnreachableSteps.length > 0 ? (
+                        <ListViewDisabledReason steps={listViewUnreachableSteps} />
+                    ) : undefined
+                }
             />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
             {isSyncingExternalEdit && <SpinnerOverlay />}

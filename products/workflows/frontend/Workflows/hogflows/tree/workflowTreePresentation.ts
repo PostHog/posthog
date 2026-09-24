@@ -95,12 +95,20 @@ export function getWorkflowTreeBranchSummary(node: WorkflowTreeNode, branch: Wor
     return `${count} ${count === 1 ? 'step' : 'steps'} · ${destination}`
 }
 
-export function getWorkflowTreeUnreachableStepFix({ unreachablePredecessors }: WorkflowTreeUnreachableStep): string {
-    if (unreachablePredecessors.length === 0) {
-        return 'Not connected to the workflow. Connect a step to it, or delete it.'
+export function getWorkflowTreeUnreachableStepFix({
+    unreachablePredecessors,
+    loopSteps,
+}: WorkflowTreeUnreachableStep): string {
+    const quoteNames = (actions: WorkflowTreeUnreachableStep['loopSteps']): string =>
+        actions.map((action) => `"${action.name}"`).join(', ')
+    if (unreachablePredecessors.length > 0) {
+        const names = quoteNames(unreachablePredecessors)
+        return unreachablePredecessors.length === 1
+            ? `Only comes after ${names}, which is not connected either. Fix that step first.`
+            : `Only comes after ${names}, which are not connected either. Fix those steps first.`
     }
-    const names = unreachablePredecessors.map((action) => `"${action.name}"`).join(', ')
-    return unreachablePredecessors.length === 1
-        ? `Only comes after ${names}, which is not connected either. Fix that step first.`
-        : `Only comes after ${names}, which are not connected either. Fix those steps first.`
+    if (loopSteps.length > 0) {
+        return `Part of a loop with ${quoteNames(loopSteps)} that is not connected to the workflow. Connect one of these steps to the workflow, or delete them.`
+    }
+    return 'Not connected to the workflow. Connect a step to it, or delete it.'
 }

@@ -8,41 +8,20 @@ import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { urls } from 'scenes/urls'
 
 import type { HogFlowEditorLayout } from './hogflows/hogFlowEditorLogic'
-import type { WorkflowTreeUnreachableStep } from './hogflows/tree/workflowTree'
-import { getWorkflowTreeUnreachableStepFix } from './hogflows/tree/workflowTreePresentation'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 type WorkflowStatusBarProps = WorkflowLogicProps & {
     editorLayout: HogFlowEditorLayout
     showEditorLayoutToggle: boolean
     onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
-    listViewUnreachableSteps: WorkflowTreeUnreachableStep[]
-}
-
-const LIST_VIEW_UNREACHABLE_STEP_LIMIT = 5
-
-function ListViewDisabledReason({ steps }: { steps: WorkflowTreeUnreachableStep[] }): JSX.Element {
-    const hiddenCount = steps.length - LIST_VIEW_UNREACHABLE_STEP_LIMIT
-    return (
-        <div className="max-w-80">
-            <div>Some steps cannot be shown in list view. Fix these steps in graph view first:</div>
-            <ul className="list-disc pl-4 mt-1 space-y-1">
-                {steps.slice(0, LIST_VIEW_UNREACHABLE_STEP_LIMIT).map((step) => (
-                    <li key={step.action.id}>
-                        <strong>{step.action.name}</strong>: {getWorkflowTreeUnreachableStepFix(step)}
-                    </li>
-                ))}
-                {hiddenCount > 0 && <li>And {hiddenCount} more</li>}
-            </ul>
-        </div>
-    )
+    listViewDisabledReason?: JSX.Element
 }
 
 export function WorkflowStatusBar({
     editorLayout,
     showEditorLayoutToggle,
     onEditorLayoutChange,
-    listViewUnreachableSteps,
+    listViewDisabledReason,
     ...props
 }: WorkflowStatusBarProps): JSX.Element | null {
     const logic = workflowLogic(props)
@@ -80,10 +59,7 @@ export function WorkflowStatusBar({
                                 value: 'simple',
                                 icon: <IconList />,
                                 tooltip: 'List view',
-                                disabledReason:
-                                    listViewUnreachableSteps.length > 0 ? (
-                                        <ListViewDisabledReason steps={listViewUnreachableSteps} />
-                                    ) : undefined,
+                                disabledReason: listViewDisabledReason,
                                 'data-attr': 'workflow-switch-to-simple-view',
                             },
                             {
