@@ -425,7 +425,12 @@ export function describeExecCommand(command: string, isKnownToolName: (name: str
         return {}
     }
     const verb = KNOWN_EXEC_VERBS.has(rawVerb) ? rawVerb : UNRECOGNIZED_EXEC_TOKEN
-    if (!TOOL_TARGETING_VERBS.has(rawVerb) || !rest) {
+    if (!TOOL_TARGETING_VERBS.has(rawVerb)) {
+        // Record the tool so a dropped `call` prefix is countable instead of hiding in
+        // the unrecognized bucket with genuine typos.
+        return isRecordableToolName(rawVerb, isKnownToolName) ? { verb, targetTool: rawVerb } : { verb }
+    }
+    if (!rest) {
         return { verb }
     }
     // The target must be parsed exactly as the dispatcher looks it up, or a
@@ -1980,11 +1985,23 @@ export function createExecTool(
                     return outputText
                 }
 
-                default:
+                default: {
+                    // A connected tool reaches `call` through the gateway, not `allTools`.
+                    // Only a namespaced name can be one, so a plain typo skips the fetch.
+                    const isTool =
+                        allTools.some((tool) => tool.name === verb) ||
+                        (isGatewayToolName(verb) && (await resolveTools()).some((tool) => tool.name === verb))
+                    if (isTool) {
+                        throw new ExecCommandError(
+                            `"${verb}" is a tool, not a command. Invoke it as: call ${verb} <json_input>. Run "info ${verb}" first if its schema is not in context.`,
+                            'tool_as_command'
+                        )
+                    }
                     throw new ExecCommandError(
                         `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
                         'unknown_command'
                     )
+                }
             }
         },
     }
