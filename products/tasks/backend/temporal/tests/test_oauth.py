@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -494,32 +495,53 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("state", "requested", "granted"),
+    ("origin_product", "state", "requested", "granted"),
     [
-        # The provisioning activities pass no scopes, and the token they place in the sandbox
-        # environment must match what the run was dispatched with, not the read-only floor.
-        ({"pending_dispatch": {"posthog_mcp_scopes": "full"}}, None, "full"),
+        (Task.OriginProduct.SPACE_SETUP, {"pending_dispatch": {"posthog_mcp_scopes": "full"}}, None, "full"),
         (
+            Task.OriginProduct.SPACE_SETUP,
             {"pending_dispatch": {"posthog_mcp_scopes": ["canvas:write", "task:read"]}},
             None,
             ["canvas:write", "task:read"],
         ),
-        ({}, None, "read_only"),
-        ({"pending_dispatch": {"posthog_mcp_scopes": "not-a-preset"}}, None, "read_only"),
-        # An explicit request is never widened by the recorded dispatch.
-        ({"pending_dispatch": {"posthog_mcp_scopes": "full"}}, "read_only", "read_only"),
+        (
+            Task.OriginProduct.SPACE_SETUP,
+            {"pending_dispatch": {"posthog_mcp_scopes": "not-a-preset"}},
+            None,
+            "read_only",
+        ),
+        (
+            Task.OriginProduct.SPACE_SETUP,
+            {"pending_dispatch": {"posthog_mcp_scopes": ["canvas:write", None]}},
+            None,
+            "read_only",
+        ),
+        (
+            Task.OriginProduct.SPACE_SETUP,
+            {"pending_dispatch": {"posthog_mcp_scopes": "full"}},
+            "read_only",
+            "read_only",
+        ),
+        # No recorded dispatch: the run-source policy dispatch itself applies.
+        (Task.OriginProduct.USER_CREATED, {}, None, "full"),
+        (Task.OriginProduct.USER_CREATED, {"run_source": "agent"}, None, "read_only"),
+        (Task.OriginProduct.LOOP, {}, None, "read_only"),
+        (Task.OriginProduct.SIGNALS_SCOUT, {}, None, "signals_scout_reports"),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_run_token_defaults_to_the_dispatched_scopes(
-    mock_create: MagicMock, state: dict, requested: PosthogMcpScopes | None, granted: PosthogMcpScopes
+    mock_create: MagicMock,
+    origin_product: str,
+    state: dict,
+    requested: PosthogMcpScopes | None,
+    granted: PosthogMcpScopes,
 ) -> None:
     organization = Organization.objects.create(name="dispatch-scope-org")
     team = Team.objects.create(organization=organization, name="dispatch-scope-team")
     owner = User.objects.create(email="dispatch-scope-owner@example.com")
-    task = Task.objects.create(
-        team=team, title="Setup run", created_by=owner, origin_product=Task.OriginProduct.SPACE_SETUP
-    )
+    OrganizationMembership.objects.create(organization=organization, user=owner)
+    task = Task.objects.create(team=team, title="Run", created_by=owner, origin_product=origin_product)
 
     if requested is None:
         create_oauth_access_token_for_run(task, state)

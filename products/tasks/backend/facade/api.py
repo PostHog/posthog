@@ -9768,9 +9768,6 @@ def start_space_setup(
                 client_provenance=client_provenance,
             )
         except ValueError as e:
-            # The task factory refuses a private repository the team cannot reach through a
-            # GitHub integration; surface that as the same recoverable setup error as a missing
-            # workflow template rather than a server error.
             raise SpaceSetupUnavailableError(
                 f"Goal setup could not start: {e}. Connect the GitHub integration that owns the repository, then retry setup."
             ) from e

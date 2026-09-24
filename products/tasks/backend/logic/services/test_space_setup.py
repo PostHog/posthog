@@ -145,9 +145,6 @@ class TestChannelSetupWriteSerializer(SimpleTestCase):
 
 class TestSpaceSetupScopes(SimpleTestCase):
     def test_every_tool_the_setup_steps_name_is_callable_with_the_setup_scopes(self):
-        # The MCP server hides a tool whose required scopes the token lacks, so a scope missing
-        # from SPACE_SETUP_SCOPES turns a prompted step into a silent fallback. The generated tool
-        # definitions are the one source both the server and this check read.
         definitions = json.loads(
             (Path(__file__).parents[5] / "services" / "mcp" / "schema" / "tool-definitions-all.json").read_text()
         )
@@ -159,7 +156,6 @@ class TestSpaceSetupScopes(SimpleTestCase):
                 kind="goal", goal=SpaceGoalRequest(statement="Move one metric"), repository="posthog/posthog"
             ),
         )
-        # The loop briefs after the graph run on their own scopes; only the setup steps use this token.
         setup_steps = prompt.split("## Loop graph", 1)[0]
         named_tools = {name for name in re.findall(r"`([a-z]+(?:-[a-z]+)+)`", setup_steps) if name in definitions}
         assert {"canvas-create", "workflows-schedule-create", "workflows-test-run", "metric-list"} <= named_tools
@@ -175,5 +171,4 @@ class TestSpaceSetupScopes(SimpleTestCase):
 
 
 def _granted(granted: set[str], required: str) -> bool:
-    # A write scope satisfies its read scope, as in the MCP server and the API permission layer.
     return required in granted or (required.endswith(":read") and required.replace(":read", ":write") in granted)

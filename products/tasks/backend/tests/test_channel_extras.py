@@ -186,7 +186,6 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         assert task.created_by_id == self.user.id
         assert "Increase the weekly activation rate" in task.description
         assert "posthog/posthog" in task.description
-        # The sandbox clones the task's repository, not the one named in the prompt.
         assert task.repository == "posthog/posthog"
         assert f"team_id: {self.team.id}" in task.description
         run = TaskRun.objects.get(task=task)
