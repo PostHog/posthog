@@ -2,28 +2,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Suspense, useEffect, useState } from 'react'
 
-import {
-    IconArrowLeft,
-    IconArrowRight,
-    IconClock,
-    IconCollapse,
-    IconExpand,
-    IconGear,
-    IconInfo,
-    IconPlayFilled,
-    IconSparkles,
-    IconThoughtBubble,
-    IconVideoCamera,
-} from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
+import { LemonButton, LemonCard, Link, Spinner } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,45 +18,31 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { BooleanTag } from '../components/BooleanTag'
-import { CardHeader } from '../components/CardHeader'
 import { CitedMarkdown } from '../components/CitedMarkdown'
 import { LabeledRow } from '../components/LabeledRow'
-import {
-    ObservationConfidence,
-    ObservationPrimaryOutput,
-    ObservationStatusTag,
-    PromptRow,
-    readResult,
-} from '../components/ObservationCard'
+import { readResult } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
-import { ObservationThumbnail } from '../components/ObservationThumbnail'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
-import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { PromptPreview } from '../replay_scanners/components/PromptPreview'
 import {
-    type ClassifierScannerConfig,
-    type MonitorScannerConfig,
-    type ScorerScannerConfig,
-    type SummarizerScannerConfig,
     configFromSnapshot,
     failureKindDescription,
     ineligibleKindDescription,
-    modelLabel,
-    modelNamingVariant,
     parseFailureReason,
     parseIneligibleReason,
-    OBSERVATION_TRIGGER_TAG,
     SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
+import { ObservationDetails } from './ObservationDetails'
+import { ObservationFacts } from './ObservationFacts'
+import { ObservationHeadline } from './ObservationHeadline'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
-import { ObservationSignalReports } from './ObservationSignalReports'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -120,9 +92,6 @@ function CalibrationEntryPoint({ observation }: { observation: ReplayObservation
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
-    const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
     // A shared link carries the moment the sharer was watching, in seconds, the same way a recording link does.
     const sharedStartSeconds = parseNumericParam(searchParams.t)
@@ -131,7 +100,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // start and any citation seek are dropped once prev/next moves to a sibling.
     useEffect(() => {
         if (sharedStartSeconds !== null && sharedStartSeconds >= 0) {
-            setRecordingExpanded(true)
             setPendingSeek({ ms: sharedStartSeconds * 1000, trigger: Date.now() })
         } else {
             setPendingSeek(null)
@@ -144,6 +112,33 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
         useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
+
+    // Filters carried over from the scanner's observations table; preserved on prev/next so
+    // navigation (and the server-computed neighbor ids) stay within the filtered list.
+    const neighborParams = neighborFilterParams(searchParams)
+    const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
+    // Prev/next keeps the return params too, so back still lands on the list view (or the watch feed)
+    // the reader came from.
+    const observationUrl = (id: string): string =>
+        observationDetailUrl(id, {
+            ...neighborParams,
+            ...scannerReturnParams(searchParams),
+            ...observationOriginParams(searchParams),
+        })
+
+    useKeyboardHotkeys(
+        {
+            j: {
+                action: () => nextObservationId && router.actions.push(observationUrl(nextObservationId)),
+                disabled: !nextObservationId,
+            },
+            k: {
+                action: () => previousObservationId && router.actions.push(observationUrl(previousObservationId)),
+                disabled: !previousObservationId,
+            },
+        },
+        [nextObservationId, previousObservationId, searchParams]
+    )
 
     if (observationLoading && !observation) {
         return (
@@ -172,21 +167,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
     const scannerName = scannerLabel(observation)
-    const triggerLabel = OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
-    const snapshotConfig = configFromSnapshot(snapshot)
-    const prompt = snapshotConfig?.prompt ?? null
-    const summarizerConfig = scannerType === 'summarizer' ? (snapshotConfig as SummarizerScannerConfig | null) : null
-    const classifierConfig = scannerType === 'classifier' ? (snapshotConfig as ClassifierScannerConfig | null) : null
-    const monitorConfig = scannerType === 'monitor' ? (snapshotConfig as MonitorScannerConfig | null) : null
-    const scorerConfig = scannerType === 'scorer' ? (snapshotConfig as ScorerScannerConfig | null) : null
-    const summarizerLength = summarizerConfig?.length ?? null
-    const classifierVocab = Array.isArray(classifierConfig?.tags) ? classifierConfig.tags : null
-    const classifierMultiLabel = classifierConfig ? classifierConfig.multi_label === true : null
-    const monitorAllowInconclusive = monitorConfig ? monitorConfig.allow_inconclusive === true : null
-    const classifierAllowFreeform = classifierConfig ? classifierConfig.allow_freeform_tags === true : null
-    const scorerMin = typeof scorerConfig?.scale?.min === 'number' ? scorerConfig.scale.min : null
-    const scorerMax = typeof scorerConfig?.scale?.max === 'number' ? scorerConfig.scale.max : null
-    const scorerLabel = typeof scorerConfig?.scale?.label === 'string' ? scorerConfig.scale.label : null
+    const prompt = configFromSnapshot(snapshot)?.prompt ?? null
     const ineligibleParsed =
         observation.status === 'ineligible' && observation.error_reason
             ? parseIneligibleReason(observation.error_reason)
@@ -197,50 +178,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
             ? parseFailureReason(observation.error_reason)
             : null
     const failedMessage = failedParsed ? failedParsed.message || null : observation.error_reason || null
-    const durationMs =
-        observation.started_at && observation.completed_at
-            ? dayjs(observation.completed_at).diff(observation.started_at)
-            : null
-    const durationLabel =
-        durationMs !== null && Number.isFinite(durationMs) && durationMs >= 0
-            ? durationMs < 60_000
-                ? (humanFriendlyMilliseconds(durationMs) ?? null)
-                : humanFriendlyDuration(durationMs / 1000)
-            : null
 
-    // Filters carried over from the scanner's observations table; preserved on prev/next so
-    // navigation (and the server-computed neighbor ids) stay within the filtered list.
-    const neighborParams = neighborFilterParams(searchParams)
-    const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    // Prev/next keeps the return params too, so back still lands on the list view (or the watch feed)
-    // the reader came from.
-    const observationUrl = (id: string): string =>
-        observationDetailUrl(id, {
-            ...neighborParams,
-            ...scannerReturnParams(searchParams),
-            ...observationOriginParams(searchParams),
-        })
-
-    const seekEmbeddedPlayer = (ms: number): void => {
-        if (!recordingExpanded) {
-            setRecordingExpanded(true)
-        }
-        setPendingSeek({ ms, trigger: Date.now() })
-    }
-
-    const toggleRecordingExpanded = (): void => {
-        // Collapsing discards the seek intent, or re-expanding would remount the seeker and replay it.
-        if (recordingExpanded) {
-            setPendingSeek(null)
-        }
-        setRecordingExpanded(!recordingExpanded)
-    }
+    const seekEmbeddedPlayer = (ms: number): void => setPendingSeek({ ms, trigger: Date.now() })
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name={scannerName}
-                description={`Observation of session ${observation.session_id}`}
+                description={observation.recording_subject_email ?? undefined}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
@@ -258,9 +203,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                       : 'No newer observation'
                             }
                             tooltip={
-                                neighborsFiltered
-                                    ? 'Previous observation matching your filters'
-                                    : 'Previous (newer) observation for this scanner'
+                                <>
+                                    {neighborsFiltered
+                                        ? 'Previous observation matching your filters'
+                                        : 'Previous (newer) observation for this scanner'}{' '}
+                                    <KeyboardShortcut k />
+                                </>
                             }
                             data-attr="vision-observation-prev"
                         >
@@ -280,9 +228,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                       : 'No older observation'
                             }
                             tooltip={
-                                neighborsFiltered
-                                    ? 'Next observation matching your filters'
-                                    : 'Next (older) observation for this scanner'
+                                <>
+                                    {neighborsFiltered
+                                        ? 'Next observation matching your filters'
+                                        : 'Next (older) observation for this scanner'}{' '}
+                                    <KeyboardShortcut j />
+                                </>
                             }
                             data-attr="vision-observation-next"
                         >
@@ -298,325 +249,142 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 }
             />
 
-            <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
-                {recordingExpanded ? (
-                    <div
-                        className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
-                        onClick={toggleRecordingExpanded}
-                    >
-                        <LemonButton
-                            icon={<IconCollapse />}
-                            size="small"
-                            tooltip="Collapse recording"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                toggleRecordingExpanded()
-                            }}
-                            data-attr="vision-observation-recording-toggle"
-                        />
-                        <IconVideoCamera className="text-muted-alt" />
-                        <h3 className="text-lg font-semibold m-0">Recording</h3>
-                    </div>
-                ) : (
-                    // Collapsed, this row is the only sign the page holds a video, so it leads with a
-                    // thumbnail of the player it opens: a dark screen carrying one play target.
-                    <button
-                        type="button"
-                        className="w-full flex items-center gap-3 p-3 text-left bg-surface-primary hover:bg-surface-secondary"
-                        onClick={toggleRecordingExpanded}
-                        aria-expanded={false}
-                        data-attr="vision-observation-recording-toggle"
-                    >
-                        <ObservationThumbnail observation={observation} className="w-20 shrink-0">
-                            <IconPlayFilled className="text-xl text-brand-red drop-shadow" />
-                        </ObservationThumbnail>
-                        <span className="flex-1 min-w-0">
-                            <h3 className="text-lg font-semibold m-0">Watch the recording</h3>
-                            <span className="text-sm text-muted">Play the session this observation was made from</span>
-                        </span>
-                        <IconExpand className="text-lg text-muted-alt shrink-0" />
-                    </button>
-                )}
-                {recordingExpanded && (
-                    <div className="border-t border-border h-[calc(100vh-16rem)] min-h-[480px]">
-                        <Suspense fallback={<Spinner className="m-4" />}>
-                            <ObservationRecording
-                                playerKey={playerKey}
-                                sessionRecordingId={observation.session_id}
-                                pendingSeek={pendingSeek}
-                            />
-                        </Suspense>
-                    </div>
-                )}
-            </LemonCard>
-
-            <div className={scannerType === 'summarizer' ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
-                <section className="border rounded p-4 bg-surface-primary space-y-3">
-                    <CardHeader icon={<IconSparkles />} title="Result" />
-
-                    {observation.status === 'failed' && observation.error_reason && (
-                        <div className="flex flex-col gap-3">
-                            {scannerType && (
-                                <LabeledRow label="Type">
-                                    <ScannerTypeBadge scannerType={scannerType} />
+            <div className="@container">
+                <div className="grid grid-cols-1 gap-4 items-start @4xl:grid-cols-[minmax(20rem,1fr)_minmax(0,2fr)]">
+                    <div className="flex flex-col gap-4 min-w-0">
+                        <section className="border rounded p-4 bg-surface-primary flex flex-col gap-4">
+                            {/* A scan that failed or never ran answered nothing, so the question alone adds no context. */}
+                            {prompt && observation.status !== 'failed' && observation.status !== 'ineligible' && (
+                                <LabeledRow label="Prompt">
+                                    <PromptPreview prompt={prompt} dataAttr="vision-observation-show-prompt" />
                                 </LabeledRow>
                             )}
-                            <LabeledRow label="Reason">
-                                <p className="text-sm text-default m-0 leading-snug">
-                                    {failedParsed
-                                        ? failureKindDescription(failedParsed.kind)
-                                        : observation.error_reason}
-                                </p>
-                            </LabeledRow>
-                            {failedParsed && failedMessage && (
-                                <LabeledRow label="Details">
-                                    <p className="text-sm text-default m-0 leading-snug font-mono">{failedMessage}</p>
-                                </LabeledRow>
-                            )}
-                            <div>
-                                <ObservationRetryButton
-                                    status={observation.status}
-                                    errorReason={observation.error_reason}
-                                    onRetry={() => retryObservation()}
-                                    loading={retrying}
-                                    emphasis="primary"
-                                    size="small"
-                                    dataAttr="vision-observation-detail-retry"
-                                />
-                            </div>
-                        </div>
-                    )}
 
-                    {observation.status === 'ineligible' && observation.error_reason && (
-                        <div className="flex flex-col gap-3">
-                            {scannerType && (
-                                <LabeledRow label="Type">
-                                    <ScannerTypeBadge scannerType={scannerType} />
-                                </LabeledRow>
-                            )}
-                            <LabeledRow label="Reason">
-                                <p className="text-sm text-default m-0 leading-snug">
-                                    {ineligibleParsed
-                                        ? ineligibleKindDescription(ineligibleParsed.kind)
-                                        : observation.error_reason}
-                                </p>
-                            </LabeledRow>
-                            {ineligibleParsed && ineligibleMessage && (
-                                <LabeledRow label="Details">
-                                    <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
-                                </LabeledRow>
-                            )}
-                            <div>
-                                <ObservationRetryButton
-                                    status={observation.status}
-                                    errorReason={observation.error_reason}
-                                    onRetry={() => retryObservation()}
-                                    loading={retrying}
-                                    size="small"
-                                    dataAttr="vision-observation-detail-retry"
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {observation.status === 'succeeded' && snapshot && result && (
-                        <div className="flex flex-col gap-3">
-                            {scannerType && (
-                                <LabeledRow label="Type">
-                                    <ScannerTypeBadge scannerType={scannerType} />
-                                </LabeledRow>
-                            )}
-                            <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : ''}>
-                                <ObservationPrimaryOutput
-                                    observation={observation}
-                                    showPrompt={false}
-                                    onSeek={seekEmbeddedPlayer}
-                                    copyable
-                                />
-                            </LabeledRow>
-                            {prompt && scannerType !== 'summarizer' && <PromptRow prompt={prompt} />}
-                            {observation.completed_at && (
-                                <LabeledRow label="Event">
-                                    <Link to={urls.event(observation.id, observation.completed_at)}>
-                                        $recording_observed
-                                    </Link>
-                                </LabeledRow>
-                            )}
-                            {snapshot.emits_signals && (
-                                <ObservationSignalReports
-                                    observationId={observation.id}
-                                    signalsCount={observation.scanner_result?.signals_count ?? 0}
-                                />
-                            )}
-                            <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
-                            <CalibrationEntryPoint observation={observation} />
-                        </div>
-                    )}
-
-                    {(observation.status === 'pending' || observation.status === 'running') && (
-                        <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} />
-                    )}
-                </section>
-
-                {scannerType !== 'summarizer' && (
-                    <section
-                        className={`border rounded p-4 space-y-2 ${
-                            reasoning ? 'bg-surface-primary' : 'bg-surface-secondary opacity-60'
-                        }`}
-                    >
-                        <CardHeader icon={<IconThoughtBubble />} title="Model reasoning" />
-                        {reasoning ? (
-                            <CitedMarkdown text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
-                        ) : (
-                            <p className="text-muted text-sm m-0 italic">
-                                {observation.status === 'ineligible'
-                                    ? 'The model was not invoked.'
-                                    : observation.status === 'failed'
-                                      ? 'No reasoning available — the observation failed before completion.'
-                                      : observation.status === 'succeeded'
-                                        ? 'No reasoning provided.'
-                                        : 'Awaiting model output…'}
-                            </p>
-                        )}
-                    </section>
-                )}
-            </div>
-
-            <ObservationPinnedProperties sessionId={observation.session_id} />
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconInfo />} title="Observation details" />
-                    <div className="flex flex-col gap-3 text-sm">
-                        <LabeledRow label="Status">
-                            <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
-                        </LabeledRow>
-                        {result && typeof result.confidence === 'number' && (
-                            <LabeledRow label="Confidence">
-                                <ObservationConfidence result={result} />
-                            </LabeledRow>
-                        )}
-                        <LabeledRow label="Triggered by">
-                            {observation.triggered_by !== 'schedule' && observation.triggered_by_user ? (
-                                <ProfilePicture
-                                    user={{
-                                        first_name: observation.triggered_by_user.first_name,
-                                        last_name: observation.triggered_by_user.last_name,
-                                        email: observation.triggered_by_user.email,
-                                    }}
-                                    size="sm"
-                                    showName
-                                />
-                            ) : (
-                                <span>{triggerLabel}</span>
-                            )}
-                        </LabeledRow>
-                        <LabeledRow label="Session">
-                            <Link
-                                to={urls.sessionProfile(observation.session_id)}
-                                className="break-all lg:break-normal"
-                                data-attr="vision-observation-session-link"
-                            >
-                                {observation.session_id}
-                            </Link>
-                        </LabeledRow>
-                        <LabeledRow label="Person">
-                            {observation.distinct_id ? (
-                                <Link
-                                    to={urls.personByDistinctId(observation.distinct_id)}
-                                    className="break-all lg:break-normal"
-                                >
-                                    {observation.recording_subject_email ?? observation.distinct_id}
-                                </Link>
-                            ) : observation.recording_subject_email ? (
-                                <span className="break-all lg:break-normal">{observation.recording_subject_email}</span>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            )}
-                        </LabeledRow>
-                    </div>
-                </LemonCard>
-
-                <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconClock />} title="Lifecycle" />
-                    <div className="flex flex-col gap-3 text-sm">
-                        <LabeledRow label="Created at">
-                            <TZLabel time={observation.created_at} />
-                        </LabeledRow>
-                        {observation.started_at && (
-                            <LabeledRow label="Started at">
-                                <TZLabel time={observation.started_at} />
-                            </LabeledRow>
-                        )}
-                        {observation.completed_at && (
-                            <LabeledRow label="Completed at">
-                                <TZLabel time={observation.completed_at} />
-                            </LabeledRow>
-                        )}
-                        {durationLabel && (
-                            <LabeledRow label="Duration">
-                                <span>{durationLabel}</span>
-                            </LabeledRow>
-                        )}
-                    </div>
-                </LemonCard>
-
-                <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconGear />} title="Configuration" />
-                    <div className="flex flex-col gap-3 text-sm">
-                        {snapshot?.model && (
-                            <LabeledRow label="Model">
-                                <span>{modelLabel(snapshot.model, namingVariant)}</span>
-                            </LabeledRow>
-                        )}
-                        {summarizerLength && (
-                            <LabeledRow label="Summary length">
-                                <span className="capitalize">{summarizerLength}</span>
-                            </LabeledRow>
-                        )}
-                        {classifierVocab && classifierVocab.length > 0 && (
-                            <LabeledRow label="Categories">
-                                <div className="flex flex-wrap gap-1">
-                                    {classifierVocab.map((tag) => (
-                                        <LemonTag key={tag} type="default" size="small">
-                                            {tag}
-                                        </LemonTag>
-                                    ))}
+                            {observation.status === 'failed' && observation.error_reason && (
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-2xl font-bold text-danger">Scan failed</span>
+                                        <p className="text-sm text-default m-0 leading-snug">
+                                            {failedParsed
+                                                ? failureKindDescription(failedParsed.kind)
+                                                : observation.error_reason}
+                                        </p>
+                                    </div>
+                                    {failedParsed && failedMessage && (
+                                        <LabeledRow label="Error">
+                                            <p className="text-sm text-default m-0 leading-snug font-mono">
+                                                {failedMessage}
+                                            </p>
+                                        </LabeledRow>
+                                    )}
+                                    <div>
+                                        <ObservationRetryButton
+                                            status={observation.status}
+                                            errorReason={observation.error_reason}
+                                            onRetry={() => retryObservation()}
+                                            loading={retrying}
+                                            emphasis="primary"
+                                            size="small"
+                                            dataAttr="vision-observation-detail-retry"
+                                        />
+                                    </div>
                                 </div>
-                            </LabeledRow>
-                        )}
-                        {monitorAllowInconclusive !== null && (
-                            <LabeledRow label="Allow inconclusive verdicts">
-                                <BooleanTag value={monitorAllowInconclusive} />
-                            </LabeledRow>
-                        )}
-                        {classifierMultiLabel !== null && (
-                            <LabeledRow label="Multiple categories per session">
-                                <BooleanTag value={classifierMultiLabel} />
-                            </LabeledRow>
-                        )}
-                        {classifierAllowFreeform !== null && (
-                            <LabeledRow label="Freeform categories">
-                                <BooleanTag value={classifierAllowFreeform} />
-                            </LabeledRow>
-                        )}
-                        {scorerMin !== null && (
-                            <LabeledRow label="Scale minimum">
-                                <span>{scorerMin}</span>
-                            </LabeledRow>
-                        )}
-                        {scorerMax !== null && (
-                            <LabeledRow label="Scale maximum">
-                                <span>{scorerMax}</span>
-                            </LabeledRow>
-                        )}
-                        {scorerLabel && (
-                            <LabeledRow label="Score label">
-                                <span>{scorerLabel}</span>
-                            </LabeledRow>
-                        )}
+                            )}
+
+                            {observation.status === 'ineligible' && observation.error_reason && (
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-2xl font-bold text-muted">Not scanned</span>
+                                        <p className="text-sm text-default m-0 leading-snug">
+                                            {ineligibleParsed
+                                                ? ineligibleKindDescription(ineligibleParsed.kind)
+                                                : observation.error_reason}
+                                        </p>
+                                    </div>
+                                    {ineligibleParsed && ineligibleMessage && (
+                                        <LabeledRow label="More info">
+                                            <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
+                                        </LabeledRow>
+                                    )}
+                                    <div>
+                                        <ObservationRetryButton
+                                            status={observation.status}
+                                            errorReason={observation.error_reason}
+                                            onRetry={() => retryObservation()}
+                                            loading={retrying}
+                                            size="small"
+                                            dataAttr="vision-observation-detail-retry"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {observation.status === 'succeeded' && snapshot && result && (
+                                <>
+                                    <LabeledRow
+                                        label={
+                                            scannerType === 'classifier'
+                                                ? 'Assigned categories'
+                                                : scannerType
+                                                  ? SUCCEEDED_OUTPUT_LABEL[scannerType]
+                                                  : ''
+                                        }
+                                    >
+                                        <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
+                                    </LabeledRow>
+                                    {scannerType !== 'summarizer' && reasoning && (
+                                        <LabeledRow label="Reasoning">
+                                            <CitedMarkdown
+                                                text={reasoning}
+                                                segments={reasoningSegments}
+                                                onSeek={seekEmbeddedPlayer}
+                                            />
+                                        </LabeledRow>
+                                    )}
+                                    <ObservationLabelControl
+                                        observationId={observation.id}
+                                        initialLabel={observation.label}
+                                    />
+                                    <CalibrationEntryPoint observation={observation} />
+                                </>
+                            )}
+
+                            {(observation.status === 'pending' || observation.status === 'running') && (
+                                <ObservationProgressBar
+                                    observationId={observation.id}
+                                    sessionId={observation.session_id}
+                                />
+                            )}
+
+                            <div className="border-t pt-3">
+                                <ObservationFacts observation={observation} />
+                            </div>
+                            <div className="border-t pt-3">
+                                <ObservationPinnedProperties sessionId={observation.session_id} />
+                            </div>
+                            <div className="border-t pt-3">
+                                <ObservationDetails observation={observation} />
+                            </div>
+                        </section>
                     </div>
-                </LemonCard>
+
+                    {/* 16:10 leaves the player's top bar on top of a 16:9 frame, the shape of most recordings. */}
+                    <div className="@container/player min-w-0 @4xl:sticky @4xl:top-4">
+                        <LemonCard
+                            className="overflow-hidden p-0 h-[min(62.5cqw,calc(100vh-8rem))]"
+                            hoverEffect={false}
+                        >
+                            {/* Lazy, so the result renders before the player's code arrives. */}
+                            <Suspense fallback={<Spinner className="m-4" />}>
+                                <ObservationRecording
+                                    playerKey={playerKey}
+                                    sessionRecordingId={observation.session_id}
+                                    pendingSeek={pendingSeek}
+                                />
+                            </Suspense>
+                        </LemonCard>
+                    </div>
+                </div>
             </div>
         </SceneContent>
     )
