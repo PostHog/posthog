@@ -48,6 +48,11 @@ It reads at the ref `HEAD` rather than at a commit, because it has no credential
 
 The authenticated reader caches per commit.
 The content at a commit never changes, so a blob is held for a day; the head lookup is held for about two minutes, and that is the whole staleness window of an ownership change.
+A busy repository moves its head between most reads, and each new commit starts with no entries.
+So a reader that sees a new head records the head it replaced, and the first miss at the new commit asks GitHub's compare API which paths changed between the two.
+Entries for the other paths are copied from the previous commit, and only the changed paths are read again.
+The copy happens only when the compare proves it: the new head descends from the old one, and GitHub listed every changed file, renames included.
+Any other answer, or a failed compare, falls back to a full read.
 The cache key names the credential's audience, an installation or a digest of a token, because a private repository one installation can read is not readable by the next caller that names the same repository.
 A token never reaches a cache key or a log line.
 Pass `fresh_head=True` when the run derives a decision it never stores and so cannot correct later, such as digest routing, and the reader asks GitHub for the head instead of reading that shared entry.
