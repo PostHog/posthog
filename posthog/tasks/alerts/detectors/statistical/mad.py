@@ -19,10 +19,9 @@ class MADDetector(BaseDetector):
     More robust than z-score because it uses median instead of mean,
     making it resistant to outliers skewing the baseline.
 
-    Scores are normalized to [0, 1] probabilities by how extreme the modified
-    z-score is, corrected for the window length. pyod's predict_proba is not
-    used: it rescales against the training window, which makes the window's own
-    largest deviation score 1.0 whatever its margin.
+    Scores grade how extreme the modified z-score is, on a scale the training
+    window cannot move. See ``scoring.deviation_to_probability``. pyod's
+    predict_proba is deliberately unused: it rescales against the window.
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
@@ -57,8 +56,8 @@ class MADDetector(BaseDetector):
         clf = MAD()
         clf.fit(window_data.reshape(-1, 1))
 
-        # decision_function returns the modified z-score: 0.6745 * |x - median| / MAD,
-        # already scaled to sigma units, so the shared extremity scale applies.
+        # decision_function's modified z-score is already in sigma units, which is the
+        # scale deviation_to_probability expects.
         test_point = np.array([[current_value]])
         modified_zscore = float(clf.decision_function(test_point)[0])
         prob = deviation_to_probability(modified_zscore, len(window_data))

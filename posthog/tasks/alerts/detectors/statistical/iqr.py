@@ -16,11 +16,9 @@ from posthog.tasks.alerts.detectors.statistical.scoring import (
 def _iqr_distance_to_probability(distance: float, multiplier: float, window_size: int) -> float:
     """Score a fence distance by how extreme it is, not by how it ranks in the window.
 
-    A point inside the fences is not an outlier at all and scores 0. Beyond a
-    fence, the distance is converted from IQR units into sigma units so the
-    shared extremity scale applies: under a normal baseline the fence itself
-    sits ``NORMAL_Q3_IN_SIGMA + NORMAL_IQR_IN_SIGMA * multiplier`` sigma from
-    the median, and every further IQR adds ``NORMAL_IQR_IN_SIGMA`` more.
+    A point inside the fences is not an outlier at all and scores 0. Beyond a fence,
+    the distance is converted from IQR units into sigma units, where the fence itself
+    already sits ``NORMAL_Q3_IN_SIGMA + NORMAL_IQR_IN_SIGMA * multiplier`` out.
     """
     if distance <= 0:
         return 0.0
@@ -37,9 +35,8 @@ class IQRDetector(BaseDetector):
     - Values below Q1 - multiplier*IQR are anomalies
     - Values above Q3 + multiplier*IQR are anomalies
 
-    Scores are normalized to [0, 1] probabilities by how far beyond the fence
-    a value lies, expressed in sigma units and corrected for the window length.
-    The window's own distances do not set the scale.
+    Scores grade how far beyond the fence a value lies, on a scale the window's
+    own distances cannot move. See ``scoring.deviation_to_probability``.
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)

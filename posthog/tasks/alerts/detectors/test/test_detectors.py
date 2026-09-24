@@ -177,10 +177,8 @@ class TestStatisticalDetectors:
     def test_a_new_window_record_fires_only_when_it_is_extreme(
         self, _name: str, detector_cls: Any, record_value: float
     ) -> None:
-        # A rolling window drops older peaks, so on a bursty series the next-largest
-        # value keeps becoming the window record. Scoring a point by its rank inside
-        # the window gave every record the top score, so the alert fired on values it
-        # had already ignored while a larger peak was still in the window.
+        # A rolling window drops older peaks, so the next-largest value keeps becoming
+        # the window record. Only a genuinely extreme value may fire.
         baseline = [700.0, 1300.0, 900.0, 1100.0, 1000.0] * 6
         detector = detector_cls({"threshold": 0.95, "window": 30})
 
@@ -260,9 +258,8 @@ class TestStatisticalDetectors:
     @parameterized.expand(
         [
             ("zscore", ZScoreDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 14])),
-            # IQR needs a wide offset=1 window (the trailing value stays inside its
-            # fences) and a tight offset=4 one, because its score grades distance
-            # beyond the fence rather than rank within the window.
+            # IQR grades distance beyond the fence, so the two offsets need windows
+            # of different fence widths to flip the verdict.
             ("iqr", IQRDetector, np.array([10, 10, 11, 9, 11, 40, 10, 60, 20])),
             ("mad", MADDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 14])),
         ]

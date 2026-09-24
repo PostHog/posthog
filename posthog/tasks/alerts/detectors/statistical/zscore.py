@@ -15,10 +15,8 @@ class ZScoreDetector(BaseDetector):
     Detects anomalies by calculating how many standard deviations
     a value is from the rolling mean.
 
-    Scores are normalized to [0, 1] by how extreme the z-score is under a
-    normal baseline, corrected for the window length. The window's own maximum
-    does not set the scale, so a new window record only fires when it is
-    genuinely extreme.
+    Scores grade how extreme the z-score is, on a scale the window's own maximum
+    cannot move. See ``scoring.deviation_to_probability``.
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
