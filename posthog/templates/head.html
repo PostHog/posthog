@@ -25,6 +25,11 @@
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
 {% if not opt_out_capture and js_posthog_api_key %}
+    {# JSON data blocks are not executed, so they carry no nonce. Each one must come before the script that reads it. #}
+    {{ posthog_bootstrap|serialized_json_script:"posthog-user-identity-with-flags" }}
+    {% if js_posthog_identity_distinct_id and js_posthog_identity_claims %}
+        {{ js_posthog_identity_claims|serialized_json_script:"posthog-identity-claims" }}
+    {% endif %}
     <script nonce="{{ request.csp_nonce }}">
         window.JS_POSTHOG_API_KEY = "{{ js_posthog_api_key|escapejs }}";
         window.JS_POSTHOG_HOST = "{{ js_posthog_host|escapejs }}";
@@ -33,14 +38,14 @@
         }
         window.JS_POSTHOG_UI_HOST = "{{ js_posthog_ui_host|escapejs }}";
         window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
-        window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
+        window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse(document.getElementById('posthog-user-identity-with-flags').textContent)
         window.IMPERSONATED_SESSION = {{is_impersonated_session | yesno:"true,false"}};
         window.POSTHOG_JS_UUID_VERSION = "{{posthog_js_uuid_version}}";
         {% if js_posthog_identity_distinct_id %}
             window.JS_POSTHOG_IDENTITY_DISTINCT_ID = "{{ js_posthog_identity_distinct_id|escapejs }}";
             window.JS_POSTHOG_IDENTITY_HASH = "{{ js_posthog_identity_hash|escapejs }}";
             {% if js_posthog_identity_claims %}
-                window.JS_POSTHOG_IDENTITY_CLAIMS = JSON.parse("{{ js_posthog_identity_claims|escapejs }}");
+                window.JS_POSTHOG_IDENTITY_CLAIMS = JSON.parse(document.getElementById('posthog-identity-claims').textContent);
             {% endif %}
         {% endif %}
     </script>
@@ -48,9 +53,9 @@
 {% if stripe_public_key %}
     <script nonce="{{ request.csp_nonce }}">window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}';</script>
 {% endif %}
+{{ posthog_app_context|serialized_json_script:"posthog-app-context" }}
 <script nonce="{{ request.csp_nonce }}" id='posthog-app-user-preload'>
-    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
-    window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
+    window.POSTHOG_APP_CONTEXT = JSON.parse(document.getElementById('posthog-app-context').textContent);
     {# Inject the expected location of JS bundle, #}
     {# use to allow the location of the bundle to be set at runtime, #}
     {# e.g. for PostHog Cloud we serve the frontend JS from a CDN #}
