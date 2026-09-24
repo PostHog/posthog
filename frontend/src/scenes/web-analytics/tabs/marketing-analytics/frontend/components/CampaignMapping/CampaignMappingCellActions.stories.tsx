@@ -10,6 +10,12 @@ import { buildCampaignMappingMenuItems, buildSourceMappingMenuItems } from './me
 
 // Mock icons for marketing sources - these are the paths returned by the backend
 const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; fields: never[]; caption: string }> = {
+    AppleSearchAds: {
+        name: 'AppleSearchAds',
+        iconPath: '/static/services/apple_search_ads.png',
+        fields: [],
+        caption: 'Apple Ads',
+    },
     GoogleAds: {
         name: 'GoogleAds',
         iconPath: '/static/services/google-ads.png',

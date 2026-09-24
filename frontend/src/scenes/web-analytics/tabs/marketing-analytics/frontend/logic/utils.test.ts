@@ -271,6 +271,7 @@ describe('marketing analytics utils', () => {
 
         // All fields each source could reference, so the mock table has them all
         const sourceFields: Record<NativeMarketingSource, string[]> = {
+            AppleSearchAds: ['local_spend', 'impressions', 'taps', 'total_installs'],
             GoogleAds: [
                 'metrics_cost_micros',
                 'metrics_impressions',
@@ -322,6 +323,7 @@ describe('marketing analytics utils', () => {
 
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
         const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
+            AppleSearchAds: ['local_spend', 'impressions', 'taps'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
             RedditAds: ['spend', 'impressions', 'clicks', 'currency'],
             LinkedinAds: ['cost_in_usd', 'impressions', 'clicks'],

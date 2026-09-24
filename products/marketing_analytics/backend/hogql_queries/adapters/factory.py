@@ -30,6 +30,7 @@ from ..constants import (
     build_fallback_empty_query_ast,
 )
 from ..utils import map_url_to_provider
+from .apple_search_ads import AppleSearchAdsAdapter
 from .base import (
     BingAdsConfig,
     ExternalConfig,
@@ -76,6 +77,7 @@ class MarketingSourceFactory:
     # Registry of adapter classes
     _adapter_registry: dict[str, type[MarketingSourceAdapter]] = {
         # Native adapters
+        "AppleSearchAds": AppleSearchAdsAdapter,
         "GoogleAds": GoogleAdsAdapter,
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
@@ -96,6 +98,7 @@ class MarketingSourceFactory:
     # A new native source needs an entry here, in TABLE_PATTERNS (constants.py), and
     # optionally in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if it has ad-group / ad tables.
     _native_source_specs: dict[str, tuple[NativeMarketingSource, type[HierarchicalNativeAdsConfig]]] = {
+        "AppleSearchAds": (NativeMarketingSource.APPLE_SEARCH_ADS, HierarchicalNativeAdsConfig),
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
         "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),

@@ -12,6 +12,16 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
+### Apple Ads in Marketing analytics
+
+Sync `campaigns` and `campaign_report` to include Apple Ads in Marketing analytics.
+Sync `ad_groups` and `ad_group_report` to enable the ad group breakdown.
+Apple Ads does not provide an ad-level report through this connector.
+Taps appear as clicks, and installs appear as reported conversions.
+The adapter accepts both Campaign Management API 5 `installs` and Ads Platform API `totalInstalls`, including tables that contain rows from both versions.
+Spend uses the currency in Apple's `localSpend` object and the reporting date to convert into the project's currency.
+Apple does not report conversion revenue through these reports, so reported conversion value is zero.
+
 ## Importing your local Postgres instance
 
 1. Head to the [new source flow](http://localhost:8010/project/pipeline/new/source) in your local app, hit the link button next to Postgres
