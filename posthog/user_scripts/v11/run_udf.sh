@@ -29,6 +29,8 @@ aarch64)
     ;;
 esac
 
+# A deploy replaces the binaries in user_scripts while pooled processes still run them. Each process runs a private
+# copy, so the replacement never touches a file a process is executing.
 cp "$DIR_NAME/$EXECUTABLE_NAME" "$TEMP_DIR/$EXECUTABLE_NAME"
 chmod +x "$TEMP_DIR/$EXECUTABLE_NAME"
 "$TEMP_DIR/$EXECUTABLE_NAME" "$@"
