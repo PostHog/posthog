@@ -1905,6 +1905,10 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$")),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$")),
+    # POST but read-only: counts the persons or groups a flag release condition matches, for the
+    # blast radius the release conditions editor shows. The action is named exactly, because the
+    # same prefix hosts the mutating flag actions.
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/feature_flags/user_blast_radius/?$")),
     # POST but read-only: returns metadata about available incremental fields / columns
     # for a data warehouse schema. Validates external credentials and lists schemas
     # against the customer's source — no PostHog-side mutations.

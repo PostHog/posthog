@@ -1077,6 +1077,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("query_kind_digit", "query/SomeV2Query/", {"query": {"kind": "SomeV2Query"}}),
             ("query_upgrade", "query/upgrade/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
+            ("feature_flags_user_blast_radius", "feature_flags/user_blast_radius/", {}),
             (
                 "external_data_schemas_incremental_fields",
                 "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
@@ -1125,6 +1126,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
             ),
             ("experiments_create", "experiments/"),
+            ("feature_flag_static_cohort", "feature_flags/1/create_static_cohort_for_flag/"),
         ]
     )
     def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
