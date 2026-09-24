@@ -321,8 +321,8 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "insight_name": alert.insight.name,
             "next_check_at": alert.next_check_at,
             # The template drops its "review the alert settings" advice for this code, because
-            # a provider PostHog could not reach is not something the alert's owner can fix.
-            "provider_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            # a check the AI detector could not complete is not something the owner can fix.
+            "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
         },
     )
     accepted_at = datetime.now(UTC).isoformat()
