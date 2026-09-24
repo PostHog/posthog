@@ -44,14 +44,20 @@ export function MetricChart({
             ? focusedBreakdownValue
             : null
     const chartSeries = useMemo(
-        () => series.map((row, index) => ({ ...row, ...focusedSeries(focused, row.key, index, theme) })),
+        () =>
+            series.map((row, index) => ({
+                ...row,
+                // Chart hit-testing needs a nonempty key; selection keeps the raw breakdown value.
+                key: JSON.stringify(row.key),
+                ...focusedSeries(focused, row.key, index, theme),
+            })),
         [series, focused, theme]
     )
     const config = useChartConfig<TimeSeriesLineChartConfig>(() => {
         const formatValue = (value: number): string => {
             switch (format) {
                 case 'percentage':
-                    return `${value.toFixed(1)}%`
+                    return `${(value * 100).toFixed(1)}%`
                 case 'duration':
                     return humanFriendlyDuration(value) ?? String(value)
                 case 'decimal':
@@ -64,7 +70,13 @@ export function MetricChart({
             xAxis: { timezone },
             yAxis: { tickFormatter: formatValue },
             legend: { show: chartMode === 'breakdown', interactive: true, position: 'bottom' },
-            tooltip: { placement: 'cursor', sortedByValue: true, valueFormatter: formatValue },
+            tooltip: {
+                placement: 'cursor',
+                sortedByValue: true,
+                valueFormatter: formatValue,
+                pinnable: chartMode === 'breakdown',
+                resolveClickToNearestSeries: true,
+            },
         }
     }, [format, chartMode, timezone])
     const hasData = series.some((row) => row.data.some(Number.isFinite)) && labels.length > 0
@@ -124,7 +136,10 @@ export function MetricChart({
                             dataAttr="marketing-dashboard-metric-chart"
                             onPointClick={
                                 chartMode === 'breakdown' && !loading
-                                    ? ({ series: clicked }) => onFocus(clicked.key ?? null)
+                                    ? ({ series: clicked }) =>
+                                          onFocus(
+                                              series.find((row) => JSON.stringify(row.key) === clicked.key)?.key ?? null
+                                          )
                                     : undefined
                             }
                         />

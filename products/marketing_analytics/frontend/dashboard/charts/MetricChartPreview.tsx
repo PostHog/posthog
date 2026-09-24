@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { MetricChart, MetricChartProps } from './MetricChart'
@@ -9,6 +11,8 @@ const BREAKDOWN_SERIES = [
     { key: '', label: 'No channel', data: [0, 12, 8, 16, 20] },
 ]
 const TOTAL_SERIES = [{ key: 'total', label: 'Visitors', data: [68, 104, 60, 122, 116] }]
+const RATE_SERIES = BREAKDOWN_SERIES.map((row) => ({ ...row, data: row.data.map((value) => value / 100) }))
+const TOTAL_RATE_SERIES = [{ key: 'total', label: 'Bounce rate', data: [0.4, 0.42, 0.3, 0.5, 0.45] }]
 
 interface MetricChartPreviewProps {
     state: 'loaded' | 'loading' | 'refreshing' | 'empty' | 'error'
@@ -16,29 +20,27 @@ interface MetricChartPreviewProps {
     focusedBreakdownValue: string | null
     format: MetricChartProps['format']
     queryId: string | null
-    onStateChange: (state: MetricChartPreviewProps['state']) => void
-    onChartModeChange: MetricChartProps['onChartModeChange']
-    onFocus: MetricChartProps['onFocus']
 }
 
 export function MetricChartPreview({
-    state,
-    chartMode,
-    focusedBreakdownValue,
+    state: initialState,
+    chartMode: initialChartMode,
+    focusedBreakdownValue: initialFocusedBreakdownValue,
     format,
     queryId,
-    onStateChange,
-    onChartModeChange,
-    onFocus,
 }: MetricChartPreviewProps): JSX.Element {
-    const series =
-        state === 'empty' || state === 'loading' ? [] : chartMode === 'total' ? TOTAL_SERIES : BREAKDOWN_SERIES
+    const [state, setState] = useState(initialState)
+    const [chartMode, setChartMode] = useState(initialChartMode)
+    const [focusedBreakdownValue, setFocusedBreakdownValue] = useState(initialFocusedBreakdownValue)
+    const total = format === 'percentage' ? TOTAL_RATE_SERIES : TOTAL_SERIES
+    const breakdown = format === 'percentage' ? RATE_SERIES : BREAKDOWN_SERIES
+    const series = state === 'empty' || state === 'loading' ? [] : chartMode === 'total' ? total : breakdown
 
     // Pin the scene width so visual snapshots cannot shrink to the controls.
     return (
         <div className="flex w-[60rem] max-w-full flex-col gap-4">
             <MetricChart
-                label="Visitors"
+                label={format === 'percentage' ? 'Bounce rate' : 'Visitors'}
                 breakdownLabel="Channel"
                 format={format}
                 timezone="UTC"
@@ -46,15 +48,15 @@ export function MetricChartPreview({
                 series={series}
                 chartMode={chartMode}
                 focusedBreakdownValue={focusedBreakdownValue}
-                onChartModeChange={onChartModeChange}
-                onFocus={onFocus}
+                onChartModeChange={(mode) => {
+                    setChartMode(mode)
+                    setFocusedBreakdownValue(null)
+                }}
+                onFocus={setFocusedBreakdownValue}
                 loading={state === 'loading' || state === 'refreshing'}
                 error={
                     state === 'error' && (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Retry', onClick: () => onStateChange('loaded') }}
-                        >
+                        <LemonBanner type="error" action={{ children: 'Retry', onClick: () => setState('loaded') }}>
                             <span>Couldn't load this chart. Try again.</span>
                             {queryId && (
                                 <div className="text-muted text-xs break-all">
@@ -71,7 +73,7 @@ export function MetricChartPreview({
             <div className="flex flex-wrap gap-2 items-center">
                 <LemonSelect
                     value={state}
-                    onChange={onStateChange}
+                    onChange={setState}
                     options={[
                         { value: 'loaded', label: 'Show data' },
                         { value: 'loading', label: 'Show loading' },
@@ -81,7 +83,7 @@ export function MetricChartPreview({
                     ]}
                 />
                 <LemonButton
-                    onClick={() => onFocus('')}
+                    onClick={() => setFocusedBreakdownValue('')}
                     disabledReason={chartMode === 'total' ? 'Switch to By channel' : undefined}
                 >
                     Select no channel

@@ -184,8 +184,9 @@ Conversion goal property filters accept event, person, session and cohort filter
 
 The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.
 The query-owning caller switches between total and breakdown data and supplies error content, including the failed query ID and retry action.
-Series keys preserve the raw breakdown identity so selections can match table rows even when display labels differ.
+Chart clicks select the nearest line and return the raw breakdown identity so selections can match table rows even when display labels differ.
 An empty string is a selectable breakdown key; `null` clears selection.
+Percentage series contain fractions: a value of `0.42` displays as `42.0%` in the axis and tooltip.
 The chart keeps existing data visible while refreshing and replaces it with the supplied error if the refresh fails.
 Storybook covers loading, refreshing, empty results, errors, and a 520 px scene.
 The component does not activate the five-section dashboard or change its queries.

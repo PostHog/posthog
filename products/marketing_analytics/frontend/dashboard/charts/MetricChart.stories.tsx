@@ -1,7 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { useArgs } from 'storybook/preview-api'
-
 import { MetricChartPreview } from './MetricChartPreview'
 
 const meta: Meta<typeof MetricChartPreview> = {
@@ -14,23 +12,14 @@ const meta: Meta<typeof MetricChartPreview> = {
         format: 'number',
         queryId: '00000000-0000-4000-8000-000000000001',
     },
-    render: function Render(args) {
-        const [, updateArgs] = useArgs()
-        return (
-            <MetricChartPreview
-                {...args}
-                onStateChange={(state) => updateArgs({ state })}
-                onChartModeChange={(chartMode) => updateArgs({ chartMode, focusedBreakdownValue: null })}
-                onFocus={(focusedBreakdownValue) => updateArgs({ focusedBreakdownValue })}
-            />
-        )
-    },
+    render: (args) => <MetricChartPreview key={JSON.stringify(args)} {...args} />,
 }
 export default meta
 type Story = StoryObj<typeof meta>
 
 export const Interactive: Story = {}
 export const Total: Story = { args: { chartMode: 'total' } }
+export const Percentage: Story = { args: { format: 'percentage' } }
 export const Loading: Story = {
     args: { state: 'loading' },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
