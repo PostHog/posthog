@@ -23,6 +23,7 @@ import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
+import { sumSeriesValues } from '../seriesValues'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -73,30 +74,6 @@ export const EmptyBreakdownSeries: BreakdownSeriesData<number | null> = {
         data: [],
     },
     seriesData: [],
-}
-
-const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis): number | null => {
-    if (value === undefined || value === null || Number.isNaN(value)) {
-        return null
-    }
-
-    try {
-        const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
-
-        if (selectedYAxis.settings.formatting?.decimalPlaces) {
-            const parsed = parseFloat(
-                (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
-            )
-            return Number.isNaN(parsed) ? null : parsed
-        }
-
-        const parsed = Number.isInteger(value)
-            ? parseInt(String(value), 10) * multiplier
-            : parseFloat(String(value)) * multiplier
-        return Number.isNaN(parsed) ? null : parsed
-    } catch {
-        return null
-    }
 }
 
 export interface SeriesBreakdownLogicProps {
@@ -431,18 +408,14 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                         // Missing buckets should remain null unless the chart explicitly
                         // requests zero-filling, matching the non-breakdown series path.
-                        const dataset = xData.map((xValue) => {
-                            const numericValues = filteredData
-                                .filter((n) => n[xColumn.dataIndex] === xValue)
-                                .map((n) => parseBreakdownSeriesValue(n[yColumn.dataIndex], selectedYAxis))
-                                .filter((value): value is number => value !== null)
-
-                            if (numericValues.length === 0) {
-                                return showNullsAsZero ? 0 : null
-                            }
-
-                            return numericValues.reduce((a, b) => a + b, 0)
-                        })
+                        const dataset = xData.map((xValue) =>
+                            sumSeriesValues(
+                                filteredData.filter((n) => n[xColumn.dataIndex] === xValue),
+                                yColumn.dataIndex,
+                                selectedYAxis.settings.formatting,
+                                showNullsAsZero
+                            )
+                        )
 
                         return {
                             name: seriesName,

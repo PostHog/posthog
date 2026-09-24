@@ -714,4 +714,67 @@ describe('dataVisualizationLogic', () => {
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
     })
+
+    describe('sparse multi-series data', () => {
+        // One row per metric per day, as a UNION of two per-metric queries gives. The second metric
+        // has no row at all for the middle day.
+        const sparseResponse = {
+            columns: ['day', 'signups', 'purchases'],
+            types: [
+                ['day', 'Date'],
+                ['signups', 'Int64'],
+                ['purchases', 'Int64'],
+            ],
+            results: [
+                ['2025-01-01', 5, null],
+                ['2025-01-02', 3, null],
+                ['2025-01-03', 2, null],
+                ['2025-01-01', null, 7],
+                ['2025-01-03', null, 1],
+            ],
+        }
+
+        const setSparseResponse = (): void => {
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse(
+                sparseResponse
+            )
+            logic.actions.clearAxis()
+            logic.actions.updateXSeries('day')
+            logic.actions.addYSeries('signups')
+            logic.actions.addYSeries('purchases')
+        }
+
+        it('gives one x value per day instead of one per row', () => {
+            setSparseResponse()
+
+            expect(logic.values.xData?.data).toEqual(['2025-01-01', '2025-01-02', '2025-01-03'])
+        })
+
+        it('leaves a day with no row as null by default', () => {
+            setSparseResponse()
+
+            expect(logic.values.yData.map((series) => series.data)).toEqual([
+                [5, 3, 2],
+                [7, null, 1],
+            ])
+        })
+
+        it('fills a day with no row with zero when showNullsAsZero is on', () => {
+            setSparseResponse()
+            logic.actions.updateChartSettings({ showNullsAsZero: true })
+
+            expect(logic.values.yData.map((series) => series.data)).toEqual([
+                [5, 3, 2],
+                [7, 0, 1],
+            ])
+        })
+
+        it('keeps one point per row for a scatter plot', () => {
+            logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+            setSparseResponse()
+
+            expect(logic.values.xData?.data).toHaveLength(5)
+            expect(logic.values.yData[0].data).toEqual([5, 3, 2, null, null])
+        })
+    })
 })
