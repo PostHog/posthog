@@ -45,4 +45,8 @@ describe('ConfirmOrganization', () => {
         // as a blank button
         expect(screen.getByText('Select your role')).toBeInTheDocument()
     })
+
+    it('marks the role as optional, because this form submits without one', () => {
+        expect(screen.getByText('What is your role?').closest('label')).toHaveTextContent('(optional)')
+    })
 })

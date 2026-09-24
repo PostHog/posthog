@@ -770,7 +770,9 @@ class SocialSignupSerializer(serializers.Serializer):
 
     organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=123, required=False, allow_blank=True, default=""
+    )
     referral_source: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )

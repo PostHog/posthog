@@ -82,7 +82,7 @@ export function ConfirmOrganization(): JSX.Element {
                     <LemonInput className="ph-ignore-input" placeholder="Hogflix Movies" />
                 </LemonField>
 
-                <SignupRoleSelect />
+                <SignupRoleSelect showOptional />
                 <SignupReferralSource disabled={isConfirmOrganizationSubmitting} />
 
                 <LemonButton
