@@ -4700,7 +4700,7 @@ class HogFlowViewSet(
         trigger, billable_action_types and the recovered secrets from the row it was given. So when
         the locked row differs, the same request is validated again against it.
         """
-        if _stored_values(serializer.instance) == _stored_values(locked):
+        if isinstance(serializer.instance, HogFlow) and _stored_values(serializer.instance) == _stored_values(locked):
             return serializer
         # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; `locked` stays the pre-write state)
         current = HogFlow.objects.get(pk=locked.pk)
