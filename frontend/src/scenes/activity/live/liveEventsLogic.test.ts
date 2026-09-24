@@ -170,5 +170,24 @@ describe('liveEventsLogic', () => {
             await waitFor(() => expect(streamSpy).toHaveBeenCalledTimes(2))
             expect(streamSpy.mock.calls[1][1].headers.Authorization).toEqual('Bearer fresh-token')
         })
+
+        it('tries the refetch again when it fails, rather than leaving the stream closed', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/projects/@current/': () => {
+                        attempts += 1
+                        return attempts === 1
+                            ? [500, {}]
+                            : [200, { ...MOCK_DEFAULT_TEAM, live_events_token: 'fresh-token' }]
+                    },
+                },
+            })
+
+            streamSpy.mock.calls[0][1].onError(new ApiError('Unauthorized', 401))
+
+            await waitFor(() => expect(streamSpy).toHaveBeenCalledTimes(2), { timeout: 8000 })
+            expect(streamSpy.mock.calls[1][1].headers.Authorization).toEqual('Bearer fresh-token')
+        }, 10000)
     })
 })

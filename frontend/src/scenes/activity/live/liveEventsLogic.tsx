@@ -8,6 +8,7 @@ import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { retryWithBackoff } from 'lib/utils/async'
 import { refreshLiveEventsToken } from 'lib/utils/liveEventsToken'
 import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,6 +20,8 @@ import type { TeamPublicType, TeamType } from '../../../types'
 import { deduplicateEvents } from './deduplicateEvents'
 
 const ERROR_TOAST_ID = 'live-stream-error'
+const TOKEN_REFRESH_ATTEMPTS = 3
+const TOKEN_REFRESH_DELAY_MS = 2000
 
 export const LIVE_EVENTS_SUPPORTED_OPERATORS: PropertyOperator[] = [
     PropertyOperator.Exact,
@@ -279,16 +282,37 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                             cache.batch.length = 0
                         }
                     },
+                    onOpen: () => {
+                        // A reopened stream can sit silent for a while, and only a message dismisses
+                        // the toast, so clear it here as well. Resetting the flag lets the next
+                        // outage report itself.
+                        lemonToast.dismiss(ERROR_TOAST_ID)
+                        cache.hasShownLiveStreamErrorToast = false
+                    },
                     onError: (error) => {
                         // A rejected token is stale rather than wrong, so reopen the stream with a
-                        // fresh one. An unchanged token means the refetch cannot help, and reopening
-                        // would loop.
+                        // fresh one. An unchanged token means the refetch answered from the team the
+                        // page already had — a failed refetch does that too, so try again a few
+                        // times before giving up, and never reopen with the token that was refused.
                         if (isUnauthorizedError(error)) {
-                            void refreshLiveEventsToken(token).then((freshToken) => {
-                                if (freshToken && freshToken !== token) {
-                                    actions.updateEventsConnection()
+                            void retryWithBackoff(
+                                async () => {
+                                    const freshToken = await refreshLiveEventsToken(token)
+                                    if (!freshToken || freshToken === token) {
+                                        throw new Error('Livestream token unchanged')
+                                    }
+                                },
+                                {
+                                    maxAttempts: TOKEN_REFRESH_ATTEMPTS,
+                                    initialDelayMs: TOKEN_REFRESH_DELAY_MS,
+                                    signal: controller.signal,
                                 }
-                            })
+                            )
+                                .then(() => actions.updateEventsConnection())
+                                .catch(() => {
+                                    // Out of attempts, or the stream was disposed. The toast below
+                                    // already said the feed is not live.
+                                })
                         }
                         if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
                             console.error('Failed to poll events. You likely have no events coming in.', error)
