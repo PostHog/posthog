@@ -597,30 +597,19 @@ function isTaken(taken: ReadonlySet<string>, destination: string): boolean {
     return [...taken].some((filled) => filled.startsWith(`${destination}.`))
 }
 
+/** The outer schema's own fields, when it is a plain object, for checking one value against one field. */
+function topLevelFieldSchemas(schema: ZodObjectAny): Record<string, z.ZodType | undefined> | undefined {
+    return schema instanceof z.ZodObject ? (schema.shape as Record<string, z.ZodType | undefined>) : undefined
+}
+
 /**
- * Whether a key the outer schema and the wrapper both declare holds a value only the
- * wrapper's field accepts.
- *
- * The actors wrappers reuse a source query's field names for their own selectors:
- * `series` is an array of event nodes inside `source`, and a 0-based index beside it.
- * A caller that flattened the source query sends the array, so keeping the key at the
- * top level because the outer schema declares the name leaves the rebuild rejected on
- * a field the caller did fill, and the nesting mistake goes unnamed.
- *
- * Only a value the top-level field rejects moves, so a caller that did mean the selector
- * keeps it. Nothing moves without a wrapper field of the same name to hold it.
+ * Whether a key the outer schema and the wrapper both declare holds a value only the wrapper
+ * accepts. The actors wrappers name a source query's field after their own selector: `series`
+ * is an array of event nodes inside `source`, and a 0-based index beside it. Keeping the array
+ * at the top level leaves the rebuild rejected on a field the caller did fill.
  */
-function belongsInWrapper(
-    schema: ZodObjectAny,
-    name: string,
-    wrapperField: string | undefined,
-    value: unknown
-): boolean {
-    if (wrapperField === undefined || !(schema instanceof z.ZodObject)) {
-        return false
-    }
-    const sibling = (schema.shape as Record<string, z.ZodType | undefined>)[name]
-    return sibling !== undefined && !sibling.safeParse(value).success
+function belongsInWrapper(sibling: z.ZodType | undefined, wrapperField: string | undefined, value: unknown): boolean {
+    return wrapperField !== undefined && sibling !== undefined && !sibling.safeParse(value).success
 }
 
 /**
@@ -655,10 +644,11 @@ function splitFlattenedPayload(
     const objects = new Map<string, Record<string, unknown>>()
     const taken = new Set<string>()
     const unplaced: string[] = []
+    const siblingSchemas = topLevelFieldSchemas(schema)
     for (const [name, value] of Object.entries(input)) {
         const field = fields.get(matchableName(name))
         const placement = placements.get(matchableName(name))
-        if (name !== key && siblings.has(name) && !belongsInWrapper(schema, name, field, value)) {
+        if (name !== key && siblings.has(name) && !belongsInWrapper(siblingSchemas?.[name], field, value)) {
             rebuilt[name] = value
         } else if (field !== undefined && !isTaken(taken, field)) {
             taken.add(field)
@@ -719,16 +709,21 @@ function looksLikeUnwrappedPayload(
         const parsed = (wrapped.data as Record<string, unknown>)[key]
         return isRecord(parsed) && Object.keys(parsed).length > 0
     }
-    // Every remaining complaint sits under the wrapper, or names a top-level field the
-    // caller never sent. The first means the nested schema read the content and rejected
-    // specific fields; the second is a field the rebuild could not have broken, and on the
-    // actors wrappers it is the norm — a caller that sends a source query flattened omits
-    // the cell selectors beside it too. Either way the nesting is the mistake to name.
+    // Every remaining complaint either sits under the wrapper, so the nested schema read the
+    // content and rejected specific fields, or names a top-level field the caller never sent,
+    // which the rebuild cannot have broken. On the actors wrappers the second is the norm: a
+    // caller that flattens the source query omits the cell selectors beside it too.
     return wrapped.error.issues.every(
         (issue) =>
             (issue.path.length > 1 && String(issue.path[0]) === key) ||
             (issue.path.length === 1 && String(issue.path[0]) !== key && !(String(issue.path[0]) in input))
     )
+}
+
+/** A required field the caller left out, as opposed to one it filled with the wrong shape.
+ *  Only `safeParse(..., { reportInput: true })` tells the two apart. */
+function isMissingValueIssue(issue: z.core.$ZodIssue): boolean {
+    return issue.code === 'invalid_type' && 'input' in issue && issue.input === undefined
 }
 
 /** Bound on how many stray object keys the check tries, because each try costs a
@@ -793,9 +788,8 @@ function acceptedTopLevelShape(nested: unknown, schema: ZodObjectAny | undefined
  * nowhere, or when the rebuilt payload does not parse, so a payload malformed for some other
  * reason keeps its own rejection instead of being guessed at.
  *
- * One rejection names the omitted wrapper; the rest may be fallout from the same mistake, such as
- * a source query's `series` array read against the selector index of the same name. They are left
- * to the rebuilt payload to answer for, which is what the final parse checks.
+ * Exactly one rejection must name an omitted top-level parameter. Any other rejection may be
+ * fallout from the same mistake, so it is left to the rebuilt payload's own parse to answer for.
  */
 export function rewrapFlattenedArguments(
     error: z.ZodError,
@@ -805,13 +799,7 @@ export function rewrapFlattenedArguments(
     if (!schema || !isRecord(input)) {
         return undefined
     }
-    const missing = error.issues.filter(
-        (candidate) =>
-            candidate.code === 'invalid_type' &&
-            'input' in candidate &&
-            candidate.input === undefined &&
-            candidate.path.length === 1
-    )
+    const missing = error.issues.filter((candidate) => isMissingValueIssue(candidate) && candidate.path.length === 1)
     if (missing.length !== 1) {
         return undefined
     }

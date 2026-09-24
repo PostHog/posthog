@@ -27,6 +27,5 @@ The response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `t
 Guidance:
 
 - Keep the `source` trends query minimal - only include the filters/breakdowns needed to identify the cell.
-- Pick a specific `day` from the trends result when the source is a time series.
 - To read every person, page with `offset` rather than raising `limit` past 1000, and keep `source` and the other selectors identical across pages so rows don't repeat or go missing.
 - When you only need a sample, one page is enough — tighten the trends query (filters, date range) instead of paging through everyone.
