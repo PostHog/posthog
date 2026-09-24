@@ -14,7 +14,7 @@ CAMPAIGN_SUBSCRIBER_STATUSES = ("active", "unsubscribed", "removed")
 CAMPAIGN_SUBSCRIBER_STATUS_FIELD = "campaign_subscription_status"
 
 
-@dataclass
+@dataclass(frozen=True)
 class DripEndpointConfig:
     name: str
     path: str

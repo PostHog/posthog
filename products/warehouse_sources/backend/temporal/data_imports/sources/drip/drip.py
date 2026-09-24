@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drip.setti
 )
 
 DRIP_BASE_URL = "https://api.getdrip.com/v2"
+REQUEST_TIMEOUT_SECONDS = 30.0
 
 
 @dataclasses.dataclass
@@ -112,6 +113,7 @@ def _client_config(api_token: str, account_id: str, per_page: Optional[int]) -> 
         # supplying it via the framework auth config keeps the token redacted from logs.
         "auth": {"type": "http_basic", "username": api_token, "password": ""},
         "paginator": DripPaginator(per_page=per_page),
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
