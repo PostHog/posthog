@@ -91,6 +91,8 @@ describe('pixel template', () => {
         ['private_key'],
         ['aws_secret_access_key'],
         ['AWS-Secret-Access-Key'],
+        ['access_key'],
+        ['accessKey'],
     ])('drops the credential key %s from the captured query', async (key) => {
         const response = await tester.invoke(
             { event: 'the event', distinct_id: 'hardcoded', properties: { query_params: '{request.query}' } },
@@ -120,6 +122,7 @@ describe('pixel template', () => {
         ['isToken'],
         ['designToken'],
         ['monkey'],
+        ['aws_access_key_id'],
     ])('keeps the look-alike key %s in the captured query', async (key) => {
         const response = await tester.invoke(
             { event: 'the event', distinct_id: 'hardcoded', properties: { query_params: '{request.query}' } },

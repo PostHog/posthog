@@ -13,7 +13,7 @@ fun withoutCredentials(source) {
   let kept := {}
   for (let key, value in source) {
     let name := replaceAll(replaceAll(replaceAll(lower(key), '-', '_'), '[', '.'), ']', '')
-    let isCredential := match(name, '(^|[.])(auth|authorization|key|apikey|password|passwd|secret|signature|token|accesstoken|refreshtoken|authtoken|idtoken|apitoken|sessiontoken|bearertoken|clientsecret|apisecret|secretkey|secretaccesskey|privatekey)$') or match(name, '(api_key|secret_key|secret_access_key|private_key|_token|_secret|password)$')
+    let isCredential := match(name, '(^|[.])(auth|authorization|key|apikey|password|passwd|secret|signature|token|accesskey|accesstoken|refreshtoken|authtoken|idtoken|apitoken|sessiontoken|bearertoken|clientsecret|apisecret|secretkey|secretaccesskey|privatekey)$') or match(name, '(api_key|secret_key|access_key|private_key|_token|_secret|password)$')
     if (not isCredential) {
       kept[key] := value
     }
