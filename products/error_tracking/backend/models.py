@@ -1,5 +1,6 @@
 import time
-from collections.abc import Sequence
+import dataclasses
+from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -55,6 +56,20 @@ class ErrorTrackingIssueMergeResult(StrEnum):
     STALE_FINGERPRINTS = "stale_fingerprints"
 
 
+@dataclasses.dataclass(frozen=True)
+class ErrorTrackingIssueMergeOutcome:
+    """What a merge did, for the callers that report it.
+
+    `merged_issue_ids` holds the sources that were actually merged: requested sources that
+    already disappeared are dropped by the lock step, so callers must not report the
+    requested list instead.
+    """
+
+    result: ErrorTrackingIssueMergeResult
+    merged_issue_ids: list[UUID] = dataclasses.field(default_factory=list)
+    reopened: bool = False
+
+
 class ErrorTrackingIssue(UUIDTModel):
     class Status(models.TextChoices):
         ARCHIVED = "archived", "Archived"
@@ -91,34 +106,30 @@ class ErrorTrackingIssue(UUIDTModel):
 
     def merge(
         self, issue_ids: Sequence[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
-    ) -> "tuple[ErrorTrackingIssueMergeResult, list[UUID]]":
-        """Merge source issues into this issue.
-
-        Returns the outcome plus the source issue ids that were actually merged:
-        requested sources that already disappeared are dropped by the lock step,
-        so callers must not report the requested list as merged.
-        """
+    ) -> ErrorTrackingIssueMergeOutcome:
+        """Merge source issues into this issue."""
         team_id = self.team_id
         target_issue_id = self.id
         source_issue_ids = _normalize_source_issue_ids(issue_ids=issue_ids, target_issue_id=target_issue_id)
         if not source_issue_ids:
-            return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, []
+            return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES)
 
         with transaction.atomic():
-            existing_source_issue_ids = _lock_merge_issues(
+            locked_source_statuses = _lock_merge_issues(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
-            if existing_source_issue_ids is None:
-                return ErrorTrackingIssueMergeResult.STALE_ISSUES, []
-            if not existing_source_issue_ids:
-                return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, []
+            if locked_source_statuses is None:
+                return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.STALE_ISSUES)
+            if not locked_source_statuses:
+                return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES)
             if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
                 team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
             ):
-                return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, []
+                return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS)
 
+            existing_source_issue_ids = list(locked_source_statuses)
             reopened = _target_reopens_on_merge(
-                team_id=team_id, target_status=self.status, source_issue_ids=existing_source_issue_ids
+                target_status=self.status, source_statuses=locked_source_statuses.values()
             )
 
             locked_source_fingerprints = list(
@@ -149,13 +160,16 @@ class ErrorTrackingIssue(UUIDTModel):
                 target_updates["status"] = ErrorTrackingIssue.Status.ACTIVE
             ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(**target_updates)
             if reopened:
-                # Keep the in-memory row in sync so callers can see the reopen and notify on it.
+                # Keep the in-memory row in sync so a caller can snapshot the issue for the
+                # reopened notification without reading it back.
                 self.status = ErrorTrackingIssue.Status.ACTIVE
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
             )
-            return ErrorTrackingIssueMergeResult.MERGED, existing_source_issue_ids
+            return ErrorTrackingIssueMergeOutcome(
+                ErrorTrackingIssueMergeResult.MERGED, existing_source_issue_ids, reopened
+            )
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
         team_id = self.team_id
@@ -271,27 +285,27 @@ def _normalize_source_issue_ids(*, issue_ids: Sequence[str | UUID], target_issue
     return sorted(source_issue_ids, key=lambda issue_id: issue_id.hex)
 
 
-def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> list[UUID] | None:
+def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> dict[UUID, str] | None:
     """Row-lock the target and the sources that still exist, tolerating a partially stale selection.
 
     Returns None when the target issue itself is gone (nothing to merge into). Otherwise returns the
-    subset of source ids that still exist — sources that disappeared before the lock (already merged,
-    deleted, or lost to a concurrent merge) are dropped so the merge proceeds with what remains,
-    instead of rejecting the whole request.
+    subset of source ids that still exist, each mapped to its locked status — sources that
+    disappeared before the lock (already merged, deleted, or lost to a concurrent merge) are dropped
+    so the merge proceeds with what remains, instead of rejecting the whole request.
     """
-    locked_issue_ids = {
-        issue.id
+    locked_statuses = {
+        issue.id: issue.status
         for issue in ErrorTrackingIssue.objects.select_for_update()
         .filter(team_id=team_id, id__in=[target_issue_id, *source_issue_ids])
         .order_by("id")
     }
-    if target_issue_id not in locked_issue_ids:
+    if target_issue_id not in locked_statuses:
         return None
 
-    return [issue_id for issue_id in source_issue_ids if issue_id in locked_issue_ids]
+    return {issue_id: locked_statuses[issue_id] for issue_id in source_issue_ids if issue_id in locked_statuses}
 
 
-def _target_reopens_on_merge(*, team_id: int, target_status: str, source_issue_ids: list[UUID]) -> bool:
+def _target_reopens_on_merge(*, target_status: str, source_statuses: Iterable[str]) -> bool:
     """Decide whether the merge target must go back to active.
 
     An active source carries a recurrence of the error, so a dormant target is not resolved
@@ -300,9 +314,7 @@ def _target_reopens_on_merge(*, team_id: int, target_status: str, source_issue_i
     """
     if target_status in (ErrorTrackingIssue.Status.ACTIVE, ErrorTrackingIssue.Status.SUPPRESSED):
         return False
-    return ErrorTrackingIssue.objects.filter(
-        team_id=team_id, id__in=source_issue_ids, status=ErrorTrackingIssue.Status.ACTIVE
-    ).exists()
+    return any(status == ErrorTrackingIssue.Status.ACTIVE for status in source_statuses)
 
 
 def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> None:

@@ -265,17 +265,16 @@ def _merge_fingerprint_into_closest_issue(
         source_issue_id = source_fingerprint.issue_id
         target_issue_id = target_fingerprint.issue_id
         target_issue = target_fingerprint.issue
-        status_before_merge = target_issue.status
-        merge_result, _merged_issue_ids = target_issue.merge(
+        merge_outcome = target_issue.merge(
             issue_ids=[source_issue_id],
             expected_fingerprint_issue_ids={
                 fingerprint: source_issue_id,
                 candidate.fingerprint: target_issue_id,
             },
         )
-        if merge_result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
+        if merge_outcome.result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
             return AutoMergeOutcome()
-        if merge_result != ErrorTrackingIssueMergeResult.MERGED:
+        if merge_outcome.result != ErrorTrackingIssueMergeResult.MERGED:
             raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
 
         capture = ph_background_capture()
@@ -293,9 +292,7 @@ def _merge_fingerprint_into_closest_issue(
             },
         )
         reopened_target = (
-            _reopened_target(target_issue, event_reference=event_reference)
-            if target_issue.status != status_before_merge
-            else None
+            _reopened_target(target_issue, event_reference=event_reference) if merge_outcome.reopened else None
         )
         return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
 
