@@ -50,6 +50,7 @@ def backfill_platform_alert_configurations(*, team_id: int | None = None) -> Bac
                 cooldown_minutes=configuration.cooldown_minutes,
                 schedule_restriction=configuration.schedule_restriction,
                 next_check_at=configuration.next_check_at,
+                snooze_until=configuration.snooze_until,
             )
         )
         if was_created:

@@ -18,6 +18,7 @@ export const MCP_ACTIVITY_COLUMNS = [
     MCP_ACTIVITY_ERROR_COLUMN,
     'properties.$mcp_duration_ms -- Duration (ms)',
     'properties.$mcp_client_name -- Client',
+    'properties.$mcp_llm_model -- Model',
     MCP_ACTIVITY_SESSION_COLUMN,
     'timestamp',
 ]

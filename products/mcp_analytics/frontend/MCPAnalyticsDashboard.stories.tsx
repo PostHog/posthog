@@ -447,6 +447,8 @@ const CLUSTER_SNAPSHOT = {
     ],
 }
 
+const ACTIVITY_MODELS = ['claude-opus-5-5', 'gpt-5.6-sol', 'claude-sonnet-5']
+
 // [tool, intent, durationMs, client, errorMessage]
 const ACTIVITY_CALLS: [string, string | null, number | null, string, string | null][] = [
     [
@@ -590,6 +592,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
     }
 
     const results = ACTIVITY_CALLS.map(([tool, intent, durationMs, clientName, errorMessage], index) => {
+        const model = ACTIVITY_MODELS[index % ACTIVITY_MODELS.length]
         const timestamp = dayjs('2026-06-07T12:00:00Z')
             .subtract(index * 37, 'second')
             .toISOString()
@@ -603,6 +606,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 $mcp_error_message: errorMessage,
                 $mcp_intent: intent,
                 $mcp_is_error: errorMessage !== null,
+                $mcp_llm_model: model,
                 $mcp_parameters: { input: `Example input for ${tool}` },
                 $mcp_response: errorMessage ? { error: errorMessage } : { ok: true },
                 $mcp_server_name: 'example-server',
@@ -633,6 +637,9 @@ function activityEventsResponse(select: string[]): Record<string, any> {
             }
             if (column.endsWith('-- Client')) {
                 return clientName
+            }
+            if (column.endsWith('-- Model')) {
+                return model
             }
             return null
         })
