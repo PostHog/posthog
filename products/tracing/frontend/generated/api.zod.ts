@@ -42,6 +42,129 @@ export const OrganizationsProjectsTracingConfigPartialUpdateBody = /* @__PURE__ 
         .describe(
             "Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js \/ posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes."
         ),
+    retention_days: zod
+        .number()
+        .optional()
+        .describe(
+            'How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match.'
+        ),
+})
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesCreateBodyNameMax = 255
+
+export const tracingRetentionRulesCreateBodyEnabledDefault = false
+export const tracingRetentionRulesCreateBodyPriorityMin = 0
+
+export const TracingRetentionRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(tracingRetentionRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(tracingRetentionRulesCreateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(tracingRetentionRulesCreateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    config: zod
+        .unknown()
+        .describe(
+            'Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND\/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{\"retention_days\":30,\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}}`. Logs matching no enabled rule keep the environment\'s default retention.'
+        ),
+})
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesUpdateBodyNameMax = 255
+
+export const tracingRetentionRulesUpdateBodyEnabledDefault = false
+export const tracingRetentionRulesUpdateBodyPriorityMin = 0
+
+export const TracingRetentionRulesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(tracingRetentionRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(tracingRetentionRulesUpdateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(tracingRetentionRulesUpdateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    config: zod
+        .unknown()
+        .describe(
+            'Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND\/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{\"retention_days\":30,\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}}`. Logs matching no enabled rule keep the environment\'s default retention.'
+        ),
+})
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesPartialUpdateBodyNameMax = 255
+
+export const tracingRetentionRulesPartialUpdateBodyEnabledDefault = false
+export const tracingRetentionRulesPartialUpdateBodyPriorityMin = 0
+
+export const TracingRetentionRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tracingRetentionRulesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(tracingRetentionRulesPartialUpdateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(tracingRetentionRulesPartialUpdateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND\/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{\"retention_days\":30,\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}}`. Logs matching no enabled rule keep the environment\'s default retention.'
+        ),
+})
+
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
+export const TracingRetentionRulesReorderCreateBody = /* @__PURE__ */ zod.object({
+    ordered_ids: zod
+        .array(zod.uuid())
+        .describe(
+            'Rule IDs in the desired evaluation order (first element is highest priority \/ lowest order index).'
+        ),
+})
+
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const TracingRetentionRulesSuggestNameCreateBody = /* @__PURE__ */ zod.object({
+    retention_days: zod.number().describe('Retention tier the rule would assign, in days.'),
+    filter_group: zod.unknown().describe('PropertyGroupFilter tree the rule would match on.'),
 })
 
 export const tracingSpansAggregateCreateBodyQueryOneCompareFilterOneCompareDefault = false

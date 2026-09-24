@@ -106,6 +106,7 @@ describe("adapter subscription gating", () => {
             loginState: "unknown",
             needsConnection: false,
             setSubscriptionOn: () => {},
+            setCloudSubscriptionOn: () => {},
           },
           "cloud",
         ),

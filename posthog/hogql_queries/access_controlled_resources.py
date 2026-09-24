@@ -1,3 +1,4 @@
+from dataclasses import field
 from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
@@ -10,6 +11,8 @@ from posthog.schema import (
     LifecycleDataWarehouseNode,
     RetentionEntity,
 )
+
+from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 
@@ -68,8 +71,70 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
 }
 
 
+@frozen(frozen=False)
+class _WarehouseCatalog:
+    """Warehouse reads shared by one fingerprint and every view definition it walks.
+
+    Without it each nested view re-reads the team's whole table catalog, and a view that several
+    other views read is walked once per path to it, so a dashboard over layered views spends
+    minutes here before it can read a single cached result."""
+
+    team_id: int
+    table_names: Optional[set[str]] = None
+    view_queries: dict[str, object] = field(default_factory=dict)
+    looked_up_names: set[str] = field(default_factory=set)
+    walked_views: set[str] = field(default_factory=set)
+
+    def get_table_names(self) -> set[str]:
+        # Deferred to break the query_runner -> this module -> hogql import cycle.
+        from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
+
+        if self.table_names is None:
+            # External tables are queryable under BOTH their raw name and the prefixed
+            # source_type.prefix.table key (see database.py schema build), so match either form —
+            # otherwise a denied user could read an allowed user's cached rows via the raw name.
+            self.table_names = set()
+            for table in (
+                DataWarehouseTable.objects.filter(team_id=self.team_id)
+                .exclude(deleted=True)
+                # clear the manager's created_by/schema eager-loads: select_related chains additively,
+                # so without this the .only() below raises FieldError (created_by deferred + traversed)
+                .select_related(None)
+                .prefetch_related(None)
+                .select_related("external_data_source")
+                .only(
+                    "name",
+                    "external_data_source__source_type",
+                    "external_data_source__prefix",
+                    "external_data_source__access_method",
+                )
+            ):
+                self.table_names.add(table.name)
+                self.table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
+        return self.table_names
+
+    def get_views(self, names: set[str]) -> list[tuple[str, object]]:
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+
+        unknown_names = names - self.looked_up_names
+        if unknown_names:
+            self.view_queries.update(
+                DataWarehouseSavedQuery.objects.filter(team_id=self.team_id, name__in=unknown_names)
+                .exclude(deleted=True)
+                .values_list("name", "query")
+            )
+            self.looked_up_names |= unknown_names
+        return [(name, self.view_queries[name]) for name in sorted(names) if name in self.view_queries]
+
+
 def queried_access_controlled_resources(
-    query, team: "Team", *, bypassed_scopes: frozenset[str] = frozenset(), _seen_views: frozenset[str] = frozenset()
+    query: BaseModel,
+    team: "Team",
+    *,
+    bypassed_scopes: frozenset[str] = frozenset(),
+    _catalog: Optional[_WarehouseCatalog] = None,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -84,18 +149,18 @@ def queried_access_controlled_resources(
     reaches the parent's rules; the parent still partitions the cache when a table carries that
     scope directly.
 
-    `_seen_views` carries the saved views already walked, so views that reference each other end."""
+    `_catalog` carries the warehouse reads and the saved views already walked into nested calls. Each
+    view is walked once per fingerprint: its scopes join the top-level result the first time, so a
+    later path to it adds nothing, and views that reference each other end."""
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
-    from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
     from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
-    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
+    catalog = _catalog or _WarehouseCatalog(team_id=team.pk)
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes)
@@ -184,35 +249,10 @@ def queried_access_controlled_resources(
         # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
         non_system_names = table_names - set(system_scopes)
         if non_system_names:
-            # External tables are queryable under BOTH their raw name and the prefixed
-            # source_type.prefix.table key (see database.py schema build), so match either form —
-            # otherwise a denied user could read an allowed user's cached rows via the raw name.
-            warehouse_table_names: set[str] = set()
-            for table in (
-                DataWarehouseTable.objects.filter(team_id=team.pk)
-                .exclude(deleted=True)
-                # clear the manager's created_by/schema eager-loads: select_related chains additively,
-                # so without this the .only() below raises FieldError (created_by deferred + traversed)
-                .select_related(None)
-                .prefetch_related(None)
-                .select_related("external_data_source")
-                .only(
-                    "name",
-                    "external_data_source__source_type",
-                    "external_data_source__prefix",
-                    "external_data_source__access_method",
-                )
-            ):
-                warehouse_table_names.add(table.name)
-                warehouse_table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
-            if non_system_names & warehouse_table_names:
+            if non_system_names & catalog.get_table_names():
                 scopes.add("warehouse_table")
 
-            views = list(
-                DataWarehouseSavedQuery.objects.filter(team_id=team.pk, name__in=non_system_names)
-                .exclude(deleted=True)
-                .values_list("name", "query")
-            )
+            views = catalog.get_views(non_system_names)
             if views:
                 scopes.add("warehouse_view")
                 # A non-materialized view re-resolves to its underlying warehouse tables at execution.
@@ -222,8 +262,9 @@ def queried_access_controlled_resources(
             # A cache hit also skips the access check on the system tables a definition reads. Materialized
             # views are walked too, since they expand to their definition unless the query reads materialized views.
             for view_name, view_query in views:
-                if view_name in _seen_views:
+                if view_name in catalog.walked_views:
                     continue
+                catalog.walked_views.add(view_name)
                 view_sql = view_query.get("query") if isinstance(view_query, dict) else None
                 if not isinstance(view_sql, str):
                     return None  # a view without a definition cannot expand -> fail closed
@@ -231,7 +272,7 @@ def queried_access_controlled_resources(
                     HogQLQuery(query=view_sql),
                     team,
                     bypassed_scopes=bypassed_scopes,
-                    _seen_views=_seen_views | {view_name},
+                    _catalog=catalog,
                 )
                 if nested is None:
                     return None

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError, connection, transaction
 
@@ -59,7 +59,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -714,10 +714,92 @@ class TestEvaluateAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
 
+    async def test_unavailable_data_records_error_without_disabling(self, alert_with_user) -> None:
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=AlertDataUnavailableError("SQL history is incomplete"),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.calculated_value is None
+        assert check.error == {"message": "SQL history is incomplete"}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+        mock_capture.assert_not_called()
+        mock_notify.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "rows,has_more,sql_limit,expected_error,expect_disabled",
+        [
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, "", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, " LIMIT 200", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(200)], True, " LIMIT 200", "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(50)], False, " LIMIT 100", "at least 169", True),
+            ([[f"hour-{i}", float(i)] for i in range(50)], False, "", "at least", False),
+        ],
+    )
+    async def test_detector_unavailable_data_routes_through_evaluate_alert(
+        self, ateam, auser, rows, has_more, sql_limit, expected_error, expect_disabled
+    ) -> None:
+        # Cross-layer guard: the dispatcher must route a detector-configured HogQL alert into the
+        # extractor whose AlertDataUnavailableError reaches evaluate_alert's typed handler. Only the
+        # query boundary is patched, so a routing or exception-propagation regression fails here.
+        alert = await _create_alert(
+            ateam,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events GROUP BY bucket ORDER BY bucket ASC"
+                + sql_limit,
+            },
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            detector_config={"type": "mad", "window": 168, "threshold": 0.95},
+        )
+        await sync_to_async(alert.subscribed_users.add)(auser)
+        calculation = MagicMock(result=rows, columns=["bucket", "value"], has_more=has_more)
+        with (
+            patch(
+                "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight",
+                return_value=calculation,
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+            mock_notify.assert_not_called()
+            if expect_disabled:
+                assert result.alert_check_id is not None
+                await env.run(
+                    notify_alert,
+                    NotifyAlertActivityInputs(alert_id=str(alert.id), alert_check_id=result.alert_check_id),
+                )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None and expected_error in check.error["message"]
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
+        # A capped result is a configuration error that recurs every check, so it disables and
+        # notifies; a short-but-uncapped history can be a young project growing into its window.
+        assert refreshed.enabled is (not expect_disabled)
+        mock_capture.assert_not_called()
+        if expect_disabled:
+            mock_notify.assert_called_once()
+        else:
+            mock_notify.assert_not_called()
+
     @pytest.mark.parametrize("error_type", [AlertExtractionError, LLMDetectorMisconfiguredError])
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
+
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
