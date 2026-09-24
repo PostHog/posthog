@@ -137,6 +137,11 @@ A shard retry also repeats the 7.5 minutes of setup. Thus a retry of one shard i
 
 The workflow contains a comment about this decision. Read the comment near `runs-on` in `.github/workflows/ci-e2e-playwright.yml`.
 
+Within one 8-core runner, use six Playwright workers with four Granian workers.
+Two full-suite comparisons reduced the test phase from [9m37s](https://github.com/PostHog/posthog/actions/runs/36045134105) to [7m19s](https://github.com/PostHog/posthog/actions/runs/36046998830), and from [8m45s](https://github.com/PostHog/posthog/actions/runs/36048619190) to [7m29s](https://github.com/PostHog/posthog/actions/runs/36048628383), with no retries in any run.
+Whole-job savings varied from 12s to 2m21s because setup time varied.
+Increasing only Playwright to [six](https://github.com/PostHog/posthog/actions/runs/36043558858) or [eight](https://github.com/PostHog/posthog/actions/runs/36043720707) workers introduced failures and did not shorten the test phase.
+
 _Also asked as:_ split the E2E tests across runners, parallelize Playwright, reduce flaky retry scope by sharding
 
 ### Use Bazel to scope product tests
