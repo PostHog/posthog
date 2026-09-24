@@ -1285,6 +1285,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'mcp_builtin_agent'
                     | 'metrics'
                     | 'notebook'
+                    | 'offline_evaluation_ingestion'
                     | 'organization'
                     | 'organization_integration'
                     | 'organization_member'

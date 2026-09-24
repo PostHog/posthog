@@ -23,6 +23,7 @@ from products.ai_observability.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    OfflineExperimentViewSet,
     ParserRecipeViewSet,
     PersonalSpendInternalViewSet,
     PersonalSpendViewSet,
@@ -32,7 +33,6 @@ from products.ai_observability.backend.api import (
     TaggerViewSet,
     TraceReviewViewSet,
 )
-from products.ai_observability.backend.api.offline_experiments import OfflineExperimentViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
