@@ -63,7 +63,6 @@ from products.access_control.backend.models.role import Role, RoleMembership
 
 from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
 from .serializers import (
-    AccessControlDefaultRuleRequestSerializer,
     AccessControlDefaultsResponseSerializer,
     AccessControlMemberRuleRequestSerializer,
     AccessControlMembersResponseSerializer,
@@ -72,6 +71,7 @@ from .serializers import (
     AccessControlResolutionAcceptResponseSerializer,
     AccessControlRoleRuleRequestSerializer,
     AccessControlRolesResponseSerializer,
+    AccessControlRuleRequestSerializer,
     AccessControlRuleWriteResponseSerializer,
 )
 from .views import check_can_write_property_rules, check_can_write_role_rule
@@ -947,13 +947,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         description="Set or clear the rule everyone in the project gets for a scope, unless a member or role rule "
         "of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), "
         "a whole resource type, one object, or one property definition. A null `access_level` removes the rule.",
-        request=AccessControlDefaultRuleRequestSerializer,
+        request=AccessControlRuleRequestSerializer,
         responses={200: AccessControlRuleWriteResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["PUT"], detail=True, url_path="access_control_default_rules")
     def access_control_default_rules(self, request: Request, *args, **kwargs) -> Response:
-        return self._write_rule(request, AccessControlDefaultRuleRequestSerializer)
+        return self._write_rule(request, AccessControlRuleRequestSerializer)
 
     @extend_schema(
         description="Set or clear one member's rule for a scope. A member rule applies to that person only and "
