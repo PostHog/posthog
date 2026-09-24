@@ -5,6 +5,7 @@ calls match the per-tool detail runners. Category queries use the event-supplied
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -36,12 +37,15 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
+    HogQLDateBounds,
     mcp_query_date_range,
     shared_filter_exprs,
     validate_mcp_analytics_access,
@@ -70,7 +74,13 @@ _TOOL_SORT_COLUMNS = {
     "users",
     "sessions",
     "last_seen",
+    "trend_score",
 }
+# Smoothing for the trend sort key, (calls - previous) / (previous + k). Without it a tool going
+# from 2 to 40 calls outranks one going from 200 to 5,000. k scales with overall volume so the
+# same ranking holds for small and large projects.
+_TREND_SCORE_MIN_K = 10
+_TREND_SCORE_VOLUME_FRACTION = 0.0001
 
 
 def _category_in(categories: list[str] | None) -> list[ast.Expr]:
@@ -86,7 +96,7 @@ def _category_in(categories: list[str] | None) -> list[ast.Expr]:
 
 
 def _named_tool_where(
-    date_range: QueryDateRange,
+    date_range: HogQLDateBounds,
     categories: list[str] | None,
     team: "Team",
     properties: "Sequence[AnyPropertyFilterDiscriminated] | None" = None,
@@ -128,6 +138,23 @@ def _named_tool_where(
     return ast.And(exprs=exprs)
 
 
+@frozen
+class _ScanRange:
+    """Bounds a combined previous+current scan: from the previous window's start to the current
+    window's end. Lets `_named_tool_where` filter the widened scan the same way it filters a
+    single window, so the per-tool query can split current vs. previous with -If combinators
+    instead of running two separate queries."""
+
+    previous_range: QueryPreviousPeriodDateRange
+    current_range: QueryDateRange
+
+    def date_from_as_hogql(self) -> ast.Expr:
+        return self.previous_range.date_from_as_hogql()
+
+    def date_to_as_hogql(self) -> ast.Expr:
+        return self.current_range.date_to_as_hogql()
+
+
 class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQueryResponse]):
     query: MCPToolQualityRowsQuery
     cached_response: CachedMCPToolQualityRowsQueryResponse
@@ -138,6 +165,15 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
     @cached_property
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
+
+    @cached_property
+    def previous_query_date_range(self) -> QueryPreviousPeriodDateRange:
+        return QueryPreviousPeriodDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=None,
+            now=datetime.now(self.team.timezone_info),
+        )
 
     def to_query(
         self, *, limit_override: int | None = None, offset_override: int | None = None
@@ -151,36 +187,67 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             sort_column = "total_calls"
         sort_direction = cast(Literal["ASC", "DESC"], self.query.sortDirection or "DESC")
 
+        current_range = self.query_date_range
+        previous_range = self.previous_query_date_range
+
         query = parse_select(
             """
             SELECT
-                {_EFFECTIVE_TOOL} AS tool,
-                count() AS total_calls,
-                {_IS_ERROR} AS errors,
-                round({_IS_ERROR} * 100.0 / count(), 1) AS error_rate_pct,
-                {_P50} AS p50_duration_ms,
-                {_P95} AS p95_duration_ms,
-                {_P99} AS p99_duration_ms,
-                uniq(distinct_id) AS users,
-                countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '') AS sessions,
-                min(timestamp) AS first_seen,
-                max(timestamp) AS last_seen,
+                tool,
+                total_calls,
+                previous_calls,
+                errors,
+                round(errors * 100.0 / total_calls, 1) AS error_rate_pct,
+                p50_duration_ms,
+                p95_duration_ms,
+                p99_duration_ms,
+                users,
+                sessions,
+                first_seen,
+                last_seen,
+                (total_calls - previous_calls)
+                    / (previous_calls + greatest({_min_k}, round({_volume_fraction} * sum(total_calls) OVER ())))
+                    AS trend_score,
                 count() OVER () AS total_count
-            FROM events
-            WHERE {where}
-            GROUP BY tool
+            FROM (
+                SELECT
+                    tool,
+                    countIf(is_current) AS total_calls,
+                    countIf(NOT is_current) AS previous_calls,
+                    countIf(is_current AND is_error) AS errors,
+                    round(quantileIf(0.5)(duration_ms, is_current)) AS p50_duration_ms,
+                    round(quantileIf(0.95)(duration_ms, is_current)) AS p95_duration_ms,
+                    round(quantileIf(0.99)(duration_ms, is_current)) AS p99_duration_ms,
+                    uniqIf(distinct_id, is_current) AS users,
+                    countDistinctIf(session_id, is_current AND session_id != '') AS sessions,
+                    minIf(timestamp, is_current) AS first_seen,
+                    maxIf(timestamp, is_current) AS last_seen
+                FROM (
+                    SELECT
+                        {_EFFECTIVE_TOOL} AS tool,
+                        timestamp >= {current_from} AS is_current,
+                        toBool(properties.$mcp_is_error) AS is_error,
+                        toFloat(properties.$mcp_duration_ms) AS duration_ms,
+                        toString(properties.$session_id) AS session_id,
+                        distinct_id,
+                        timestamp
+                    FROM events
+                    WHERE {where}
+                )
+                GROUP BY tool
+                HAVING countIf(is_current) > 0
+            )
             ORDER BY total_calls DESC, tool ASC
             LIMIT {limit}
             OFFSET {offset}
             """,
             placeholders={
                 "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
-                "_IS_ERROR": parse_expr(_IS_ERROR),
-                "_P50": parse_expr(_P50),
-                "_P95": parse_expr(_P95),
-                "_P99": parse_expr(_P99),
+                "current_from": current_range.date_from_as_hogql(),
+                "_min_k": ast.Constant(value=_TREND_SCORE_MIN_K),
+                "_volume_fraction": ast.Constant(value=_TREND_SCORE_VOLUME_FRACTION),
                 "where": _named_tool_where(
-                    self.query_date_range,
+                    _ScanRange(previous_range=previous_range, current_range=current_range),
                     self.query.categories,
                     self.team,
                     self.query.properties,
@@ -215,7 +282,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 limit_context=self.limit_context,
             )
             rows = response.results or []
-            total_count = int(rows[0][11] or 0) if rows else 0
+            total_count = int(rows[0][13] or 0) if rows else 0
             if not rows and (self.query.offset or 0) > 0:
                 first_row_response = execute_hogql_query(
                     query=self.to_query(limit_override=1, offset_override=0),
@@ -227,20 +294,22 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     limit_context=self.limit_context,
                 )
                 first_row = first_row_response.results or []
-                total_count = int(first_row[0][11] or 0) if first_row else 0
+                total_count = int(first_row[0][13] or 0) if first_row else 0
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
                 total_calls=int(row[1] or 0),
-                errors=int(row[2] or 0),
-                error_rate_pct=float(row[3] or 0),
-                p50_duration_ms=float(row[4] or 0),
-                p95_duration_ms=float(row[5] or 0),
-                p99_duration_ms=float(row[6] or 0),
-                users=int(row[7] or 0),
-                sessions=int(row[8] or 0),
-                first_seen=str(row[9] or ""),
-                last_seen=str(row[10] or ""),
+                previous_calls=int(row[2] or 0),
+                errors=int(row[3] or 0),
+                error_rate_pct=float(row[4] or 0),
+                p50_duration_ms=float(row[5] or 0),
+                p95_duration_ms=float(row[6] or 0),
+                p99_duration_ms=float(row[7] or 0),
+                users=int(row[8] or 0),
+                sessions=int(row[9] or 0),
+                first_seen=str(row[10] or ""),
+                last_seen=str(row[11] or ""),
+                trend_score=float(row[12] or 0),
             )
             for row in rows
         ]

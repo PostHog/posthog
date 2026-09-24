@@ -8,7 +8,7 @@ its harness-label SQL.
 import json
 from collections.abc import Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter
 
@@ -45,6 +45,17 @@ EFFECTIVE_DESCRIPTION_SQL = (
 CONVERSATION_ID_SQL = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
+
+
+class HogQLDateBounds(Protocol):
+    """Structural type for anything that can bound a HogQL scan by `timestamp`.
+
+    Satisfied by `QueryDateRange` and its subclasses, plus a widened scan range spanning two of
+    them (e.g. trend comparisons that scan a previous window and a current one in one query).
+    """
+
+    def date_from_as_hogql(self) -> ast.Expr: ...
+    def date_to_as_hogql(self) -> ast.Expr: ...
 
 
 def mcp_source_expr() -> ast.Expr:

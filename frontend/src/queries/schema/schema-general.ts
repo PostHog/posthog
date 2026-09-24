@@ -3735,6 +3735,8 @@ export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDa
 export interface MCPToolQualityRowItem {
     tool: string
     total_calls: integer
+    /** Calls in the equal-length period immediately before the selected window. */
+    previous_calls: integer
     errors: integer
     error_rate_pct: number
     p50_duration_ms: number
@@ -3744,6 +3746,9 @@ export interface MCPToolQualityRowItem {
     sessions: integer
     first_seen: string
     last_seen: string
+    /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a
+     * large tool's surge. Not a percentage; only meaningful for ordering. */
+    trend_score: number
 }
 
 export type MCPToolQualitySortColumn =
@@ -3755,6 +3760,7 @@ export type MCPToolQualitySortColumn =
     | 'users'
     | 'sessions'
     | 'last_seen'
+    | 'trend_score'
 
 export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
 

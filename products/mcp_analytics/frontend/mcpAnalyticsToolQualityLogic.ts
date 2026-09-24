@@ -102,7 +102,7 @@ export function mcpToolQualityUrlWithDates(dateFilter: DateFilter, interval?: In
 }
 
 export type ToolQualityRow = MCPToolQualityRowItem
-export type ToolQualitySortColumn = Exclude<keyof ToolQualityRow, 'tool' | 'errors' | 'first_seen'>
+export type ToolQualitySortColumn = Exclude<keyof ToolQualityRow, 'tool' | 'errors' | 'first_seen' | 'previous_calls'>
 
 export interface DailyToolStat {
     day: string

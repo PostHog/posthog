@@ -6073,9 +6073,21 @@ class MCPToolQualityRowItem(BaseModel):
     p50_duration_ms: float
     p95_duration_ms: float
     p99_duration_ms: float
+    previous_calls: int = Field(
+        ...,
+        description=("Calls in the equal-length period immediately before the selected window."),
+    )
     sessions: int
     tool: str
     total_calls: int
+    trend_score: float = Field(
+        ...,
+        description=(
+            "Sort key ranking growth relative to volume, so a small tool's spike"
+            " doesn't outrank a large tool's surge. Not a percentage; only meaningful"
+            " for ordering."
+        ),
+    )
     users: int
 
 

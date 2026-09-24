@@ -59,6 +59,13 @@ interface ColumnSpec {
 const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'total_calls', label: 'Calls', align: 'right', tooltip: 'Total number of times this tool was called' },
     {
+        key: 'trend_score',
+        label: 'Trend',
+        align: 'right',
+        tooltip:
+            "Change in calls versus the previous period of the same length. Sorting ranks by growth relative to volume, so small tools don't dominate.",
+    },
+    {
         key: 'error_rate_pct',
         label: 'Error rate',
         align: 'right',
@@ -82,6 +89,20 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
         <Badge variant={pct >= DESTRUCTIVE_ERROR_PCT ? 'destructive' : 'warning'}>
             {formatPercentage(pct, { compact: true })}
         </Badge>
+    )
+}
+
+function TrendCell({ totalCalls, previousCalls }: { totalCalls: number; previousCalls: number }): JSX.Element {
+    if (previousCalls === 0) {
+        return <Badge variant="info">New</Badge>
+    }
+    const pctChange = ((totalCalls - previousCalls) / previousCalls) * 100
+    const sign = pctChange > 0 ? '+' : pctChange < 0 ? '-' : ''
+    return (
+        <span className="tabular-nums">
+            {sign}
+            {Math.round(Math.abs(pctChange)).toLocaleString()}%
+        </span>
     )
 }
 
@@ -156,6 +177,9 @@ function ToolRows(): JSX.Element {
                         <span className="font-mono">{row.tool}</span>
                     </TableCell>
                     <TableCell align="right">{formatNumber(row.total_calls)}</TableCell>
+                    <TableCell align="right">
+                        <TrendCell totalCalls={row.total_calls} previousCalls={row.previous_calls} />
+                    </TableCell>
                     <TableCell align="right">
                         <ErrorRateBadge pct={row.error_rate_pct} />
                     </TableCell>

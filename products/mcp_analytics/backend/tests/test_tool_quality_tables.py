@@ -146,6 +146,73 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert searched.totalCount == 1
         assert [row.tool for row in highest_error_rate.results] == ["rare_target"]
 
+    def test_previous_calls_and_current_metrics_split_by_window(self) -> None:
+        now = datetime.now(tz=UTC)
+        previous_window = now - timedelta(days=10)
+        # Previous-window calls use a different session/user and are all errors, so any leakage
+        # into the current-window aggregates (errors, users, sessions, first/last seen) shows up.
+        for _ in range(3):
+            _emit(
+                self.team,
+                tool_name="steady_tool",
+                is_error=True,
+                session_id="previous_session",
+                distinct_id="previous_user",
+                timestamp=previous_window,
+            )
+        _emit(self.team, tool_name="steady_tool", is_error=False, session_id="s1", distinct_id="d1", timestamp=now)
+        _emit(self.team, tool_name="steady_tool", is_error=False, session_id="s1", distinct_id="d1", timestamp=now)
+        flush_persons_and_events()
+
+        row = self._run().results[0]
+
+        assert row.tool == "steady_tool"
+        assert row.total_calls == 2
+        assert row.previous_calls == 3
+        assert row.errors == 0
+        assert row.error_rate_pct == 0
+        assert row.users == 1
+        assert row.sessions == 1
+
+    def test_tool_with_only_previous_calls_is_absent_and_excluded_from_total_count(self) -> None:
+        now = datetime.now(tz=UTC)
+        _emit(self.team, tool_name="old_only_tool", timestamp=now - timedelta(days=10))
+        _emit(self.team, tool_name="current_tool", timestamp=now)
+        flush_persons_and_events()
+
+        response = self._run()
+
+        assert [row.tool for row in response.results] == ["current_tool"]
+        assert response.totalCount == 1
+        assert response.results[0].previous_calls == 0
+
+    def test_sort_by_trend_score_ranks_volume_weighted_surge_above_raw_percent(self) -> None:
+        # Raw percent change favours tool_a (2900% vs 900%), but tool_a's growth is 1 -> 30 calls
+        # while tool_b's is a real surge, 20 -> 200. The smoothed trend_score (k floored at 10
+        # since total current-window calls here is small) ranks tool_b's larger absolute surge
+        # above tool_a's tiny-volume spike: 180/30=6 vs 29/11=2.6.
+        now = datetime.now(tz=UTC)
+        previous_window = now - timedelta(days=10)
+        for _ in range(1):
+            _emit(self.team, tool_name="tool_a", timestamp=previous_window)
+        for _ in range(30):
+            _emit(self.team, tool_name="tool_a", timestamp=now)
+        for _ in range(20):
+            _emit(self.team, tool_name="tool_b", timestamp=previous_window)
+        for _ in range(200):
+            _emit(self.team, tool_name="tool_b", timestamp=now)
+        flush_persons_and_events()
+
+        runner = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(
+                dateRange=DateRange(date_from="-7d"), sortColumn="trend_score", sortDirection="DESC"
+            ),
+            team=self.team,
+        )
+        results = runner.calculate().results
+
+        assert [row.tool for row in results] == ["tool_b", "tool_a"]
+
 
 class TestMCPToolQualityDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def test_buckets_by_hour_when_interval_is_hour(self) -> None:
