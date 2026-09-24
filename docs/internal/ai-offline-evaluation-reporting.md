@@ -90,8 +90,9 @@ Requests exceeding the body limit return HTTP 413.
 Per-caller and shared project limits allow 60 requests per minute and 1,000 per hour; HTTP 429 responses include retry guidance.
 
 The optional `run_source` accepts `ci`, `local`, `scheduled`, or null; empty strings are invalid.
-For hosted datasets, link an experiment revision and supply an item version active in that revision for every new item.
-Local and external datasets do not require hosted links.
+For hosted datasets, set `dataset_revision_id` to the UUID of a hosted dataset revision when you create the experiment.
+Each new item in that experiment must then set `dataset_item_version_id` to the UUID of an item version that is active in that revision.
+Local and external datasets do not require hosted links; they can use the `*_identifier` fields instead.
 
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
