@@ -44,6 +44,8 @@ MAX_HORIZON_DAYS = 365
 MAX_ITERATION_BUDGET = 500
 # AutoresearchPipeline.output_person_property is a 255-character column.
 MAX_OUTPUT_PROPERTY_CHARS = 255
+# AutoresearchPipeline.name is a 255-character column.
+MAX_NAME_CHARS = 255
 # Everything the API's output-property pattern refuses.
 _UNSAFE_PROPERTY_CHARS = re.compile(r"[^A-Za-z0-9_$.\-]")
 
@@ -94,6 +96,9 @@ class Command(BaseCommand):
 
         if options["create"]:
             options["target"] = (options["target"] or "").strip()
+            options["name"] = (options["name"] or "").strip()
+            if not 1 <= len(options["name"]) <= MAX_NAME_CHARS:
+                raise CommandError(f"--name must be 1 to {MAX_NAME_CHARS} characters.")
             if not options["team_id"]:
                 raise CommandError("--team-id is required with --create.")
             if not options["target"]:

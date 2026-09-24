@@ -62,6 +62,8 @@ class TestAutoresearchTrainCommand(BaseTest):
             ("brace_in_target", {"target": "sign{up}", "user_id": 1}),
             ("whitespace_target", {"target": "   ", "user_id": 1}),
             ("no_user_id", {"target": "$pageview"}),
+            ("blank_name", {"target": "$pageview", "user_id": 1, "name": "  "}),
+            ("name_too_long", {"target": "$pageview", "user_id": 1, "name": "n" * 256}),
             ("real_run_with_flag_off", {"target": "$pageview", "user_id": 1, "stub": False}),
         ]
     )
