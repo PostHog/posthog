@@ -19,6 +19,7 @@ import {
   updateTreeNode,
 } from "./panelTree";
 import type {
+  LeafPanel,
   PanelContent,
   PanelNode,
   SplitDirection,
@@ -184,17 +185,12 @@ export function openTab(
   };
 }
 
-function findNonMainLeafPanel(node: PanelNode): PanelNode | null {
-  if (node.type === "leaf") {
-    return node.id !== DEFAULT_PANEL_IDS.MAIN_PANEL ? node : null;
-  }
-  if (node.type === "group") {
-    for (const child of node.children) {
-      const found = findNonMainLeafPanel(child);
-      if (found) return found;
-    }
-  }
-  return null;
+function findNonMainLeafPanel(node: PanelNode): LeafPanel | null {
+  return (
+    collectLeafPanels(node).find(
+      (leaf) => leaf.id !== DEFAULT_PANEL_IDS.MAIN_PANEL,
+    ) ?? null
+  );
 }
 
 export function openTabInSplit(

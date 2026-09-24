@@ -5,6 +5,7 @@ vi.mock("@posthog/ui/shell/analytics", () => ({
   setActiveTaskContext: vi.fn(),
 }));
 
+import { collectLeafPanels } from "@posthog/core/panels/panelTree";
 import { track } from "@posthog/ui/shell/analytics";
 import { usePanelLayoutStore } from "./panelLayoutStore";
 import {
@@ -18,11 +19,6 @@ import {
   openMultipleFiles,
   withRootGroup,
 } from "./panelTestHelpers";
-import type { LeafPanel, PanelNode } from "./panelTypes";
-
-function leafPanels(node: PanelNode): LeafPanel[] {
-  return node.type === "leaf" ? [node] : node.children.flatMap(leafPanels);
-}
 
 describe("panelLayoutStore", () => {
   beforeEach(() => {
@@ -261,10 +257,11 @@ describe("panelLayoutStore", () => {
       store.openInjectedBlockTab("task-1", contextSnapshot("# Growth v2"));
       store.openInjectedBlockTab("task-1", contextSnapshot("# Growth v1"));
 
-      const snapshots = leafPanels(getPanelTree("task-1")).flatMap((leaf) =>
-        leaf.content.tabs
-          .filter((tab) => tab.data.type === "injected-block")
-          .map((tab) => ({ tab, activeTabId: leaf.content.activeTabId })),
+      const snapshots = collectLeafPanels(getPanelTree("task-1")).flatMap(
+        (leaf) =>
+          leaf.content.tabs
+            .filter((tab) => tab.data.type === "injected-block")
+            .map((tab) => ({ tab, activeTabId: leaf.content.activeTabId })),
       );
       expect(snapshots.map(({ tab }) => tab.label)).toEqual([
         "#growth CONTEXT.md",
@@ -330,12 +327,13 @@ describe("panelLayoutStore", () => {
       state.splitPanelWithCopy("task-1", "main-panel", "right", "shortcut");
       state.closeTabsForFile("task-1", "src/Other.tsx");
 
-      const fileTabs = leafPanels(getPanelTree("task-1")).flatMap((leaf) =>
-        leaf.content.tabs.filter(
-          (tab) =>
-            tab.data.type === "file" &&
-            tab.data.relativePath === "src/Other.tsx",
-        ),
+      const fileTabs = collectLeafPanels(getPanelTree("task-1")).flatMap(
+        (leaf) =>
+          leaf.content.tabs.filter(
+            (tab) =>
+              tab.data.type === "file" &&
+              tab.data.relativePath === "src/Other.tsx",
+          ),
       );
       expect(fileTabs).toEqual([]);
       expect(getLayout("task-1").openFiles).toEqual(["src/App.tsx"]);

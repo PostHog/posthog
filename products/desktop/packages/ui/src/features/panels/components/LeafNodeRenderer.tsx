@@ -64,9 +64,9 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   const activeTabId = tabs.some((t) => t.id === node.content.activeTabId)
     ? node.content.activeTabId
     : (tabs[0]?.id ?? node.content.activeTabId);
-  // Keyboard actions read the stored active tab, so keep it on the rendered one.
   useEffect(() => {
     if (activeTabId && activeTabId !== node.content.activeTabId) {
+      // oxlint-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent -- Keyboard actions read the stored active tab, so keep it on the rendered one.
       onActiveTabChange(node.id, activeTabId);
     }
   }, [activeTabId, node.content.activeTabId, node.id, onActiveTabChange]);
