@@ -11,11 +11,9 @@
         {# boot and bleed through the themed app. These selectors stop matching once React renders #}
         {# real content. #}
         {# The icon rule is the one exception: it styles the app itself, so it is scoped to #}
-        {# data-boot-css=pending, which the loader script clears as soon as a stylesheet applies. #}
-        {# @posthog/icons renders `width="100%"` with no height, so an icon with no stylesheet fills #}
-        {# its containing block instead of the 1em icons.scss gives it. The app waits on the #}
-        {# stylesheet before its first render, but gives up after 5s (frontend/src/index.tsx), and #}
-        {# the navbar then paints page-sized icons. See cssLoader.mjs. #}
+        {# data-boot-css=pending, which cssLoader.mjs clears as soon as a stylesheet applies. #}
+        {# @posthog/icons renders `width="100%"` with no height, so an icon fills its containing #}
+        {# block until icons.scss arrives. index.tsx renders anyway if that takes more than 5s. #}
         <style>
             html,body,#root{height:100%;margin:0;padding:0}
             *,:after,:before{box-sizing:border-box}

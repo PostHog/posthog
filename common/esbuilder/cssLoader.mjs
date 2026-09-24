@@ -46,7 +46,7 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
             paths.push(lastPath + (lastPath.indexOf('?') === -1 ? '?' : '&') + 'retry=' + Date.now());
 
             var docEl = document.documentElement;
-            if (docEl) { docEl.setAttribute(${JSON.stringify(BOOT_CSS_ATTRIBUTE)}, 'pending'); }
+            docEl.setAttribute(${JSON.stringify(BOOT_CSS_ATTRIBUTE)}, 'pending');
 
             var resolveReady;
             window.${CSS_READY_GLOBAL} = new Promise(function (resolve) { resolveReady = resolve; });
@@ -124,7 +124,7 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     if (!link.sheet) { fail('loaded but did not apply'); return; }
                     isDone = true;
                     clearTimeout(timer);
-                    if (docEl) { docEl.removeAttribute(${JSON.stringify(BOOT_CSS_ATTRIBUTE)}); }
+                    docEl.removeAttribute(${JSON.stringify(BOOT_CSS_ATTRIBUTE)});
                     // A link left behind by an earlier timeout can still land and style the page,
                     // so a late load counts too.
                     settle(true);
