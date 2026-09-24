@@ -150,6 +150,8 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             return
         }
         cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
+        // The adopted label supersedes anything this viewer sent, so a note saved on unmount keeps its rating.
+        cache.lastSentLabel = undefined
         actions.labelUpdated(next)
         actions.setFeedbackDraft(next?.feedback ?? '')
     }),
