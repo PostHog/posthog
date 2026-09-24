@@ -30,6 +30,8 @@ from products.warehouse_sources.backend.models.external_data_job import (
     latest_completed_job_prefetch,
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
+    MAX_FULL_REFRESH_INTERVAL_DAYS,
+    SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     ExternalDataSchema,
     auto_enable_new_schemas,
     get_all_schemas_for_source_id,
@@ -91,7 +93,9 @@ __all__ = [
     "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
+    "MAX_FULL_REFRESH_INTERVAL_DAYS",
     "PendingSourceCredential",
+    "SCHEDULED_FULL_REFRESH_SYNC_TYPES",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",

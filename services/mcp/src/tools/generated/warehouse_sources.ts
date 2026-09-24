@@ -247,6 +247,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         if (params.sync_time_of_day !== undefined) {
             body['sync_time_of_day'] = params.sync_time_of_day
         }
+        if (params.full_refresh_interval_days !== undefined) {
+            body['full_refresh_interval_days'] = params.full_refresh_interval_days
+        }
         if (params.primary_key_columns !== undefined) {
             body['primary_key_columns'] = params.primary_key_columns
         }
@@ -340,6 +343,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         }
         if (params.sync_time_of_day !== undefined) {
             body['sync_time_of_day'] = params.sync_time_of_day
+        }
+        if (params.full_refresh_interval_days !== undefined) {
+            body['full_refresh_interval_days'] = params.full_refresh_interval_days
         }
         if (params.primary_key_columns !== undefined) {
             body['primary_key_columns'] = params.primary_key_columns

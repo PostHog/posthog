@@ -302,6 +302,52 @@ class TestCreateJobActivityStatusOrdering:
 
 
 @pytest.mark.django_db
+class TestCreateJobActivityScheduledFullRefresh:
+    @parameterized.expand(
+        [
+            ("due_on_a_scheduled_run", True, dt.timedelta(days=-1), True),
+            ("due_on_a_directly_started_run", False, dt.timedelta(days=-1), False),
+            ("not_yet_due", True, dt.timedelta(days=1), False),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_only_a_due_scheduled_run_resets_the_table(
+        self,
+        _name: str,
+        started_by_schedule: bool,
+        due_in: dt.timedelta,
+        expect_reset: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.full_refresh_interval_days = 7
+        schema.next_full_refresh_at = timezone.now() + due_in
+        schema.save()
+
+        create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id,
+                schema_id=schema.id,
+                source_id=schema.source_id,
+                billable=True,
+                started_by_schedule=started_by_schedule,
+            )
+        )
+
+        schema.refresh_from_db()
+        snapshot = ExternalDataJob.objects.get(schema_id=schema.id).schema_snapshot
+        assert snapshot is not None
+        assert schema.reset_pipeline is expect_reset
+        assert (snapshot["sync_type_config"].get("reset_pipeline") is True) is expect_reset
+
+
+@pytest.mark.django_db
 class TestCreateJobActivityDeletedSourceOrSchema:
     # Deleting a source or a schema cancels its schedule, but a run Temporal already started still
     # reaches this activity and finds the rows gone. The activity has to cancel the leftover

@@ -740,6 +740,13 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
+def _started_by_own_schedule(inputs: ExternalDataWorkflowInputs) -> bool:
+    # Temporal sets this on every run a schedule starts, manual triggers included. It comes from the start
+    # event, so replay reads the same value.
+    scheduled_by = workflow.info().search_attributes.get("TemporalScheduledById") or []
+    return any(str(value) == str(inputs.external_data_schema_id) for value in scheduled_by)
+
+
 # TODO: update retry policies
 #
 # DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
@@ -843,6 +850,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
                 is_v3=is_v3,
+                started_by_schedule=_started_by_own_schedule(inputs),
             )
 
             create_job_result = await workflow.execute_activity(

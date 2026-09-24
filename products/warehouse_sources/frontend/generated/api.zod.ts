@@ -119,6 +119,8 @@ export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.obj
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
+export const externalDataSchemasUpdateBodyFullRefreshIntervalDaysMax = 90
+
 export const externalDataSchemasUpdateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
@@ -173,6 +175,14 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
                 'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
             ),
         sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+        full_refresh_interval_days: zod
+            .number()
+            .min(1)
+            .max(externalDataSchemasUpdateBodyFullRefreshIntervalDaysMax)
+            .nullish()
+            .describe(
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. The first one runs on the scheduled sync that falls when this many days have passed since the interval was saved, and every full resync starts the wait again. The table is empty while a full refresh runs. Available for incremental, append, and xmin syncs only.'
+            ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
             .union([
@@ -219,6 +229,8 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
 
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasPartialUpdateBodyFullRefreshIntervalDaysMax = 90
 
 export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 
@@ -274,6 +286,14 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
                 'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
             ),
         sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+        full_refresh_interval_days: zod
+            .number()
+            .min(1)
+            .max(externalDataSchemasPartialUpdateBodyFullRefreshIntervalDaysMax)
+            .nullish()
+            .describe(
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. The first one runs on the scheduled sync that falls when this many days have passed since the interval was saved, and every full resync starts the wait again. The table is empty while a full refresh runs. Available for incremental, append, and xmin syncs only.'
+            ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
             .union([
@@ -335,6 +355,8 @@ export const ExternalDataSchemasDestinationsPartialUpdateBody = /* @__PURE__ */ 
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
+export const externalDataSchemasIncrementalFieldsCreateBodyFullRefreshIntervalDaysMax = 90
+
 export const externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod
@@ -389,6 +411,14 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
                 'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
             ),
         sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+        full_refresh_interval_days: zod
+            .number()
+            .min(1)
+            .max(externalDataSchemasIncrementalFieldsCreateBodyFullRefreshIntervalDaysMax)
+            .nullish()
+            .describe(
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. The first one runs on the scheduled sync that falls when this many days have passed since the interval was saved, and every full resync starts the wait again. The table is empty while a full refresh runs. Available for incremental, append, and xmin syncs only.'
+            ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
             .union([
@@ -457,6 +487,8 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete External data Sources.
  */
+export const externalDataSourcesBulkUpdateSchemasPartialUpdateBodySchemasItemFullRefreshIntervalDaysMax = 90
+
 export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     schemas: zod
         .array(
@@ -483,6 +515,14 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                 incremental_field_type: zod.string().nullish().describe('Type of the incremental cursor field.'),
                 sync_frequency: zod.string().nullish().describe('Human-readable sync frequency value.'),
                 sync_time_of_day: zod.iso.time({}).nullish().describe('UTC anchor time for scheduled syncs.'),
+                full_refresh_interval_days: zod
+                    .number()
+                    .min(1)
+                    .max(externalDataSourcesBulkUpdateSchemasPartialUpdateBodySchemasItemFullRefreshIntervalDaysMax)
+                    .nullish()
+                    .describe(
+                        'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Incremental, append, and xmin syncs only.'
+                    ),
                 primary_key_columns: zod
                     .array(zod.string())
                     .nullish()

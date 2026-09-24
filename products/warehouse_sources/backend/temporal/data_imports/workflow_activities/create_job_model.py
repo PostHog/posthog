@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_schema_running_unless_halted,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
@@ -223,6 +224,8 @@ class CreateExternalDataJobModelActivityInputs:
     source_id: uuid.UUID
     billable: bool
     is_v3: bool = False
+    # Admin resyncs and non-billable resumes start the workflow directly and must not become a full refresh.
+    started_by_schedule: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -350,6 +353,13 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type
         ):
             destination_ids = destination_ids_for_run(schema)
+        if inputs.started_by_schedule and not schema.reset_pipeline and schema.scheduled_full_refresh_due():
+            # Staged before the job row so the job's schema snapshot records the reset.
+            schema.sync_type_config = update_sync_type_config_keys(
+                schema.id, inputs.team_id, updates={"reset_pipeline": True}
+            )
+            logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")
+
         job = _create_job(
             team_id=inputs.team_id,
             source_id=inputs.source_id,

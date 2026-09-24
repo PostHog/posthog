@@ -95,6 +95,12 @@ def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
 # how long a rewrite nobody is advancing can pause a table's imports.
 REPARTITION_HOLD_MAX_AGE = timedelta(hours=48)
 
+SCHEDULED_FULL_REFRESH_SYNC_TYPES = frozenset(
+    {ExternalDataSchemaSyncType.INCREMENTAL, ExternalDataSchemaSyncType.APPEND, ExternalDataSchemaSyncType.XMIN}
+)
+MAX_FULL_REFRESH_INTERVAL_DAYS = 90
+SCHEDULED_FULL_REFRESH_MAX_SLACK = timedelta(hours=1)
+
 
 @dataclass(frozen=True, kw_only=True)
 class SyncDisableContext:
@@ -266,6 +272,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
+    full_refresh_interval_days = models.SmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Days between scheduled full refreshes. A full refresh re-imports every row, so rows deleted "
+        "at the source are removed from the table. Null means no scheduled full refreshes.",
+    )
+    next_full_refresh_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the next scheduled full refresh is due. The first scheduled sync at or after this time "
+        "re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
+    )
     initial_sync_complete = models.BooleanField(default=False)
     description = models.CharField(max_length=1000, null=True, blank=True)
     # null = sync all columns (default). Non-empty list = exact column projection.
@@ -1040,6 +1058,26 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 return str(value)
         return str(value)
 
+    def restart_full_refresh_clock(self) -> None:
+        if self.full_refresh_interval_days is None:
+            self.next_full_refresh_at = None
+            return
+        self.next_full_refresh_at = timezone.now() + timedelta(days=self.full_refresh_interval_days)
+
+    def scheduled_full_refresh_due(self) -> bool:
+        if (
+            self.full_refresh_interval_days is None
+            or self.next_full_refresh_at is None
+            or self.sync_type not in SCHEDULED_FULL_REFRESH_SYNC_TYPES
+        ):
+            return False
+        # The wipe that restarts the clock lands a little after its tick, so without slack every refresh would
+        # slip one tick later than the one before.
+        slack = SCHEDULED_FULL_REFRESH_MAX_SLACK
+        if self.sync_frequency_interval is not None:
+            slack = min(slack, self.sync_frequency_interval / 2)
+        return timezone.now() >= self.next_full_refresh_at - slack
+
     def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
         # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
@@ -1073,6 +1111,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # change, delete_table) keep clearing so CDC's False->True streaming flip still fires.
         if clear_initial_sync_complete:
             self.initial_sync_complete = False
+
+        self.restart_full_refresh_clock()
 
         self.save(skip_activity_log=True)
 

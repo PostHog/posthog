@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -1056,6 +1057,49 @@ def test_reset_pipeline_preserves_partition_mode_override() -> None:
     assert schema.partitioning_keys_override == ["action_date"]
     # partition_format is never reset, so the datetime granularity carries into the resync.
     assert schema.partition_format == "month"
+
+
+def test_reset_pipeline_restarts_the_scheduled_full_refresh_clock() -> None:
+    schema = ExternalDataSchema(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"reset_pipeline": True},
+        full_refresh_interval_days=7,
+        next_full_refresh_at=datetime(2026, 9, 22, 3, 0, tzinfo=UTC),
+    )
+    with time_machine.travel(datetime(2026, 9, 22, 3, 10, tzinfo=UTC), tick=False), patch.object(schema, "save"):
+        schema.update_sync_type_config_for_reset_pipeline()
+    assert schema.next_full_refresh_at == datetime(2026, 9, 29, 3, 10, tzinfo=UTC)
+
+
+class TestScheduledFullRefreshDue:
+    def _schema(self, sync_type: str, sync_frequency_interval: timedelta) -> ExternalDataSchema:
+        return ExternalDataSchema(
+            sync_type=sync_type,
+            sync_frequency_interval=sync_frequency_interval,
+            full_refresh_interval_days=7,
+            next_full_refresh_at=datetime(2026, 9, 22, 3, 10, tzinfo=UTC),
+        )
+
+    @parameterized.expand(
+        [
+            ("daily_tick_just_before_the_due_time", timedelta(days=1), datetime(2026, 9, 22, 3, 0, 5), True),
+            ("daily_tick_a_day_early", timedelta(days=1), datetime(2026, 9, 21, 3, 0, 5), False),
+            ("half_hourly_tick_just_before_the_due_time", timedelta(minutes=30), datetime(2026, 9, 22, 3, 0, 5), True),
+            ("half_hourly_tick_one_cadence_early", timedelta(minutes=30), datetime(2026, 9, 22, 2, 30, 5), False),
+        ]
+    )
+    def test_due_on_the_tick_nearest_the_due_time(
+        self, _name: str, sync_frequency_interval: timedelta, now: datetime, expected: bool
+    ) -> None:
+        schema = self._schema(ExternalDataSchema.SyncType.INCREMENTAL, sync_frequency_interval)
+        with time_machine.travel(now.replace(tzinfo=UTC), tick=False):
+            assert schema.scheduled_full_refresh_due() is expected
+
+    @parameterized.expand([("full_refresh", "full_refresh"), ("cdc", "cdc"), ("webhook", "webhook")])
+    def test_never_due_for_a_sync_type_that_rereads_or_streams(self, _name: str, sync_type: str) -> None:
+        schema = self._schema(sync_type, timedelta(days=1))
+        with time_machine.travel(datetime(2026, 10, 1, tzinfo=UTC), tick=False):
+            assert schema.scheduled_full_refresh_due() is False
 
 
 def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:

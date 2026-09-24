@@ -40,6 +40,19 @@
                         ],
                         "description": "Columns to sync. Null means sync all columns."
                     },
+                    "full_refresh_interval_days": {
+                        "anyOf": [
+                            {
+                                "maximum": 90,
+                                "minimum": 1,
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Incremental, append, and xmin syncs only."
+                    },
                     "id": {
                         "description": "Schema identifier to update.",
                         "type": "string"

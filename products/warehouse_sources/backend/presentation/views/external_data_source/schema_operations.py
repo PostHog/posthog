@@ -20,6 +20,7 @@ from posthog.permissions import is_service_auth
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.models import (
+    MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
     ExternalDataSource,
     auto_enable_new_schemas,
@@ -84,6 +85,16 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="UTC anchor time for scheduled syncs.",
+    )
+    full_refresh_interval_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=MAX_FULL_REFRESH_INTERVAL_DAYS,
+        help_text=(
+            "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the "
+            "table and re-imports every row. Incremental, append, and xmin syncs only."
+        ),
     )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
