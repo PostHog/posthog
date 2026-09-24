@@ -89,11 +89,13 @@ def _calculate_rows_and_columns(
     *,
     user: Any,
     execution_mode: ExecutionMode,
-    complete_for: HogQLAlertEvaluation | None = None,
+    evaluation: HogQLAlertEvaluation,
 ) -> _FetchedRows:
     """Run a SQL insight — the fetch-and-validate prologue shared by the threshold and detector
     extractors. A ``None`` result means the query layer swallowed an error (raise to avoid a
-    misfire, matching trends); a non-list result is a malformed shape.
+    misfire, matching trends); a non-list result is a malformed shape. Every evaluation except
+    first_row needs the complete result, so those get the completeness check; first_row reads
+    the head, which truncation can't touch.
     """
     calculation_result = calculate_for_query_based_insight(
         insight,
@@ -109,11 +111,11 @@ def _calculate_rows_and_columns(
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not isinstance(rows, list):
         raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
-    if complete_for is not None:
+    if evaluation != HogQLAlertEvaluation.FIRST_ROW:
         if truncated:
             # Missing tail rows can change last-row and any-row results. The owner must adjust
             # the query before checks can safely resume.
-            if complete_for == HogQLAlertEvaluation.LAST_ROW:
+            if evaluation == HogQLAlertEvaluation.LAST_ROW:
                 raise AlertExtractionError(
                     "The query returns more rows than its row limit, so the newest rows are missing and the "
                     "alert would check the wrong row. Raise the SQL LIMIT to cover every row the alert needs, "
@@ -202,9 +204,7 @@ class HogQLExtractor:
             alert.team,
             user=alert.created_by,
             execution_mode=execution_mode,
-            complete_for=(
-                evaluation if evaluation in (HogQLAlertEvaluation.LAST_ROW, HogQLAlertEvaluation.ANY_ROW) else None
-            ),
+            evaluation=evaluation,
         )
         rows = fetched.rows
         column_names = fetched.column_names
@@ -303,7 +303,7 @@ def extract_hogql_detector_series(
         team,
         user=user,
         execution_mode=execution_mode,
-        complete_for=HogQLAlertEvaluation.LAST_ROW if config.evaluation == HogQLAlertEvaluation.LAST_ROW else None,
+        evaluation=config.evaluation,
     )
     rows = fetched.rows
     column_names = fetched.column_names
