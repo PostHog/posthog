@@ -261,6 +261,40 @@ export class PostHogRateLimitError extends PostHogApiError {
     }
 }
 
+export interface PostHogTransportErrorOptions {
+    url: string
+    method: string
+    attempts: number
+    cause: unknown
+}
+
+/**
+ * Thrown when a request to the PostHog API never produced a response: the
+ * connection failed, dropped, or the body read was cut short. The client
+ * already retried the call when the method was safe to repeat, so this error
+ * means the retry budget is spent. `retryable` tells the agent that another
+ * attempt is safe: the upstream applied nothing, so a repeat cannot double an
+ * effect.
+ */
+export class PostHogTransportError extends Error {
+    public readonly retryable = true
+    public readonly url: string
+    public readonly method: string
+    public readonly attempts: number
+
+    constructor(options: PostHogTransportErrorOptions) {
+        const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
+        super(
+            `Could not reach the PostHog API on ${options.method} ${requestPath(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}: ${reason}. The request never completed, so it is safe to retry.`
+        )
+        this.name = 'PostHogTransportError'
+        this.url = options.url
+        this.method = options.method
+        this.attempts = options.attempts
+        ;(this as Error & { cause?: unknown }).cause = options.cause
+    }
+}
+
 /**
  * Parses a Retry-After header into whole seconds. Returns null for missing
  * headers, HTTP-date values, and bogus negatives.
