@@ -21,6 +21,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
@@ -54,8 +55,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.models import Entity, Organization, Person
+from posthog.models.event.util import events_only_in_active_schema
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.person.util import create_person_distinct_id
@@ -374,8 +377,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"color": "blue", "$group_0": "kiki"},
             )
 
+    @events_only_in_active_schema()
     def test_trends_per_day(self):
         self._create_events()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(
+                sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk}),
+                [(0,)],
+            )
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # with self.assertNumQueries(16):
             response = self._run_query(

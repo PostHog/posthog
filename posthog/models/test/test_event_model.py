@@ -11,7 +11,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element
 from posthog.models.element.element import elements_to_string
 from posthog.models.event import Selector
-from posthog.models.event.util import bulk_create_events, create_event
+from posthog.models.event.util import bulk_create_events, create_event, events_only_in_active_schema
 from posthog.models.property.util import build_selector_regex
 from posthog.test.test_journeys import journeys_for
 
@@ -317,6 +317,36 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNativeEventInserts(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(["bulk", "single"])
+    def test_native_only_scope_restores_dual_writes(self, insertion: str) -> None:
+        def insert(event: str) -> None:
+            if insertion == "bulk":
+                bulk_create_events([{"team": self.team, "event": event, "distinct_id": "test"}])
+            else:
+                create_event(event_uuid=uuid4(), team=self.team, event=event, distinct_id="test")
+
+        with self.assertRaisesRegex(ValueError, "fixture failed"):
+            with events_only_in_active_schema():
+                with events_only_in_active_schema():
+                    insert("nested")
+                insert("outer")
+                raise ValueError("fixture failed")
+
+        insert("after")
+
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",)],
+        )
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events_json WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",), ("nested",), ("outer",)],
+        )
+
     @parameterized.expand(["bulk", "single", "journey"])
     def test_properties_follow_ingestion_cleanup(self, insertion: str) -> None:
         properties = {
