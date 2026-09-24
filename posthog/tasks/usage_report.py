@@ -1757,6 +1757,7 @@ POSTHOG_AI_PRODUCTS = [
     "workflows",
     "subscriptions",
     "alert_investigation_agent",
+    "alert_llm_detector",
     "product_analytics",
     "surveys",
     "replay_vision",
@@ -2634,9 +2635,10 @@ def get_teams_with_sdk_logs_records_in_period(
     tuples ready for `convert_team_usage_rows_to_dict`.
 
     `team_ids_with_logs` must be the team_ids that produced any log records in the same period
-    (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
-    pre-filter on `logs_distributed` — without it, scanning the `resource_attributes` map cluster-wide
-    hits the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
+    (typically the result of `get_teams_with_logs_records_in_period`). The resource index narrows the
+    scan to matching resources before reading the `resource_attributes` map to reduce scanned bytes.
+    Raw rows still determine the counts and exact time bounds.
+    If the input is empty, the query is skipped.
 
     NB: query the physical `logs_distributed` table, not `logs`. `logs` is the HogQL table alias and
     only resolves inside HogQL (`parse_select`); raw `sync_execute` runs ClickHouse SQL directly, where
@@ -2653,6 +2655,17 @@ def get_teams_with_sdk_logs_records_in_period(
                 resource_attributes['telemetry.sdk.name'] AS sdk_name,
                 count() AS count
             FROM logs_distributed
+            PREWHERE (team_id, resource_fingerprint) GLOBAL IN (
+                SELECT team_id, resource_fingerprint
+                FROM log_attributes_distributed
+                WHERE team_id IN %(team_ids)s
+                  AND attribute_type = 'resource'
+                  AND attribute_key = 'telemetry.sdk.name'
+                  AND attribute_value IN %(sdk_names)s
+                  AND time_bucket >= toStartOfInterval(toDateTime(%(begin)s), INTERVAL 10 MINUTE)
+                  AND time_bucket <= toStartOfInterval(toDateTime(%(end)s), INTERVAL 10 MINUTE)
+                GROUP BY team_id, resource_fingerprint
+            )
             WHERE team_id IN %(team_ids)s
               AND timestamp >= %(begin)s
               AND timestamp < %(end)s

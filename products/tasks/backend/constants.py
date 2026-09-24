@@ -13,6 +13,12 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+# Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
+# ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
+# skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
+# prefix must use this constant rather than a literal of their own.
+GITHUB_PR_URL_PREFIX = "https://github.com/"
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
 WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
@@ -29,6 +35,7 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
+HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS

@@ -13,7 +13,6 @@ from posthog.schema import MarketingAnalyticsAttributionBreakdown, SessionTableV
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
@@ -25,17 +24,17 @@ from products.analytics_platform.backend.lazy_computation.stale_policy import re
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSION_READ_REACHBACK_DAYS,
     ensure_marketing_sessions_precomputed,
-    precompute_window_days,
+    precompute_window_start,
 )
 
 from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
+from .attribution_session_dimensions import session_dimensions
 from .constants import UNKNOWN_CHANNEL
 from .marketing_lazy_precompute import (
     BACKGROUND_WARMING_TRIGGERS,
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
-    STALE_WHILE_REVALIDATE_SECONDS,
     handle_stale_served,
-    serve_stale_enabled,
 )
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
@@ -73,9 +72,8 @@ def _session_table_version(modifiers: "HogQLQueryModifiers") -> SessionTableVers
 def _session_modifiers_reason(runner: "AttributionQueryRunnerBase") -> Optional[str]:
     writer_modifiers = create_default_modifiers_for_team(runner.team)
     modifiers = runner.modifiers or writer_modifiers
-    if modifiers.customChannelTypeRules or writer_modifiers.customChannelTypeRules:
-        # Custom rules can depend on the full URL, which the shared dimensions do not store.
-        return "custom_channel_rules"
+    if (modifiers.customChannelTypeRules or []) != (writer_modifiers.customChannelTypeRules or []):
+        return "custom_channel_rules_mismatch"
     if modifiers.convertToProjectTimezone is False:
         return "project_timezone_disabled"
     version = _session_table_version(modifiers)
@@ -116,9 +114,7 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         return "test_account_filters"
 
     read = window(runner, date_range)
-    if (read.end - read.start).total_seconds() > (
-        precompute_window_days(runner.team) - SESSION_READ_REACHBACK_DAYS
-    ) * 86400:
+    if read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS) < precompute_window_start(runner.team, read.end):
         return "window_over_max"
 
     return None
@@ -173,11 +169,7 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
         # event time cannot recover a row that was never built.
         ensure_start = read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS)
         revalidating = get_query_tag_value("trigger") == REVALIDATION_TRIGGER
-        grace = (
-            resolve_stale_while_revalidate_seconds(STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
-            if serve_stale_enabled(runner.team)
-            else None
-        )
+        grace = resolve_stale_while_revalidate_seconds(PRECOMPUTE_ONLY_MAX_STALE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
         # Only the dedicated revalidation task may rebuild; cold user reads keep the live fallback.
         result = ensure_marketing_sessions_precomputed(
             runner.team,
@@ -188,21 +180,6 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
         )
         if not result.job_ids or not result.ready:
             return None
-        # Custom session IDs have no maximum duration. Do not silently omit their earlier start chunks.
-        coverage = execute_hogql_query(
-            query="SELECT 1 FROM sessions WHERE $start_timestamp < {ensure_start} AND $end_timestamp >= {read_start} LIMIT 1",
-            team=runner.team,
-            user=runner.user,
-            placeholders={
-                "ensure_start": ast.Constant(value=ensure_start),
-                "read_start": ast.Constant(value=read.start),
-            },
-            modifiers=runner.modifiers,
-            query_type="marketing_attribution_session_coverage",
-            context=runner._shared_hogql_context,
-        )
-        if coverage.error or coverage.results:
-            return None
     except Exception:
         logger.exception("attribution_sessions_precompute_failed", team_id=runner.team.pk)
         return None
@@ -211,18 +188,10 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
     return [str(j) for j in result.job_ids]
 
 
-def _read_sessions(job_ids: list[str], start: datetime, end: datetime) -> ast.SelectQuery:
+def _read_sessions(dimensions: ast.SelectQuery, start: datetime, end: datetime) -> ast.SelectQuery:
     query = parse_select(
         """
-        WITH dimensions AS (
-            SELECT session_id_v7,
-                argMax(tuple(period_bucket, start_timestamp, channel_type, utm_source, utm_medium,
-                    utm_campaign, utm_term, utm_content, referring_domain, entry_pathname, job_id), computed_at) AS latest,
-                max(computed_at) AS computed_at
-            FROM posthog.web_sessions_dimensional_preaggregated
-            WHERE job_id IN {jobs}
-            GROUP BY session_id_v7
-        ), identities AS (
+        WITH dimensions AS (SELECT * FROM {dimensions}), identities AS (
             SELECT events.$session_id_uuid AS session_id_v7, events.person_id AS person_id,
                 min(events.timestamp) AS min_event_timestamp,
                 max(events.timestamp) AS max_event_timestamp,
@@ -236,12 +205,12 @@ def _read_sessions(job_ids: list[str], start: datetime, end: datetime) -> ast.Se
             d.latest.1 AS period_bucket, d.latest.2 AS start_timestamp, d.latest.3 AS channel_type,
             d.latest.4 AS utm_source, d.latest.5 AS utm_medium, d.latest.6 AS utm_campaign,
             d.latest.7 AS utm_term, d.latest.8 AS utm_content, d.latest.9 AS referring_domain,
-            d.latest.10 AS entry_pathname, d.latest.11 AS job_id, d.computed_at
+            d.latest.10 AS entry_pathname, d.computed_at
         FROM identities AS i
         INNER JOIN dimensions AS d ON i.session_id_v7 = d.session_id_v7
         """,
         placeholders={
-            "jobs": ast.Tuple(exprs=[ast.Constant(value=j) for j in job_ids]),
+            "dimensions": dimensions,
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
         },
@@ -250,8 +219,8 @@ def _read_sessions(job_ids: list[str], start: datetime, end: datetime) -> ast.Se
     return query
 
 
-def _scope(job_ids: list[str], read: ReadWindow) -> list[ast.Expr]:
-    """Scope to the job set and the window, bounding by event time.
+def _scope(read: ReadWindow) -> list[ast.Expr]:
+    """Scope to the window by event time; cached dimensions already select the ready job set.
 
     The live path keeps a session whose events fall in the window and then reports its start as the
     touchpoint time, so a session that opened before the window still counts. Bounding by
@@ -259,7 +228,6 @@ def _scope(job_ids: list[str], read: ReadWindow) -> list[ast.Expr]:
     denominator.
     """
     return [
-        ast.Call(name="in", args=[_field("job_id"), ast.Tuple(exprs=[ast.Constant(value=j) for j in job_ids])]),
         ast.CompareOperation(
             left=_field("max_event_timestamp"), op=ast.CompareOperationOp.GtEq, right=ast.Constant(value=read.start)
         ),
@@ -356,7 +324,7 @@ def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange
             *_exclusion_columns(runner),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=[_SESSIONS_CTE]), alias="cached_sessions"),
-        where=ast.And(exprs=_scope(job_ids, read)),
+        where=ast.And(exprs=_scope(read)),
         group_by=[_field("session_id_v7"), _field("person_id")],
     )
     exclusions = _exclusions(runner, table_alias="s")
@@ -436,11 +404,26 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
     if job_ids is None:
         return {}
     read = window(runner, date_range)
+    columns = {BREAKDOWN_COLUMNS[runner.breakdown]}
+    if runner.breakdown == MarketingAnalyticsAttributionBreakdown.CAMPAIGN:
+        columns.add("utm_source")
+    if runner.query.excludeDirectTraffic:
+        columns.add("channel_type")
     # Reach and credit share the event scan; conversion bounds share the revenue aggregation.
     return {
         _SESSIONS_CTE: ast.CTE(
             name=_SESSIONS_CTE,
-            expr=_read_sessions(job_ids, read.start, read.end),
+            expr=_read_sessions(
+                session_dimensions(
+                    runner.modifiers or create_default_modifiers_for_team(runner.team),
+                    columns,
+                    job_ids,
+                    read.start,
+                    read.end,
+                ),
+                read.start,
+                read.end,
+            ),
             cte_type="subquery",
             materialized=True,
         ),
@@ -510,7 +493,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
                 ),
             ),
         ),
-        where=ast.And(exprs=_scope(job_ids, read)),
+        where=ast.And(exprs=_scope(read)),
         group_by=[ast.Field(chain=["conv", "conv_person_id"]), _field("session_id_v7")],
     )
 

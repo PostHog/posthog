@@ -191,6 +191,7 @@ export type SettingId =
     | 'group-analytics'
     | 'heatmaps'
     | 'heatmap-screenshot-cookie'
+    | 'heatmaps-capture'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'

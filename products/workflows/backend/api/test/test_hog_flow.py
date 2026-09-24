@@ -1182,6 +1182,64 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_event_trigger_without_an_event_is_refused_when_it_would_run(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"]["filters"] = {}
+
+        # A web draft stays lenient, so the builder can save mid-edit.
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Activating it is where the trigger would start failing on every event, so that is refused.
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 400, response.json()
+        assert "Pick at least one event or property filter" in response.json()["detail"]
+
+        hog_flow["status"] = "active"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "Pick at least one event or property filter" in response.json()["detail"]
+
+        # An entry that names nothing is not a target either.
+        empty_targets: list[dict[str, Any]] = [{"events": [{}]}, {"actions": [{"name": "x"}]}, {"properties": [{}]}]
+        for filters in empty_targets:
+            hog_flow["actions"][0]["config"]["filters"] = filters
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            assert response.status_code == 400, (filters, response.json())
+
+        # Person updates filter on the person alone; the serializer drops events for that source, so
+        # events without a property filter leave nothing and would compile to match-all.
+        hog_flow["actions"][0]["config"]["filters"] = {
+            "source": "person-updates",
+            "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        hog_flow["actions"][0]["config"]["filters"] = {
+            "source": "person-updates",
+            "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        # Malformed filters get a validation error, not a 500.
+        hog_flow["actions"][0]["config"]["filters"] = []
+        hog_flow["actions"][0]["config"]["filter_test_accounts"] = False
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "Filters must be a dictionary." in response.json()["detail"]
+        del hog_flow["actions"][0]["config"]["filter_test_accounts"]
+
+        # A property filter alone is a real target.
+        hog_flow["actions"][0]["config"]["filters"] = {
+            "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_activating_draft_with_invalid_template_names_offending_step(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {

@@ -332,6 +332,7 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
 # ---
@@ -758,6 +759,7 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
 # ---
@@ -1193,6 +1195,7 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
 # ---

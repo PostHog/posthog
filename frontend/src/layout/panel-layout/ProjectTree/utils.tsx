@@ -17,6 +17,7 @@ export const CATEGORY_ORDER = [
     'Analytics',
     'AI engineering',
     'Behavior',
+    'Messaging',
     'App monitoring',
     'Features',
     'Tools',
