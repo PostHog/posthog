@@ -19,11 +19,28 @@ class TestReportSearchTerms(SimpleTestCase):
             # An accented word is one word to the person who typed it. Splitting it leaves
             # single-letter fragments, and a fragment that short matches nearly every report.
             ("an accented word", "Müller", ["Müller"]),
+            # The same word typed as a letter plus a combining accent. The combining mark is not a
+            # letter, so without composing first this splits into "Mu" and "ller", and neither
+            # fragment matches the composed spelling the report is written in.
+            ("an accent typed as a combining mark", "Mu\u0308ller", ["Müller"]),
             # Terms a reader can see are terms, whatever the script.
             ("a script without spaces between words", "東京 登録", ["東京", "登録"]),
+            # The apostrophe separates, so a possessive or a contraction leaves one Latin letter
+            # behind. Every term has to match, so keeping it excludes any report without that
+            # letter: "can't" would stop finding a report titled "Cancel", which holds no "t".
+            ("a possessive", "Toronto's registration", ["Toronto", "registration"]),
+            ("a contraction", "can't", ["can"]),
+            # Dropping is limited to a single Latin letter. A digit is a term the caller meant,
+            # and so is a single character of a script that writes a word in one character.
+            ("a single digit", "issue 5", ["issue", "5"]),
+            ("a single character word", "東 registration", ["東", "registration"]),
+            # The cap is part of the documented contract on the `search` parameter.
+            ("more terms than the cap", "a1 b2 c3 d4 e5 f6 g7 h8 i9", ["a1", "b2", "c3", "d4", "e5", "f6", "g7", "h8"]),
         ]
     )
-    def test_a_word_stays_one_term(self, _name: str, search: str, expected: list[str]) -> None:
+    def test_search_splits_into_the_terms_a_report_must_match(
+        self, _name: str, search: str, expected: list[str]
+    ) -> None:
         assert report_search_terms(search) == expected
 
 
@@ -97,6 +114,29 @@ class TestReportSearch(APIBaseTest):
             content=NoteArtefact(note="Reproduced against the Toronto region.").model_dump_json(),
         )
         assert self._search(query) == ([str(report.id)] if matches else [])
+
+    @parameterized.expand(
+        [
+            # An object the search cannot parse. Postgres raises on a jsonb cast of it, and the
+            # note lookup runs against every report in the team, so one such row turned every
+            # nonempty search into a 500 for the whole inbox.
+            ("an object that does not parse", "{not json"),
+            # A note written before the text was stored inside an object.
+            ("plain text with no object around it", "a legacy note about the Toronto region"),
+        ]
+    )
+    def test_a_note_the_search_cannot_read_drops_out_instead_of_failing_the_list(
+        self, _name: str, content: str
+    ) -> None:
+        findable = self._report("Signup funnel regressed in Toronto")
+        unreadable = self._report("Checkout errors climbing")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=unreadable,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=content,
+        )
+        assert self._search("toronto") == [str(findable.id)]
 
     @parameterized.expand(
         [

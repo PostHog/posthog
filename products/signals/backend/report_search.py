@@ -1,10 +1,10 @@
 """Free-text search over inbox reports, shared by the report list filter and its tests."""
 
 import re
+import unicodedata
 from collections.abc import Mapping
 
-from django.db.models import Exists, F, Func, JSONField, OuterRef, Q, TextField, Value
-from django.db.models.functions import Cast
+from django.db.models import Exists, F, Func, OuterRef, Q, TextField, Value
 
 from products.signals.backend.models import SignalReportArtefact
 
@@ -20,10 +20,30 @@ MAX_SEARCH_TERMS = 8
 # because `\W` counts it as a letter, and it is a LIKE wildcard that must not reach a term.
 _TERM_SEPARATORS = re.compile(r"[\W_]+")
 
+# One Latin letter on its own is what a possessive or a contraction leaves behind once the
+# apostrophe separates the word: "Toronto's" gives "Toronto" and "s". Every term has to match, so
+# that fragment adds a condition the caller never asked for, and it excludes any report that
+# happens to hold no "s". A single digit or a single character of a script that writes words in
+# one character is a term the caller meant, so only the Latin letter is dropped.
+_SINGLE_LATIN_LETTER = re.compile(r"[A-Za-z]")
+
+# The text of a work-log note, read out of the serialized object it is stored in. Postgres 15 has
+# no error-tolerant JSON parse, and casting to jsonb raises on a row that is not valid JSON, which
+# fails the whole list request. A regex never raises: it returns null for a row it cannot read, so
+# that row stops being searchable instead of taking the search down with it. Escapes stay escaped
+# in what this returns, which cannot affect a match, because a term holds only letters and digits.
+_NOTE_TEXT_PATTERN = r'"note"\s*:\s*"((?:[^"\\]|\\.)*)"'
+
 
 def report_search_terms(search: str) -> list[str]:
     """Split a search string into the terms a report must match, in order, capped in count."""
-    return [term for term in _TERM_SEPARATORS.split(search) if term][:MAX_SEARCH_TERMS]
+    # An accent can arrive as one character or as a letter followed by a combining mark, and the
+    # combining mark is not a letter, so the second spelling splits "Müller" into "Mu" and "ller".
+    # Composing first makes both spellings one term, and matches the composed form that the
+    # reports themselves are written in.
+    composed = unicodedata.normalize("NFC", search)
+    terms = [term for term in _TERM_SEPARATORS.split(composed) if term and not _SINGLE_LATIN_LETTER.fullmatch(term)]
+    return terms[:MAX_SEARCH_TERMS]
 
 
 def report_search_predicate(terms: list[str], evidence_report_ids_by_term: Mapping[str, set[str]]) -> Q:
@@ -48,9 +68,9 @@ def report_search_predicate(terms: list[str], evidence_report_ids_by_term: Mappi
     the report's own content instead of failing it.
     """
     note_text = Func(
-        Cast(F("content"), output_field=JSONField()),
-        Value("note"),
-        function="jsonb_extract_path_text",
+        F("content"),
+        Value(_NOTE_TEXT_PATTERN),
+        function="substring",
         output_field=TextField(),
     )
     predicate = Q()
@@ -59,8 +79,6 @@ def report_search_predicate(terms: list[str], evidence_report_ids_by_term: Mappi
             SignalReportArtefact.objects.filter(
                 report=OuterRef("pk"),
                 type=SignalReportArtefact.ArtefactType.NOTE,
-                # The cast needs an object, and the guard is what the other artefact readers use.
-                content__startswith="{",
             )
             .annotate(note_text=note_text)
             .filter(note_text__icontains=term)
