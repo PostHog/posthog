@@ -255,7 +255,6 @@ def test_backfills_for_export_lists_every_backfill_oldest_first_within_the_team(
             status=BatchExportBackfill.Status.COMPLETED,
             start_at=IN_WINDOW - dt.timedelta(days=offset),
         )
-        # created_at is auto_now_add, so the ordering a test needs can only be set afterwards.
         BatchExportBackfill.objects.filter(id=backfill_id).update(created_at=IN_WINDOW + dt.timedelta(hours=offset))
         backfill_ids.append(backfill_id)
     other_team = create_team(organization=organization)
