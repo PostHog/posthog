@@ -68,6 +68,10 @@ class _ActionStepPropertiesField(serializers.ListField):
     pass
 
 
+_RE2_QUIET = re2.Options()
+_RE2_QUIET.log_errors = False
+
+
 class ActionStepJSONSerializer(serializers.Serializer):
     event = serializers.CharField(
         required=False,
@@ -140,8 +144,9 @@ class ActionStepJSONSerializer(serializers.Serializer):
             if attrs.get(matching_field) == "regex" and isinstance(value, str) and value:
                 # ClickHouse compiles these with RE2 at query time; reject patterns RE2
                 # cannot compile so one bad step does not 500 every insight using the action.
+                # log_errors=False keeps RE2 from writing the rejected pattern to stderr.
                 try:
-                    re2.compile(value)
+                    re2.compile(value, options=_RE2_QUIET)
                 except re2.error as err:
                     raise serializers.ValidationError({value_field: f"Invalid regular expression: '{value}'"}) from err
         return attrs

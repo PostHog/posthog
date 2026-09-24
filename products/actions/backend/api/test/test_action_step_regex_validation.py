@@ -35,3 +35,10 @@ class TestActionStepRegexRepro:
         data = {"event": "$pageview", field: "/shardlibrary/\\d+\\", matching: non_regex}
         serializer = ActionStepJSONSerializer(data=data)
         assert serializer.is_valid(), serializer.errors
+
+    def test_invalid_regex_is_not_logged(self, capfd):
+        data = {"event": "$pageview", "url": "/token-abc123/\\d+\\", "url_matching": "regex"}
+        serializer = ActionStepJSONSerializer(data=data)
+        assert not serializer.is_valid()
+        _, err = capfd.readouterr()
+        assert "token-abc123" not in err
