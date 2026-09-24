@@ -4,7 +4,7 @@ import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconGraph, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -42,6 +42,7 @@ import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
+import { getSaveAsDisabledReason } from './saveAsDisabledReason'
 import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
@@ -66,6 +67,8 @@ interface QueryWindowProps {
     /** Drop the toolbar's run button, for hosts that offer the run affordance themselves
      * (a notebook code cell runs from the cell's top row). Cmd+Enter still runs. */
     hideRunButton?: boolean
+    /** Embedded mode only: show a save-as-insight button, for hosts whose queries are worth keeping. */
+    showSaveAsInsight?: boolean
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
@@ -87,6 +90,7 @@ export function QueryWindow({
     onCancelQuery,
     cancelQueryLoading,
     hideRunButton,
+    showSaveAsInsight,
     onShareTab,
     autoFocusQueryPane,
 }: QueryWindowProps): JSX.Element {
@@ -342,6 +346,7 @@ export function QueryWindow({
                                 />
                             </LemonMenu>
                         ) : null}
+                        {mode === SQLEditorMode.Embedded && showSaveAsInsight && <EmbeddedSaveAsInsightButton />}
                         {mode === SQLEditorMode.Embedded && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
@@ -605,4 +610,30 @@ function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQ
     }
 
     return <ConnectionSelector tabId={tabId} />
+}
+
+function EmbeddedSaveAsInsightButton(): JSX.Element {
+    const { insightLoading, isSourceQueryLastRun } = useValues(sqlEditorLogic)
+    const { saveAsInsight } = useActions(sqlEditorLogic)
+    const { response, responseError, responseLoading } = useValues(dataNodeLogic)
+    const disabledReason = getSaveAsDisabledReason({
+        insightLoading,
+        isSourceQueryLastRun,
+        responseLoading,
+        responseError,
+        response,
+    })
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconGraph />}
+            onClick={() => saveAsInsight()}
+            disabledReason={disabledReason}
+            data-attr="sql-editor-embedded-save-as-insight"
+        >
+            Save as insight
+        </LemonButton>
+    )
 }
