@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { GENERATED_TOOLS } from '@/tools/generated/web_analytics'
-import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
 const WRAPPERS = ['query-web-overview', 'query-web-stats', 'query-web-vitals'] as const
@@ -25,12 +24,6 @@ async function postedQuery(toolName: string, params: Record<string, unknown>): P
     const { context, runQuery } = createContext()
     await GENERATED_TOOLS[toolName]!().handler(context, params as never)
     return runQuery.mock.calls[0]![0].query as Record<string, unknown>
-}
-
-function jsonExamples(description: string): Record<string, unknown>[] {
-    return [...description.matchAll(/```json\n([\s\S]*?)\n```/g)].map(
-        (match) => JSON.parse(match[1]!) as Record<string, unknown>
-    )
 }
 
 describe('web analytics query wrappers', () => {
@@ -61,22 +54,5 @@ describe('web analytics query wrappers', () => {
         const query = await postedQuery('query-web-vitals', { metric: 'LCP', thresholds: [1000, 2000] })
 
         expect(query.thresholds).toEqual([1000, 2000])
-    })
-
-    describe.each(WRAPPERS)('%s description', (toolName) => {
-        const examples = jsonExamples(getToolDefinition(toolName).description)
-
-        it('carries at least one example', () => {
-            expect(examples.length).toBeGreaterThan(0)
-        })
-
-        it.each(examples.map((example, index) => [index, example]))(
-            'example %i passes the live schema',
-            (_index, example) => {
-                const parsed = GENERATED_TOOLS[toolName]!().schema.safeParse(example)
-
-                expect(parsed.error?.issues ?? []).toEqual([])
-            }
-        )
     })
 })

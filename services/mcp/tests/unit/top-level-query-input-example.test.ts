@@ -22,6 +22,9 @@ const TOP_LEVEL_QUERY_TOOLS = [
     'query-stickiness',
     'query-paths',
     'query-lifecycle',
+    'query-web-overview',
+    'query-web-stats',
+    'query-web-vitals',
 ] as const
 
 const definitions = getToolDefinitions()
