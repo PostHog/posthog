@@ -557,6 +557,17 @@ fn test_initial_utm_properties_always_string() {
     }
 }
 
+#[rstest]
+#[case(Value::from("2026-07-28"))]
+#[case(Value::from("2025-06-18"))]
+#[case(Value::from("draft"))]
+fn test_mcp_protocol_version_always_string(#[case] value: Value) {
+    assert_eq!(
+        detect_property_type("$mcp_protocol_version", &value),
+        Some(PropertyValueType::String)
+    );
+}
+
 #[test]
 fn test_bare_utm_properties_still_string() {
     // bare utm_* properties must still be classified as String
