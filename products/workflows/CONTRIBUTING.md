@@ -379,7 +379,8 @@ Every other caller, including the editor and every MCP surface, may do exactly t
 - `PATCH` `managed_by` on its own, which hands the workflow back to the UI.
 
 The operational actions stay open as well: `rerun`, `run`, `invocations`, `cancel_invocations`, `batch_jobs`, `cancel_batch_job` and `resume_email_sending`.
-`schedules` and `schedule_detail` are refused, because a schedule is part of the trigger and the trigger is in the file.
+`schedules` and `schedule_detail` stay open too, because the app owns a schedule's cadence.
+`onSchedule()` in a workflow file declares a schedule trigger but no cadence, so a person sets the cadence in the app after the first push.
 
 Everything else is refused with a 403 that names the recorded file, with `why` and `fix` in `extra`.
 On any workflow, a request from another caller that sets `managed_by: code` or changes a source field gets the same 403 with the code `immutable`.
