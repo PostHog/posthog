@@ -141,7 +141,8 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
                     loadSends: async (_: void, breakpoint) => {
                         cache.queryVersion = (cache.queryVersion ?? 0) + 1
                         const version = cache.queryVersion
-                        const query = { search: values.recipientSearch, status: values.statusFilter }
+                        // The API trims the search and rejects a blank one, so spaces alone count as no search.
+                        const query = { search: values.recipientSearch.trim(), status: values.statusFilter }
                         let page: MessageAsset[]
                         try {
                             page = await loadPage(query, 0)

@@ -45,4 +45,20 @@ describe('broadcastSentLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.sends.map((send) => send.invocation_id)).toEqual(['bounced-0'])
     })
+
+    it('sends a search of only spaces as no search', async () => {
+        jest.useFakeTimers()
+        try {
+            const logic = broadcastSentLogic({ id: 'flow-1', parentRunId: 'run-1', runCreatedAt: null })
+            logic.mount()
+
+            logic.actions.setRecipientSearch('   ')
+            await jest.advanceTimersByTimeAsync(300)
+
+            expect(requests).toHaveLength(1)
+            expect(requests[0].params.search).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })
