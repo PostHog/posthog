@@ -5,9 +5,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(true)
         .compile_protos(
-            &[format!(
-                "{proto_root}/cymbal/resolution/v1/resolution.proto"
-            )],
+            &[
+                format!("{proto_root}/cymbal/resolution/v1/resolution.proto"),
+                format!("{proto_root}/cymbal/path_resolution/v1/path_resolution.proto"),
+            ],
             &[proto_root],
         )?;
     Ok(())
