@@ -2992,7 +2992,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             colSpanClassName:
                                 removeReplayTile || hiddenTiles.includes(TileId.REPLAY)
                                     ? 'md:col-span-full'
-                                    : 'md:col-span-1 2xl:col-span-2',
+                                    : 'md:col-span-2 2xl:col-span-2',
                         },
                         query: {
                             full: true,
@@ -3058,7 +3058,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               layout: {
                                   colSpanClassName: hiddenTiles.includes(TileId.GOALS)
                                       ? 'md:col-span-full'
-                                      : 'md:col-span-1',
+                                      : 'md:col-span-2 2xl:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
