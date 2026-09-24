@@ -10,7 +10,7 @@ masked. Tool outputs never leave PostHog, and saved insights and error issues re
 options, so their ids stay here too.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from django.conf import settings
 
@@ -202,12 +202,16 @@ def judge_configured() -> bool:
     return bool(settings.TYPESAFE_API_KEY)
 
 
+def _numbered[T](prefix: str, refs: Sequence[T]) -> dict[str, T]:
+    return {f"{prefix}_{index}": ref for index, ref in enumerate(refs, start=1)}
+
+
 def _insight_options(transcript: TurnTranscript) -> dict[str, SavedInsightRef]:
-    return {f"insight_{index}": ref for index, ref in enumerate(transcript.saved_insights, start=1)}
+    return _numbered("insight", transcript.saved_insights)
 
 
 def _issue_options(transcript: TurnTranscript) -> dict[str, ErrorIssueRef]:
-    return {f"issue_{index}": ref for index, ref in enumerate(transcript.error_issues, start=1)}
+    return _numbered("issue", transcript.error_issues)
 
 
 def _insight_label(ref: SavedInsightRef) -> str:

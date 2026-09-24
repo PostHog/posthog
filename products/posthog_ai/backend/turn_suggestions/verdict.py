@@ -50,7 +50,6 @@ class AlertDirection(StrEnum):
 
 @frozen
 class ScoutDraft:
-    KIND: ClassVar[OfferKind] = OfferKind.SCOUT
     WIRE_KEY: ClassVar[str] = "scout"
 
     mode: ScoutMode
@@ -78,7 +77,6 @@ class IncidentOutline:
 
 @frozen
 class NotebookDraft:
-    KIND: ClassVar[OfferKind] = OfferKind.NOTEBOOK
     WIRE_KEY: ClassVar[str] = "notebook"
 
     title: str
@@ -98,7 +96,6 @@ class NotebookDraft:
 
 @frozen
 class AlertDraft:
-    KIND: ClassVar[OfferKind] = OfferKind.ALERT
     WIRE_KEY: ClassVar[str] = "alert"
 
     insight: SavedInsightRef
@@ -111,7 +108,6 @@ class AlertDraft:
 
 @frozen
 class SubscriptionDraft:
-    KIND: ClassVar[OfferKind] = OfferKind.SUBSCRIPTION
     WIRE_KEY: ClassVar[str] = "subscription"
 
     insight: SavedInsightRef
@@ -123,7 +119,6 @@ class SubscriptionDraft:
 
 @frozen
 class ErrorAlertDraft:
-    KIND: ClassVar[OfferKind] = OfferKind.ERROR_ALERT
     WIRE_KEY: ClassVar[str] = "errorAlert"
 
     issue: ErrorIssueRef
@@ -141,10 +136,4 @@ class TurnVerdict:
     show_probability: float
     picked: OfferKind
     offer_probabilities: Mapping[str, float]
-    title: str
-    description: str
     draft: Draft | None
-
-    @property
-    def offer(self) -> OfferKind:
-        return self.draft.KIND if self.draft is not None else OfferKind.NONE

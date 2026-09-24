@@ -5,6 +5,7 @@ and whether a dismissed or accepted card stays hidden after a reload. An evicted
 quietly bring both back.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from enum import StrEnum
 from typing import Any, Literal
@@ -75,9 +76,9 @@ class OfferLedger:
     def offer_at(self, turn_index: int) -> OfferRecord | None:
         return next((offer for offer in self.offers if offer.turn_index == turn_index), None)
 
-    def with_status(self, target: OfferRecord, status: OfferStatus) -> "tuple[OfferLedger, OfferRecord]":
+    def with_status(self, target: OfferRecord, status: OfferStatus) -> "OfferLedger":
         updated = replace(target, status=status)
-        return replace(self, offers=tuple(updated if offer is target else offer for offer in self.offers)), updated
+        return replace(self, offers=tuple(updated if offer is target else offer for offer in self.offers))
 
     @classmethod
     def from_json(cls, raw: Any) -> "OfferLedger":
@@ -117,23 +118,47 @@ def read_ledger(task_id: UUID | str, team_id: int) -> OfferLedger:
     return OfferLedger.from_json(read_task_state_entry(task_id, team_id, STATE_KEY))
 
 
+def _update_ledger[R](
+    task_id: UUID | str, team_id: int, update: Callable[[OfferLedger], tuple[OfferLedger | None, R]]
+) -> R | None:
+    """Row-locked update of the ledger. ``update`` returns ``None`` in place of a ledger to skip the
+    write. Returns ``None`` without calling ``update`` when the task does not exist."""
+
+    def update_raw(raw: Any) -> tuple[Any, R]:
+        ledger, result = update(OfferLedger.from_json(raw))
+        return (raw if ledger is None else ledger.to_json()), result
+
+    return update_task_state_entry(task_id, team_id, STATE_KEY, update_raw)
+
+
+def _claim(
+    task_id: UUID | str, team_id: int, decide: Callable[[OfferLedger], OfferLedger | ClaimRefusal]
+) -> ClaimRefusal | None:
+    """Store the ledger ``decide`` returns, or return the refusal it gives instead."""
+
+    def update(ledger: OfferLedger) -> tuple[OfferLedger | None, ClaimRefusal | Literal[True]]:
+        decision = decide(ledger)
+        return (None, decision) if isinstance(decision, ClaimRefusal) else (decision, True)
+
+    result = _update_ledger(task_id, team_id, update)
+    if result is None:
+        return ClaimRefusal.TASK_MISSING
+    return None if result is True else result
+
+
 def claim_turn(task_id: UUID | str, team_id: int, turn_index: int) -> ClaimRefusal | None:
     """Claim ``turn_index`` for classification, or say why it gets no card.
 
     The check and the claim share one row lock, so two reports of the same turn end in one claim.
     """
 
-    def claim(raw: Any) -> tuple[Any, ClaimRefusal | Literal[True]]:
-        ledger = OfferLedger.from_json(raw)
+    def claim(ledger: OfferLedger) -> OfferLedger | ClaimRefusal:
         refusal = ledger.refusal(turn_index)
         if refusal is not None:
-            return raw, refusal
-        return replace(ledger, last_classified_turn=turn_index).to_json(), True
+            return refusal
+        return replace(ledger, last_classified_turn=turn_index)
 
-    result = update_task_state_entry(task_id, team_id, STATE_KEY, claim)
-    if result is None:
-        return ClaimRefusal.TASK_MISSING
-    return None if result is True else result
+    return _claim(task_id, team_id, claim)
 
 
 def record_offer(
@@ -149,32 +174,27 @@ def record_offer(
     """
     offer = OfferRecord(turn_index=turn_index, run_id=str(run_id), kind=kind, status=OfferStatus.OFFERED)
 
-    def append(raw: Any) -> tuple[Any, ClaimRefusal | Literal[True]]:
-        ledger = OfferLedger.from_json(raw)
+    def append(ledger: OfferLedger) -> OfferLedger | ClaimRefusal:
         if ledger.last_classified_turn != turn_index:
-            return raw, ClaimRefusal.SUPERSEDED
+            return ClaimRefusal.SUPERSEDED
         refusal = ledger.refusal()
         if refusal is not None:
-            return raw, refusal
-        return replace(ledger, offers=(*ledger.offers, offer)).to_json(), True
+            return refusal
+        return replace(ledger, offers=(*ledger.offers, offer))
 
-    result = update_task_state_entry(task_id, team_id, STATE_KEY, append)
-    if result is None:
-        return ClaimRefusal.TASK_MISSING
-    return None if result is True else result
+    return _claim(task_id, team_id, append)
 
 
 def withdraw_offer(task_id: UUID | str, team_id: int, *, turn_index: int) -> None:
     """Drop the recorded card of ``turn_index`` when it never reached the thread, so it spends no budget."""
 
-    def remove(raw: Any) -> tuple[Any, None]:
-        ledger = OfferLedger.from_json(raw)
+    def remove(ledger: OfferLedger) -> tuple[OfferLedger | None, None]:
         offers = tuple(offer for offer in ledger.offers if offer.turn_index != turn_index)
         if len(offers) == len(ledger.offers):
-            return raw, None
-        return replace(ledger, offers=offers).to_json(), None
+            return None, None
+        return replace(ledger, offers=offers), None
 
-    update_task_state_entry(task_id, team_id, STATE_KEY, remove)
+    _update_ledger(task_id, team_id, remove)
 
 
 def resolve_offer(
@@ -187,15 +207,14 @@ def resolve_offer(
     """
     status = OfferStatus(resolution.value)
 
-    def resolve(raw: Any) -> tuple[Any, OfferRecord | None]:
-        ledger = OfferLedger.from_json(raw)
+    def resolve(ledger: OfferLedger) -> tuple[OfferLedger | None, OfferRecord | None]:
         target = ledger.offer_at(turn_index)
         if target is None or target.status != OfferStatus.OFFERED:
-            return raw, None
-        resolved_ledger, resolved = ledger.with_status(target, status)
-        return resolved_ledger.to_json(), resolved
+            return None, None
+        resolved = ledger.with_status(target, status)
+        return resolved, resolved.offer_at(turn_index)
 
-    return update_task_state_entry(task_id, team_id, STATE_KEY, resolve)
+    return _update_ledger(task_id, team_id, resolve)
 
 
 def reopen_offer(task_id: UUID | str, team_id: int, *, turn_index: int) -> None:
@@ -205,11 +224,10 @@ def reopen_offer(task_id: UUID | str, team_id: int, *, turn_index: int) -> None:
     conversation muted when the log still shows the card as open.
     """
 
-    def reopen(raw: Any) -> tuple[Any, None]:
-        ledger = OfferLedger.from_json(raw)
+    def reopen(ledger: OfferLedger) -> tuple[OfferLedger | None, None]:
         target = ledger.offer_at(turn_index)
         if target is None or target.status == OfferStatus.OFFERED:
-            return raw, None
-        return ledger.with_status(target, OfferStatus.OFFERED)[0].to_json(), None
+            return None, None
+        return ledger.with_status(target, OfferStatus.OFFERED), None
 
-    update_task_state_entry(task_id, team_id, STATE_KEY, reopen)
+    _update_ledger(task_id, team_id, reopen)

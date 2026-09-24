@@ -152,13 +152,10 @@ def classify_turn(
         return None
     picked = pick_offer(judgment, available)
     draft = build_draft(picked, judgment, transcript, team_id=team_id, today=today)
-    copy = card_copy(draft) if draft is not None else CardCopy(title="", description="")
     return TurnVerdict(
         intent=judgment.intent,
         show_probability=judgment.show_probability,
         picked=picked,
         offer_probabilities=judgment.offer_probabilities,
-        title=copy.title,
-        description=copy.description,
         draft=draft,
     )

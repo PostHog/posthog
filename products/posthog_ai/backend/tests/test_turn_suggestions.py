@@ -31,7 +31,7 @@ from products.posthog_ai.backend.turn_suggestions.benchmark import (
     parse_endpoints,
     score,
 )
-from products.posthog_ai.backend.turn_suggestions.classifier import classify_turn, pick_offer
+from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, card_copy, classify_turn, pick_offer
 from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
 from products.posthog_ai.backend.turn_suggestions.judgment import (
@@ -225,8 +225,6 @@ def _verdict(offer: OfferKind = OfferKind.SCOUT, intent: TurnIntent = TurnIntent
         show_probability=0.92,
         picked=offer,
         offer_probabilities={offer.value: 0.8},
-        title="Get this in Slack every week",
-        description="A scout runs this analysis again every week and posts the results to Slack.",
         draft=_DRAFTS.get(offer),
     )
 
@@ -237,9 +235,7 @@ class TestBuildTurnTranscript(SimpleTestCase):
 
         assert transcript.human_messages == ("How many signups did we get this week?",)
         assert transcript.assistant_text == "You had 412 signups this week, up 8% on last week."
-        assert [(call.name, call.status, call.from_posthog) for call in transcript.tool_calls] == [
-            ("query-trends", "completed", True)
-        ]
+        assert [(call.name, call.status) for call in transcript.tool_calls] == [("query-trends", "completed")]
         assert '"series"' in transcript.tool_calls[0].args_preview
 
     @parameterized.expand(
@@ -313,9 +309,7 @@ class TestBuildTurnTranscript(SimpleTestCase):
 
         transcript = build_turn_transcript(entries)
 
-        assert [(call.name, call.args_preview, call.from_posthog) for call in transcript.tool_calls] == [
-            ("Bash", "ls -la", False)
-        ]
+        assert [(call.name, call.args_preview) for call in transcript.tool_calls] == [("Bash", "ls -la")]
 
     def test_earlier_turns_are_kept_as_context_and_only_the_last_turn_is_folded(self):
         entries = [
@@ -595,10 +589,12 @@ class TestClassifyTurn(SimpleTestCase):
             _judgment(offer=OfferKind.ALERT, alert_direction=AlertDirection.INCREASE, alert_change_percent=50)
         )
 
-        assert verdict is not None
-        assert verdict.draft == AlertDraft(insight=SAVED_INSIGHT, direction=AlertDirection.INCREASE, change_percent=50)
-        assert verdict.title == "Get an alert when this rises"
-        assert verdict.description == "The alert checks once a day, compares with the day before, and posts to Slack."
+        draft = AlertDraft(insight=SAVED_INSIGHT, direction=AlertDirection.INCREASE, change_percent=50)
+        assert verdict is not None and verdict.draft == draft
+        assert card_copy(draft) == CardCopy(
+            title="Get an alert when this rises",
+            description="The alert checks once a day, compares with the day before, and posts to Slack.",
+        )
         draft_scout_mock.assert_not_called()
         draft_notebook_mock.assert_not_called()
 
@@ -618,7 +614,7 @@ class TestClassifyTurn(SimpleTestCase):
         assert verdict is not None and verdict.draft == draft
         assert draft_scout_mock.call_args.kwargs["mode"] == ScoutMode.WATCH
         assert draft_scout_mock.call_args.kwargs["cadence"] == ScoutCadence.DAILY
-        assert verdict.title == "Get a Slack message when this changes"
+        assert card_copy(draft).title == "Get a Slack message when this changes"
 
     def test_a_failed_draft_keeps_the_pick_but_offers_nothing(self):
         verdict, _, _ = self._classify(_judgment(), scout_draft=None)

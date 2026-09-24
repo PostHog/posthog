@@ -7,7 +7,7 @@ their inner names resolved out of the single-exec ``mcp__posthog__exec`` wrapper
 
 import re
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -41,7 +41,6 @@ class TranscriptToolCall:
     name: str
     args_preview: str
     status: str
-    from_posthog: bool
 
 
 @frozen
@@ -200,6 +199,33 @@ def _resolve_tool(update: dict[str, Any], accumulator: _ToolCallAccumulator) -> 
     accumulator.args_preview = _args_preview(inner_input) if inner_input else ""
 
 
+def _notifications(entries: Iterable[dict[str, Any]]) -> Iterator[tuple[str | None, dict[str, Any]]]:
+    for entry in entries:
+        frame = parse_log_entry(entry)
+        if isinstance(frame, NotificationFrame):
+            params = frame.notification.params
+            yield frame.notification.method, params if isinstance(params, dict) else {}
+
+
+def _human_text(method: str | None, params: dict[str, Any]) -> tuple[str, bool] | None:
+    """The user's text in a ``_posthog/user_message`` frame, paired with ``True``, or in a
+    ``session/prompt`` request, paired with ``False``. ``None`` for any other frame."""
+    if is_user_message_params(params, method):
+        return strip_context_blocks(_text_from_content(params.get("content"))), True
+    if method == "session/prompt":
+        return strip_context_blocks(_text_from_content(params.get("prompt"))), False
+    return None
+
+
+def has_human_message(entries: Iterable[dict[str, Any]]) -> bool:
+    """Whether ``build_turn_transcript`` finds any human message in ``entries``, without folding them."""
+    for method, params in _notifications(entries):
+        human = _human_text(method, params)
+        if human is not None and human[0]:
+            return True
+    return False
+
+
 def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     """Fold stream entries into the transcript of the turn after the last user message.
 
@@ -247,21 +273,13 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
             return
         assistant_messages[key] = assistant_messages.get(key, "") + text
 
-    for entry in entries:
-        frame = parse_log_entry(entry)
-        if not isinstance(frame, NotificationFrame):
-            continue
-        method = frame.notification.method
-        params = frame.notification.params if isinstance(frame.notification.params, dict) else {}
-
-        if is_user_message_params(params, method):
-            text = strip_context_blocks(_text_from_content(params.get("content")))
-            if text:
+    for method, params in _notifications(entries):
+        human = _human_text(method, params)
+        if human is not None:
+            text, is_user_message = human
+            if text and is_user_message:
                 start_turn(text)
-            continue
-        if method == "session/prompt":
-            text = strip_context_blocks(_text_from_content(params.get("prompt")))
-            if text:
+            elif text:
                 prompt_fallbacks.append(text)
             continue
         if method != "session/update":
@@ -310,7 +328,6 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
                 name=accumulator.name or "unknown",
                 args_preview=accumulator.args_preview,
                 status=accumulator.status,
-                from_posthog=accumulator.from_posthog,
             )
             for accumulator in active
         ),

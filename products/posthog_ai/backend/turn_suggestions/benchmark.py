@@ -79,6 +79,10 @@ class BenchmarkCase:
             return Expectation.NOTHING
         return Expectation.EITHER if OfferKind.NONE in self.acceptable else Expectation.OFFER
 
+    @property
+    def want_label(self) -> str:
+        return "nothing" if self.expectation == Expectation.NOTHING else "|".join(sorted(self.acceptable))
+
 
 @frozen
 class SystemOneEndpoint:
@@ -184,8 +188,7 @@ def _transcript_from_case(raw: dict[str, Any]) -> TurnTranscript:
         human_messages=(*(turn.question for turn in earlier), raw["question"]),
         assistant_text=raw["answer"],
         tool_calls=tuple(
-            TranscriptToolCall(name=tool, args_preview="", status=status, from_posthog=True)
-            for tool in raw.get("tools", [])
+            TranscriptToolCall(name=tool, args_preview="", status=status) for tool in raw.get("tools", [])
         ),
         earlier_turns=tuple(earlier),
         saved_insights=tuple(
@@ -255,23 +258,23 @@ def _judge_at_endpoint(case: BenchmarkCase, endpoint: SystemOneEndpoint) -> Turn
 
 def _judge(case: BenchmarkCase, endpoint: SystemOneEndpoint | None) -> CaseResult:
     started = time.monotonic()
+    judgment: TurnJudgment | None = None
+    failure: str | None = None
     if endpoint is None:
         judgment = judge_turn(case.transcript, available=case.available)
-        return CaseResult(case=case, judgment=judgment, seconds=time.monotonic() - started)
-    try:
-        judgment = _judge_at_endpoint(case, endpoint)
-    except requests.HTTPError as error:
-        response = error.response
-        # The start of the body usually names the rejected field, which is what a 400 needs to be fixed.
-        detail = f"HTTP {response.status_code}: {response.text[:200]}" if response is not None else "HTTP error"
-        return CaseResult(case=case, judgment=None, seconds=time.monotonic() - started, error=detail)
-    except requests.RequestException as error:
-        return CaseResult(case=case, judgment=None, seconds=time.monotonic() - started, error=type(error).__name__)
-    except (KeyError, TypeError, ValueError, AttributeError) as error:
-        # A malformed answer, such as a choice outside the options, fails only this case.
-        message = f"malformed answer: {type(error).__name__} {error}"
-        return CaseResult(case=case, judgment=None, seconds=time.monotonic() - started, error=message)
-    return CaseResult(case=case, judgment=judgment, seconds=time.monotonic() - started)
+    else:
+        try:
+            judgment = _judge_at_endpoint(case, endpoint)
+        except requests.HTTPError as error:
+            response = error.response
+            # The start of the body usually names the rejected field, which is what a 400 needs to be fixed.
+            failure = f"HTTP {response.status_code}: {response.text[:200]}" if response is not None else "HTTP error"
+        except requests.RequestException as error:
+            failure = type(error).__name__
+        except (KeyError, TypeError, ValueError, AttributeError) as error:
+            # A malformed answer, such as a choice outside the options, fails only this case.
+            failure = f"malformed answer: {type(error).__name__} {error}"
+    return CaseResult(case=case, judgment=judgment, seconds=time.monotonic() - started, error=failure)
 
 
 def run_cases(

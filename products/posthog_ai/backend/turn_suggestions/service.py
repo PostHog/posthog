@@ -6,14 +6,14 @@ stream the thread renders from, so the card appears under the answer without the
 """
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 
-from products.posthog_ai.backend.turn_suggestions.classifier import classify_turn
+from products.posthog_ai.backend.turn_suggestions.classifier import card_copy, classify_turn
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL
 from products.posthog_ai.backend.turn_suggestions.judgment import JUDGE_MODEL, judge_configured
 from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
@@ -25,7 +25,11 @@ from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
     resolve_offer,
     withdraw_offer,
 )
-from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, build_turn_transcript
+from products.posthog_ai.backend.turn_suggestions.transcript import (
+    TurnTranscript,
+    build_turn_transcript,
+    has_human_message,
+)
 from products.posthog_ai.backend.turn_suggestions.verdict import OfferKind, TurnVerdict
 from products.signals.backend.facade.api import scout_creation_available
 from products.tasks.backend.facade.api import (
@@ -39,6 +43,9 @@ from products.tasks.backend.facade.api import (
 )
 from products.tasks.backend.facade.streams import TaskRunStreamBacklogIndex
 from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -65,10 +72,7 @@ def _skipped(reason: str) -> TurnSuggestionOutcome:
     return TurnSuggestionOutcome(status="skipped", reason=reason)
 
 
-def _turn_suggestions_enabled(task_run: TaskRun) -> bool:
-    user = task_run.task.created_by
-    if user is None:
-        return False
+def _turn_suggestions_enabled(task_run: TaskRun, user: "User") -> bool:
     organization_id = str(task_run.team.organization_id)
     return feature_enabled_or_false(
         TURN_SUGGESTIONS_FLAG,
@@ -96,8 +100,8 @@ def _load_transcript(task_run: TaskRun) -> TurnTranscript | None:
     stream_entries = read_task_run_stream_entries(task_run.id, task_run.task_id, task_run.team_id)
     # An agent that stamps no ids keeps the whole run in an untrimmed stream, which then stands in
     # for the run's own log while it lasts.
-    stream_is_whole_run = not any(entry.get("event_id") for entry in stream_entries) and bool(
-        build_turn_transcript(stream_entries).human_messages
+    stream_is_whole_run = not any(entry.get("event_id") for entry in stream_entries) and has_human_message(
+        stream_entries
     )
     logs_to_read = log_urls[:-1] if stream_is_whole_run else log_urls
     if logs_to_read and get_task_run_log_size(logs_to_read) > MAX_TRANSCRIPT_LOG_BYTES:
@@ -128,32 +132,24 @@ def available_offers(transcript: TurnTranscript, *, scouts_available: bool) -> f
     return frozenset(offers)
 
 
-def _available_offers(task_run: TaskRun, transcript: TurnTranscript) -> frozenset[OfferKind]:
-    user = task_run.task.created_by
-    scouts_available = user is not None and scout_creation_available(team=task_run.team, user=user)
-    return available_offers(transcript, scouts_available=scouts_available)
-
-
 def _suggestion_params(verdict: TurnVerdict, turn_index: int) -> dict | None:
     if verdict.draft is None:
         return None
+    copy = card_copy(verdict.draft)
     return {
         "turnIndex": turn_index,
-        "kind": verdict.offer.value,
+        "kind": verdict.picked.value,
         "intent": verdict.intent.value,
         "confidence": verdict.show_probability,
-        "title": verdict.title,
-        "description": verdict.description,
+        "title": copy.title,
+        "description": copy.description,
         verdict.draft.WIRE_KEY: verdict.draft.to_params(),
     }
 
 
 def _capture_classified(
-    task_run: TaskRun, verdict: TurnVerdict | None, *, offer: str | None, emitted: bool, turn_index: int
+    task_run: TaskRun, user: "User", verdict: TurnVerdict | None, *, emitted: bool, turn_index: int
 ) -> None:
-    user = task_run.task.created_by
-    if user is None:
-        return
     try:
         with ph_scoped_capture() as capture:
             capture(
@@ -170,7 +166,7 @@ def _capture_classified(
                     "picked": verdict.picked.value if verdict else None,
                     "show_probability": verdict.show_probability if verdict else None,
                     "offer_probabilities": dict(verdict.offer_probabilities) if verdict else None,
-                    "offer": offer,
+                    "offer": verdict.picked.value if verdict and verdict.draft else None,
                     "emitted": emitted,
                 },
             )
@@ -194,12 +190,13 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     # fail the check above; PostHog Desktop ones carry the Desktop client provenance.
     if task.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP:
         return _skipped("not_started_in_web")
-    if task.created_by is None:
+    user = task.created_by
+    if user is None:
         return _skipped("no_user")
     # The judgment and the drafter send conversation text to third-party AI services.
     if task_run.team.organization.is_ai_data_processing_approved is not True:
         return _skipped("ai_data_processing_not_approved")
-    if not _turn_suggestions_enabled(task_run):
+    if not _turn_suggestions_enabled(task_run, user):
         return _skipped("flag_off")
     if not judge_configured():
         return _skipped("judge_not_configured")
@@ -220,34 +217,34 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         return _skipped(refusal.value)
     if not transcript.assistant_text and not transcript.tool_calls:
         return _skipped("empty_turn")
-    available = _available_offers(task_run, transcript)
+    available = available_offers(transcript, scouts_available=scout_creation_available(team=task_run.team, user=user))
     if not available:
         return _skipped("no_offers_available")
 
     verdict = classify_turn(transcript, team_id=task_run.team_id, today=datetime.now(UTC).date(), available=available)
     if verdict is None:
-        _capture_classified(task_run, None, offer=None, emitted=False, turn_index=turn_index)
+        _capture_classified(task_run, user, None, emitted=False, turn_index=turn_index)
         return TurnSuggestionOutcome(status="failed", reason="classifier_failed")
 
     params = _suggestion_params(verdict, turn_index)
     if params is None:
-        _capture_classified(task_run, verdict, offer=None, emitted=False, turn_index=turn_index)
+        _capture_classified(task_run, user, verdict, emitted=False, turn_index=turn_index)
         if verdict.picked != OfferKind.NONE:
             return TurnSuggestionOutcome(status="failed", reason="draft_failed")
         return _skipped(f"no_offer:{verdict.intent.value}")
 
-    offer = verdict.offer.value
+    offer = verdict.picked.value
     # Record before publishing, so a next turn that completes while the frame is in flight already sees the card.
     record_refusal = record_offer(task.id, task_run.team_id, run_id=task_run.id, turn_index=turn_index, kind=offer)
     if record_refusal is not None:
-        _capture_classified(task_run, verdict, offer=offer, emitted=False, turn_index=turn_index)
+        _capture_classified(task_run, user, verdict, emitted=False, turn_index=turn_index)
         return _skipped(record_refusal.value)
     # Publishing also appends to the run's S3 log, a rewrite of the whole log; the offer ledger is
     # what keeps that to a couple of times per conversation.
     emitted = publish_task_run_stream_notification(
         task_run.id, task_run.task_id, task_run.team_id, TURN_SUGGESTION_METHOD, params
     ).delivered
-    _capture_classified(task_run, verdict, offer=offer, emitted=emitted, turn_index=turn_index)
+    _capture_classified(task_run, user, verdict, emitted=emitted, turn_index=turn_index)
     if not emitted:
         withdraw_offer(task.id, task_run.team_id, turn_index=turn_index)
         return TurnSuggestionOutcome(status="failed", reason="publish_failed")

@@ -51,6 +51,10 @@ def _percent(value: float | None) -> str:
     return "  -" if value is None else f"{value * 100:3.0f}%"
 
 
+def _f1(value: float | None) -> str:
+    return "   -" if value is None else f"{value:.2f}"
+
+
 ENDPOINTS_VARIABLE = "TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS"
 DEFAULT_TARGET_OFFER_RATE = 0.45
 
@@ -190,7 +194,7 @@ class Command(BaseCommand):
         target: float = options["target_offer_rate"]
         closest = closest_to_offer_rate(results, target)
         if closest is not None:
-            f1 = f"{closest.f1:.2f}" if closest.f1 is not None else "-"
+            f1 = _f1(closest.f1).strip()
             self.stdout.write(
                 self.style.SUCCESS(
                     f"\nClosest to a {_percent(target).strip()} offer rate: threshold {closest.threshold:.2f} offers on "
@@ -245,7 +249,7 @@ class Command(BaseCommand):
             current = score(run.results, threshold)
             best = best_threshold(sweep(run.results))
             failed = sum(1 for result in run.results if result.judgment is None)
-            f1 = f"{current.f1:.2f}" if current.f1 is not None else "   -"
+            f1 = _f1(current.f1)
             best_f1 = f"{best.f1:.2f} at {best.threshold:.2f}" if best is not None and best.f1 is not None else "-"
             agrees = "    -" if run is reference else f"{_percent(agreement(run, threshold, reference, threshold))} "
             median = statistics.median(result.seconds for result in run.results)
@@ -270,7 +274,7 @@ class Command(BaseCommand):
         for run, entry, run_threshold in zip(runs, matched, thresholds):
             if entry is None:
                 continue
-            f1 = f"{entry.f1:.2f}" if entry.f1 is not None else "   -"
+            f1 = _f1(entry.f1)
             agrees = (
                 "    -"
                 if run is reference
@@ -303,7 +307,7 @@ class Command(BaseCommand):
         self.stdout.write(header)
         for row in rows:
             case = row[0].case
-            want = "nothing" if case.expectation == Expectation.NOTHING else "|".join(sorted(case.acceptable))
+            want = case.want_label
             cells = "".join(
                 f"  {self._cell(result, threshold):{w}}" for result, threshold, w in zip(row, thresholds, widths)
             )
@@ -326,7 +330,7 @@ class Command(BaseCommand):
     def _print_result(self, result: CaseResult, threshold: float) -> None:
         case = result.case
         outcome = result.outcome(threshold)
-        want = "nothing" if case.expectation == Expectation.NOTHING else "|".join(sorted(case.acceptable))
+        want = case.want_label
         line = f"{_MARKS[outcome]} {case.name:28} want {want:24}"
         judgment = result.judgment
         if judgment is None:
@@ -384,7 +388,7 @@ class Command(BaseCommand):
         best = best_threshold(scores)
         self.stdout.write("\nthreshold  offer rate  precision  recall    F1   false offers  missed  wrong kind")
         for entry in scores:
-            f1 = f"{entry.f1:.2f}" if entry.f1 is not None else "   -"
+            f1 = _f1(entry.f1)
             row = (
                 f"  {entry.threshold:.2f}       {_percent(entry.offer_rate)}       {_percent(entry.precision)}"
                 f"     {_percent(entry.recall)}   {f1}   {entry.false_offers:12}  {entry.missed:6}  {entry.wrong_kind:10}"
