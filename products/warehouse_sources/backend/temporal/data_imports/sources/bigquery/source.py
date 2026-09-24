@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -35,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     resolve_bigquery_auth,
     validate_bigquery_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import config as source_config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -42,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQueryAuthTypeConfigKeyFileConfig,
     BigQuerySourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -49,6 +52,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 __all__ = ["BigQuerySource", "build_destination_table_prefix"]
 
 _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
+
+# Every field of the key file is read out of the JSON the user uploads, never typed into the form,
+# so the generic "Required field ..." error for one names something they have no way to fill in.
+_KEY_FILE_FIELD_NAMES = tuple(field.name for field in dataclasses.fields(BigQueryAuthTypeConfigKeyFileConfig))
+_KEY_FILE_FIELD_ERRORS = frozenset(source_config.missing_field_error(name) for name in _KEY_FILE_FIELD_NAMES)
+_MISSING_KEY_FILE_ERROR = "Upload a Google Cloud service account JSON key file."
+_INCOMPLETE_KEY_FILE_ERROR = (
+    "That file is not a complete Google Cloud service account key. Upload the JSON key file "
+    "exactly as you downloaded it, then try again."
+)
 
 
 @SourceRegistry.register
@@ -392,19 +405,36 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         is_valid, errors = super().validate_config(job_inputs)
 
+        # An empty `key_file` object reaches us both when the upload produced nothing and when the
+        # form sends the option the user did not pick, so on its own it says nothing worth showing.
+        if any(error in _KEY_FILE_FIELD_ERRORS for error in errors):
+            errors = [error for error in errors if error not in _KEY_FILE_FIELD_ERRORS]
+            is_valid = not errors
+
         # The credential fields under each option are optional on the form, because the option the
         # user did not pick must not block the save. That makes this the only check that stops a
         # source being created with no credentials at all.
         auth_type = job_inputs.get("auth_type")
-        if not isinstance(auth_type, dict):
+        selection: str | None
+        credentials: dict
+        if isinstance(auth_type, str):
+            # A select container also arrives as the bare string naming the chosen option, and
+            # then its fields sit at the top level of the payload rather than under it.
+            selection, credentials = auth_type, job_inputs
+        elif isinstance(auth_type, dict):
+            selection, credentials = auth_type.get("selection"), auth_type
+        else:
             return is_valid, errors
 
-        if auth_type.get("selection") == "key_file":
-            key_file = auth_type.get("key_file")
+        if selection == "key_file":
+            key_file = credentials.get("key_file")
             if not isinstance(key_file, dict) or not any(key_file.values()):
-                errors.append("Upload a Google Cloud service account JSON key file.")
+                errors.append(_MISSING_KEY_FILE_ERROR)
                 is_valid = False
-        elif auth_type.get("google_cloud_service_account_integration_id") in (None, ""):
+            elif not all(key_file.get(name) for name in _KEY_FILE_FIELD_NAMES):
+                errors.append(_INCOMPLETE_KEY_FILE_ERROR)
+                is_valid = False
+        elif credentials.get("google_cloud_service_account_integration_id") in (None, ""):
             errors.append("Pick a Google Cloud service account.")
             is_valid = False
 
