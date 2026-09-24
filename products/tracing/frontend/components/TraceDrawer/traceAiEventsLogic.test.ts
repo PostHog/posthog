@@ -50,6 +50,16 @@ describe('traceAiEventsLogic', () => {
         expect(mockAiEventsRetrieve.mock.calls[0][1]).toBe(PROPS.traceId!.toLowerCase())
     })
 
+    // On a cold page load the flag can arrive from posthog-js after the trace has loaded.
+    it('fetches once the flag turns on after mount', async () => {
+        await mount({}, false)
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_AI_EVENTS]: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockAiEventsRetrieve).toHaveBeenCalledTimes(1)
+    })
+
     // The endpoint must stay uncalled while the flag is off, and for an all-zero id, which is
     // OpenTelemetry's "no id" sentinel.
     it.each([
