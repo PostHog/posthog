@@ -380,6 +380,10 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
             except Exception as e:
                 base.capture_exception(e)
+                external_status = ExternalWebhookInfo(
+                    exists=False,
+                    error="PostHog couldn't read this source's webhook to check its status. Check the source's credentials, then reload.",
+                )
 
         schema_mapping = {}
         if hog_function.inputs:

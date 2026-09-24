@@ -13,6 +13,7 @@ export interface terminalDockLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     dockOpen: boolean
     hasOpened: boolean
+    requestedFolder: string | null
     terminalEnabled: boolean
 }
 
@@ -21,8 +22,14 @@ export interface terminalDockLogicActions {
     focusTerminal: () => {
         value: true
     }
+    openInTerminal: (folder: string) => {
+        folder: string
+    }
     setDockOpen: (open: boolean) => {
         open: boolean
+    }
+    setRequestedFolder: (folder: string | null) => {
+        folder: string | null
     }
     toggleTerminal: () => {
         value: true
@@ -47,11 +54,14 @@ export const terminalDockLogic = kea<terminalDockLogicType>([
     path(['scenes', 'terminal', 'terminalDockLogic']),
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
     actions({
+        openInTerminal: (folder: string) => ({ folder }),
+        setRequestedFolder: (folder: string | null) => ({ folder }),
         toggleTerminal: true,
         focusTerminal: true,
         setDockOpen: (open: boolean) => ({ open }),
     }),
     reducers({
+        requestedFolder: [null as string | null, { setRequestedFolder: (_, { folder }) => folder }],
         dockOpen: [false, { setDockOpen: (_, { open }) => open }],
         hasOpened: [false, { setDockOpen: (state, { open }) => state || open }],
     }),
@@ -62,6 +72,14 @@ export const terminalDockLogic = kea<terminalDockLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        openInTerminal: ({ folder }) => {
+            if (!values.terminalEnabled) {
+                return
+            }
+            actions.setRequestedFolder(folder)
+            actions.setDockOpen(true)
+            actions.focusTerminal()
+        },
         toggleTerminal: () => {
             if (!values.terminalEnabled) {
                 return

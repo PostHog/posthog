@@ -21,12 +21,10 @@ read layer maps them into these types. Reviewers and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
-from collections.abc import Mapping
 from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
-from owners_yaml.schema import TeamEntry
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
@@ -245,6 +243,32 @@ class GitHubSource:
     # read it). The default (unscoped) page should select the first synced entry, so its label matches
     # the repo the backend actually resolves — a still-backfilling repo listed first must not mislabel it.
     synced: bool = False
+
+
+@dataclass(frozen=True)
+class GitHubTeamMembership:
+    """One person's membership of one GitHub org team, read from the synced roster snapshot."""
+
+    # The member's GitHub login, lowercased so a reader can match it against a stored identity.
+    member_handle: str
+    team_slug: str
+    team_name: str
+    # False whenever the snapshot cannot say otherwise: GitHub omits the role column on some syncs.
+    is_maintainer: bool
+
+
+@dataclass(frozen=True)
+class GitHubTeamRoster:
+    """Every synced org team membership, and whether there was a snapshot to read at all.
+
+    ``synced`` is false when no connected source carries the membership endpoint. It is off by
+    default and needs the org Members grant, so a caller must be able to say "the roster isn't
+    synced here" rather than read an empty result as "that team has nobody on it". The snapshot is
+    also only as fresh as the source's last sync, so it can lag the live team.
+    """
+
+    memberships: tuple[GitHubTeamMembership, ...]
+    synced: bool
 
 
 @dataclass(frozen=True)
@@ -661,9 +685,6 @@ class FlakyTestList:
 # How long a Trunk quarantine may stand before the scoreboard calls it overdue. Trunk itself never
 # expires a quarantine, so this deadline is the product's own accountability bar.
 TRUNK_QUARANTINE_TTL_DAYS = 15
-
-# The first-class team every unattributed test aggregates under, on every surface here.
-UNOWNED_TEAM = "unowned"
 
 
 @dataclass(frozen=True)
@@ -1572,21 +1593,6 @@ class WorkflowJobAggregate:
     retry_job_count: int
     billable_minutes: float | None
     estimated_cost_usd: float | None
-
-
-@dataclass(frozen=True)
-class PathOwnership:
-    """Which team owns each repository path, plus the repo's Slack registry from the root ``owners.yaml``.
-    The registry rides along because the caller that asks who owns a path usually has to reach that
-    team next, and the root file answers both questions in one read.
-
-    ``resolved`` is false when the ownership files could not be read; every path is then
-    ``UNOWNED_TEAM`` and the registry is empty. A caller that says so beats one that reads the blind
-    answer as "nobody owns this"."""
-
-    team_by_path: Mapping[str, str]
-    registry: Mapping[str, TeamEntry]
-    resolved: bool
 
 
 class DeliveryScopeKind(StrEnum):
