@@ -30,6 +30,13 @@ class TestPageVariants(SimpleTestCase):
         assert variants[0].summary()["clicks"] == [{"x": 16, "y": 24, "count": 2}]
         assert variants[1].summary()["clicks"] == [{"x": 16, "y": 24, "count": 1}]
 
+    def test_signatures_that_join_to_the_same_text_get_distinct_ids(self) -> None:
+        first, second = recording(), recording()
+        first.states[0].signature = ["A", "B:C"]
+        second.states[0].signature = ["A:B", "C"]
+        variants = group_page_states({"a": first, "b": second})
+        assert len({variant.id for variant in variants}) == 2
+
     def test_viewports_and_repeated_states_do_not_inflate_visits(self) -> None:
         first = recording()
         first.states.append(first.states[0].model_copy(update={"timestamp": 2000, "clicks": []}))

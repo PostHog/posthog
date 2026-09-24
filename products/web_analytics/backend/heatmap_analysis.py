@@ -1,3 +1,4 @@
+import json
 import hashlib
 from collections import defaultdict
 
@@ -157,7 +158,7 @@ def group_page_states(recordings: dict[str, RecordingAnalysis]) -> list[PageVari
         if matched:
             matched.members.append(member)
         else:
-            identity = f"{ALGORITHM_VERSION}:{state.width}:{state.height}:" + ":".join(sorted(state.signature))
+            identity = json.dumps([ALGORITHM_VERSION, state.width, state.height, sorted(state.signature)])
             variant = PageVariant(
                 id=state.variant_id or hashlib.sha256(identity.encode()).hexdigest()[:24], members=[member]
             )
