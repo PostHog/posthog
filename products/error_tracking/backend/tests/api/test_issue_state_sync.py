@@ -1,6 +1,6 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.facade.testing import create_role
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 
@@ -68,14 +68,14 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
 
     def test_assign_role_syncs(self):
         issue = self._create_issue(fingerprints=["fp_1"])
-        role = Role.objects.create(name="Eng role", organization=self.organization)
+        role_id = create_role(organization_id=self.organization.id, name="Eng role")
         self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
-            data={"assignee": {"id": str(role.id), "type": "role"}},
+            data={"assignee": {"id": str(role_id), "type": "role"}},
         )
         rows = self._get_issue_state_rows()
         assert len(rows) == 1
-        assert str(rows[0][5]) == str(role.id)  # assigned_role_id
+        assert str(rows[0][5]) == str(role_id)  # assigned_role_id
 
     def test_status_change_syncs(self):
         issue = self._create_issue(fingerprints=["fp_1"])

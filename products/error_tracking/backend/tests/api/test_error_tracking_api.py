@@ -28,7 +28,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.facade.testing import add_role_member, create_role
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -234,9 +234,9 @@ class TestErrorTracking(APIBaseTest):
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
             expected_id, expected_python_type = self.user.id, int
         else:
-            role = Role.objects.create(name="Eng role", organization=self.organization)
-            ErrorTrackingIssueAssignment.objects.create(issue=issue, role=role)
-            expected_id, expected_python_type = str(role.id), str
+            role_id = create_role(organization_id=self.organization.id, name="Eng role")
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, role_id=role_id)
+            expected_id, expected_python_type = str(role_id), str
 
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
 
@@ -1361,8 +1361,8 @@ class TestErrorTracking(APIBaseTest):
         issue_two = self.create_issue()
 
         ErrorTrackingIssueAssignment.objects.create(issue=issue_one, user=self.user)
-        role = Role.objects.create(name="Team role", organization=self.organization)
-        role.members.set([self.user])
+        role_id = create_role(organization_id=self.organization.id, name="Team role")
+        add_role_member(role_id=role_id, user_id=self.user.id)
 
         before_update = timezone.now()
         self.client.post(
@@ -1370,14 +1370,14 @@ class TestErrorTracking(APIBaseTest):
             data={
                 "ids": [issue_one.id, issue_two.id],
                 "action": "assign",
-                "assignee": {"id": role.id, "type": "role"},
+                "assignee": {"id": role_id, "type": "role"},
             },
         )
         after_update = timezone.now()
 
         self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
         self.assertEqual(
-            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
+            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role_id=role_id)), 2
         )
         issue_one.refresh_from_db()
         issue_two.refresh_from_db()
