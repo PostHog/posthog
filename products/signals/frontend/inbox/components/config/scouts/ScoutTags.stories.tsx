@@ -37,6 +37,7 @@ const config: SignalScoutConfigApi = {
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     tags: ['on-call', 'revenue'],
     source_product: null,
     source_id: null,
