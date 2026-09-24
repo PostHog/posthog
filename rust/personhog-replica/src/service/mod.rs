@@ -11,42 +11,46 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
-    CountCohortMembersRequest, CountCohortMembersResponse, CountGroupTypeMappingsRequest,
-    CountGroupTypeMappingsResponse, CreateGroupRequest, CreateGroupResponse,
-    DeleteCohortMemberRequest, DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest,
-    DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
-    DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
-    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
+    CohortMembership, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
+    DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
+    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
+    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
-    GroupTypeMappingsBatchResponse, GroupTypeMappingsByKey, GroupTypeMappingsResponse,
-    GroupWithKey, GroupsResponse, HashKeyOverride,
-    HashKeyOverrideContext as ProtoHashKeyOverrideContext, InsertCohortMembersRequest,
-    InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
-    ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
-    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
-    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
-    SplitResult as ProtoSplitResult, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupKey,
+    GroupTypeMapping, GroupTypeMappingCount, GroupTypeMappingsBatchResponse,
+    GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
+    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
+    PersonTombstoneQueueEntry, PersonWithDistinctIds, PersonWithTeamDistinctId,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId,
+    TombstonedPerson, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use crate::storage::types::DeletePersonsMode;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
@@ -318,12 +322,23 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
         let limit = req.limit.filter(|&l| l > 0);
+        let cursor_id = req.cursor_id;
 
         let distinct_ids = self
             .storage
-            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit)
+            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit, cursor_id)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_person"))?;
+
+        let next_cursor_id = if let Some(l) = limit {
+            if distinct_ids.len() as i64 >= l {
+                distinct_ids.last().map(|d| d.id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(Response::new(GetDistinctIdsForPersonResponse {
             distinct_ids: distinct_ids
@@ -331,8 +346,10 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .map(|d| DistinctIdWithVersion {
                     distinct_id: d.distinct_id,
                     version: d.version,
+                    id: Some(d.id),
                 })
                 .collect(),
+            next_cursor_id,
         }))
     }
 
@@ -364,6 +381,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
                     version: mapping.version,
+                    id: None,
                 });
         }
 
@@ -403,13 +421,37 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        let deleted_count = self
+        let mode = match ProtoDeletePersonsMode::try_from(req.mode) {
+            Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Hard,
+            Ok(ProtoDeletePersonsMode::Hard) => DeletePersonsMode::Hard,
+            Ok(ProtoDeletePersonsMode::Tombstone) => DeletePersonsMode::Tombstone,
+            Err(_) => {
+                return Err(Status::invalid_argument(format!(
+                    "Unknown DeletePersonsMode {}",
+                    req.mode
+                )))
+            }
+        };
+
+        let outcome = self
             .storage
-            .delete_persons(req.team_id, &uuids)
+            .delete_persons(req.team_id, &uuids, mode)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 
-        Ok(Response::new(DeletePersonsResponse { deleted_count }))
+        let tombstoned = outcome.tombstones.is_some();
+        let tombstones = outcome
+            .tombstones
+            .unwrap_or_default()
+            .into_iter()
+            .map(tombstone_to_proto)
+            .collect();
+
+        Ok(Response::new(DeletePersonsResponse {
+            deleted_count: outcome.deleted,
+            tombstoned,
+            tombstones,
+        }))
     }
 
     async fn delete_persons_batch_for_team(
@@ -432,6 +474,101 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count,
+        }))
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        request: Request<GetPersonTombstonesRequest>,
+    ) -> Result<Response<GetPersonTombstonesResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_uuids.len() > 1000 {
+            return Err(Status::invalid_argument(
+                "Maximum 1000 person UUIDs per request",
+            ));
+        }
+
+        let uuids: Vec<Uuid> = req
+            .person_uuids
+            .iter()
+            .map(|s| Uuid::parse_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+
+        let tombstones = self
+            .storage
+            .get_person_tombstones(req.team_id, &uuids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "get_person_tombstones"))?;
+
+        Ok(Response::new(GetPersonTombstonesResponse {
+            tombstones: tombstones.into_iter().map(tombstone_to_proto).collect(),
+        }))
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        request: Request<AckPersonTombstonesRequest>,
+    ) -> Result<Response<AckPersonTombstonesResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.tombstones.len() > 1000 {
+            return Err(Status::invalid_argument(
+                "Maximum 1000 tombstones per request",
+            ));
+        }
+
+        let acked: Vec<(Uuid, i64)> = req
+            .tombstones
+            .iter()
+            .map(|t| Uuid::parse_str(&t.person_uuid).map(|uuid| (uuid, t.version)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+
+        let cleared_count = self
+            .storage
+            .ack_person_tombstones(req.team_id, &acked)
+            .await
+            .map_err(|e| log_and_convert_error(e, "ack_person_tombstones"))?;
+
+        Ok(Response::new(AckPersonTombstonesResponse { cleared_count }))
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        request: Request<ListPersonTombstoneQueueRequest>,
+    ) -> Result<Response<ListPersonTombstoneQueueResponse>, Status> {
+        let req = request.into_inner();
+
+        let limit = match req.limit {
+            0 => 1000,
+            1..=1000 => req.limit,
+            _ => return Err(Status::invalid_argument("limit must be between 0 and 1000")),
+        };
+        let after_uuid = if req.after_person_uuid.is_empty() {
+            Uuid::nil()
+        } else {
+            Uuid::parse_str(&req.after_person_uuid)
+                .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?
+        };
+
+        let entries = self
+            .storage
+            .list_person_tombstone_queue((req.after_team_id, after_uuid), req.team_id, limit)
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_person_tombstone_queue"))?;
+
+        Ok(Response::new(ListPersonTombstoneQueueResponse {
+            entries: entries
+                .into_iter()
+                .map(|entry| PersonTombstoneQueueEntry {
+                    team_id: entry.team_id,
+                    person_uuid: entry.person_uuid.to_string(),
+                    person_version: entry.person_version,
+                    tombstoned_at: entry.tombstoned_at_ms,
+                })
+                .collect(),
         }))
     }
 
@@ -1374,5 +1511,20 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "set_person_version_floor"))?;
 
         Ok(Response::new(SetPersonVersionFloorResponse { updated }))
+    }
+}
+
+fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPerson {
+    TombstonedPerson {
+        person_uuid: person.uuid.to_string(),
+        version: person.version,
+        distinct_ids: person
+            .distinct_ids
+            .into_iter()
+            .map(|did| TombstonedDistinctId {
+                distinct_id: did.distinct_id,
+                version: did.version,
+            })
+            .collect(),
     }
 }

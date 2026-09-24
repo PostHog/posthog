@@ -1,13 +1,7 @@
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
-import {
-    DATA_WAREHOUSE_UNLINKABLE_REASON,
-    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
-    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
-    METRIC_UNLINKABLE_REASON,
-    RETENTION_UNLINKABLE_REASON,
-} from '../utils'
-import { METRIC_WITHOUT_UUID_REASON, getMetricRecordingModes } from './experimentRecordingModes'
+import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
+import { METRIC_UNSELECTABLE_COPY, getMetricRecordingModes } from './experimentRecordingModes'
 
 const meanMetric = (source: Record<string, unknown>): ExperimentMetric =>
     ({
@@ -44,6 +38,7 @@ describe('getMetricRecordingModes', () => {
             unlinkable: [],
             expected: {
                 metricSelectable: true,
+                unselectableCode: null,
                 defaultMode: 'funnel_completed',
                 labels: ['Finished funnel', "Didn't finish funnel"],
                 disabledReasons: [null, null],
@@ -57,6 +52,7 @@ describe('getMetricRecordingModes', () => {
             unlinkable: ['checkout_finished'],
             expected: {
                 metricSelectable: true,
+                unselectableCode: null,
                 defaultMode: 'fired_all',
                 labels: ['Finished funnel', "Didn't finish funnel"],
                 disabledReasons: [FUNNEL_SERVER_SIDE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON],
@@ -71,6 +67,7 @@ describe('getMetricRecordingModes', () => {
             unlinkable: [],
             expected: {
                 metricSelectable: true,
+                unselectableCode: null,
                 defaultMode: 'fired_all',
                 labels: ['Finished funnel', "Didn't finish funnel"],
                 disabledReasons: [FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON],
@@ -82,6 +79,7 @@ describe('getMetricRecordingModes', () => {
             unlinkable: [],
             expected: {
                 metricSelectable: true,
+                unselectableCode: null,
                 defaultMode: 'fired_all',
                 labels: ['Fired purchase', "Didn't fire purchase"],
                 disabledReasons: [null, null],
@@ -95,6 +93,7 @@ describe('getMetricRecordingModes', () => {
             unlinkable: [],
             expected: {
                 metricSelectable: true,
+                unselectableCode: null,
                 defaultMode: 'fired_all',
                 labels: ['Fired metric events', "Didn't fire metric events"],
                 disabledReasons: [null, null],
@@ -108,6 +107,7 @@ describe('getMetricRecordingModes', () => {
             unlinkable: [],
             expected: {
                 metricSelectable: true,
+                unselectableCode: null,
                 defaultMode: 'fired_all',
                 labels: ['Fired revenue or $pageview', "Didn't fire revenue or $pageview"],
                 disabledReasons: [null, null],
@@ -119,6 +119,7 @@ describe('getMetricRecordingModes', () => {
             unlinkable: [],
             expected: {
                 metricSelectable: true,
+                unselectableCode: null,
                 defaultMode: 'fired_all',
                 labels: ['Fired purchase', "Didn't fire purchase"],
                 disabledReasons: [null, null],
@@ -132,7 +133,11 @@ describe('getMetricRecordingModes', () => {
                 metricSelectable: false,
                 defaultMode: null,
                 labels: ['Fired purchase', "Didn't fire purchase"],
-                disabledReasons: [METRIC_UNLINKABLE_REASON, METRIC_UNLINKABLE_REASON],
+                unselectableCode: 'server_side_events',
+                disabledReasons: [
+                    METRIC_UNSELECTABLE_COPY.server_side_events.onRow,
+                    METRIC_UNSELECTABLE_COPY.server_side_events.onRow,
+                ],
             },
         },
         {
@@ -149,7 +154,8 @@ describe('getMetricRecordingModes', () => {
                 metricSelectable: false,
                 defaultMode: null,
                 labels: ['Fired metric events', "Didn't fire metric events"],
-                disabledReasons: [RETENTION_UNLINKABLE_REASON, RETENTION_UNLINKABLE_REASON],
+                unselectableCode: 'retention',
+                disabledReasons: [METRIC_UNSELECTABLE_COPY.retention.onRow, METRIC_UNSELECTABLE_COPY.retention.onRow],
             },
         },
         {
@@ -160,7 +166,11 @@ describe('getMetricRecordingModes', () => {
                 metricSelectable: false,
                 defaultMode: null,
                 labels: ['Fired metric events', "Didn't fire metric events"],
-                disabledReasons: [DATA_WAREHOUSE_UNLINKABLE_REASON, DATA_WAREHOUSE_UNLINKABLE_REASON],
+                unselectableCode: 'data_warehouse',
+                disabledReasons: [
+                    METRIC_UNSELECTABLE_COPY.data_warehouse.onRow,
+                    METRIC_UNSELECTABLE_COPY.data_warehouse.onRow,
+                ],
             },
         },
         {
@@ -173,7 +183,8 @@ describe('getMetricRecordingModes', () => {
                 metricSelectable: false,
                 defaultMode: null,
                 labels: ['Fired purchase', "Didn't fire purchase"],
-                disabledReasons: [METRIC_WITHOUT_UUID_REASON, METRIC_WITHOUT_UUID_REASON],
+                unselectableCode: 'no_uuid',
+                disabledReasons: [METRIC_UNSELECTABLE_COPY.no_uuid.onRow, METRIC_UNSELECTABLE_COPY.no_uuid.onRow],
             },
         },
     ])('$case', ({ metric, unlinkable, expected }) => {
@@ -183,6 +194,7 @@ describe('getMetricRecordingModes', () => {
 
         expect({
             metricSelectable: modes.metricSelectable,
+            unselectableCode: modes.unselectableCode,
             defaultMode: modes.defaultMode,
             labels: modes.menuItems.map((item) => item.label),
             disabledReasons: modes.menuItems.map((item) => item.disabledReason),
@@ -195,6 +207,7 @@ describe('getMetricRecordingModes', () => {
         const modes = getMetricRecordingModes(meanMetric(event('purchase')), new Set())
 
         expect(modes.metricSelectable).toBe(true)
+        expect(modes.unselectableCode).toBeNull()
         expect(modes.menuItems.map((item) => item.disabledReason)).toEqual([null, null])
     })
 })

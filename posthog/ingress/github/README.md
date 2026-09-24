@@ -28,17 +28,29 @@ Two apps share this incarnation, each subscribed to its own event types in GitHu
 
 A consumer registers against an app name, so the two apps share no consumers.
 
+Each region runs its own `posthog` App, with its own webhook URL and its own secret.
+GitHub already delivers an installation's events to the region that holds it.
+The `stamphog` App is one App, and one region serves its endpoint.
+
 ## Quirks
 
 The status codes are the defaults: 403 on a bad signature, 500 when unconfigured, 202 on success.
 The installation lifecycle is a core consumer rather than a product one, because it keeps PostHog's own integration rows in step with GitHub.
-The `posthog` app's conversations consumer declares ownership by installation, so a delivery for an installation the other region holds is forwarded there before local dispatch. The consumers in this region still run — see [Regional forwarding](../README.md#regional-forwarding).
+A GitHub delivery is never forwarded to the other region, so no consumer here declares `ownership`.
+The other region verifies against its own App's secret, so it would answer a replayed delivery 403 and count it as an invalid signature.
+An installation this region does not hold is an installation this region never receives deliveries for.
+See [Regional forwarding](../README.md#regional-forwarding) for the lane the providers with one callback URL use.
 
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/{tasks,conversations,error_tracking,review_hog,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
+
+The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
+It scans descriptions for direct issue links and fingerprint permalinks on the configured PostHog site, then queues team-scoped tasks.
+Repeated links and deliveries reuse an existing reference.
+Removing a link from a later description does not remove the reference.
 
 The [Endpoints table](../README.md#endpoints) lists the consumer names per event type.
 PR analytics shared by those consumers live in `posthog/github/`, see its README.

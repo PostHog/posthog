@@ -1,9 +1,12 @@
+import logging
 from uuid import UUID
 
 import pytest
 from unittest import mock
 
+import structlog
 from rest_framework.response import Response
+from structlog.testing import capture_logs
 
 from posthog.schema import HogQLQuery
 
@@ -56,6 +59,13 @@ def _team() -> Team:
 
 
 class TestReadyTrinoCatalogName:
+    @pytest.fixture(autouse=True)
+    def isolated_logger(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "products.managed_warehouse.backend.trino_compiler.logger",
+            structlog.wrap_logger(logging.getLogger(__name__), context_class=dict),
+        )
+
     @pytest.mark.parametrize("catalog_key", ["trino_catalog_name", "catalog"])
     def test_reads_ready_catalog_and_supports_rolling_deploys(self, catalog_key: str) -> None:
         body = {
@@ -63,36 +73,145 @@ class TestReadyTrinoCatalogName:
             "status": {
                 "org": "org-1",
                 "state": "ready",
-                catalog_key: "org_catalog",
+                catalog_key: " org_catalog ",
             },
         }
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request",
-            return_value=Response(body, status=200),
-        ) as request:
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.presentation.views._request",
+                return_value=Response(body, status=200),
+            ) as request,
+            capture_logs() as logs,
+        ):
             assert get_ready_trino_catalog_name("org-1") == "org_catalog"
 
         request.assert_called_once_with("GET", "org-1", "/trino", require_enabled=False)
+        assert logs == []
 
     @pytest.mark.parametrize(
-        "body",
+        "body, status_code, expected_log",
         [
-            {"enabled": False},
-            {"enabled": True, "status": {"org": "org-1", "state": "pending", "trino_catalog_name": "cat"}},
-            {"enabled": True, "status": {"org": "another-org", "state": "ready", "trino_catalog_name": "cat"}},
-            {"enabled": True, "status": {"org": "org-1", "state": "ready", "trino_catalog_name": ""}},
+            ({"error": "example upstream failure"}, 503, {"reason": "http_error", "log_level": "warning"}),
+            ([], 200, {"reason": "invalid_response", "response_type": "list", "log_level": "warning"}),
+            (
+                {"enabled": False},
+                200,
+                {"reason": "not_enabled", "enabled": False, "enabled_type": "bool", "log_level": "info"},
+            ),
+            (
+                {},
+                200,
+                {"reason": "invalid_enabled", "enabled_type": "NoneType", "log_level": "warning"},
+            ),
+            (
+                {"enabled": "true"},
+                200,
+                {"reason": "invalid_enabled", "enabled_type": "str", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True},
+                200,
+                {"reason": "invalid_status", "status_type": "NoneType", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True, "status": []},
+                200,
+                {"reason": "invalid_status", "status_type": "list", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True, "status": {"org": "org-1", "state": "pending", "trino_catalog_name": "cat"}},
+                200,
+                {"reason": "state_not_ready", "state": "pending", "state_type": "str", "log_level": "info"},
+            ),
+            (
+                {"enabled": True, "status": {}},
+                200,
+                {"reason": "state_not_ready", "state": None, "state_type": "NoneType", "log_level": "info"},
+            ),
+            (
+                {"enabled": True, "status": {"org": "another-org", "state": "ready", "trino_catalog_name": "cat"}},
+                200,
+                {
+                    "event": "refusing_trino_catalog_for_mismatched_organization",
+                    "reason": "organization_mismatch",
+                    "requested_organization_id": "org-1",
+                    "response_organization_id": "another-org",
+                    "response_organization_id_type": "str",
+                    "log_level": "warning",
+                },
+            ),
+            (
+                {"enabled": True, "status": {"org": {"token": "example-secret"}, "state": "ready"}},
+                200,
+                {
+                    "event": "refusing_trino_catalog_for_mismatched_organization",
+                    "reason": "organization_mismatch",
+                    "requested_organization_id": "org-1",
+                    "response_organization_id": None,
+                    "response_organization_id_type": "dict",
+                    "log_level": "warning",
+                },
+            ),
+            (
+                {"enabled": True, "status": {"org": "x" * 256, "state": "ready"}},
+                200,
+                {
+                    "event": "refusing_trino_catalog_for_mismatched_organization",
+                    "reason": "organization_mismatch",
+                    "requested_organization_id": "org-1",
+                    "response_organization_id": "x" * 128,
+                    "response_organization_id_type": "str",
+                    "log_level": "warning",
+                },
+            ),
+            (
+                {"enabled": True, "status": {"org": "org-1", "state": "ready", "trino_catalog_name": " "}},
+                200,
+                {"reason": "invalid_catalog", "catalog_type": "str", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True, "status": {"org": "org-1", "state": "ready"}},
+                200,
+                {"reason": "invalid_catalog", "catalog_type": "NoneType", "log_level": "warning"},
+            ),
         ],
     )
-    def test_rejects_an_unusable_target(self, body: dict[str, object]) -> None:
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request",
-            return_value=Response(body, status=200),
+    def test_rejects_an_unusable_target(self, body: object, status_code: int, expected_log: dict[str, object]) -> None:
+        if isinstance(body, dict):
+            body = {**body, "error": "example upstream failure", "token": "example-secret"}
+            if isinstance(body.get("status"), dict):
+                body["status"] = {**body["status"], "connection": {"password": "example-secret"}}
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.presentation.views._request",
+                return_value=Response(body, status=status_code),
+            ),
+            capture_logs() as logs,
         ):
             assert get_ready_trino_catalog_name("org-1") is None
+        assert logs == [
+            {
+                "event": "trino_target_not_ready",
+                "organization_id": "org-1",
+                "status_code": status_code,
+                **expected_log,
+            }
+        ]
 
 
 class TestCompileHogQLToTrinoSQL:
-    def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(self) -> None:
+    @pytest.mark.parametrize(
+        "limit_clause, trino_limit_clause",
+        [
+            ("", ""),
+            (" LIMIT 1", " LIMIT 1"),
+            (" LIMIT 75000", " LIMIT 75000"),
+            (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
+        ],
+    )
+    def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(
+        self, limit_clause: str, trino_limit_clause: str
+    ) -> None:
         team = _team()
         membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
 
@@ -113,7 +232,9 @@ class TestCompileHogQLToTrinoSQL:
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
-                HogQLQuery(query="SELECT event FROM events WHERE event = {event}", values={"event": "signup"}),
+                HogQLQuery(
+                    query="SELECT event FROM events WHERE event = {event}" + limit_clause, values={"event": "signup"}
+                ),
                 team=team,
                 include_hogql=True,
             )
@@ -125,14 +246,25 @@ class TestCompileHogQLToTrinoSQL:
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production" '
-            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s) LIMIT 50000'
+            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s)' + trino_limit_clause
         )
         assert compiled.values == {"hogql_val_0": "signup"}
-        assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup') LIMIT 50000"
+        assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup')" + limit_clause
 
     @pytest.mark.django_db
     @pytest.mark.parametrize("include_hogql", [False, True])
-    def test_populates_core_table_locators_from_control_plane_state(self, include_hogql: bool) -> None:
+    @pytest.mark.parametrize(
+        "limit_clause, trino_limit_clause",
+        [
+            ("", ""),
+            (" LIMIT 1", " LIMIT 1"),
+            (" LIMIT 75000", " LIMIT 75000"),
+            (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
+        ],
+    )
+    def test_populates_core_table_locators_from_control_plane_state(
+        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str
+    ) -> None:
         organization = Organization.objects.create(name="trino-core-locators")
         team = Team.objects.create(organization=organization)
         membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
@@ -150,7 +282,7 @@ class TestCompileHogQLToTrinoSQL:
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
-                HogQLQuery(query="SELECT event FROM events LIMIT 1"),
+                HogQLQuery(query="SELECT event FROM events" + limit_clause),
                 team=team,
                 include_hogql=include_hogql,
                 expansion_mode=TrinoExpansionMode.DJANGO,
@@ -158,10 +290,10 @@ class TestCompileHogQLToTrinoSQL:
 
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
-            'FROM "org_catalog"."posthog"."events_production" LIMIT 1'
+            'FROM "org_catalog"."posthog"."events_production"' + trino_limit_clause
         )
         assert compiled.values == {}
-        assert compiled.hogql == ("SELECT event FROM events LIMIT 1" if include_hogql else None)
+        assert compiled.hogql == ("SELECT event FROM events" + limit_clause if include_hogql else None)
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(

@@ -47,7 +47,11 @@ def get_oauth_access_token(request) -> object | None:
 
 
 def get_oauth_client_id(request) -> str | None:
-    application = getattr(get_oauth_access_token(request), "application", None)
+    return _get_client_id(get_oauth_access_token(request))
+
+
+def _get_client_id(access_token: object | None) -> str | None:
+    application = getattr(access_token, "application", None)
     return getattr(application, "client_id", None)
 
 
@@ -58,7 +62,11 @@ def is_first_party_oauth_client(request) -> bool:
     or `posthog_ai`. Requiring one of our own applications is what makes that header
     trustworthy enough to attribute a surface from.
     """
-    return get_oauth_client_id(request) in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
+    return _is_first_party_oauth_token(get_oauth_access_token(request))
+
+
+def _is_first_party_oauth_token(access_token: object | None) -> bool:
+    return _get_client_id(access_token) in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
 
 
 def is_interactive_desktop_grant(request, access_token: object | None = None) -> bool:
@@ -68,10 +76,14 @@ def is_interactive_desktop_grant(request, access_token: object | None = None) ->
     same OAuth application, so three things have to line up: that application, the absence of
     the server-minted `internal_run:read` marker, and refresh-token lineage proving a consent
     flow happened. Sandbox tokens fail the second check before the third does any query.
+
+    An authenticator must pass `access_token`. Until DRF finishes authenticating,
+    `request.successful_authenticator` re-runs `Request._authenticate()`, so reading it from
+    inside an authenticator re-enters authentication and recurses until `RecursionError`.
     """
     if access_token is None:
         access_token = get_oauth_access_token(request)
-    if access_token is None or not is_first_party_oauth_client(request):
+    if access_token is None or not _is_first_party_oauth_token(access_token):
         return False
     scopes = set((getattr(access_token, "scope", "") or "").split())
     if INTERNAL_RUN_SCOPE in scopes:

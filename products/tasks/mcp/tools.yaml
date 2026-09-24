@@ -374,6 +374,9 @@ tools:
     task-channels-provision-defaults-create:
         operation: task_channels_provision_defaults_create
         enabled: false
+    task-channels-setup-create:
+        operation: task_channels_setup_create
+        enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
         enabled: false
@@ -830,6 +833,9 @@ tools:
         feature_flag: tasks
     tasks-runs-set-output-partial-update:
         operation: tasks_runs_set_output_partial_update
+        enabled: false
+    tasks-runs-set-summary-partial-update:
+        operation: tasks_runs_set_summary_partial_update
         enabled: false
     tasks-runs-start-create:
         operation: tasks_runs_start_create

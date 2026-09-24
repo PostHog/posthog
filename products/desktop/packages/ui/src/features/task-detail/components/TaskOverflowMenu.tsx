@@ -15,17 +15,19 @@ import {
 } from "@posthog/quill";
 import { sessionSupportsSideQuestion } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { TaskArchiveMenuItem } from "@posthog/ui/features/archive/TaskArchiveMenuItem";
 import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
-import {
-  formatHotkey,
-  SHORTCUTS,
-} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { startSessionSummary } from "@posthog/ui/features/sessions/sessionSummary";
 import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/useSession";
 import { useState } from "react";
 import { shallow } from "zustand/shallow";
+
+const TASK_ARCHIVE_MENU_PARTS = {
+  Item: DropdownMenuItem,
+  Shortcut: DropdownMenuShortcut,
+};
 
 /**
  * The task header's overflow menu: everything that acts on the task itself
@@ -96,12 +98,10 @@ export function TaskOverflowMenu({ task }: { task: Task }) {
                 Summarize for another agent
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={requestArchive}>
-              Archive
-              <DropdownMenuShortcut>
-                {formatHotkey(SHORTCUTS.ARCHIVE_TASK)}
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
+            <TaskArchiveMenuItem
+              parts={TASK_ARCHIVE_MENU_PARTS}
+              onClick={requestArchive}
+            />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

@@ -17,7 +17,6 @@ single verdict JSON.
 from __future__ import annotations
 
 import os
-import re
 import json
 import time
 import shlex
@@ -26,6 +25,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -62,6 +62,7 @@ from products.stamphog.backend.logic.reviewer import (
     build_reviewer_invocation,
     parse_reviewer_output,
 )
+from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -132,8 +133,13 @@ STAMPHOG_AI_PRODUCT = "aio_stamphog"
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
-_MINT_ATTEMPTS = 2
+_MINT_ATTEMPTS = 4
 _MINT_TIMEOUT_SECONDS = 3
+# Waits of about 1s, 2s and 4s before the retries, plus jitter so a fleet of workers refused at
+# once does not come back in step. A Retry-After the gateway sends wins, clamped to the same
+# ceiling: the whole mint must stay short against the review activity's start-to-close timeout.
+_MINT_BACKOFF_SECONDS = 1.0
+_MINT_MAX_BACKOFF_SECONDS = 10.0
 
 AI_GATEWAY_TOKEN_MINTS = Counter(
     "stamphog_ai_gateway_token_mints_total",
@@ -168,14 +174,40 @@ def _connected_user(run: ReviewRun) -> User:
     return user
 
 
+def _retry_after_seconds(response: requests.Response) -> float | None:
+    """Seconds the gateway asked the caller to wait, from either Retry-After form; None if unusable."""
+    header = response.headers.get("Retry-After")
+    if not header:
+        return None
+    try:
+        return max(0.0, float(header.strip()))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(header)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+def _mint_backoff_seconds(attempt: int, retry_after: float | None) -> float:
+    """What to wait before the next mint attempt: the gateway's own answer, else exponential backoff."""
+    if retry_after is not None:
+        return min(retry_after, _MINT_MAX_BACKOFF_SECONDS)
+    delay = min(_MINT_BACKOFF_SECONDS * 2**attempt, _MINT_MAX_BACKOFF_SECONDS)
+    return delay + random.uniform(0, delay / 4)
+
+
 def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
     """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
 
-    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries once
-    on 429, 5xx and network errors; any other refusal is final, and hosted runs have no shared-key
-    fallback. A token minted without a requested model pin is revoked and fails the run. Kept
-    separate from the tasks and wizard minters: each product owns its failure posture, and this cap
-    and TTL are documented invariants rather than ops knobs.
+    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries with
+    growing backoff on 429, 5xx and network errors; any other refusal is final, and hosted runs have
+    no shared-key fallback. A token minted without a requested model pin is revoked and fails the
+    run. Kept separate from the tasks and wizard minters: each product owns its failure posture, and
+    this cap and TTL are documented invariants rather than ops knobs.
     """
     body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
@@ -192,6 +224,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     mint_url = f"{_gateway_root(gateway)}/v1/tokens"
     last_error = ""
     for attempt in range(_MINT_ATTEMPTS):
+        retry_after: float | None = None
         try:
             response = requests.post(
                 mint_url,
@@ -223,11 +256,12 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                 break
             if response.status_code == 429 or response.status_code >= 500:
                 last_error = f"HTTP {response.status_code}"
+                retry_after = _retry_after_seconds(response)
             else:
                 last_error = f"HTTP {response.status_code}: {response.text[:200]}"
                 break
         if attempt < _MINT_ATTEMPTS - 1:
-            time.sleep(0.5 + random.uniform(0, 0.25))
+            time.sleep(_mint_backoff_seconds(attempt, retry_after))
     AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
     raise RuntimeError(
         f"Could not mint the sandbox gateway token ({last_error}); hosted reviews require the LLM gateway"
@@ -273,7 +307,7 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
     token every frontend snippet ships — so its blast radius is event spam, not data access; it's still
-    added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
+    added to llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
     """
     gateway = resolve_ai_gateway_config()
@@ -633,7 +667,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
     environment, gateway = _reviewer_environment(run)
     # Per-run credential, not in the worker env — scrub it explicitly wherever sandbox output
-    # is persisted or raised (_llm_env_secrets only covers worker-env values).
+    # is persisted or raised (llm_env_secrets only covers worker-env values).
     gateway_token = environment["AI_GATEWAY_API_KEY"]
     # Every path from here releases the token, including a failed claim read or save.
     try:
@@ -701,7 +735,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
             run.output = {
                 **(run.output or {}),
-                "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
+                "reviewer_raw": scrub_credentials(result.stdout, token, gateway_token),
                 "reviewer_exit_code": result.exit_code,
             }
             run.save(update_fields=["output", "updated_at"])
@@ -711,7 +745,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 # This message reaches run.error, so keep the stderr in the worker log only.
                 activity.logger.error(
                     f"Reviewer exited with code {result.exit_code} for run {run.id}: "
-                    f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+                    f"{scrub_credentials(result.stderr, token, gateway_token)[:500]}"
                 )
                 raise RuntimeError(f"reviewer exited with code {result.exit_code}")
         except Exception as exc:
@@ -938,7 +972,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     run.gate_result = parsed.gate_result
     # reviewer_raw was scrubbed on the way into the row; this re-scrub covers the worker's own LLM
     # env secrets, the same belt-and-braces the review body gets below.
-    run.change_summary = _scrub_credentials(parsed.change_summary)
+    run.change_summary = scrub_credentials(parsed.change_summary)
     if parsed.stamphog_version:
         run.output = {**output, "stamphog_version": parsed.stamphog_version}
 
@@ -1005,7 +1039,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             if adopted_review_id is not None:
                 run.posted_review_id = adopted_review_id
             else:
-                body = _scrub_credentials(_verdict_body(parsed, ReviewVerdict.APPROVED, relabel_label))
+                body = scrub_credentials(_verdict_body(parsed, ReviewVerdict.APPROVED, relabel_label))
                 review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
                 run.posted_review_id = _comment_id(review)
             # Persist the id immediately, outside the conditional terminal save below: if that save
@@ -1178,6 +1212,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_team_id": input.team_id,
                 "stamphog_runtime": "hosted",
                 "stamphog_error": first_error_line,
+                "stamphog_review_trigger": trigger_for_run(
+                    output=run.output, review_mode=pull_request.repo_config.review_mode
+                ),
             },
         )
 
@@ -1203,58 +1240,6 @@ def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     return shlex.join(parts)
 
 
-def _llm_env_secrets() -> list[str]:
-    """Non-empty LLM credential values in the worker env, gathered for output scrubbing.
-
-    These reach the sandbox via ``_reviewer_environment``; a confused or compromised
-    reviewer could echo them into stdout or the verdict. Redacting them server-side,
-    independent of model behavior, is what keeps a leaked key out of the PR and the DB.
-    POSTHOG_API_KEY is a public write token (spam-only blast radius) — scrubbed for tidiness.
-    """
-    return [
-        value
-        for key in ("AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_URL", "POSTHOG_API_KEY")
-        if (value := os.environ.get(key))
-    ]
-
-
-# Inline markdown images and raw <img> tags in text GitHub renders — both are removed outright,
-# URL included. Reference-style image forms are handled by the ``![`` demotion below.
-_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>", re.IGNORECASE)
-
-
-def _neutralize_active_markdown(text: str) -> str:
-    """Remove auto-fetched markdown constructs from reviewer-authored text before it reaches GitHub.
-
-    The reviewer LLM reads untrusted PR content, so its output can be prompt-injected. Credential
-    scrubbing is exact-string only — a token re-encoded (base64, split) into an image URL slips
-    through, and GitHub fetching the image on render (through its camo proxy, no click needed) would
-    exfiltrate it OUTSIDE the sandbox egress allowlist.
-
-    Inline images and <img> tags are removed URL-and-all. Every OTHER markdown image form —
-    reference ``![a][ref]``, collapsed, shortcut — starts with ``![``, so the trailing demotion to
-    ``[`` turns anything left into a plain link, which GitHub never fetches without a click.
-    Deliberately a syntax demotion rather than an enumeration of forms: an image form this function's
-    author didn't think of still gets demoted. Plain links stay clickable, so legitimate references
-    to code and PRs survive.
-    """
-    return _MARKDOWN_IMAGE_RE.sub("[image removed]", text).replace("![", "[")
-
-
-def _scrub_credentials(text: str, *secrets: str) -> str:
-    """Redact credential material before it reaches ``ReviewRun``, the logs, or GitHub.
-
-    Scrubs the passed GitHub token / basic-auth material plus any LLM credentials present
-    in the worker env — deterministic, so it does not depend on what the reviewer emits.
-    """
-    for secret in secrets:
-        if secret:
-            text = text.replace(secret, "***")
-    for secret in _llm_env_secrets():
-        text = text.replace(secret, "[redacted]")
-    return text
-
-
 @frozen
 class _GitCredential:
     """The installation token in the two shapes a sandbox git command needs.
@@ -1265,7 +1250,7 @@ class _GitCredential:
 
     # The ``git`` prefix to run GitHub-facing commands with.
     command: str
-    # The raw credential, for _scrub_credentials to strip from anything the command echoes back.
+    # The raw credential, for scrub_credentials to strip from anything the command echoes back.
     secret: str = field(repr=False)
 
 
@@ -1324,9 +1309,9 @@ def _clone_pr(
         try:
             result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS))
         except Exception as exc:
-            raise RuntimeError(_scrub_credentials(str(exc), token, credential.secret)) from None
+            raise RuntimeError(scrub_credentials(str(exc), token, credential.secret)) from None
         if result.exit_code != 0:
-            raise RuntimeError(f"{failure_prefix}: {_scrub_credentials(result.stderr, token, credential.secret)[:500]}")
+            raise RuntimeError(f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}")
 
     clone = (
         f"rm -rf {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
@@ -1472,7 +1457,7 @@ def _prefetch_review_blobs(
         # failure can echo the argv back.
         activity.logger.warning(
             f"stamphog: review blob prefetch exited {result.exit_code}; "
-            f"git will fetch as it reads: {_scrub_credentials(result.stderr, token, credential.secret)[:300]}"
+            f"git will fetch as it reads: {scrub_credentials(result.stderr, token, credential.secret)[:300]}"
         )
 
 
@@ -1578,20 +1563,20 @@ def _ship_engine(sandbox: SandboxBase) -> None:
 
 
 def _ship_owners_package(sandbox: SandboxBase) -> None:
-    """Ship the posthog-owners resolver package the engine's ownership format imports.
+    """Ship the owners-yaml resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
+    ``owners_yaml`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
     posture as the engine: always our copy, which overwrites whatever the PR head carried at that
     path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    # Repo root rather than a sibling of the engine. posthog_owners is a shared tool, so it stays
-    # under tools/ while the engine lives in the product.
-    package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "posthog_owners"
+    # Repo root rather than a sibling of the engine. owners_yaml is a distribution the production
+    # venv installs, so it lives under packages/ while the engine lives in the product.
+    package_dir = Path(__file__).resolve().parents[4] / "packages" / "owners-yaml" / "owners_yaml"
     if not package_dir.is_dir():
         raise RuntimeError(f"owners package source dir not found: {package_dir}")
-    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"
+    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/owners_yaml"
     quoted = shlex.quote(STAMPHOG_SANDBOX_OWNERS_DIR)
     sandbox.execute(f"rm -rf {quoted} && mkdir -p {shlex.quote(target)}", timeout_seconds=30)
     for path in sorted(package_dir.glob("*.py")):
@@ -1684,7 +1669,7 @@ def _post_non_approval_review(
     """
     if (run.output or {}).get(NON_APPROVAL_REVIEW_ID_KEY) is not None:
         return
-    review = client.post_comment_review(repo, pull_request.pr_number, _scrub_credentials(body), run.head_sha)
+    review = client.post_comment_review(repo, pull_request.pr_number, scrub_credentials(body), run.head_sha)
     run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
     ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
 
@@ -1761,7 +1746,7 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     if relabel_label:
         headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
-    return f"{headline}\n\n{_neutralize_active_markdown(detail)}".rstrip()
+    return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()
 
 
 def _reasoning_detail(parsed: ReviewerVerdict) -> str:

@@ -40,6 +40,7 @@ use crate::lifecycle::leader_calls::{
     fence_victims, release_fenced, Fenced, FencedVictim, LeaderCalls,
 };
 use crate::pools::{IdentityPools, Lane};
+use personhog_common::query_tag;
 
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
@@ -232,6 +233,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     // the advance): whatever they claimed stays claimed.
     let existing: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
+        op = "delete_mark_existing",
         "SELECT person_id FROM {lifecycle_op_person} WHERE op_id = $1",
         op.op_id
         => fetch_all(&mut *tx)
@@ -255,7 +257,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         ORDER BY id
         "#
     );
-    let live: Vec<(i64, Uuid)> = sqlx::query_as(&live_sql)
+    let live: Vec<(i64, Uuid)> = sqlx::query_as(&query_tag!("delete_mark_live_persons", live_sql))
         .bind(team_id)
         .bind(&to_claim)
         .fetch_all(&mut *tx)
@@ -267,6 +269,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     // on the partial mark index IS the conflict with another live op.
     let marked: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
+        op = "delete_mark_victims",
         r#"
         INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status, mark_active)
         SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5, true
@@ -298,6 +301,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     if !conflicted_ids.is_empty() {
         mirrored_query!(
             tables.is_validation(),
+            op = "delete_mark_conflicts",
             r#"
             INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status)
             SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5
@@ -329,7 +333,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         "#,
         lop_table = tables.lifecycle_op_person,
     );
-    sqlx::query(&corpse_sql)
+    sqlx::query(&query_tag!("delete_mark_drop_corpses", corpse_sql))
         .bind(op.op_id)
         .bind(team_id)
         .execute(&mut *tx)
@@ -337,6 +341,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
 
     let claims: i64 = mirrored_query_scalar!(
         tables.is_validation(),
+        op = "delete_mark_active_claims",
         r#"
         SELECT count(*) as "count!" FROM {lifecycle_op_person}
         WHERE op_id = $1 AND mark_active
@@ -409,6 +414,7 @@ async fn seal(
 ) -> Result<(), SagaError> {
     let victims: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
+        op = "delete_seal_victims",
         r#"
         SELECT person_id FROM {lifecycle_op_person}
         WHERE op_id = $1 AND mark_active
@@ -448,6 +454,7 @@ async fn seal(
     let mut tx = pools.begin(Lane::Heavy).await?;
     mirrored_query!(
         tables.is_validation(),
+        op = "delete_seal",
         r#"
         UPDATE {lifecycle_op_person} lop
         SET status = $2, sealed = jsonb_build_object('version', u.version, 'created_at', u.created_at)
@@ -465,6 +472,7 @@ async fn seal(
     if !vanished.is_empty() {
         mirrored_query!(
             tables.is_validation(),
+            op = "delete_seal_drop_vanished",
             r#"
             DELETE FROM {lifecycle_op_person}
             WHERE op_id = $1 AND person_id = ANY($2) AND mark_active
@@ -510,6 +518,7 @@ async fn unmap(
 
     let mut victims: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
+        op = "delete_unmap_victims",
         r#"
         SELECT person_id FROM {lifecycle_op_person}
         WHERE op_id = $1 AND status = 'sealed'
@@ -530,7 +539,7 @@ async fn unmap(
         "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
         person_table = tables.person,
     );
-    sqlx::query(&lock_persons_sql)
+    sqlx::query(&query_tag!("delete_unmap_lock_persons", lock_persons_sql))
         .bind(team_id)
         .bind(&victims)
         .execute(&mut *tx)
@@ -539,7 +548,7 @@ async fn unmap(
         "SELECT id FROM {pdi_table} WHERE team_id = $1 AND person_id = ANY($2) ORDER BY id FOR UPDATE",
         pdi_table = tables.person_distinct_id,
     );
-    sqlx::query(&lock_pdi_sql)
+    sqlx::query(&query_tag!("delete_unmap_lock_distinct_ids", lock_pdi_sql))
         .bind(team_id)
         .bind(&victims)
         .execute(&mut *tx)
@@ -554,11 +563,14 @@ async fn unmap(
         "#,
         pdi_table = tables.person_distinct_id,
     );
-    let tombstoned: Vec<(i64, String, i64)> = sqlx::query_as(&tombstone_pdi_sql)
-        .bind(team_id)
-        .bind(&victims)
-        .fetch_all(&mut *tx)
-        .await?;
+    let tombstoned: Vec<(i64, String, i64)> = sqlx::query_as(&query_tag!(
+        "delete_unmap_tombstone_distinct_ids",
+        tombstone_pdi_sql
+    ))
+    .bind(team_id)
+    .bind(&victims)
+    .fetch_all(&mut *tx)
+    .await?;
 
     // Record the tombstoned mappings per victim in the same commit — this is
     // what a later ClickHouse emission (or an operator) reads back.
@@ -580,6 +592,7 @@ async fn unmap(
     if !moved_ids.is_empty() {
         mirrored_query!(
             tables.is_validation(),
+            op = "delete_unmap_record_moved",
             r#"
             UPDATE {lifecycle_op_person} lop
             SET moved = u.moved
@@ -599,7 +612,7 @@ async fn unmap(
     // collide with unrelated persons' cohort rows — skip the clear entirely.
     if tables.person == "posthog_person" {
         sqlx::query!(
-            "DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
+            "/* service='personhog-identity', operation='delete_unmap_cohort_membership' */ DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
             &victims
         )
         .execute(&mut *tx)
@@ -610,11 +623,14 @@ async fn unmap(
         "DELETE FROM {} WHERE team_id = $1 AND person_id = ANY($2)",
         tables.ff_hash_key_override
     );
-    sqlx::query(&delete_overrides_sql)
-        .bind(team_id)
-        .bind(&victims)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(&query_tag!(
+        "delete_unmap_hash_key_overrides",
+        delete_overrides_sql
+    ))
+    .bind(team_id)
+    .bind(&victims)
+    .execute(&mut *tx)
+    .await?;
 
     let tombstone_sql = format!(
         r#"
@@ -631,7 +647,7 @@ async fn unmap(
         person_table = tables.person,
         lop_table = tables.lifecycle_op_person,
     );
-    sqlx::query(&tombstone_sql)
+    sqlx::query(&query_tag!("delete_unmap_tombstone_persons", tombstone_sql))
         .bind(op.op_id)
         .bind(team_id)
         .execute(&mut *tx)
@@ -677,6 +693,7 @@ async fn complete(
     let fenced = mirrored_query_as!(
         FencedVictim,
         tables.is_validation(),
+        op = "delete_complete_fenced",
         r#"
         SELECT person_id, person_uuid,
                (sealed->>'version')::bigint AS "sealed_version!",
@@ -694,6 +711,7 @@ async fn complete(
 
     mirrored_query!(
         tables.is_validation(),
+        op = "delete_complete",
         "UPDATE {lifecycle_op_person} SET status = $2, mark_active = false WHERE op_id = $1 AND status = 'sealed'",
         op.op_id,
         STATUS_DELETED
@@ -734,6 +752,7 @@ async fn build_outcome(
     let rows = mirrored_query_as!(
         PersonStatus,
         tables.is_validation(),
+        op = "delete_outcome",
         "SELECT person_id, status FROM {lifecycle_op_person} WHERE op_id = $1",
         op_id
         => fetch_all(&mut **tx)

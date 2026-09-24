@@ -15,6 +15,7 @@ from google.genai import types
 if TYPE_CHECKING:
     # Type-only: importing `types` at runtime would trip the pre-existing types <-> scanners import cycle.
     from products.replay_vision.backend.temporal.types import ScannerLlmInputs
+from products.replay_vision.backend.temporal.tool_args import parse_seconds
 from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 GET_EVENTS_TOOL_NAME = "get_events_around"
@@ -118,30 +119,16 @@ def events_tool() -> types.Tool:
     )
 
 
-def _parse_seconds(value: Any) -> int | None:
-    """Coerce a model-sent tool argument to whole seconds; `None` when it isn't numeric."""
-    try:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, int | float):
-            return int(value)
-        if isinstance(value, str):
-            return int(float(value.strip()))
-    except (ValueError, OverflowError):
-        return None
-    return None
-
-
 def dispatch_events_tool(function_call: Any, index: EventsIndex) -> dict[str, Any]:
     """Execute a model `get_events_around` call against the prebuilt events index."""
     if getattr(function_call, "name", None) != GET_EVENTS_TOOL_NAME:
         return {"error": f"unknown tool: {getattr(function_call, 'name', None)}"}
     args = dict(getattr(function_call, "args", None) or {})
     # Errors go back to the model as tool output — a malformed call must not fail the billed conversation.
-    vid_t = _parse_seconds(args.get("vid_t"))
+    vid_t = parse_seconds(args.get("vid_t"))
     if vid_t is None:
         return {"error": "vid_t must be a number of seconds from the start of the video"}
-    window_s = _parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
+    window_s = parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
     if window_s is None:
         window_s = _DEFAULT_WINDOW_S
     return {"events": get_events_around(index, vid_t, window_s)}

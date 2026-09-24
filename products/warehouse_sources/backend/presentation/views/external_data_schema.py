@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
+    mark_schema_running_unless_halted,
     resolve_destinations,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -54,6 +55,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
+    CDC_SEQ_COLUMN,
     AnySource,
     RowFilterValidationError,
     SourceRegistry,
@@ -195,8 +197,13 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         )
         return
 
-    instance.status = ExternalDataSchema.Status.RUNNING
-    instance.save(update_fields=["status", "updated_at"])
+    mark_schema_running_unless_halted(instance)
+
+
+# A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
+NO_SYNC_FREQUENCY_ERROR = (
+    "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
+)
 
 
 def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
@@ -204,13 +211,16 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
 
     A schema can reach the UI with no schedule behind it (never created, or dropped), and
     triggering one that isn't there raises NOT_FOUND. Retrying can't fix that, so recover the
-    same way the source-level reload does instead of dead-ending a single table's sync.
+    same way the source-level reload does instead of dead-ending a single table's sync. Recovery
+    needs a cadence to build the schedule from, so a schema without one is reported to the caller.
     """
     try:
         trigger_external_data_workflow(instance)
     except temporalio.service.RPCError as e:
         if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
             raise
+        if instance.sync_frequency_interval is None:
+            raise ValidationError(NO_SYNC_FREQUENCY_ERROR)
         sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
 
 
@@ -297,6 +307,20 @@ def _apply_primary_key_columns(
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
             "Provide primary_key_columns or refresh schema discovery to pick one up."
+        )
+
+
+def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
+    """Capture stamps each change with this column, so a source column of the same name would fail
+    the source's sync. Checked against the columns discovery recorded, which are the source's own."""
+    metadata = instance.schema_metadata or {}
+    columns = metadata.get("columns") if isinstance(metadata, dict) else None
+    if isinstance(columns, list) and any(
+        isinstance(column, dict) and column.get("name") == CDC_SEQ_COLUMN for column in columns
+    ):
+        raise ValidationError(
+            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
+            "Rename the column on your database, or choose another sync method for this table."
         )
 
 
@@ -610,6 +634,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
+    def validate_sync_frequency(self, value: str | None) -> str | None:
+        # "never" maps to a null interval, which the schedule builder cannot turn into a cadence.
+        # The choices still list it, so callers do send it. The message names should_sync because
+        # that is what stops a sync.
+        if value == "never":
+            raise ValidationError(
+                '"never" is not a sync frequency. To stop syncing this table, set should_sync to false.'
+            )
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
         override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
@@ -833,6 +867,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         sync_type = data.get("sync_type")
 
         if sync_type == ExternalDataSchema.SyncType.CDC:
+            # The publication step below skips types without an adapter, so accepting one here would
+            # save a `cdc` label that nothing can read a change stream for.
+            if not source_type_supports_cdc(instance.source.source_type):
+                raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
+
             from posthog.models import Team
 
             team = Team.objects.get(id=self.context["team_id"])
@@ -921,9 +960,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # key leaves the same unmergeable table as never setting one.
             requested_keys = data["primary_key_columns"] if "primary_key_columns" in data else None
             merge_keys = requested_keys if "primary_key_columns" in data else instance.primary_key_columns
-            # Only when the schema's columns are known. Without them there is nothing to say the
-            # table has no key, and the sync-time guard still covers it.
-            if known_columns and not merge_keys and "id" not in column_names:
+            # Only for a source that reads keys off the table, and only when the schema's columns
+            # are known. A source that declares its key in code never needs one here, and without
+            # columns there is nothing to say the table has none; the sync-time guard covers both.
+            source_detects_keys = SourceRegistry.get_source(
+                ExternalDataSourceType(instance.source.source_type)
+            ).detects_primary_keys
+            if source_detects_keys and known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
                     "Set primary_key_columns for it, or choose full_refresh."
@@ -1009,6 +1052,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
             _apply_primary_key_columns(data, payload, instance, "CDC")
+            if instance.sync_type != ExternalDataSchema.SyncType.CDC:
+                _refuse_reserved_cdc_column(instance)
 
             validated_data["sync_type_config"] = payload
         elif sync_type == ExternalDataSchema.SyncType.XMIN:
@@ -1073,6 +1118,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
+
+        # A row can still carry a null interval from before that rejection. Turning the sync on, or
+        # moving its time of day, rebuilds the schedule, which a null interval cannot do. Turning
+        # the sync off only pauses the schedule, so it stays allowed.
+        if source.supports_scheduled_sync and instance.sync_frequency_interval is None:
+            if should_sync is True or was_sync_time_of_day_updated:
+                raise ValidationError({"sync_frequency": NO_SYNC_FREQUENCY_ERROR})
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -1769,12 +1821,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except ValidationError:
+            # A missing sync frequency is the caller's to fix, so let DRF render the 400 instead of
+            # logging it as a failure of ours.
+            raise
         except Exception as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save()
+        mark_schema_running_unless_halted(instance)
         return Response(status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -1849,8 +1904,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save(update_fields=["status", "updated_at"])
+        mark_schema_running_unless_halted(instance)
 
         return Response(status=status.HTTP_200_OK)
 
@@ -2061,13 +2115,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
-        xmin_available = (
-            schema.supports_xmin
-            if SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).supports_xmin
-            else None
-        )
+        xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
 
         data = {
             "incremental_fields": schema.incremental_fields,
@@ -2083,6 +2134,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for col_name, col_type, nullable in schema.columns
             ],
             "detected_primary_keys": schema.detected_primary_keys,
+            "primary_key_detection_supported": source_impl.detects_primary_keys,
         }
 
         return Response(status=status.HTTP_200_OK, data=data)

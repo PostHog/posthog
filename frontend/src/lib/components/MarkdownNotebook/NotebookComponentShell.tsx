@@ -85,6 +85,8 @@ export type NotebookComponentShellProps = {
     rememberComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
     setBlockRef: (element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    onBtw?: () => void
+    askAIDisabledReason?: string
     deleteNode: () => void
     deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
@@ -106,6 +108,8 @@ export function NotebookComponentShell({
     rememberComponentPanels,
     setBlockRef,
     updateNode,
+    onBtw,
+    askAIDisabledReason,
     deleteNode,
     deleteSelectedNotebookBlocks,
     insertParagraphAfterNode,
@@ -187,6 +191,7 @@ export function NotebookComponentShell({
             : []),
         ...(toolbarExtras?.menuItems ?? []),
         ...(mode === 'edit' ? (toolbarExtras?.editMenuItems ?? []) : []),
+        mode === 'edit' && onBtw ? { label: 'BTW', onClick: onBtw, disabledReason: askAIDisabledReason } : null,
     ])
     const hasToolbarMenu = toolbarMenuItems.some(Boolean)
     const [titleDraft, setTitleDraft] = useState<string | null>(null)

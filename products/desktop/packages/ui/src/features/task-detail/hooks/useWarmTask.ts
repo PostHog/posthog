@@ -1,4 +1,6 @@
 import {
+  type AgentRuntime,
+  type ExecutionMode,
   TASKS_PREWARM_SANDBOX_FLAG,
   type WorkspaceMode,
 } from "@posthog/shared";
@@ -16,7 +18,7 @@ const log = logger.scope("warm-task");
 
 const WARM_DEBOUNCE_MS = 600;
 
-interface UseWarmTaskOptions {
+export interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
   claudeModelAccess?: string;
   selectedRepository?: string | null;
@@ -25,9 +27,11 @@ interface UseWarmTaskOptions {
   allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
+  agentRuntime?: AgentRuntime;
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
+  permissionMode?: ExecutionMode | null;
   sandboxEnvironmentId?: string | null;
   customImageId?: string | null;
 }
@@ -41,9 +45,11 @@ export function useWarmTask({
   allowNoRepo = false,
   branch,
   editorIsEmpty,
+  agentRuntime,
   runtimeAdapter,
   model,
   reasoningEffort,
+  permissionMode,
   sandboxEnvironmentId,
   customImageId,
 }: UseWarmTaskOptions): void {
@@ -60,6 +66,9 @@ export function useWarmTask({
   const normalizedRuntimeAdapter = runtimeAdapter ?? null;
   const normalizedModel = model ?? null;
   const normalizedReasoningEffort = reasoningEffort ?? null;
+  const normalizedPermissionMode = runtimeAdapter
+    ? (permissionMode ?? null)
+    : null;
   const normalizedSandboxEnvironmentId = sandboxEnvironmentId ?? null;
   const normalizedCustomImageId = customImageId ?? null;
   // Repo-less channel tasks deliberately discard any persisted/stale picker
@@ -77,9 +86,11 @@ export function useWarmTask({
   const warmGithubIntegrationId = warmRepositories.length
     ? (githubIntegrationId ?? null)
     : null;
+  const heldLeaseIsUnusable =
+    agentRuntime === "pi" || claudeModelAccess === "own-subscription";
   const eligible =
     enabled &&
-    claudeModelAccess !== "own-subscription" &&
+    !heldLeaseIsUnusable &&
     isCloud &&
     !!client &&
     (allowNoRepo || (!!warmRepository && warmGithubIntegrationId !== null)) &&
@@ -94,6 +105,7 @@ export function useWarmTask({
           runtimeAdapter: normalizedRuntimeAdapter,
           model: normalizedModel,
           reasoningEffort: normalizedReasoningEffort,
+          permissionMode: normalizedPermissionMode,
           sandboxEnvironmentId: normalizedSandboxEnvironmentId,
           customImageId: normalizedCustomImageId,
         })}`
@@ -110,11 +122,7 @@ export function useWarmTask({
 
     if (!eligible || !key || !client) {
       clearDebounce();
-      if (
-        client &&
-        leaseRef.current &&
-        claudeModelAccess === "own-subscription"
-      ) {
+      if (client && leaseRef.current && heldLeaseIsUnusable) {
         const lease = leaseRef.current;
         forgetWarmTaskLease(lease);
         leaseRef.current = null;
@@ -135,6 +143,7 @@ export function useWarmTask({
     const warmRuntimeAdapter = normalizedRuntimeAdapter;
     const warmModel = normalizedModel;
     const warmReasoningEffort = normalizedReasoningEffort;
+    const warmPermissionMode = normalizedPermissionMode;
     const warmSandboxEnvironmentId = normalizedSandboxEnvironmentId;
     const warmCustomImageId = normalizedCustomImageId;
     debounceRef.current = setTimeout(() => {
@@ -152,6 +161,7 @@ export function useWarmTask({
           runtime_adapter: warmRuntimeAdapter,
           model: warmModel,
           reasoning_effort: warmReasoningEffort,
+          initial_permission_mode: warmPermissionMode,
           ...(warmSandboxEnvironmentId
             ? { sandbox_environment_id: warmSandboxEnvironmentId }
             : {}),
@@ -180,6 +190,7 @@ export function useWarmTask({
                 runtimeAdapter: warmRuntimeAdapter,
                 model: warmModel,
                 reasoningEffort: warmReasoningEffort,
+                permissionMode: warmPermissionMode,
                 sandboxEnvironmentId: warmSandboxEnvironmentId,
                 customImageId: warmCustomImageId,
               }),
@@ -198,7 +209,7 @@ export function useWarmTask({
     return clearDebounce;
   }, [
     eligible,
-    claudeModelAccess,
+    heldLeaseIsUnusable,
     key,
     client,
     warmRepository,
@@ -209,6 +220,7 @@ export function useWarmTask({
     normalizedRuntimeAdapter,
     normalizedModel,
     normalizedReasoningEffort,
+    normalizedPermissionMode,
     normalizedSandboxEnvironmentId,
     normalizedCustomImageId,
   ]);

@@ -50,6 +50,10 @@ def handle_experiment_change(
         after_deleted = getattr(after_update, "deleted", None)
         if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
             activity = "restored" if after_deleted is False else "deleted"
+        # Clearing the start date returns the experiment to draft, which is what a reset does,
+        # whichever endpoint performed the write.
+        elif activity == "updated" and before_update.start_date is not None and after_update.start_date is None:
+            activity = "reset"
 
     changes = changes_between(scope, previous=before_update, current=after_update)
 

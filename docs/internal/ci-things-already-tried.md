@@ -23,13 +23,14 @@ If the reason is no longer correct, write this in the PR and try the idea again.
 
 ## Verdicts
 
-| Verdict      | Meaning                                                         |
-| ------------ | --------------------------------------------------------------- |
-| `rejected`   | Someone built the idea and measured it. The result was too bad. |
-| `reverted`   | The change went to master. Then someone removed it.             |
-| `superseded` | The problem was real. A different solution replaced this one.   |
-| `abandoned`  | Someone started the work and stopped. There is no verdict.      |
-| `open`       | The idea is good. The work is incomplete. You can continue it.  |
+| Verdict      | Meaning                                                                     |
+| ------------ | --------------------------------------------------------------------------- |
+| `rejected`   | Someone built the idea and measured it. The result was too bad.             |
+| `reverted`   | The change went to master. Then someone removed it.                         |
+| `superseded` | The problem was real. A different solution replaced this one.               |
+| `abandoned`  | Someone started the work and stopped. There is no verdict.                  |
+| `open`       | The idea is good. The work is incomplete. You can continue it.              |
+| `landed`     | The change is on master. An earlier attempt or alternative is still a trap. |
 
 ## Add an entry
 
@@ -99,6 +100,27 @@ Read [#57227](https://github.com/PostHog/posthog/pull/57227) with this one. It m
 Measure the setup cost first. Then you know what a scope change can win.
 
 _Also asked as:_ session-scoped database fixture, build the test database once, why is the first test so slow
+
+### Collapse the warehouse-sources parametrized tests
+
+**Verdict: rejected** · Sep 2026 · measured, not built ([PR run](https://github.com/PostHog/posthog/actions/runs/35767882260), [master run](https://github.com/PostHog/posthog/actions/runs/35768184399))
+
+warehouse-sources collects about 58,000 tests. About 56,000 of them take less than 20 ms, and pytest-split puts almost all of them in one shard.
+Their cost was not the count. They took 89 s on master and 202 s on PR runs, because turbo dropped `COVERAGE_CORE` from the product jobs and coverage used its slow tracer.
+Four functions that run once per source give 5,392 tests and 15 s. Collapsing them saves little.
+The larger fixed cost is collection: each shard of the product collects all 58,000 tests, which takes about 90 s, before pytest-split selects its group.
+
+_Also asked as:_ too many parametrized tests, trim the warehouse-sources suite, delete per-source tests, why is the last warehouse-sources shard slow
+
+### Lower the backend shard wall target from 12 to 10 minutes
+
+**Verdict: rejected** · Sep 2026 · one run each: [12 minutes](https://github.com/PostHog/posthog/actions/runs/35784807053), [10 minutes](https://github.com/PostHog/posthog/actions/runs/35784814651)
+
+`TARGET_WALL_SECONDS` in `turbo-discover.js` sizes every backend test shard.
+At 10 minutes a full PR run used 23% more shard minutes, in 85 test jobs instead of 58.
+It did not finish sooner (13.4 minutes against 12.9, inside run-to-run noise). Each extra shard pays the full setup and collection cost again.
+
+_Also asked as:_ more shards, smaller shards, lower the shard target, split the slowest shard
 
 ### Shard the Playwright E2E suite
 
@@ -217,7 +239,7 @@ _Also asked as:_ skip product tests on a full run, narrow the product matrix, wh
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
-**Verdict: open, and approved** · Jul 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886)
+**Verdict: landed** · Jul 2026 to Sep 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886), landed by [#89057](https://github.com/PostHog/posthog/pull/89057); the hard exit below landed by [#104782](https://github.com/PostHog/posthog/pull/104782)
 
 Each pytest session runs several full-heap `gc.collect()` passes at cleanup.
 These plugins run the passes only to report `__del__` exceptions and thread exceptions as warnings.
@@ -226,14 +248,18 @@ These plugins run the passes only to report `__del__` exceptions and thread exce
 A fixed benchmark of 320 tests decreased from 24.7 seconds to 21.8 seconds.
 
 A reviewer approved the PR. The branch then became inactive, and the stale bot closed it.
-You can open this PR again without changes.
+[#89057](https://github.com/PostHog/posthog/pull/89057) landed the same change, and `pytest.ini` now disables both plugins.
 
 Read this entry before you try a different solution for the pytest cleanup cost.
 [#88759](https://github.com/PostHog/posthog/pull/88759) tried a different solution. It deleted the `gc.unfreeze()` in `pytest_unconfigure`.
 That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) added it after the Temporal shards stopped with a segmentation fault and exit code 139. CI made the same crash again on #88759.
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
-_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass
+Backend CI skips `Py_FinalizeEx` on green shards. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after `pytest_unconfigure`, so the `gc.unfreeze()` still runs first.
+One run each: each shard saved 8 to 29 seconds ([before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35777464934)).
+A failing shard, the hourly scheduled run and local runs keep the normal exit, so a teardown crash still shows there. Do not delete the `gc.unfreeze()`.
+
+_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass, os.\_exit after pytest
 
 ## Python and pytest runtime
 
@@ -429,6 +455,29 @@ The large Python and frontend test jobs do not use it. Their checkout is complet
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
+
+### Drop `filter: blob:none` from a deep checkout
+
+**Verdict: rejected** · Sep 2026 · [run](https://github.com/PostHog/posthog/actions/runs/35789980165)
+
+Backend test discovery needs 1000 commits of history.
+With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, because it fetches every file of the tree in a second request.
+Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
+A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
+`--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
+The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
+
+_Also asked as:_ blobless clone is slow, partial clone checkout, speed up the discovery checkout, fetch-depth 1000
+
+### Check out the PR head by SHA in the Django test shards
+
+**Verdict: rejected** · Sep 2026 · [before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35781233592)
+
+The Django test shards check out `pull_request.head.ref` and spend about 22 s. The product shards check out the merge commit and spend about 6 s.
+The difference is in the `git fetch --depth=1`, and on master pushes the same Django checkout takes about 7 s.
+A checkout of `pull_request.head.sha` also took 21 to 22 s, so the refspec is not the cause. The cause is not known.
+
+_Also asked as:_ slow checkout in the Django shards, head.ref or head.sha, why is the Django checkout slower than the product checkout
 
 ### Jest reports the Rust snapshots as obsolete
 

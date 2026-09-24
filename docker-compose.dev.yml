@@ -46,6 +46,8 @@ services:
                     @capture-ai {
                         path /i/v0/ai
                         path /i/v0/ai/*
+                        path /i/v1/ai/events
+                        path /i/v1/ai/events/
                     }
 
                     @capture {
@@ -410,6 +412,8 @@ services:
             - '127.0.0.1:4445:3000'
         environment:
             TOKEN: dev
+            LOG_LEVEL: warn
+            DEBUG: '-*'
         profiles:
             - browserless
 

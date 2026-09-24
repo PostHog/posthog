@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import httpx
+from openai import BadRequestError
 from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseAtCapacity
@@ -467,7 +469,7 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
     @patch.object(graph, "create_react_agent")
     @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "_compute_metrics")
-    def test_uncited_opaque_id_from_the_result_allowlist_falls_back(
+    def test_uncited_opaque_id_from_the_result_allowlist_is_unwrapped(
         self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks
     ):
         mock_metrics.return_value = EvalReportMetrics()
@@ -499,8 +501,9 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
             )
         )
 
-        self.assertEqual(content.title, "Automated fallback report for Relevance")
-        self.assertIn(session_id, content.sections[0].content)
+        # One dead identifier costs the reader a link, not the whole analysis.
+        self.assertEqual(content.title, "A report")
+        self.assertEqual(content.sections[0].content, f"See {session_id}.")
 
 
 class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
@@ -639,3 +642,43 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
             trace_id="report-run-1",
             session_id="report-session-1",
         )
+
+    @patch.object(graph.logger, "exception")
+    @patch.object(graph, "build_langchain_callbacks", return_value=[])
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_flex_first_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_error_log_preserves_the_upstream_rejection_detail(
+        self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks, mock_logger_exception
+    ) -> None:
+        mock_metrics.return_value = EvalReportMetrics()
+        request = httpx.Request("POST", "https://gateway.invalid/chat/completions")
+        mock_create_agent.return_value.invoke.side_effect = BadRequestError(
+            "Request too large",
+            response=httpx.Response(400, request=request),
+            body={"code": "context_length_exceeded", "param": "messages", "type": "invalid_request_error"},
+        )
+
+        graph.run_eval_report_agent(
+            RunEvalReportAgentInput(
+                team_id=1,
+                report_id="report-1",
+                trace_id="report-run-1",
+                session_id="report-session-1",
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
+        )
+
+        logged = mock_logger_exception.call_args.kwargs
+        self.assertEqual(logged["upstream_status"], 400)
+        self.assertEqual(logged["upstream_code"], "context_length_exceeded")
+        self.assertEqual(logged["upstream_param"], "messages")
+        self.assertEqual(logged["upstream_type"], "invalid_request_error")
+        self.assertEqual(logged["upstream_message"], "Request too large")

@@ -2,6 +2,8 @@
 
 Receives OTLP metrics (`/i/v1/metrics`) and Prometheus remote-write (`/i/v1/prometheus/write`) and writes them to Kafka.
 
+The remote-write route accepts two body encodings. `Content-Encoding: snappy` (or no header) is the Prometheus remote-write v1 protocol. `Content-Encoding: zstd` is the VictoriaMetrics remote-write protocol, which `vmagent` sends by default. Both carry the same protobuf and produce the same rows.
+
 This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). It links the `capture-logs` library for parsing, authentication, and the Kafka sink, so metrics traffic can scale and deploy on its own. The base configuration, authentication, and response codes are the ones documented for `capture-logs`. The settings below are specific to this service.
 
 ## Configuration
@@ -27,6 +29,18 @@ The decision uses a local in-memory cache and never waits on Redis. Redis holds 
 Pull metrics, all with a `kind` label of `seed` or `periodic`: `capture_metrics_series_redis_pulls` (with `outcome` = `ok`, `timeout`, or `error`), `capture_metrics_series_redis_pull_duration_seconds` (same labels), `capture_metrics_series_redis_pull_pages`, `capture_metrics_series_redis_pull_members_read`, `capture_metrics_series_redis_pull_bytes` (member payload, without protocol framing), and `capture_metrics_series_redis_pulled` (members new to this pod).
 
 The cache is bounded. When the global or the per-token cap is full, a new series keeps its labels on every row and is not cached or pushed to Redis, until pruning frees a slot. `capture_metrics_series_cache_full` counts those rows.
+
+## Classic Prometheus histograms on remote write
+
+Prometheus sends a classic histogram as one `_bucket` series for each bucket. Each bucket has an `le` label. Prometheus also sends `_count` and `_sum` series.
+
+The service converts these component samples to one native histogram row when a request contains `_sum` and the `+Inf` bucket for the same label set and timestamp. The native row has `histogram_bounds` and `histogram_counts`. Its series fingerprint is the label fingerprint of an equivalent OTLP histogram, combined with the bound set. The storage keeps one bound set for each series and hour, so a partial bucket set and the complete bucket set of one histogram get separate series. Queries combine them by label set.
+
+Conversion requires cumulative bucket values that are non-negative integers and do not decrease. If `_count` is present, it must equal the `+Inf` bucket. The service does not convert a family that metadata defines as a summary, counter, or gauge. Other component samples stay as normal rows. This preserves data when a sender divides a histogram across requests. Queries must combine native and normal rows by label set.
+
+The service converts `le` and `quantile` label values to Go's shortest float format on every row. For example, `1.0` becomes `1` and `1000000` becomes `1e+06`. The series fingerprint uses the converted label value.
+
+Metrics: `capture_metrics_remote_write_histograms_assembled` counts native rows. `capture_metrics_remote_write_histogram_samples_folded` counts converted component samples. `capture_metrics_remote_write_histogram_components_passed_through` counts component samples that stay as normal rows.
 
 ## Running the service
 

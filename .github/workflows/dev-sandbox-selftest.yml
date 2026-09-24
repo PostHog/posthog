@@ -48,7 +48,7 @@ jobs:
     shims-selftest:
         name: Verify dev sandbox shims routing
         # Pure string-logic test — no sandbox-exec needed, so it runs on Linux.
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
