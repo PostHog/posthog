@@ -1621,6 +1621,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not isinstance(distinct_ids, list) or len(distinct_ids) == 0:
             return response.Response({"results": {}})
 
+        if not all(isinstance(distinct_id, str) for distinct_id in distinct_ids):
+            raise ValidationError(detail="distinct_ids must be a list of strings")
+
         MAX_BATCH_SIZE = 200
         distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
 
@@ -1664,7 +1667,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             uuids = [str(uuid.UUID(u)) for u in uuids]
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, TypeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
         # MinimalPersonSerializer only renders 10 distinct_ids, so bound the fetch to match.
