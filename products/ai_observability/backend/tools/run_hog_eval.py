@@ -186,6 +186,7 @@ class RunHogEvalTestTool(MaxTool):
             query=query,
             placeholders={},
             team=team,
+            user=self._user,
             query_type="RunHogEvalTest",
             fall_back_to_events=True,
         )
@@ -284,6 +285,7 @@ class RunHogEvalTestTool(MaxTool):
 
         trace_results = await database_sync_to_async(run_hog_eval_over_recent_traces)(
             team=self._team,
+            user=self._user,
             bytecode=bytecode,
             condition_filter=None,
             sample_count=sample_count,
@@ -312,6 +314,7 @@ class RunHogEvalTestTool(MaxTool):
 
         session_results = await database_sync_to_async(run_hog_eval_over_recent_sessions)(
             team=self._team,
+            user=self._user,
             bytecode=bytecode,
             condition_filter=None,
             # Same bound the editor endpoint applies: each sampled session is fetched in full, so

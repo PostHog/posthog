@@ -88,7 +88,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
     "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
-    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75"}',
+    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75", "posthog_ai": "75"}',
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
@@ -270,9 +270,9 @@ BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
-ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-product-shared-orchestration-task-queue"
-ALERTS_PRODUCT_EVALUATION_TASK_QUEUE = "alerts-product-evaluation-task-queue"
-ALERTS_PRODUCT_DELIVERY_TASK_QUEUE = "alerts-product-delivery-task-queue"
+ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
+ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
+ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # The XGBoost-based session surfacing scoring sweep runs on the session-replay

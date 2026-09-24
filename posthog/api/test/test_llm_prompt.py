@@ -4,7 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -2351,3 +2351,67 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
                 f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full&resolve=false"
             )
         assert raw.json()["results"][0]["prompt"] == "@@@prompt:name=guardrails|label=shared@@@"
+
+    def test_label_cannot_activate_a_version_whose_references_went_dead(self):
+        self._make_prompt("dep")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "base", "prompt": "@@@prompt:name=dep|version=1@@@"},
+            format="json",
+        )
+        # v2 drops the reference, so archiving dep is legal: only the inactive v1 points at it.
+        self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/base/",
+            data={"prompt": "standalone", "base_version": 1},
+            format="json",
+        )
+        assert (
+            self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/dep/archive/").status_code
+            == status.HTTP_204_NO_CONTENT
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/llm_prompts/name/base/labels/production/",
+            data={"version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "reference_not_found"
+
+    def test_label_move_deadlock_is_a_retryable_conflict(self):
+        self._make_prompt("base")
+        with patch(
+            "posthog.api.llm_prompt.set_prompt_label",
+            side_effect=OperationalError("deadlock detected"),
+        ):
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/llm_prompts/name/base/labels/production/",
+                data={"version": 1},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "Try again" in response.json()["detail"]
+
+    def test_create_rejects_references_inside_json_payloads(self):
+        self._make_prompt("guardrails", label="production")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "structured",
+                "prompt": {
+                    "messages": [{"role": "system", "content": "@@@prompt:name=guardrails|label=production@@@"}]
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "reference_in_non_text_prompt"
+
+        tag_free = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "structured", "prompt": {"messages": [{"role": "system", "content": "hi"}]}},
+            format="json",
+        )
+        assert tag_free.status_code == status.HTTP_201_CREATED

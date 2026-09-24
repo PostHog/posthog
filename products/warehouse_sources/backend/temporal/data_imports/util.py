@@ -272,6 +272,9 @@ async def prepare_s3_files_for_querying(
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
             is_transient_object_store_error,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+            is_object_store_permission_denied,
+        )
 
         attempt = 0
         while True:
@@ -308,11 +311,21 @@ async def prepare_s3_files_for_querying(
                         level="error",
                     )
             except OSError as e:
+                if is_object_store_permission_denied(e):
+                    # An explicit AccessDenied/lacked-privileges response is never a race - every
+                    # retry would repeat the same refused call, so fail on the first attempt.
+                    raise S3OperationError("copy this table's files into its query folder", e)
                 # s3fs wraps a CopyObject/PutObject 5xx (e.g. S3's InternalError, already retried to
                 # exhaustion at the boto layer) as a plain OSError. That's a blip on S3's side, not a
                 # bug here - retry the whole (idempotent) copy batch with backoff before giving up.
+                # A bare PermissionError is included too: AWS omits the error code from a HeadObject
+                # response body, so s3fs's _cp_file (which HEADs the destination) raises the same
+                # PermissionError("Forbidden") for a brief credential-resolution race as it does for a
+                # genuine denial (is_object_store_permission_denied only catches the latter, via an
+                # explicit code). _purge_s3_prefix retries this same ambiguous case for the same
+                # reason - see _is_retryable_purge_error.
                 if attempt >= _COPY_FILES_MAX_ATTEMPTS or not (
-                    is_transient_object_store_error(e) or _is_s3_throttling_error(e)
+                    is_transient_object_store_error(e) or _is_s3_throttling_error(e) or isinstance(e, PermissionError)
                 ):
                     # Either the failure needs a human (denied permissions, a storage backend with no
                     # free space) or the retries ran out. Both leave the raw s3fs message, so re-raise
@@ -354,7 +367,7 @@ async def prepare_s3_files_for_querying(
                                 continue
 
                             await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                            if not _is_transient_s3_connection_error(e):
+                            if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
                                 capture_exception(S3OperationError("delete an old query folder for this table", e))
                             # Cleanup stays best effort: the folder is timestamped, so the age-based
                             # GC above picks it up on a later sync. Failing the sync over it would

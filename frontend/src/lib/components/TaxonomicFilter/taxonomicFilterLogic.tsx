@@ -83,7 +83,7 @@ import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constant
 import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
-} from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
+} from 'scenes/hog-functions/filters/productEventFilterOptions'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'

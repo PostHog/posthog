@@ -979,6 +979,8 @@ class Pipeline:
                 "stamphog_gate_verdict": gate_verdict,
                 "stamphog_llm_verdict": llm_verdict,
                 "stamphog_final_verdict": self.final_verdict,
+                # Empty on a local run: only the hosted runtime knows why the review started.
+                "stamphog_review_trigger": self.review_trigger,
                 "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),

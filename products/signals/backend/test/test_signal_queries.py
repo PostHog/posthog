@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.facade.api import (
-    SignalSourceSliceOutcomes,
+    SignalSourceSlicePullRequest,
     get_outcomes_for_signal_source_slice,
     get_reports_for_signal_source_slice,
 )
@@ -534,7 +534,17 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
             team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
         )
 
-        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=2, merged_pr_count=1)
+        assert (outcomes.signal_count, outcomes.report_count, outcomes.pr_count, outcomes.merged_pr_count) == (
+            5,
+            2,
+            2,
+            1,
+        )
+        # The links behind the counts: the same deduped PRs, newest report's first.
+        assert outcomes.pull_requests == [
+            SignalSourceSlicePullRequest(url=shared_pr.url, merged=True),
+            SignalSourceSlicePullRequest(url=second_pr.url, merged=False),
+        ]
 
     def test_hydrates_the_same_slice_newest_first(self) -> None:
         # The link surface shares the slice query with the counters, so it must drop the same
