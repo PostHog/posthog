@@ -12191,7 +12191,7 @@
         }
     },
     "vision-alerts-create": {
-        "description": "Create an alert on one scanner's observations. `kind` is fixed after creation. A `match` alert fires on every observation that matches `selection`. A `metric` alert measures `metric` (`count` of matching observations, or `avg_score` for a scorer scanner) over a rolling `window_days` window and fires when it is `above` or `below` `threshold`. Metric alerts also take `check_interval_minutes` (at least 15), N-of-M smoothing (`datapoints_to_alarm` of `evaluation_periods`), `cooldown_minutes` and `schedule_restriction` quiet hours. `selection` picks which observations count and must fit the scanner's type: `verdict` for a monitor (e.g. `[\"yes\"]`), `tags` for a classifier, `min_score`/`max_score` for a scorer. Leave it empty to count every observation. An alert notifies nobody until it has a destination, so follow up with `vision-alerts-destinations-create`.",
+        "description": "Create an alert on one scanner's observations. `kind` is fixed after creation. A `match` alert fires on every observation that matches `selection`. A `metric` alert fires when `metric` over a rolling `window_days` window is `above` or `below` `threshold`. `selection` must fit the scanner's type: `verdict` for a monitor, `tags` for a classifier, `min_score`/`max_score` for a scorer; leave it empty to count every observation. An alert notifies nobody until it has a destination, so follow up with `vision-alerts-destinations-create`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create replay vision alert",
@@ -12219,7 +12219,7 @@
         }
     },
     "vision-alerts-destinations-create": {
-        "description": "Attach a Slack or webhook notification destination to a replay vision alert. Without one, the alert evaluates but never notifies. For Slack, pass `slack_workspace_id` (the Slack integration id from `integrations-list`) and `slack_channel_id` (from `integrations-channels-retrieve`). For a webhook, pass an HTTPS `webhook_url`. One HogFunction is created per alert event kind, atomically. Keep the returned `hog_function_ids`: they identify the destination and are what `vision-alerts-destinations-delete` takes.",
+        "description": "Attach a Slack or webhook notification destination to a replay vision alert. For Slack, get the workspace integration id from `integrations-list` and the channel id from `integrations-channels-retrieve`. One HogFunction is created per alert event kind, atomically. Keep the returned `hog_function_ids`: they identify the destination and are what `vision-alerts-destinations-delete` takes.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Add replay vision alert destination",
@@ -12516,7 +12516,7 @@
         }
     },
     "vision-scanners-backfills-get": {
-        "description": "Get one scanner backfill's progress: `status`, window, `total_count`, `dispatched_count`, `skipped_count`, and per-outcome counts. Read the observations it produced with `vision-scanners-observations-list`.",
+        "description": "Get one scanner backfill's status, window, and progress and outcome counts. Read the observations it produced with `vision-scanners-observations-list`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Get scanner backfill",
@@ -12530,7 +12530,7 @@
         }
     },
     "vision-scanners-backfills-list": {
-        "description": "List a scanner's backfills, newest first, with `status`, window, `total_count`, `dispatched_count`, and per-outcome counts (`succeeded_count`, `failed_count`, `ineligible_count`, `in_flight_count`).",
+        "description": "List a scanner's backfills, newest first, with their status, window, and progress and outcome counts.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List scanner backfills",
@@ -12846,7 +12846,7 @@
         }
     },
     "vision-scanners-scout-reports-list": {
-        "description": "List the reports filed by a scanner's scouts, newest first (at most 50). Each has `report_id`, the `skill_name` of the scout that filed it, `filed_at`, `title`, the markdown `summary` and any `charts`.",
+        "description": "List the reports filed by a scanner's scouts, newest first (at most 50): `report_id`, the `skill_name` of the scout that filed it, `filed_at` and `title`. Read a report's summary and charts with `vision-scanners-scout- reports-get`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List scanner scout reports",
@@ -12860,7 +12860,7 @@
         }
     },
     "vision-scanners-scouts-create": {
-        "description": "Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner, so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `name` (its permanent identifier, e.g. `checkout-scanner-digest`), a short `description`, and the full markdown prompt in `body`. The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations` for delivery. Upsert on `name`: calling again with the same `name` applies the config to that scout rather than creating another. Each run spends credits, so agree the schedule with the person.",
+        "description": "Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner, so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Put the full markdown prompt in `body`. The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run spends credits, so agree the schedule with the person.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create scout for scanner",

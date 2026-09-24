@@ -5,7 +5,14 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castBooleanToString } from '@/tools/cast-helpers'
-import { withPostHogUrl, withAgentNote, type WithPostHogUrl, type WithAgentNote } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    stripNullFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const VisionQuotaSpendSeriesGetSchema = () => z.object({})
@@ -1404,7 +1411,7 @@ const VisionScannersScoutReportsListSchema = () => {
 
 const visionScannersScoutReportsList = (): ToolBase<
     ReturnType<typeof VisionScannersScoutReportsListSchema>,
-    WithPostHogUrl<Schemas.ScoutReport[]>
+    Schemas.ScoutReport[]
 > => ({
     name: 'vision-scanners-scout-reports-list',
     schema: VisionScannersScoutReportsListSchema(),
@@ -1414,7 +1421,8 @@ const visionScannersScoutReportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/scout_reports/`,
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        const filtered = omitResponseFields(result, ['*.summary', '*.charts']) as typeof result
+        return filtered
     },
 })
 
@@ -1644,8 +1652,15 @@ const visionScannersWatchFeed = (): ToolBase<
                 tags: params.tags,
             },
         })
+        const filtered = stripNullFields(
+            omitResponseFields(result, [
+                'results.*.observation.scanner_snapshot',
+                'results.*.observation.workflow_id',
+                'results.*.observation.triggered_by_user',
+            ])
+        ) as typeof result
         return withAgentNote(
-            result,
+            filtered,
             'Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n'
         )
     },

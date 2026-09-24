@@ -85,7 +85,7 @@ A scanner that looks like it "found nothing" is often producing mostly `ineligib
 mix before concluding.
 
 A `failed` or `ineligible` observation can be re-run with `vision-observations-retry`, which deletes it and scans the same recording again at the normal credit price.
-Retry transient failures (`provider_transient`, `orphaned`, `internal_error`); an ineligible `too_short` or `no_recording` session comes back ineligible again.
+Retry transient failures (`provider_transient`, `orphaned`, `internal_error`).
 
 ## Step 3 — Read the findings
 
@@ -140,7 +140,7 @@ Match the action to the user's intent, and **corroborate before you create work*
   clearest observation for each issue.
 - **Get told when it recurs.** `vision-alerts-create` puts an alert on the scanner: a `match` alert fires on
   every matching observation, a `metric` alert when a count or average score crosses a threshold over a
-  window. Add a Slack or webhook destination with `vision-alerts-destinations-create`, or it notifies nobody.
+  window. Add a Slack or webhook destination with `vision-alerts-destinations-create`.
 - **Fix the scanner instead.** A rating is the user's verdict on whether the scanner was right, so ask for it
   and record what they say with `vision-observations-label-create` (thumbs up/down plus written feedback;
   team-wide, last write wins, clearable with `vision-observations-label-destroy`). **Never rate from your own
