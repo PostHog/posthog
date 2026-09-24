@@ -29,7 +29,11 @@ from posthog.rate_limit import (
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.evaluation_backfills import BACKFILL_RETENTION_MARGIN, BACKFILL_START_GRACE
+from products.ai_observability.backend.api.evaluation_backfills import (
+    BACKFILL_LIMITED_RELEASE_MESSAGE,
+    BACKFILL_RETENTION_MARGIN,
+    BACKFILL_START_GRACE,
+)
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -582,12 +586,24 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             ("create", "post", "/", {"window_start": "2024-01-01T00:00:00Z", "window_end": "2024-01-02T00:00:00Z"}),
         ]
     )
-    def test_every_action_is_off_while_the_flag_is_off(self, _case, method, path, payload):
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_every_action_is_off_while_the_flag_is_off(self, _case, method, path, payload, mock_capture):
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
             response = getattr(self.client, method)(f"{self.url}{path}", payload, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
+        body = response.json()
+        # The refused caller reads this, so it must say what the state is and how to leave it,
+        # never the name of an internal flag.
+        assert body["detail"] == BACKFILL_LIMITED_RELEASE_MESSAGE
+        assert body["code"] == "feature_flag_required"
+        refusals = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "evaluation backfill refused"
+        ]
+        assert [properties["reason"] for properties in refusals] == ["feature_flag_required"]
 
     def test_list_is_scoped_to_evaluation_and_team(self):
         mine = self._running_backfill()

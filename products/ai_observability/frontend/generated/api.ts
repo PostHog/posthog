@@ -823,6 +823,10 @@ export const getEvaluationsBackfillsListUrl = (
 
 /**
  * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ *
+ * Backfills are in limited release. Every action answers 403 with the code
+ * `feature_flag_required` until PostHog turns them on for your organization. Contact support to
+ * ask for access.
  */
 export const evaluationsBackfillsList = async (
     projectId: string,
@@ -845,6 +849,9 @@ export const getEvaluationsBackfillsCreateUrl = (projectId: string, evaluationId
 
 /**
  * Create a backfill: freeze the conditions, count the units, start the walk.
+ *
+ * In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+ * backfills on for your organization.
  */
 export const evaluationsBackfillsCreate = async (
     projectId: string,
@@ -866,6 +873,10 @@ export const getEvaluationsBackfillsRetrieveUrl = (projectId: string, evaluation
 
 /**
  * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ *
+ * Backfills are in limited release. Every action answers 403 with the code
+ * `feature_flag_required` until PostHog turns them on for your organization. Contact support to
+ * ask for access.
  */
 export const evaluationsBackfillsRetrieve = async (
     projectId: string,
@@ -885,6 +896,9 @@ export const getEvaluationsBackfillsCancelCreateUrl = (projectId: string, evalua
 
 /**
  * Stop a running backfill. Evaluations already dispatched still finish.
+ *
+ * In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+ * backfills on for your organization.
  */
 export const evaluationsBackfillsCancelCreate = async (
     projectId: string,
@@ -904,6 +918,9 @@ export const getEvaluationsBackfillsEstimateCreateUrl = (projectId: string, eval
 
 /**
  * Count what a backfill over the given window would evaluate, without creating one.
+ *
+ * In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+ * backfills on for your organization.
  */
 export const evaluationsBackfillsEstimateCreate = async (
     projectId: string,

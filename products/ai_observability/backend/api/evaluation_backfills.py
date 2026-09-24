@@ -29,8 +29,10 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.permissions import (
+    FEATURE_FLAG_REQUIRED_ERROR_CODE,
     AccessControlPermission,
     APIScopePermission,
     PostHogFeatureFlagPermission,
@@ -81,6 +83,14 @@ BACKFILL_START_GRACE = timedelta(minutes=2)
 # is held for the same tick, because that probe is the expensive one: it opens a connection with
 # no timeout, and the list still answers 200, so nothing upstream slows the polling down.
 BACKFILL_ALIVE_CACHE_SECONDS = 60
+
+# The routes are registered and documented, but the flag is closed to every customer organization,
+# so the default flag-gate message names an internal flag key and leaves the caller with no route
+# to access.
+BACKFILL_LIMITED_RELEASE_MESSAGE = (
+    "Evaluation backfills are in limited release, so this project cannot start one yet. "
+    "Contact PostHog support to ask for access."
+)
 
 
 @frozen
@@ -244,7 +254,12 @@ class EvaluationBackfillViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Historical runs of one evaluation over a closed time window (nested under an evaluation)."""
+    """Historical runs of one evaluation over a closed time window (nested under an evaluation).
+
+    Backfills are in limited release. Every action answers 403 with the code
+    `feature_flag_required` until PostHog turns them on for your organization. Contact support to
+    ask for access.
+    """
 
     # The same flag as the tab, so the API and the surface reach a project together.
     posthog_feature_flag = "llm-analytics-eval-backfills"
@@ -264,6 +279,23 @@ class EvaluationBackfillViewSet(
             TeamMemberAccessPermission(),
             PostHogFeatureFlagPermission(),
         ]
+
+    def permission_denied(self, request: Request, message: str | None = None, code: str | None = None) -> None:
+        if code == FEATURE_FLAG_REQUIRED_ERROR_CODE:
+            try:
+                team = self.team
+            except (ValueError, KeyError, AttributeError):
+                team = None
+            # The routes are documented, so a caller finds them and is refused. Nothing else
+            # reports that refusal, so the reach for backfills is invisible until this event.
+            report_user_action(
+                cast(User, request.user),
+                "evaluation backfill refused",
+                {"action": self.action, "reason": code},
+                team=team,
+            )
+            message = BACKFILL_LIMITED_RELEASE_MESSAGE
+        super().permission_denied(request, message=message, code=code)
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Append, never replace: returning only these throttles would drop the global burst and
@@ -449,7 +481,11 @@ class EvaluationBackfillViewSet(
     )
     @action(detail=False, methods=["post"], pagination_class=None)
     def estimate(self, request: Request, **kwargs: Any) -> Response:
-        """Count what a backfill over the given window would evaluate, without creating one."""
+        """Count what a backfill over the given window would evaluate, without creating one.
+
+        In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+        backfills on for your organization.
+        """
         evaluation = self._evaluation_for_url()
         self._require_enabled(evaluation)
         data = self._validated_request(request)
@@ -528,7 +564,11 @@ class EvaluationBackfillViewSet(
         responses={201: EvaluationBackfillSerializer},
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
-        """Create a backfill: freeze the conditions, count the units, start the walk."""
+        """Create a backfill: freeze the conditions, count the units, start the walk.
+
+        In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+        backfills on for your organization.
+        """
         evaluation = self._evaluation_for_url()
         self._require_enabled(evaluation)
         data = self._validated_request(request)
@@ -597,7 +637,11 @@ class EvaluationBackfillViewSet(
     @extend_schema(request=None, responses={200: EvaluationBackfillSerializer})
     @action(detail=True, methods=["post"], pagination_class=None)
     def cancel(self, request: Request, **kwargs: Any) -> Response:
-        """Stop a running backfill. Evaluations already dispatched still finish."""
+        """Stop a running backfill. Evaluations already dispatched still finish.
+
+        In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+        backfills on for your organization.
+        """
         backfill = self.get_object()
         if cancel_backfill(self.team_id, backfill.pk):
             try:

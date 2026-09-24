@@ -486,6 +486,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
 
 /**
  * Create a backfill: freeze the conditions, count the units, start the walk.
+ *
+ * In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+ * backfills on for your organization.
  */
 export const evaluationsBackfillsCreateBodyConditionsItemIdMax = 100
 
@@ -535,6 +538,9 @@ export const EvaluationsBackfillsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Count what a backfill over the given window would evaluate, without creating one.
+ *
+ * In limited release: answers 403 with the code `feature_flag_required` until PostHog turns
+ * backfills on for your organization.
  */
 export const evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax = 100
 
