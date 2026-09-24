@@ -245,7 +245,7 @@ def test_latest_run_is_by_creation_and_latest_completed_run_is_by_finish(team):
     assert latest_completed is not None and latest_completed.id == finished_last
 
 
-def test_backfills_for_export_lists_every_backfill_oldest_first_within_the_team(team, organization):
+def test_backfills_for_export_lists_every_backfill_newest_first_within_the_team(team, organization):
     export_id = _create_export(team)
     backfill_ids = []
     for offset in (2, 0, 1):
@@ -260,9 +260,9 @@ def test_backfills_for_export_lists_every_backfill_oldest_first_within_the_team(
     other_team = create_team(organization=organization)
 
     assert [backfill.id for backfill in api.list_backfills_for_export(export_id, team.pk)] == [
-        backfill_ids[1],
-        backfill_ids[2],
         backfill_ids[0],
+        backfill_ids[2],
+        backfill_ids[1],
     ]
     assert api.list_backfills_for_export(export_id, other_team.pk) == []
 

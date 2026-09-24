@@ -279,8 +279,8 @@ def get_batch_export_by_name(team_id: int, name: str, destination_type: str) -> 
 
 
 def list_backfills_for_export(export_id: UUID, team_id: int) -> list[contracts.BatchExportBackfillSummary]:
-    """Return every backfill of an export, oldest first. An export can have any number of them."""
-    backfills = BatchExportBackfill.objects.filter(batch_export_id=export_id, team_id=team_id).order_by("created_at")
+    """Return every backfill of an export, newest first. An export can have any number of them."""
+    backfills = BatchExportBackfill.objects.filter(batch_export_id=export_id, team_id=team_id).order_by("-created_at")
     return [_to_backfill_summary(backfill) for backfill in backfills]
 
 
