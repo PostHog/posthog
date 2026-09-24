@@ -1,41 +1,13 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { ComponentProps, useState } from 'react'
 
 import { CardsPreview } from './CardsPreview'
-
-type PreviewArgs = Pick<ComponentProps<typeof CardsPreview>, 'loading' | 'setupSelected' | 'missingSpec'>
-
-function InteractiveCardsPreview({
-    loading: initialLoading,
-    setupSelected: initialSetupSelected,
-    missingSpec,
-}: PreviewArgs): JSX.Element {
-    const [loading, setLoading] = useState(initialLoading)
-    const [setupSelected, setSetupSelected] = useState(initialSetupSelected)
-    return (
-        <CardsPreview
-            loading={loading}
-            setupSelected={setupSelected}
-            missingSpec={missingSpec}
-            onLoadingChange={setLoading}
-            onSetupSelected={() => setSetupSelected(true)}
-        />
-    )
-}
 
 const meta: Meta<typeof CardsPreview> = {
     title: 'Marketing Analytics/Dashboard/Metric cards',
     component: CardsPreview,
     args: { loading: false, setupSelected: false, missingSpec: false },
-    render: ({ loading, setupSelected, missingSpec }) => (
-        // useState reads its initial value on mount only, so the key remounts the preview when a Storybook control changes it.
-        <InteractiveCardsPreview
-            key={`${loading}-${setupSelected}`}
-            loading={loading}
-            setupSelected={setupSelected}
-            missingSpec={missingSpec}
-        />
-    ),
+    // CardsPreview reads these args into state on mount only, so the key remounts it when a Storybook control changes one.
+    render: (args) => <CardsPreview key={`${args.loading}-${args.setupSelected}`} {...args} />,
 }
 export default meta
 type Story = StoryObj<typeof meta>

@@ -126,8 +126,7 @@
                     },
                     {
                         "name": "storybook/preview-api",
-                        "importNames": ["useArgs"],
-                        "message": "The withKea decorator renders a story after Storybook clears its hook context, so useArgs throws and the story renders blank in visual regression runs. Keep story state in React's useState."
+                        "message": "The withKea decorator renders a story after Storybook clears its hook context, so Storybook preview hooks such as useArgs throw or never fire, and the story renders blank in visual regression runs. Keep story state in React's useState."
                     }
                 ],
                 "patterns": [
