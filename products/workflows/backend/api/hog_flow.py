@@ -1202,8 +1202,6 @@ class HogFlowActionSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=200, help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
-    # Optional action keys carry default=None so a create stores the same keys the response echoes.
-    # Otherwise the editor's first resave of a new workflow compares unequal and bumps a phantom v2.
     on_error = serializers.ChoiceField(
         choices=["continue", "abort"],
         required=False,
@@ -4341,8 +4339,6 @@ class HogFlowViewSet(
 
         with transaction.atomic():
             serializer.save()
-            # A new workflow is already version 1, so its history starts here. Without this snapshot
-            # the history stays empty until the first content edit.
             self._append_revision(serializer.instance, created_by=self._revision_author())
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
@@ -4568,7 +4564,6 @@ class HogFlowViewSet(
         )
 
     def _revision_author(self) -> User | None:
-        # Anonymous and synthetic (project secret API key) principals have no user row to point at.
         user = self.request.user
         return user if isinstance(user, User) else None
 
@@ -5474,7 +5469,6 @@ class HogFlowViewSet(
                 .filter(id__in=[flow.id for flow in deletable])
                 .values_list("id", flat=True)
             )
-            # delete() also counts the cascaded rows (revisions, schedules); report workflows only.
             _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
             deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
             deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]

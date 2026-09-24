@@ -117,8 +117,6 @@ class TestHogFlowRevisions(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response.json()["content"]
 
-    # ── Creating ─────────────────────────────────────────────────────
-
     @parameterized.expand([("web", None), ("mcp", "mcp")])
     def test_create_writes_first_revision(self, _name, client_header):
         extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
@@ -150,8 +148,6 @@ class TestHogFlowRevisions(APIBaseTest):
         assert lookup.call_count == 1
 
     def test_create_then_resave_of_response_keeps_single_revision(self):
-        # The editor rebaselines its form on the create response and sends that shape back on the
-        # next save, so the stored create must carry every key the response echoes.
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
             {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]},
