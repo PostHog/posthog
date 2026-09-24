@@ -2429,6 +2429,9 @@ _COMPLETE_KEY_FILE = {
         # The credential the user did not pick must not satisfy the one they did.
         ({"selection": "service_account", "key_file": _COMPLETE_KEY_FILE}, False),
         ({"selection": "key_file", "google_cloud_service_account_integration_id": 7}, False),
+        ({"selection": "service_account", "google_cloud_service_account_integration_id": 7, "key_file": {}}, True),
+        ({"selection": "key_file", "key_file": {"type": "authorized_user"}}, False),
+        ({"selection": "key_file", "key_file": {"project_id": "my-project"}}, False),
     ],
 )
 def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_type(auth_type, expected_valid):
@@ -2438,5 +2441,26 @@ def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_
     is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", "auth_type": auth_type})
 
     assert is_valid is expected_valid
+    assert not any("Required field" in error for error in errors)
+    if not expected_valid:
+        assert any("Google Cloud service account" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "job_inputs,expected_valid",
+    [
+        ({"auth_type": "service_account", "google_cloud_service_account_integration_id": 7}, True),
+        ({"auth_type": "key_file", "key_file": _COMPLETE_KEY_FILE}, True),
+        ({"auth_type": "service_account"}, False),
+        ({"auth_type": "key_file"}, False),
+        ({"auth_type": "key_file", "key_file": {"project_id": "my-project"}}, False),
+        ({"auth_type": "key_file", "key_file": {**_COMPLETE_KEY_FILE, "private_key": ""}}, False),
+    ],
+)
+def test_bigquery_validate_config_reads_a_bare_selection_from_the_flat_payload(job_inputs, expected_valid):
+    is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", **job_inputs})
+
+    assert is_valid is expected_valid
+    assert not any("Required field" in error for error in errors)
     if not expected_valid:
         assert any("Google Cloud service account" in error for error in errors)
