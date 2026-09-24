@@ -1360,8 +1360,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
         chosen connectors, model and repository are actually usable, and the parallel-run
         limit is sane - so a misconfigured step fails here instead of only when it fires."""
-        # The step fires as the workflow's creator. A project secret API key has no user, so a flow
-        # it creates would pass every check here and then fail on each fire with "no owner".
         request = self.context.get("request")
         if self.context.get("workflow_owner_id") is None and isinstance(getattr(request, "user", None), SyntheticUser):
             raise serializers.ValidationError(
@@ -3866,21 +3864,15 @@ class HogFlowPagination(LimitOffsetPagination):
     max_limit = 500
 
 
-# Names the project secret API key on the audit row of a write it made, because the row has no user.
 PSAK_TRIGGER_JOB_TYPE = "project_secret_api_key"
 
 
 def _actor(request: Request) -> Optional[User]:
-    # A project secret API key authenticates as a synthetic user with no row behind it, so a
-    # `created_by` column stores None for it instead of a made-up user.
     user = request.user
     return user if isinstance(user, User) else None
 
 
 class HogFlowBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    # Same scope and rate as the default BurstRateThrottle, so session and personal-key callers see
-    # no change. The PSAK-aware base also counts project secret API key requests, which the default
-    # throttles let through because they only key on a personal API key.
     scope = "burst"
     rate = "480/minute"
 
@@ -3891,8 +3883,6 @@ class HogFlowSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
 
 
 class HogFlowProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    # Per-project aggregate across all of the project's keys, the same size as the per-key budget,
-    # so minting more keys never multiplies a project's total capacity.
     scope = "hog_flow_psak_team_burst"
     rate = "480/minute"
 
@@ -4078,11 +4068,7 @@ class HogFlowViewSet(
     pagination_class = HogFlowPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
-    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    # A CI job pushes a workflow file with the project's secret API key, a credential not tied to one
-    # person's account. The push resolves, reads, creates and updates workflows and nothing else, so
-    # deletes, publishing, restores and every invocation action stay session/PAT/OAuth-only.
     psak_allowed_actions = ["list", "retrieve", "create", "update", "partial_update"]
     throttle_classes = [
         HogFlowBurstRateThrottle,
@@ -4384,9 +4370,6 @@ class HogFlowViewSet(
                 self, instance, activity=activity, name=instance.name, previous=previous, detail_type=detail_type
             )
             return
-        # The shared helper hands the synthetic user to the ActivityLog user column and swallows the
-        # error, so nothing is logged. Write the row as a system row instead and name the key in the
-        # trigger, so a person can still see which credential wrote the workflow.
         psak = authenticator.project_secret_api_key
         try:
             log_activity(
@@ -4407,7 +4390,6 @@ class HogFlowViewSet(
                 ),
             )
         except Exception:
-            # The row is already saved; the audit write must not fail the request, same as the shared helper.
             logger.exception("Failed to write workflow activity for a project secret API key", flow_id=instance.id)
 
     def _report_workflow_action(self, event: str, instance: HogFlow, extra_properties: Optional[dict] = None) -> None:
