@@ -140,7 +140,11 @@ Capture converts that state before every read (`cdc/legacy_conversion.py`), so n
   The source is then marked `cdc_ingest_mode: buffered`, last, so a failure repeats the whole conversion on the next run.
   Legacy batches still in the load queue land first, because the consumer stands down while any are in flight.
 - **A table with deferred runs** snapshots again in the buffer.
-  Nothing merges deferred runs anymore, so a running sync is cancelled, the table is reset, its buffer emptied, and its schedule rebuilt to start the new snapshot straight away.
+  Nothing merges deferred runs anymore, so its schedule is paused and its running sync cancelled.
+  A cancel only asks the workflow to stop, and the loader can still apply batches the sync queued, so the reset waits for a later capture run while either is in progress (`cdc_legacy_snapshot_restart_waiting`).
+  Capture leaves the table out until then, because the new snapshot reads the table after the reset.
+  Then the table is reset, its buffer emptied, and its schedule rebuilt to start the new snapshot straight away.
+  A failed rebuild keeps `cdc_schedule_resume_pending` on the table, and the next capture run retries it.
 - **A job row a legacy capture run left Running** is failed once it is 30 minutes old and has no batches in the queue.
 
 A rebuilt schedule is skipped where the pause is deliberate: billing paused the schema (status `Paused`), an admin-triggered run holds it, the schema is halted and waits for Repair CDC, or it has no sync frequency.
@@ -196,7 +200,8 @@ prompt, and reports those as skips rather than repairs.
 
 ## Buffer expiry — no partial recovery
 
-Buffer files expire after 14 days (`expire-cdc-producer-buffer`). If a schema stops consuming —
+Buffer files expire after 14 days (`expire-cdc-producer-buffer`). The API therefore rejects a CDC
+sync frequency slower than `7day`. If a schema stops consuming —
 paused, erroring, or wedged — its oldest unconsumed file ages toward that limit while the slot has
 long since advanced past those changes.
 

@@ -209,6 +209,14 @@ NO_SYNC_FREQUENCY_ERROR = (
     "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
 )
 
+# A CDC table's own schedule loads its captured changes, and the change buffer expires them after 14
+# days, so a slower schedule would lose changes for good.
+CDC_MAX_SYNC_FREQUENCY_INTERVAL = dt.timedelta(days=7)
+CDC_SYNC_FREQUENCY_TOO_SLOW_ERROR = (
+    "Change data capture keeps captured changes for 14 days, so this table must sync at least every 7 days. "
+    'Choose "7day" or a shorter sync frequency.'
+)
+
 
 def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
     """Trigger the schema's sync, creating its Temporal schedule first if it has none.
@@ -1129,6 +1137,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if source.supports_scheduled_sync and instance.sync_frequency_interval is None:
             if should_sync is True or was_sync_time_of_day_updated:
                 raise ValidationError({"sync_frequency": NO_SYNC_FREQUENCY_ERROR})
+
+        # Checked only when this request sets the frequency or the sync type, so a row that already has a
+        # slower frequency still accepts unrelated edits.
+        if (
+            resulting_sync_type == ExternalDataSchema.SyncType.CDC
+            and (was_sync_frequency_updated or "sync_type" in data)
+            and instance.sync_frequency_interval is not None
+            and instance.sync_frequency_interval > CDC_MAX_SYNC_FREQUENCY_INTERVAL
+        ):
+            raise ValidationError({"sync_frequency": CDC_SYNC_FREQUENCY_TOO_SLOW_ERROR})
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")

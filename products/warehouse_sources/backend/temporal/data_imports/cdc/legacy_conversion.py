@@ -7,7 +7,8 @@ Capture now only writes the S3 buffer, so it runs this before every read. Each s
 once the state it converts is gone, so this module can go once no source logs a conversion.
 
 Every step that can fail raises before capture reads the WAL, so a failed conversion retries on the
-next run with nothing written to the buffer in between.
+next run with nothing written to the buffer in between. Starting a restarted snapshot is the one
+exception: its table is already reset, so a failure there stays pending and the next run retries it.
 """
 
 from __future__ import annotations
@@ -29,7 +30,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import CDC_EXTRACTION_WORKFLOW_ID_PREFIX
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import BUFFER_LANE
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import BUFFER_LANE, cancel_running_sync
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_batches_in_flight
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import IngestMode, decode_job_inputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
@@ -46,6 +48,10 @@ _STRANDED_JOB_MIN_AGE = dt.timedelta(minutes=30)
 # Batches are pruned from the queue after 14 days, so "no batches" is only trustworthy inside that
 # window. Older rows stay as they are, because an abandoned run looks the same as one whose batches aged out.
 _STRANDED_JOB_MAX_AGE = dt.timedelta(days=14)
+# Set by the reset that restarts a deferred-run table's snapshot, and cleared once its schedule runs
+# again. The reset drops the deferred runs, so without it nothing would retry a failed schedule rebuild,
+# and the new snapshot would never start.
+_SCHEDULE_RESUME_PENDING_KEY = "cdc_schedule_resume_pending"
 
 
 def convert_legacy_cdc_state(
@@ -59,8 +65,11 @@ def convert_legacy_cdc_state(
     if ingest_mode != "buffered":
         _convert_legacy_source(source, schemas, logger)
     for schema in schemas:
-        if (schema.sync_type_config or {}).get("cdc_deferred_runs"):
+        config = schema.sync_type_config or {}
+        if config.get("cdc_deferred_runs"):
             _restart_snapshot_in_buffer(schema, logger)
+        elif config.get(_SCHEDULE_RESUME_PENDING_KEY):
+            _start_restarted_snapshot(schema, logger)
     try:
         _close_stranded_capture_jobs(source, schemas, logger)
     except Exception:
@@ -105,49 +114,49 @@ def _convert_legacy_source(
 def _restart_snapshot_in_buffer(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
     """Re-snapshot a table the legacy lane still held deferred runs for.
 
-    Deferred runs are changes captured while the table snapshotted, waiting to be merged after it.
-    Nothing merges them anymore, so the table snapshots again, this time in the buffer. A running
-    sync is cancelled so it cannot hand over without those changes.
+    Nothing merges deferred runs anymore, so the table snapshots again in the buffer. Its old sync must
+    stop first, because one that hands over after the reset flips the table to streaming without those
+    changes. Until it stops, the schedule stays paused and capture leaves the table out.
     """
+    # data_load.service imports temporalio at module scope; deferred to keep the Temporal client off
+    # this module's import path, as capture's other schedule calls do.
+    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+
+    pause_external_data_schedule(str(schema.id))
+    stopping = cancel_running_sync(schema)
+    if stopping is not None or has_batches_in_flight(schema):
+        logger.info("cdc_legacy_snapshot_restart_waiting", schema_id=str(schema.id), stopping_workflow_id=stopping)
+        return
+
     deferred_runs = len(schema.sync_type_config.get("cdc_deferred_runs") or [])
-    _cancel_running_sync(schema, logger)
     purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
     schema.sync_type_config = update_sync_type_config_keys(
         schema.id,
         schema.team_id,
-        updates={"cdc_mode": "snapshot", "reset_pipeline": True, CDC_SNAPSHOT_LANE_KEY: BUFFER_LANE},
+        updates={
+            "cdc_mode": "snapshot",
+            "reset_pipeline": True,
+            CDC_SNAPSHOT_LANE_KEY: BUFFER_LANE,
+            _SCHEDULE_RESUME_PENDING_KEY: True,
+        },
         removes=["cdc_deferred_runs", "cdc_last_log_position"],
         extra_model_fields={"initial_sync_complete": False},
     )
     schema.initial_sync_complete = False
+    logger.info("cdc_legacy_snapshot_restarted_in_buffer", schema_id=str(schema.id), deferred_runs=deferred_runs)
+    _start_restarted_snapshot(schema, logger)
+
+
+def _start_restarted_snapshot(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    """Rebuild the paused schedule and start the new snapshot. A failure stays pending for the next capture run."""
     try:
         _resume_schedule(schema, trigger=True)
     except Exception:
-        # The reset above already dropped the deferred runs, so no later run retries this. The
-        # stalled-schedule sweep reports a snapshot whose schedule never starts.
         logger.exception("cdc_legacy_snapshot_schedule_resume_failed", schema_id=str(schema.id))
-    logger.info("cdc_legacy_snapshot_restarted_in_buffer", schema_id=str(schema.id), deferred_runs=deferred_runs)
-
-
-def _cancel_running_sync(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
-    # data_load.service imports temporalio at module scope; deferred to keep the Temporal client off
-    # this module's import path, as capture's other schedule calls do.
-    from products.data_warehouse.backend.facade.api import cancel_external_data_workflow  # noqa: PLC0415
-
-    job = (
-        ExternalDataJob.objects.filter(
-            team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.RUNNING
-        )
-        .exclude(workflow_id__startswith=CDC_EXTRACTION_WORKFLOW_ID_PREFIX)
-        .order_by("-created_at")
-        .first()
-    )
-    if job is None or not job.workflow_id:
         return
-    try:
-        cancel_external_data_workflow(job.workflow_id)
-    except Exception:
-        logger.warning("cdc_legacy_snapshot_cancel_failed", schema_id=str(schema.id), exc_info=True)
+    schema.sync_type_config = update_sync_type_config_keys(
+        schema.id, schema.team_id, removes=[_SCHEDULE_RESUME_PENDING_KEY]
+    )
 
 
 def _resume_schedule(schema: ExternalDataSchema, *, trigger: bool) -> None:
@@ -160,7 +169,7 @@ def _resume_schedule(schema: ExternalDataSchema, *, trigger: bool) -> None:
     no sync frequency is skipped because the schedule builder cannot turn a null interval into a
     cadence.
     """
-    # See `_cancel_running_sync` for why this import is deferred.
+    # See `_restart_snapshot_in_buffer` for why this import is deferred.
     from products.data_warehouse.backend.facade.api import sync_external_data_job_workflow  # noqa: PLC0415
 
     config = schema.sync_type_config or {}

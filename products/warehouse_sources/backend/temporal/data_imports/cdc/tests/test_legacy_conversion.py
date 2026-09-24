@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -53,14 +54,27 @@ class TestLegacyConversion(BaseTest):
         ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - age)
         return job
 
-    def _convert(self, source, schemas, *, queued_batches: int = 0, sync_workflow=None):
-        purge = MagicMock()
+    def _convert(
+        self,
+        source,
+        schemas,
+        *,
+        queued_batches: int = 0,
+        batches_in_flight: bool = False,
+        purge=None,
+        sync_workflow=None,
+        cancel=None,
+        pause=None,
+    ):
+        purge = purge or MagicMock()
         sync_workflow = sync_workflow or MagicMock()
-        cancel = MagicMock()
+        cancel = cancel or MagicMock()
         with (
             patch(f"{_MODULE}.purge_buffer_prefix", purge),
             patch(f"{_FACADE}.sync_external_data_job_workflow", sync_workflow),
             patch(f"{_FACADE}.cancel_external_data_workflow", cancel),
+            patch(f"{_FACADE}.pause_external_data_schedule", pause or MagicMock()),
+            patch(f"{_MODULE}.has_batches_in_flight", return_value=batches_in_flight),
             patch(f"{_MODULE}.psycopg"),
             patch(f"{_MODULE}.BatchQueue.count_batches_for_run", return_value=queued_batches),
         ):
@@ -107,12 +121,11 @@ class TestLegacyConversion(BaseTest):
             sync_type_config={"cdc_mode": cdc_mode, "cdc_deferred_runs": [{"run_uuid": "r1"}]},
             initial_sync_complete=cdc_mode == "streaming",
         )
-        running_sync = self._job(schema, workflow_id=f"{schema.id}-scheduled", age=dt.timedelta(minutes=5))
         self._job(schema, workflow_id=f"cdc-extraction-{source.id}-run", age=dt.timedelta(minutes=5))
 
         purge, sync_workflow, cancel = self._convert(source, [schema])
 
-        cancel.assert_called_once_with(running_sync.workflow_id)
+        cancel.assert_not_called()
         assert purge.call_args.kwargs["strict"] is True
         assert sync_workflow.call_args.kwargs["trigger_immediately"] is True
         schema.refresh_from_db()
@@ -121,6 +134,74 @@ class TestLegacyConversion(BaseTest):
         assert schema.sync_type_config["reset_pipeline"] is True
         assert schema.sync_type_config["cdc_snapshot_lane"] == "buffer"
         assert "cdc_deferred_runs" not in schema.sync_type_config
+        assert "cdc_schedule_resume_pending" not in schema.sync_type_config
+
+    @parameterized.expand(
+        [
+            ("cancel_reaches_a_live_sync", None, False, "waits"),
+            (
+                "sync_closed_with_batches_still_loading",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                True,
+                "waits",
+            ),
+            (
+                "sync_closed_with_nothing_queued",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                False,
+                "restarts",
+            ),
+            ("cancel_fails", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), False, "raises"),
+        ]
+    )
+    def test_the_reset_waits_until_the_old_sync_can_no_longer_hand_over(
+        self, _name, cancel_error, batches_in_flight, outcome
+    ):
+        source = self._source(ingest_mode="buffered")
+        schema = self._schema(
+            source,
+            "users",
+            sync_type_config={"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "r1"}]},
+            initial_sync_complete=False,
+        )
+        running_sync = self._job(schema, workflow_id=f"{schema.id}-scheduled", age=dt.timedelta(minutes=5))
+        purge, sync_workflow, cancel, pause = MagicMock(), MagicMock(), MagicMock(side_effect=cancel_error), MagicMock()
+        mocks = {"purge": purge, "sync_workflow": sync_workflow, "cancel": cancel, "pause": pause}
+
+        if outcome == "raises":
+            with pytest.raises(RPCError):
+                self._convert(source, [schema], batches_in_flight=batches_in_flight, **mocks)
+        else:
+            self._convert(source, [schema], batches_in_flight=batches_in_flight, **mocks)
+
+        pause.assert_called_once_with(str(schema.id))
+        cancel.assert_called_once_with(running_sync.workflow_id)
+        restarted = outcome == "restarts"
+        assert purge.called is restarted
+        assert sync_workflow.called is restarted
+        schema.refresh_from_db()
+        assert ("cdc_deferred_runs" in schema.sync_type_config) is not restarted
+        assert (schema.sync_type_config.get("reset_pipeline") is True) is restarted
+
+    def test_a_failed_schedule_rebuild_after_the_reset_is_retried_by_the_next_run(self):
+        source = self._source(ingest_mode="buffered")
+        schema = self._schema(
+            source,
+            "users",
+            sync_type_config={"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "r1"}]},
+            initial_sync_complete=False,
+        )
+
+        self._convert(source, [schema], sync_workflow=MagicMock(side_effect=RuntimeError("temporal down")))
+        schema.refresh_from_db()
+        assert "cdc_deferred_runs" not in schema.sync_type_config
+
+        purge, sync_workflow, _ = self._convert(source, [schema])
+
+        purge.assert_not_called()
+        assert sync_workflow.call_args.kwargs["trigger_immediately"] is True
+        schema.refresh_from_db()
+        assert "cdc_schedule_resume_pending" not in schema.sync_type_config
 
     @parameterized.expand(
         [

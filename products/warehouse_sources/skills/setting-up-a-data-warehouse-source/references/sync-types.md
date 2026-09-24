@@ -47,10 +47,11 @@ Works the same way — new rows have higher ids.
 Append preserves every version. Useful when the source updates records and you want to track the history rather than
 latest-state only.
 
-**Postgres, you need sub-minute freshness** → `cdc`.
-CDC streams WAL changes instead of polling. Requires primary keys on each table and Postgres logical replication
-setup. Run `external-data-sources-check-cdc-prerequisites-create` first — unmet prerequisites cause the sync to fail
-immediately on first run.
+**Postgres, you need changes within minutes, including deletes** → `cdc`.
+CDC streams WAL changes instead of polling, and loads them on the table's sync frequency, every 5 minutes at the
+fastest. Requires primary keys on each table and Postgres logical replication setup. Run
+`external-data-sources-check-cdc-prerequisites-create` first — unmet prerequisites cause the sync to fail immediately
+on first run.
 
 **Stripe (or any source where `supports_webhooks: true`)** → consider `webhook` for real-time push.
 Set `sync_type: "webhook"` on the tables that support it. Note that a webhook-type schema _still_ does an initial
@@ -130,6 +131,7 @@ The `supports_webhooks` flag on each table in the db-schema response is the sour
 - For `incremental` / `append`: `1hour` or `6hour` is a reasonable default on reasonably sized tables. The `5min`
   floor exists but is rarely needed — if the user wants real-time, prefer `cdc` or `webhook`.
 - For `cdc`: changes are captured continuously, and the frequency sets how often they load into the table. `5min` keeps the table close to real time.
+  The API rejects anything slower than `7day` for `cdc`, because captured changes expire after 14 days.
 - For cold archive tables: `7day` or `30day` keeps the schedule alive without wasting runs.
 
 The `never` value freezes the schema — it won't sync automatically, but can still be triggered manually via

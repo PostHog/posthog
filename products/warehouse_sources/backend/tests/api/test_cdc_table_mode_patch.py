@@ -80,17 +80,21 @@ def _make_cdc_source_and_schema(
     cdc_last_log_position: str | None = "0/12345",
     cdc_deferred_runs: list[dict] | None = None,
     initial_sync_complete: bool = True,
+    ingest_mode: str | None = "buffered",
 ) -> tuple[ExternalDataSource, ExternalDataSchema]:
+    job_inputs = {
+        "schema": "public",
+        "cdc_enabled": True,
+        "cdc_management_mode": "posthog",
+        "cdc_slot_name": "test_slot",
+        "cdc_publication_name": "test_pub",
+    }
+    if ingest_mode is not None:
+        job_inputs["cdc_ingest_mode"] = ingest_mode
     source = ExternalDataSource.objects.create(
         team=team,
         source_type=ExternalDataSourceType.POSTGRES,
-        job_inputs={
-            "schema": "public",
-            "cdc_enabled": True,
-            "cdc_management_mode": "posthog",
-            "cdc_slot_name": "test_slot",
-            "cdc_publication_name": "test_pub",
-        },
+        job_inputs=job_inputs,
     )
     sync_type_config: dict = {
         "cdc_mode": "streaming",
@@ -123,12 +127,11 @@ def _make_cdc_source_and_schema(
         ("cdc_only", "both"),
     ],
 )
-def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, client: HttpClient, old_mode, new_mode):
-    source, schema = _make_cdc_source_and_schema(
-        team,
-        cdc_table_mode=old_mode,
-        cdc_deferred_runs=[{"job_id": "stale", "run_uuid": "stale", "batch_results": []}],
-    )
+@pytest.mark.parametrize("deferred_runs", [None, [{"job_id": "stale", "run_uuid": "stale", "batch_results": []}]])
+def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
+    team, user, client: HttpClient, old_mode, new_mode, deferred_runs
+):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode, cdc_deferred_runs=deferred_runs)
     running_job = ExternalDataJob.objects.create(
         team=team,
         pipeline=source,
@@ -158,7 +161,7 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, clie
     schema.refresh_from_db()
     assert schema.cdc_table_mode == new_mode
     # The table's changes keep going to the buffer, which the new snapshot then replays.
-    assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
+    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (deferred_runs is None)
     assert schema.sync_type_config.get("cdc_mode") == "snapshot"
     assert schema.sync_type_config.get("cdc_last_log_position") is None
     assert schema.sync_type_config.get("cdc_deferred_runs") is None
@@ -198,6 +201,27 @@ def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient,
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
     assert "cdc_snapshot_lane" not in schema.sync_type_config
+
+
+@pytest.mark.parametrize(("sync_frequency", "expected_status"), [("7day", 200), ("30day", 400)])
+def test_a_cdc_table_syncs_before_its_captured_changes_expire(
+    team, user, client: HttpClient, sync_frequency, expected_status
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode="buffered")
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_frequency": sync_frequency},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    if expected_status == 400:
+        assert "at least every 7 days" in str(response.json())
 
 
 @pytest.mark.parametrize("ingest_mode", [None, "buffered"])

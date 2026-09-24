@@ -53,8 +53,9 @@ def resnapshot_stays_in_buffer(schema: ExternalDataSchema) -> bool:
 def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
     """Cancel the table's running scheduled sync, so a snapshot begun before a reset cannot hand over.
 
-    Returns the workflow id it cancelled. A workflow that already finished counts as cancelled. Any
-    other failure raises, so the caller stops before it changes the table.
+    Returns the id of the workflow it asked to stop. That workflow can still be finishing, and the
+    loader can still apply batches it queued. Returns None when no sync runs, or its workflow already
+    closed. Any other failure raises, so the caller stops before it changes the table.
     """
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import cancel_external_data_workflow  # noqa: PLC0415
@@ -75,4 +76,5 @@ def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
     except RPCError as e:
         if e.status != RPCStatusCode.NOT_FOUND:
             raise
+        return None
     return job.workflow_id

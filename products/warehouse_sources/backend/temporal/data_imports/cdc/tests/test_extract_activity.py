@@ -1703,15 +1703,17 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("known_mode_captured", "consolidated", True),
+            ("known_mode_captured", "consolidated", {}, True),
             # No lane consumes an unrecognized mode, so the buffer could never deliver its changes.
-            ("unrecognized_mode_skipped", "not_a_table_mode", False),
+            ("unrecognized_mode_skipped", "not_a_table_mode", {}, False),
+            ("waiting_for_its_snapshot_restart", "consolidated", {"cdc_deferred_runs": [{"run_uuid": "r1"}]}, False),
         ]
     )
-    def test_each_captured_table_gets_its_own_file(self, _name, orders_table_mode, orders_captured):
+    def test_each_captured_table_gets_its_own_file(self, _name, orders_table_mode, orders_config, orders_captured):
         source = _make_source()
         users = _make_schema("users", cdc_mode="streaming", source=source)
         orders = _make_schema("orders", cdc_mode="streaming", cdc_table_mode=orders_table_mode, source=source)
+        orders.sync_type_config.update(orders_config)
         events = [
             _make_event(op="I", table="users", position="0/100", columns={"id": 1}),
             _make_event(op="I", table="orders", position="0/200", columns={"id": 10}),
@@ -1804,7 +1806,6 @@ class TestBufferedIngressCapture:
             # bring the truncated rows back.
             ("after_changes_in_the_same_run", [_make_event(op="I", position="0/100", columns={"id": 1})], "users"),
             ("with_no_other_changes", [], "users"),
-            # The decoder reports a truncated table qualified, even when the schema is stored bare.
             ("reported_qualified_for_a_bare_schema", [], "public.users"),
         ]
     )
@@ -1826,8 +1827,6 @@ class TestBufferedIngressCapture:
         assert schema.sync_type_config[CDC_SNAPSHOT_LANE_KEY] == "buffer"
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
-        # The TRUNCATE commits after the last row event, in a transaction of its own. Confirming only that
-        # event's position would read the TRUNCATE again and reset the table a second time.
         capture.reader.confirm_position.assert_called_once_with("0/500")
 
     @parameterized.expand(
