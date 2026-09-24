@@ -1059,7 +1059,26 @@ def test_reset_pipeline_preserves_partition_mode_override() -> None:
     assert schema.partition_format == "month"
 
 
-class TestResetRestartsTheFullRefreshClock(BaseTest):
+class TestRunSavesKeepTheFullRefreshInterval(BaseTest):
+    def test_a_cursor_save_keeps_an_interval_saved_during_the_run(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
+        created = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
+            full_refresh_interval_days=7,
+        )
+        run_copy = ExternalDataSchema.objects.get(pk=created.pk)
+        ExternalDataSchema.objects.filter(pk=created.pk).update(full_refresh_interval_days=3)
+
+        run_copy.update_incremental_field_value(42)
+
+        created.refresh_from_db()
+        assert created.full_refresh_interval_days == 3
+        assert created.sync_type_config["incremental_field_last_value"] == 42
+
     def test_the_clock_restarts_from_the_interval_saved_during_the_run(self) -> None:
         source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
         created = ExternalDataSchema.objects.create(

@@ -908,8 +908,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
-            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
-            if job_id is not None:
+            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed). A scheduled
+            # full refresh deletes the table before extraction, so rewriting it first is wasted work.
+            if job_id is not None and not scheduled_full_refresh:
                 try:
                     await workflow.execute_activity(
                         maybe_repartition_table_activity,

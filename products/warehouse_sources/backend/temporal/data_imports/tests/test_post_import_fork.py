@@ -304,6 +304,7 @@ async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_ful
     )
 
     assert ("import_data_activity_sync:scheduled_full_refresh" in executed) is scheduled_full_refresh
+    assert ("maybe_repartition_table_activity" in executed) is not scheduled_full_refresh
 
 
 @pytest.mark.parametrize(

@@ -1178,7 +1178,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
-            self.save(skip_activity_log=True)
+            # A run calls this after every chunk with the copy it loaded at the start, so a full save would
+            # put back settings the user changed during the run.
+            self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
 
     def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
         # Call at job completion, not per-batch: a mid-run crash then re-reads the window
