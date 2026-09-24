@@ -14,11 +14,7 @@ from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-from products.alerts.backend.evaluation.contract import (
-    AlertDataUnavailableError,
-    AlertExtractionError,
-    ExtractionResult,
-)
+from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import (
     HogQLDetectorExtractor,
