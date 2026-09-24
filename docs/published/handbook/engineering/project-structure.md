@@ -47,6 +47,11 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/queries` – Query builder and data visualization components
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
+The Apps sidebar lives in `src/layout/panel-layout/navbar`.
+App rows show a direct star toggle when starring is their only action; rows with other actions keep starring in their menu.
+The Starred section's menu opens **Configure starred**, a flat app picker that saves star changes immediately.
+Drag starred items in the sidebar to change their order.
+
 The app-level terminal lives in `src/scenes/terminal`.
 SQL insights appear as editable `.sql` files; their full JSON remains editable under `/posthog/api/insight`.
 Saving SQL preserves the insight's other query options, and JSON saves send only changed fields through the existing APIs.
