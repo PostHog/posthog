@@ -111,3 +111,36 @@ if [[ "$output" != $'1\t1\t1' ]]; then
     exit 1
 fi
 echo "Passed nested-array quarantine JSON casts."
+
+# ClickHouse started each pooled UDF process above while a client connection was open. A UDF process that keeps a
+# copy of a client socket holds the connection open after the server closes it, so the client's next request on
+# that connection never gets a response. Run as the clickhouse user, which owns the UDF processes.
+docker compose -f "$COMPOSE_FILE" exec -T -u clickhouse clickhouse bash -s <<'BASH'
+set -euo pipefail
+checked=0
+leaks=0
+for proc in /proc/[0-9]*; do
+    args=()
+    mapfile -d '' args 2>/dev/null < "$proc/cmdline" || continue
+    # A wrapper runs as `<shell> /var/lib/clickhouse/user_scripts/<script>`, and it starts its binary from /tmp.
+    if [[ "${args[1]:-}" != /var/lib/clickhouse/user_scripts/* && "${args[0]:-}" != /tmp/* ]]; then
+        continue
+    fi
+    checked=$((checked + 1))
+    for fd in "$proc"/fd/*; do
+        target=$(readlink "$fd" 2>/dev/null) || continue
+        if [[ "$target" == socket:* ]]; then
+            echo "UDF process '${args[*]}' holds descriptor ${fd##*/} ($target)." >&2
+            leaks=$((leaks + 1))
+        fi
+    done
+done
+if ((checked == 0)); then
+    echo "Expected running pooled UDF processes, found none." >&2
+    exit 1
+fi
+if ((leaks > 0)); then
+    exit 1
+fi
+BASH
+echo "Passed pooled UDF processes hold no sockets."
