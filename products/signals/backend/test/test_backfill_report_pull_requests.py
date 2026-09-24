@@ -176,6 +176,7 @@ class TestBackfillReportPullRequests(BaseTest):
         assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/sdk", pr_number=2) == [
             str(report.id)
         ]
+        assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/app", pr_number=3) == []
         update_assignments_for_pull_request(
             team_ids=[self.team.id], repository="example/sdk", pr_number=2, pr_state="closed"
         )
@@ -183,3 +184,31 @@ class TestBackfillReportPullRequests(BaseTest):
         assert report.status == "resolved"
         assert view._resolve_report_pr_reference(report) == ("example/sdk", 2)
         assert len(fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id)[str(report.id)]) == 2
+
+    def test_webhook_lookup_finds_reports_linked_only_by_artefact_or_by_assignment(self) -> None:
+        from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
+        from products.signals.backend.pull_requests import import_report_pull_requests
+
+        url = "https://github.com/example/app/pull/7"
+        linked_by_artefact, linked_by_assignment, unrelated = (
+            SignalReport.objects.create(team=self.team, status="ready", title="Report", summary="Summary")
+            for _ in range(3)
+        )
+        for report in (linked_by_artefact, linked_by_assignment):
+            SignalReportAssignment.all_teams.create(
+                team=self.team, report=report, pr_url=url, repository="example/app", pr_number=7, pr_state="open"
+            )
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=unrelated,
+            pr_url="https://github.com/example/app/pull/8",
+            repository="example/app",
+            pr_number=8,
+            pr_state="open",
+        )
+        import_report_pull_requests(linked_by_artefact)
+        SignalReportAssignment.all_teams.filter(report=linked_by_artefact).delete()
+
+        assert sorted(
+            report_ids_for_implementation_pr(team_id=self.team.id, repository="EXAMPLE/app", pr_number=7)
+        ) == sorted([str(linked_by_artefact.id), str(linked_by_assignment.id)])
