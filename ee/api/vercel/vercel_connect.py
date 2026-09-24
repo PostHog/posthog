@@ -25,6 +25,11 @@ from ee.vercel.client import APIError, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
+
+class VercelImportError(Exception):
+    pass
+
+
 ALLOWED_REDIRECT_DOMAINS = {
     "vercel.com",
     "www.vercel.com",
@@ -344,6 +349,17 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 installation_id=installation_id,
                 resource_id=str(production_resource.pk),
                 integration="vercel",
+            )
+            capture_exception(
+                VercelImportError("Vercel did not accept the resource import"),
+                {
+                    "status_code": import_result.status_code,
+                    "error": import_result.error,
+                    "error_detail": import_result.error_detail,
+                    "installation_id": installation_id,
+                    "resource_id": str(production_resource.pk),
+                    "organization_id": str(organization.id),
+                },
             )
             with transaction.atomic():
                 org_integration.delete()
