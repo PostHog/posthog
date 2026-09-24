@@ -29,10 +29,6 @@ EXPECTED_WARNINGS: dict[str, list[dict[str, str | None]]] = {
             "action_id": "split",
             "message": 'The arm "1" of "Split traffic" has no edge. Add a step to it before you push.',
         },
-        {
-            "action_id": "split",
-            "message": 'The branch arm 1 of "Split traffic" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
-        },
     ],
     "re_engagement": [
         {
@@ -158,6 +154,25 @@ class TestCodeRenderer(SimpleTestCase):
                     {
                         "action_id": "which",
                         "message": 'The arm "Free" of "Which" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
+                    }
+                ],
+            ),
+            (
+                "early_empty_arm_keeps_its_place_in_the_order",
+                _branch_workflow(
+                    conditions=[_person_condition("Suppressed"), _person_condition("Subscribed")],
+                    arm_targets={1: "inside"},
+                ),
+                [
+                    "{ name: 'Suppressed', when: [person('plan', 'exact', ['pro'])], then: path() },\n"
+                    "                {\n"
+                    "                    name: 'Subscribed',"
+                ],
+                [],
+                [
+                    {
+                        "action_id": "which",
+                        "message": 'The arm "Suppressed" of "Which" has no steps. @posthog/workflows cannot declare an empty arm, and leaving it out would send a person who matches it and a later arm down the later arm. The file keeps it as an empty path(), which does not push. Add a step to the arm or remove it in PostHog first.',
                     }
                 ],
             ),
