@@ -45,6 +45,9 @@ describe('SupportTicketsTable selection', () => {
             },
         })
         initKeaTests()
+        // The table renders on the ticket list page, and the list logic writes the query
+        // string only while the router sits there.
+        router.actions.push(urls.supportTickets())
         logic = supportTicketsSceneLogic()
         logic.mount()
         // Seed a ticket directly so we don't depend on the debounced loadTickets request.

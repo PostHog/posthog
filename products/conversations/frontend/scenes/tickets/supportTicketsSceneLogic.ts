@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -62,6 +63,8 @@ const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
 
 const DEFAULT_SORTING: Sorting = { columnKey: 'updated_at', order: -1 }
 const DEFAULT_ORDER_BY = '-updated_at'
+
+const TICKET_LIST_PATH = '/support/tickets'
 
 // Shareable ticket-filter query params. Date range stays a personal preference,
 // while free-text search stays out of URLs because it can contain customer data.
@@ -181,6 +184,14 @@ function hasFilterParams(searchParams: Record<string, any>): boolean {
     return FILTER_URL_PARAM_KEYS.some((paramKey) => searchParams[paramKey] !== undefined)
 }
 
+// Other scenes connect to this logic, so it also mounts on pages that show no ticket list:
+// the ticket detail scene reuses its loadTickets action, and a notebook node mounts it
+// through the saved views menu. Only the list the user looks at owns the page URL.
+function isOnTicketListPage(): boolean {
+    // location.pathname still carries the project prefix that the route paths drop.
+    return removeProjectIdIfPresent(router.values.location.pathname) === TICKET_LIST_PATH
+}
+
 // Compare a URL against the current filters via their canonical encodings, so
 // non-canonical inputs (single-value strings, redundant defaults) don't read as
 // a difference and trigger a needless re-apply loop.
@@ -259,8 +270,12 @@ export interface supportTicketsSceneLogicActions {
     clearSelectedTickets: () => {
         value: true
     }
-    loadSavedView: (shortId: string) => {
+    loadSavedView: (
+        shortId: string,
+        restored?: boolean
+    ) => {
         shortId: string
+        restored: boolean
     }
     loadTickets: () => {
         value: true
@@ -410,7 +425,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         applyUrlFilters: (filters: TicketViewFilters) => ({ filters }),
         applyView: (view: SavedTicketView) => ({ view }),
-        loadSavedView: (shortId: string) => ({ shortId }),
+        // `restored` marks a view the scene puts back by itself, rather than one the user
+        // asked for through the URL.
+        loadSavedView: (shortId: string, restored: boolean = false) => ({ shortId, restored }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
         resetFilters: true,
@@ -858,7 +875,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.applyViewFilters(view.filters || {})
             actions.setActiveView(view)
         },
-        loadSavedView: async ({ shortId }) => {
+        loadSavedView: async ({ shortId, restored }) => {
             // Track the view the URL currently names. Rapidly switching views leaves
             // several requests in flight; only the latest one may touch state, so a
             // slow earlier response can't clobber the view the user actually landed on.
@@ -877,8 +894,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
             } catch {
                 if (cache.latestViewShortId === shortId) {
-                    lemonToast.error('Failed to load saved view')
-                    actions.applyUrlFilters(DEFAULT_TICKET_FILTERS)
+                    if (restored) {
+                        // The user did not ask for this view on this visit, so a deleted one
+                        // is not an error. Drop the name and keep the filters on screen.
+                        actions.clearActiveView()
+                        actions.loadTickets()
+                    } else {
+                        lemonToast.error('Failed to load saved view')
+                        actions.applyUrlFilters(DEFAULT_TICKET_FILTERS)
+                    }
                 }
             } finally {
                 inFlight.delete(shortId)
@@ -927,7 +951,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     })),
     actionToUrl(({ values, props, cache }) => {
         const buildUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | undefined => {
-            if (cache.applyingUrlFilters) {
+            if (cache.applyingUrlFilters || !isOnTicketListPage()) {
                 return
             }
             const searchParams = { ...router.values.searchParams }
@@ -973,7 +997,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         }
     }),
     urlToAction(({ actions, values, props, cache }) => ({
-        '/support/tickets': (_, searchParams) => {
+        [TICKET_LIST_PATH]: (_, searchParams) => {
             if (props.distinctIds?.length) {
                 return
             }
@@ -1011,18 +1035,20 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     })),
     afterMount(({ actions, values, props }) => {
         const embedded = !!props.distinctIds?.length
+        const ownsPageUrl = !embedded && isOnTicketListPage()
         const { searchParams } = router.values
+        const urlViewShortId = ownsPageUrl ? searchParams.view : undefined
         // A bare URL falls back to the view the user had open last, which persists across
         // sessions, so opening the inbox from the sidebar keeps the view attached. Loading it
         // by short_id also picks up renames, filter edits and deletions made since.
-        const viewShortId = embedded
-            ? undefined
-            : (searchParams.view ?? (hasFilterParams(searchParams) ? undefined : values.activeView?.short_id))
+        const restoredViewShortId =
+            ownsPageUrl && !urlViewShortId && !hasFilterParams(searchParams) ? values.activeView?.short_id : undefined
+        const viewShortId = urlViewShortId ?? restoredViewShortId
         if (viewShortId) {
-            actions.loadSavedView(String(viewShortId))
+            actions.loadSavedView(String(viewShortId), !urlViewShortId)
             return
         }
-        if (!embedded) {
+        if (ownsPageUrl) {
             if (hasFilterParams(searchParams)) {
                 if (!urlFiltersMatchState(searchParams, values.currentFilters)) {
                     // A shared/bookmarked link overrides the persisted selection.
