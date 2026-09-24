@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconCollapse, IconExpand, IconEye } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
+import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -209,15 +210,13 @@ function ObservationRuns({
                     retrying={retryingObservationIds.includes(focused.id)}
                 />
             )}
-            <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 border-y border-primary bg-surface-tertiary dark:bg-surface-secondary text-xs">
-                <span className="font-semibold">Runs</span>
-                <LemonBadge.Number count={observations.length} maxDigits={2} size="small" status="muted" showZero />
+            <SectionHeader label="Runs" count={observations.length} className="sticky top-0 z-10">
                 {flaggedCount > 0 && (
                     <Tooltip title={`${flaggedCount} flagged`}>
                         <LemonBadge.Number count={flaggedCount} size="small" status="primary" />
                     </Tooltip>
                 )}
-            </div>
+            </SectionHeader>
             <div>
                 {observations.map((observation) => {
                     const count = marksByRun.get(observation.id)?.length ?? 0
@@ -272,6 +271,31 @@ function ObservationRuns({
     )
 }
 
+function SectionHeader({
+    label,
+    count,
+    className,
+    children,
+}: {
+    label: string
+    count: number
+    className?: string
+    children?: ReactNode
+}): JSX.Element {
+    return (
+        <div
+            className={cn(
+                'flex items-center gap-2 px-3 py-1.5 border-y border-primary bg-surface-tertiary dark:bg-surface-secondary text-xs font-semibold uppercase tracking-wide text-secondary',
+                className
+            )}
+        >
+            {label}
+            <LemonBadge.Number count={count} maxDigits={2} size="small" status="muted" showZero />
+            {children}
+        </div>
+    )
+}
+
 function RunResult({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
     if (observation.status !== 'succeeded') {
         return <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
@@ -301,6 +325,7 @@ const FocusPane = forwardRef<
     const hasText = observation.status === 'succeeded' && (isSummary || reasoning !== null)
     const textLabel = isSummary ? 'summary' : 'reasoning'
     const prompt = configFromSnapshot(observation.scanner_snapshot)?.prompt ?? null
+    const scannerType = observation.scanner_snapshot?.scanner_type
     return (
         <div
             ref={ref}
@@ -310,7 +335,14 @@ const FocusPane = forwardRef<
             data-attr="vision-focus-run"
         >
             <div ref={contentRef}>
-                <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-surface-secondary">
+                <div className="flex items-center gap-2 px-3 py-2">
+                    {scannerType && (
+                        <Tooltip title={scannerTypeLabel(scannerType)}>
+                            <LemonTag type={SCANNER_TYPE_TAG_TYPE[scannerType]} size="small">
+                                {scannerTypeIcon(scannerType)}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
                     <Tooltip title={prompt}>
                         <span className="text-sm font-semibold truncate">{scannerLabel(observation)}</span>
                     </Tooltip>
@@ -318,41 +350,42 @@ const FocusPane = forwardRef<
                         <RunResult observation={observation} />
                     </span>
                 </div>
-                <div className="flex flex-col gap-2 px-2 py-2">
-                    {observation.status === 'failed' && observation.error_reason && (
-                        <FailureDetail errorReason={observation.error_reason} />
-                    )}
-                    {observation.status === 'ineligible' && observation.error_reason && (
-                        <IneligibleDetail errorReason={observation.error_reason} />
-                    )}
-                    {observation.error_reason && (
-                        <div>
-                            <ObservationRetryButton
-                                status={observation.status}
-                                errorReason={observation.error_reason}
-                                onRetry={onRetry}
-                                loading={retrying}
-                                size="xsmall"
-                                dataAttr="vision-tab-retry-observation"
-                            />
-                        </div>
-                    )}
-                    {isInFlight(observation) && (
-                        <ObservationProgressBar
-                            observationId={observation.id}
-                            sessionId={observation.session_id}
-                            compact
-                        />
-                    )}
-                    {marks.length > 0 && (
-                        <>
-                            <div className="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-secondary">
-                                Moments
-                                <LemonBadge.Number count={marks.length} maxDigits={2} size="small" status="muted" />
+                {(observation.error_reason || isInFlight(observation)) && (
+                    <div className="flex flex-col gap-2 px-2 pb-2">
+                        {observation.status === 'failed' && observation.error_reason && (
+                            <FailureDetail errorReason={observation.error_reason} />
+                        )}
+                        {observation.status === 'ineligible' && observation.error_reason && (
+                            <IneligibleDetail errorReason={observation.error_reason} />
+                        )}
+                        {observation.error_reason && (
+                            <div>
+                                <ObservationRetryButton
+                                    status={observation.status}
+                                    errorReason={observation.error_reason}
+                                    onRetry={onRetry}
+                                    loading={retrying}
+                                    size="xsmall"
+                                    dataAttr="vision-tab-retry-observation"
+                                />
                             </div>
-                            <ObservationTimeline sessionId={sessionId} marks={marks} onSeek={onSeek} />
-                        </>
-                    )}
+                        )}
+                        {isInFlight(observation) && (
+                            <ObservationProgressBar
+                                observationId={observation.id}
+                                sessionId={observation.session_id}
+                                compact
+                            />
+                        )}
+                    </div>
+                )}
+                {marks.length > 0 && (
+                    <>
+                        <SectionHeader label="Moments" count={marks.length} />
+                        <ObservationTimeline sessionId={sessionId} marks={marks} onSeek={onSeek} />
+                    </>
+                )}
+                <div className="flex flex-col gap-2 px-2 py-2">
                     {observation.status === 'succeeded' && marks.length === 0 && (
                         <span className="text-xs text-muted">No cited moments.</span>
                     )}
