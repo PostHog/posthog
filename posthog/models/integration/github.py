@@ -21,6 +21,7 @@ from posthog.models.github_integration_base import (
     GitHubIntegrationError,
     _is_safe_github_repo_path,
 )
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
@@ -77,6 +78,7 @@ class GitHubUserAuthorization:
     refresh_token: str | None = field(repr=False)
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
+    identity_verified_at: int = field(default_factory=lambda: int(time.time()))
 
 
 @dataclass(frozen=True)
@@ -194,6 +196,11 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "created_by": created_by,
             },
         )
+
+        if created:
+            GitHubAudit.project(integration, created_by).record(
+                "created", customer_visible=True, after_commit=True, outcome="connected"
+            )
 
         if integration.errors:
             integration.errors = ""
