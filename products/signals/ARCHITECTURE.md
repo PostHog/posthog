@@ -1125,7 +1125,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_report_free_trial_paused` — a gate held back a pull request because the team's org is on a Self-driving free trial (+ `stage`: `autostart` | `manual_create` | `task_create` | `task_run`, `report_id` nullable). See Self-driving free trial
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
-- `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
+- `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`: `no_signals_found` | `safety_judge_rejected` | `<activity type>:<error class>` for a failure the workflow unwrapped, e.g. `run_agentic_report_activity:timeout_start_to_close` | `agentic_activity_error` when the failure carries no cause to read)
 - `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
