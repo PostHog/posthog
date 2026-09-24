@@ -44,8 +44,9 @@ Trailing slashes are optional; paths are normalized before matching.
    The picker re-requests the same URL with `_region=us|eu` appended.
 
    Those two cookies are `HttpOnly` and `SameSite=Lax`. Nothing in the browser reads them, because the worker takes them from the request Cookie header, so `HttpOnly` keeps a script on any sibling `posthog.com` origin from reading or overwriting them. A browser withholds a `Strict` cookie on the cross-site top-level navigation an OAuth client arrives by, so `ph_current_instance` and the other `Strict` cookies never reach this worker. Only page JavaScript can read them.
-   The worker stores the region choice in KV under the `client_id`, swaps in the regional `client_id`, replaces `redirect_uri` with the proxy callback, and redirects to the region.
-   For clients with a stored `redirect_uris` list, it also generates a nonce, stores the client's original `redirect_uri` and `state` under it, and sends the regional server that nonce as `state` instead of the client's own.
+   The worker stores the region choice in KV under the `client_id`, swaps in the regional `client_id`, and redirects to the region.
+   For a client with a stored `redirect_uris` list it also takes the callback over: it generates a nonce, stores the client's original `redirect_uri` and `state` under it, replaces `redirect_uri` with the proxy callback, and sends the regional server that nonce as `state` instead of the client's own.
+   One condition governs both halves of that takeover, because replacing `redirect_uri` without storing a record leaves the worker a callback it cannot forward from, and the authorization code dies there.
 
 3. **Callback.**
    The regional server sends the user to `/oauth/callback` with the nonce from step 2 as `state`.
@@ -54,9 +55,6 @@ Trailing slashes are optional; paths are normalized before matching.
    The record is left to expire on its TTL rather than consumed on read, so a reload or a client retry forwards the same code again instead of stranding it.
    Replaying the forward is inert: the authorization code is single-use at the regional server, and PKCE binds it to the client that requested it.
    A callback the worker cannot match to a record has nowhere to send the code, so it answers with a page that tells the person to start again, not a bare 400.
-
-   The worker only replaces `redirect_uri` with its own callback when it stored a record for that flow.
-   Taking the callback over without one would strand the code at the proxy.
 4. **Token.**
    `/oauth/token` looks up the region by `client_id`.
    It rewrites `client_id`, `client_secret`, and `redirect_uri` back to the values the regional server issued the code for, then forwards the request.
@@ -121,8 +119,8 @@ Without `OIDC_SIGNING_KEY` the worker serves the regional ID token unchanged and
 | `pending_callback:<sha256>` | 1 hour | The client's original `redirect_uri` and `state`, under a proxy nonce |
 
 Key material is SHA-256 hashed because `state` and the nonce are opaque and can exceed Cloudflare's 512 byte key limit.
-`pending_callback:` records are deleted once `/oauth/callback` reads them, so a nonce is single-use.
-KV is eventually consistent across Cloudflare's edge locations, so this single-use guarantee is best effort; the authorization code itself is still single-use at the regional server.
+A `pending_callback:` record survives its read and expires on its TTL, so a reload or a client retry forwards the same code again instead of losing it.
+Replaying that forward is inert: the authorization code is single-use at the regional server, and PKCE binds it to the client that requested it.
 
 ## Development
 
