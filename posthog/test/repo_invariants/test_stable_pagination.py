@@ -54,12 +54,29 @@ def _paginated_list_viewsets() -> list[PaginatedViewSet]:
     return list(viewsets.values())
 
 
+def _has_unstable_cursor_paginator_attribute(pagination_class: type[BasePagination]) -> bool:
+    """Check if the pagination class or its instance attributes hold an unstable CursorPagination."""
+    try:
+        paginator = pagination_class()
+    except Exception:
+        return False
+
+    for attr_value in vars(paginator).values():
+        if isinstance(attr_value, CursorPagination) and not isinstance(attr_value, StableCursorPagination):
+            return True
+
+    return False
+
+
 def test_cursor_paginators_add_a_primary_key_tiebreaker() -> None:
     unstable = sorted(
         f"{paginated.name} ({paginated.pagination_class.__qualname__})"
         for paginated in _paginated_list_viewsets()
-        if issubclass(paginated.pagination_class, CursorPagination)
-        and not issubclass(paginated.pagination_class, StableCursorPagination)
+        if (
+            issubclass(paginated.pagination_class, CursorPagination)
+            and not issubclass(paginated.pagination_class, StableCursorPagination)
+        )
+        or _has_unstable_cursor_paginator_attribute(paginated.pagination_class)
     )
 
     assert not unstable, (
