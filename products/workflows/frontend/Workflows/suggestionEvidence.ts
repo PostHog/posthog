@@ -21,7 +21,8 @@ export function readUnit(value: unknown): EvidenceUnit | null {
     return value === 'rate' || value === 'count' ? value : null
 }
 
-// The producer says what the number is: guessed from the range, a count of 1 reads as 100%.
+// The producer says what the number is. The unit is never guessed from the value's range, where
+// a count of 1 would read as 100%.
 export function formatValue(value: unknown, unit: EvidenceUnit | null): string | null {
     if (typeof value !== 'number') {
         return null
