@@ -19,10 +19,12 @@ class ManifestFile(TypedDict):
 
 
 class Manifest(TypedDict, total=False):
-    """What kev-vllm-export writes; `files` is the part verification needs, the rest is provenance."""
+    """What kev-vllm-export and jevk5-vllm-export write; `files` is the part verification needs, the rest is provenance."""
 
     kev_run: str
     kev_hub_revision: str
+    source_repo: str
+    source_revision: str
     files: dict[str, ManifestFile]
 
 
@@ -69,7 +71,9 @@ def main() -> None:
     except (FileNotFoundError, ValueError) as error:
         print(error, file=sys.stderr)
         raise SystemExit(1) from error
-    print(f"checkpoint ok: {manifest.get('kev_run')} @ {manifest.get('kev_hub_revision')}, {len(manifest['files'])} files")
+    source = manifest.get("kev_run") or manifest.get("source_repo")
+    revision = manifest.get("kev_hub_revision") or manifest.get("source_revision")
+    print(f"checkpoint ok: {source} @ {revision}, {len(manifest['files'])} files")
 
 
 if __name__ == "__main__":
