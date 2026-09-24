@@ -16,6 +16,15 @@ from . import common, model
 
 logger = structlog.get_logger(__name__)
 
+# Google's `CustomerStatus` values that mean the account can never serve again. Every other value,
+# including an absent one (proto3 omits defaults over REST), keeps the account in the picker.
+GOOGLE_ADS_DEAD_STATUSES = frozenset({"CANCELED", "CLOSED"})
+
+
+class GoogleAdsAccountWalkError(ValidationError):
+    """Google returned an error part-way through the account hierarchy walk, so the account list is
+    incomplete. Raised rather than returned, because a short list looks like a complete one."""
+
 
 def google_ads_hierarchy_level(account: dict) -> int:
     """Depth of an account below the manager the walk started from. Google's REST responses omit proto3
@@ -141,7 +150,7 @@ class GoogleAdsIntegration:
                 "POST",
                 f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
                 json={
-                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
+                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status, customer_client.test_account FROM customer_client WHERE customer_client.level <= 5"
                 },
                 headers={
                     "Content-Type": "application/json",
@@ -153,7 +162,12 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
-                return accounts
+                capture_exception(
+                    Exception(f"GoogleAdsIntegration: Failed to walk the account hierarchy: {response.text}")
+                )
+                raise GoogleAdsAccountWalkError(
+                    "Google Ads did not return all of the accounts you can use. Please try again."
+                )
 
             # searchStream's REST body is an array of response objects, one per streamed batch.
             data = response.json()
@@ -166,10 +180,10 @@ class GoogleAdsIntegration:
                 # below it, so the raw values are not mutually comparable.
                 client_level = google_ads_hierarchy_level(client)
 
-                # Reject non-enabled accounts before deduping. Otherwise a disabled, shallower sighting
-                # of an account we already kept as enabled would evict the enabled entry here and then be
-                # skipped by the status check below, dropping the account from the picker entirely.
-                if client.get("status") != "ENABLED":
+                # Reject dead accounts before deduping. Otherwise a dead, shallower sighting of an
+                # account we already kept would evict the live entry here and then be skipped by the
+                # status check below, dropping the account from the picker entirely.
+                if client.get("status") in GOOGLE_ADS_DEAD_STATUSES:
                     continue
 
                 # One account can be reached from several accessible roots — e.g. a user with access to
@@ -189,6 +203,7 @@ class GoogleAdsIntegration:
                         "level": client.get("level"),
                         "name": client.get("descriptiveName", "Google Ads account"),
                         "manager": client.get("manager", False),
+                        "test_account": client.get("testAccount", False),
                     }
                 )
 
