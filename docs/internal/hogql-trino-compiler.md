@@ -72,16 +72,32 @@ The integration does not provision catalogs, alter deployments, or make source-o
 
 ## Managed Trino connections
 
-Call `resolve_managed_warehouse_trino_connection(...)` through the managed-warehouse client facade when a backend job needs a live Trino target. The resolver accepts a target only when the control plane reports the organization as enabled and ready. It reads the catalog plus non-secret host, port, and username from `status.connection`, then uses the encrypted `DuckgresServer.trino_password` when one is configured. Existing rows fall back to the stored Duckgres password until a Trino password is set. Staff can set or replace the Trino password in the Duckgres server Django admin form; the saved value is never displayed there. The connection contract redacts that password from its representation.
+Call `connect_managed_warehouse_trino(...)` for internal Trino work.
+It mints an organization-scoped service grant through the existing control-plane credential API and uses the returned `trino_connect` host, port, catalog and username.
+Shadow materialization and alias reconciliation supply distinct audit principals that identify their team and operation.
+The grant secret exists only in process memory; these paths never read `DuckgresServer.password` or `trino_password` and have no stored-password fallback.
+The standalone `resolve_managed_warehouse_trino_connection(...)` helper returns a short-lived snapshot; callers executing queries must use the context manager to get refresh behavior.
 
-Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with basic authentication, HTTPS, certificate verification, and a bounded request timeout. The connector has no Duckgres fallback. A disabled target, non-ready state, organization mismatch, malformed endpoint, or missing stored credential fails before opening a socket.
+The connection uses HTTPS with certificate verification and a 60-second HTTP timeout.
+Its session bypasses environment proxies only for verified hosted Trino domains on port 443, using the same host check as direct Trino connections.
+The session checks and renews the same grant before sending POST, polling GET, or cancellation DELETE requests when less than two minutes remain.
+Mint and renewal calls have a ten-second timeout.
+HTTP sends on that session are serialized so polling and cancellation share one renewal decision.
+Renewal uses `rotate_secret=false` on the existing refresh endpoint and retains both the grant ID and secret.
+The gateway binds query ownership to the full credential, so rotating its secret during an active query would break polling and cancellation.
+Existing Duckgres refresh calls retain their default secret-rotation behavior.
+A changed endpoint, catalog or username fails closed, as do redirects and polling URLs outside the issued HTTPS origin.
+The session closes when the connection scope exits.
 
-The managed connector uses a dedicated HTTP session that bypasses environment proxies only for known PostHog-hosted Trino endpoints on port 443.
-It uses the same hosted endpoint check as direct Trino connections.
-Other destinations retain proxy settings.
-The connector keeps certificate verification enabled and closes the session when the connection scope exits.
+Deploy the service-grant validator, Trino authenticator, gateway namespace admission support, and their dedicated validation-token configuration before deploying this caller.
+The control plane must return a ready `trino_connect` block on both mint and renewal, with `secret_rotated=false` confirming renewal support.
+An older or unconfigured control plane can still serve Duckgres callers, but internal Trino callers fail before sending SQL.
+Trino revalidates grants on every HTTP request, including expiry and revocation, unlike Duckgres's handshake-only expiry.
+Revocation prevents subsequent polling and cancellation; it does not itself terminate an already running query.
+External Trino sources continue to use their configured persistent user credentials.
 
-The Django `DuckgresServer` row remains the transitional owner of the existing root secret; it does not become the source of truth for Trino placement. Trino cell assignment, endpoint identity, and catalog naming stay in the control plane. No second Django model or copied control-plane status is required.
+Trino placement, catalog naming, service-grant issuance and authorization remain owned by the control plane.
+The encrypted password fields remain available for existing persistent-user integrations but are not part of internal Trino shadow authentication.
 
 For supported string, array, and map arguments, `empty(x)` returns true when the value is NULL or has zero length. `notEmpty(x)` requires a non-NULL value with nonzero length. String predicates use an empty-string comparison; arrays and maps use `cardinality`.
 

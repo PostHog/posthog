@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from itertools import batched
@@ -48,10 +49,10 @@ TRINO_KNOWN_ERROR_MESSAGES = (
     TRINO_TLS_CERTIFICATE_ERROR,
     TRINO_CONNECTION_ERROR,
 )
-POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
+POSTHOG_MANAGED_TRINO_DOMAINS = frozenset(
     {
-        "trino.dw.dev.postwh.com",
-        "trino.dw.us.postwh.com",
+        "dw.dev.postwh.com",
+        "dw.us.postwh.com",
     }
 )
 # Trino's OPA access control can issue one column-filter request per table, so keep
@@ -60,7 +61,12 @@ TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE = 100
 
 
 def is_posthog_managed_trino_host(host: str) -> bool:
-    return host.lower().rstrip(".") in POSTHOG_MANAGED_TRINO_HOSTS
+    # Hosted TLS endpoints include tenant labels, not just the shared "trino" label.
+    label, _, domain = host.lower().removesuffix(".").partition(".")
+    return (
+        domain in POSTHOG_MANAGED_TRINO_DOMAINS
+        and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is not None
+    )
 
 
 @frozen

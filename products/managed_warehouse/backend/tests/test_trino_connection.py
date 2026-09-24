@@ -1,4 +1,6 @@
 import os
+import base64
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest import mock
@@ -12,175 +14,261 @@ from products.managed_warehouse.backend.trino_connection import (
     resolve_managed_warehouse_trino_connection,
 )
 
+CREDENTIAL_ID = "svc_0123456789abcdef01234567"
 
-def _ready_response(**connection_overrides: object) -> Response:
+
+def _mint_response(**target_overrides: object) -> Response:
     return Response(
         {
-            "enabled": True,
-            "status": {
-                "org": "org-1",
-                "state": "ready",
-                "trino_catalog_name": "org_catalog",
-                "connection": {
-                    "host": "trino.postwh.com",
-                    "port": 8443,
-                    "username": "org_database",
-                    **connection_overrides,
-                },
+            "credential_id": CREDENTIAL_ID,
+            "credential_secret": "example-secret",
+            "expires_at": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+            "connect": {"host": "warehouse.example.com", "port": 5432, "database": "ducklake", "sslmode": "require"},
+            "trino_connect": {
+                "host": "tenant.dw.us.postwh.com",
+                "port": 443,
+                "catalog": "org_example",
+                "username": CREDENTIAL_ID,
+                "http_scheme": "https",
+                **target_overrides,
             },
-        },
-        status=200,
+        }
     )
 
 
-class TestResolveManagedWarehouseTrinoConnection:
-    def test_combines_the_control_plane_target_with_the_stored_trino_secret(self) -> None:
-        with (
-            mock.patch(
-                "products.managed_warehouse.backend.presentation.views._request",
-                return_value=_ready_response(),
-            ) as request,
-            mock.patch(
-                "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
-                return_value="trino-secret",
-            ),
-        ):
-            connection = resolve_managed_warehouse_trino_connection("org-1")
+def _http_response(request: requests.PreparedRequest, **payload: object) -> requests.Response:
+    import json
 
-        assert connection.host == "trino.postwh.com"
-        assert connection.port == 8443
-        assert connection.catalog == "org_catalog"
-        assert connection.username == "org_database"
-        assert connection.password == "trino-secret"
-        assert "trino-secret" not in repr(connection)
-        request.assert_called_once_with("GET", "org-1", "/trino", require_enabled=False)
-
-    @pytest.mark.parametrize(
-        "response",
-        [
-            Response({"enabled": False}, status=200),
-            Response({"enabled": True, "status": {"org": "org-1", "state": "pending"}}, status=200),
-            Response(
-                {
-                    "enabled": True,
-                    "status": {
-                        "state": "ready",
-                        "trino_catalog_name": "catalog",
-                        "connection": {"host": "trino.postwh.com", "port": 8443, "username": "org_database"},
-                    },
-                },
-                status=200,
-            ),
-            Response(
-                {
-                    "enabled": True,
-                    "status": {
-                        "org": "another-org",
-                        "state": "ready",
-                        "trino_catalog_name": "catalog",
-                        "connection": {"host": "trino.postwh.com", "port": 8443, "username": "org_database"},
-                    },
-                },
-                status=200,
-            ),
-            _ready_response(host=""),
-            _ready_response(port=0),
-            _ready_response(username=""),
-        ],
-    )
-    def test_rejects_an_unusable_or_cross_organization_target(self, response: Response) -> None:
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=response):
-            with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="ready managed Trino connection"):
-                resolve_managed_warehouse_trino_connection("org-1")
-
-    def test_rejects_a_missing_stored_trino_secret(self) -> None:
-        with (
-            mock.patch(
-                "products.managed_warehouse.backend.presentation.views._request",
-                return_value=_ready_response(),
-            ),
-            mock.patch(
-                "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
-                return_value="",
-            ),
-        ):
-            with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="stored managed warehouse credential"):
-                resolve_managed_warehouse_trino_connection("org-1")
+    response = requests.Response()
+    response.status_code = 200
+    response.request = request
+    response._content = json.dumps(payload).encode()
+    response.headers["Content-Type"] = "application/json"
+    return response
 
 
-def test_connect_managed_warehouse_trino_enforces_verified_https_and_closes() -> None:
-    driver_connection = mock.MagicMock()
-    authentication = mock.sentinel.authentication
+def test_resolves_a_minted_credential_without_reading_stored_passwords() -> None:
+    with mock.patch(
+        "products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response()
+    ) as cp:
+        connection = resolve_managed_warehouse_trino_connection("org-1")
+    assert connection.username == CREDENTIAL_ID
+    assert connection.password == "example-secret"
+    assert connection.catalog == "org_example"
+    assert "example-secret" not in repr(connection)
+    assert cp.call_args.args == ("POST", "org-1", "/service-credentials")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"trino_connect": None},
+        {"expires_at": "2000-01-01T00:00:00Z"},
+        {"expires_at": "2000-01-01T00:00:00"},
+        {"credential_id": "root"},
+        {"credential_secret": ""},
+    ],
+)
+def test_rejects_unusable_service_credentials(change: dict[str, object]) -> None:
+    response = _mint_response()
+    response.data.update(change)
+    with mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=response):
+        with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable):
+            resolve_managed_warehouse_trino_connection("org-1")
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        {"host": ""},
+        {"port": 0},
+        {"port": True},
+        {"port": 65536},
+        {"catalog": ""},
+        {"username": "root"},
+        {"http_scheme": "http"},
+    ],
+)
+def test_rejects_invalid_trino_targets(target: dict[str, object]) -> None:
+    with mock.patch(
+        "products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response(**target)
+    ):
+        with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable):
+            resolve_managed_warehouse_trino_connection("org-1")
+
+
+def test_polling_renews_the_grant_and_preserves_cancellation_ownership() -> None:
+    minted = _mint_response()
+    refreshed = _mint_response()
+    refreshed.data.pop("credential_secret")
+    refreshed.data["secret_rotated"] = False
+    refreshed.data["expires_at"] = (datetime.now(UTC) + timedelta(minutes=29)).isoformat()
+    issued_at = datetime.now(UTC)
+    sent: list[requests.PreparedRequest] = []
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        sent.append(request)
+        if request.method == "POST":
+            return _http_response(
+                request,
+                id="query-1",
+                infoUri="https://tenant.dw.us.postwh.com/query-1",
+                nextUri="https://tenant.dw.us.postwh.com/v1/statement/query-1",
+                stats={},
+            )
+        if request.method == "GET":
+            return _http_response(
+                request,
+                id="query-1",
+                infoUri="https://tenant.dw.us.postwh.com/query-1",
+                nextUri="https://tenant.dw.us.postwh.com/v1/statement/query-1",
+                columns=[{"name": "value", "type": "bigint", "typeSignature": {"rawType": "bigint", "arguments": []}}],
+                data=[[1]],
+                stats={},
+            )
+        response = _http_response(request)
+        response.status_code = 204
+        return response
 
     with (
         mock.patch(
-            "products.managed_warehouse.backend.trino_connection.resolve_managed_warehouse_trino_connection",
-            return_value=mock.Mock(
-                host="trino.postwh.com",
-                port=8443,
-                catalog="org_catalog",
-                username="org_database",
-                password="root-secret",
-            ),
-        ),
-        mock.patch("trino.auth.BasicAuthentication", return_value=authentication) as basic_authentication,
-        mock.patch("trino.dbapi.connect", return_value=driver_connection) as connect,
+            "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
+        ) as cp,
+        mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
+        mock.patch("requests.adapters.HTTPAdapter.send", side_effect=send),
     ):
         with connect_managed_warehouse_trino("org-1") as connection:
-            assert connection is driver_connection
-
-    basic_authentication.assert_called_once_with("org_database", "root-secret")
-    connect.assert_called_once_with(
-        host="trino.postwh.com",
-        port=8443,
-        user="org_database",
-        catalog="org_catalog",
-        http_scheme="https",
-        auth=authentication,
-        request_timeout=60,
-        verify=True,
-        http_session=mock.ANY,
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1")
+            now.return_value = issued_at + timedelta(minutes=14)
+            cursor.cancel()
+    assert cp.call_count == 2
+    assert cp.call_args.args == ("POST", "org-1", "/service-credentials/refresh")
+    assert cp.call_args.kwargs["json_body"]["credential_id"] == CREDENTIAL_ID
+    assert cp.call_args.kwargs["json_body"]["rotate_secret"] is False
+    assert [r.method for r in sent] == ["POST", "GET", "DELETE"]
+    assert (
+        sent[-1].headers["Authorization"]
+        == "Basic " + base64.b64encode(f"{CREDENTIAL_ID}:example-secret".encode()).decode()
     )
-    driver_connection.close.assert_called_once_with()
+    assert all(r.headers["X-Trino-User"] == CREDENTIAL_ID for r in sent)
+
+
+@pytest.mark.parametrize(
+    "refresh_response", ["unavailable", "target_changed", "identity_changed", "old_control_plane", "rotated"]
+)
+def test_failed_refresh_does_not_send_a_request(refresh_response: str) -> None:
+    minted = _mint_response()
+    issued_at = datetime.now(UTC)
+    response = _mint_response()
+    response.data.pop("credential_secret")
+    response.data["secret_rotated"] = False
+    response.data["expires_at"] = (datetime.now(UTC) + timedelta(minutes=29)).isoformat()
+    if refresh_response == "unavailable":
+        response = Response({"error": "unavailable"}, status=503)
+    elif refresh_response == "target_changed":
+        response.data["trino_connect"]["host"] = "other.example.com"
+    elif refresh_response == "old_control_plane":
+        response.data.pop("secret_rotated")
+        response.data["credential_secret"] = "unexpected-rotated-secret"
+    elif refresh_response == "rotated":
+        response.data["credential_secret"] = "unexpected-rotated-secret"
+    else:
+        response.data["credential_id"] = "svc_111111111111111111111111"
+        response.data["trino_connect"]["username"] = response.data["credential_id"]
+    with (
+        mock.patch("products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, response]),
+        mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
+        mock.patch("requests.adapters.HTTPAdapter.send") as send,
+    ):
+        with connect_managed_warehouse_trino("org-1") as connection:
+            now.return_value = issued_at + timedelta(minutes=14)
+            with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable):
+                connection.cursor().execute("SELECT 1")
+        send.assert_not_called()
 
 
 @pytest.mark.parametrize(
     "host,port,bypass_proxy",
     [
-        ("trino.dw.us.postwh.com", 443, True),
-        ("TRINO.DW.US.POSTWH.COM.", 443, True),
-        ("trino.dw.us.postwh.com", 8443, False),
+        ("tenant.dw.us.postwh.com", 443, True),
+        ("tenant.dw.us.postwh.com", 8443, False),
         ("trino.example.com", 443, False),
     ],
 )
-def test_managed_trino_requests_bypass_environment_proxies_only_for_known_hosts(
-    host: str, port: int, bypass_proxy: bool
-) -> None:
-    proxy_url = "http://proxy.example.com:4750"
+def test_connection_keeps_verified_tls_and_scoped_proxy_bypass(host: str, port: int, bypass_proxy: bool) -> None:
+    proxy = "http://proxy.example.com:4750"
     with (
-        mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy_url, "NO_PROXY": ""}, clear=True),
+        mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy, "NO_PROXY": ""}, clear=True),
         mock.patch(
             "products.managed_warehouse.backend.presentation.views._request",
-            return_value=_ready_response(host=host, port=port),
-        ),
-        mock.patch(
-            "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
-            return_value="root-secret",
+            return_value=_mint_response(host=host, port=port),
         ),
         mock.patch("requests.adapters.HTTPAdapter.send", side_effect=RuntimeError("network boundary")) as send,
     ):
         with pytest.raises(RuntimeError, match="network boundary"):
             with connect_managed_warehouse_trino("org-1") as connection:
                 connection.cursor().execute("SELECT 1")
+    assert send.call_args.kwargs["verify"] is True
+    assert send.call_args.kwargs["timeout"] == 60
+    assert send.call_args.kwargs["proxies"].get("https") == (None if bypass_proxy else proxy)
 
-        send.assert_called_once()
-        request = send.call_args.args[0]
-        assert request.url == f"https://{host.lower()}:{port}/v1/statement"
-        assert request.headers["Authorization"].startswith("Basic ")
-        assert send.call_args.kwargs["proxies"].get("https") == (None if bypass_proxy else proxy_url)
-        assert send.call_args.kwargs["verify"] is True
-        assert send.call_args.kwargs["timeout"] == 60
 
-        with requests.Session() as ordinary_session:
-            settings = ordinary_session.merge_environment_settings("https://example.com", {}, False, True, None)
-        assert settings["proxies"]["https"] == proxy_url
+@pytest.mark.parametrize("response_kind", ["foreign_next_uri", "redirect"])
+def test_service_secret_is_never_sent_to_a_redirect_or_foreign_poll_target(response_kind: str) -> None:
+    sent: list[requests.PreparedRequest] = []
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        sent.append(request)
+        response = _http_response(
+            request,
+            id="query-1",
+            infoUri="https://tenant.dw.us.postwh.com/query-1",
+            nextUri="https://other.example.com/v1/statement/query-1",
+            stats={},
+        )
+        if response_kind == "redirect":
+            response.status_code = 307
+            response.headers["Location"] = "https://other.example.com/v1/statement"
+        return response
+
+    with (
+        mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response()),
+        mock.patch("requests.adapters.HTTPAdapter.send", side_effect=send),
+    ):
+        with connect_managed_warehouse_trino("org-1") as connection:
+            with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable):
+                connection.cursor().execute("SELECT 1")
+    assert len(sent) == 1
+    assert sent[0].url == "https://tenant.dw.us.postwh.com:443/v1/statement"
+
+
+def test_a_prepared_request_renews_expiry_at_send_time() -> None:
+    from products.managed_warehouse.backend.trino_connection import _TrinoServiceSession
+
+    minted = _mint_response()
+    refreshed = _mint_response()
+    issued_at = datetime.now(UTC)
+    refreshed.data.pop("credential_secret")
+    refreshed.data["secret_rotated"] = False
+    refreshed.data["expires_at"] = (issued_at + timedelta(minutes=29)).isoformat()
+    with (
+        mock.patch(
+            "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
+        ) as cp,
+        mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
+        mock.patch("requests.adapters.HTTPAdapter.send", side_effect=lambda request, **kwargs: _http_response(request)),
+    ):
+        config = resolve_managed_warehouse_trino_connection("org-1")
+        with _TrinoServiceSession("org-1", config) as session:
+            prepared = session.prepare_request(
+                requests.Request("GET", "https://tenant.dw.us.postwh.com/v1/statement/query-1")
+            )
+            now.return_value = issued_at + timedelta(minutes=14)
+            session.send(prepared)
+            session.send(prepared)
+    assert cp.call_count == 2
+    assert (
+        prepared.headers["Authorization"]
+        == "Basic " + base64.b64encode(f"{CREDENTIAL_ID}:example-secret".encode()).decode()
+    )
