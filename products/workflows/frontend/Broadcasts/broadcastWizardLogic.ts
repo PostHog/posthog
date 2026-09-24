@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -93,6 +94,18 @@ function findAction(broadcast: HogFlowApi, type: string): Record<string, any> | 
     return flowActions.find((action) => action.type === type)
 }
 
+function readAudience(broadcast: HogFlowApi): AnyPropertyFilter[] | undefined {
+    return findAction(broadcast, 'trigger')?.config?.filters?.properties as AnyPropertyFilter[] | undefined
+}
+
+// Compares two server copies, so derived keys the server adds (such as bytecode) match on both sides.
+// A field the other edit changed must follow the saved copy, or the next save sends the stale value back
+// under a fresh base and overwrites that edit without a conflict. A field it did not change keeps the
+// local value, so an unsaved local edit (a rename, an audience change) is not lost.
+function changedElsewhere<T>(latest: HogFlowApi, base: HogFlowApi | null, read: (broadcast: HogFlowApi) => T): boolean {
+    return !base || !objectsEqual(read(latest), read(base))
+}
+
 export interface BroadcastWizardLogicProps {
     id: string // 'new' for new broadcasts, or a UUID for editing/viewing
 }
@@ -140,7 +153,11 @@ export interface broadcastWizardLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
-    applyExternalEdit: (broadcast: HogFlowApi) => {
+    applyExternalEdit: (
+        broadcast: HogFlowApi,
+        base: HogFlowApi | null
+    ) => {
+        base: HogFlowApi | null
         broadcast: HogFlowApi
     }
     continueStep: () => {
@@ -361,7 +378,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveBroadcastFinished: (broadcast: HogFlowApi | null) => ({ broadcast }),
         ensureDraft: true,
         draftAutosaved: (broadcast: HogFlowApi) => ({ broadcast }),
-        applyExternalEdit: (broadcast: HogFlowApi) => ({ broadcast }),
+        applyExternalEdit: (broadcast: HogFlowApi, base: HogFlowApi | null) => ({ broadcast, base }),
         replayDeferredEdit: true,
         launchBroadcast: true,
         launchBroadcastFinished: true,
@@ -432,9 +449,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 setName: (_, { name }) => name,
                 hydrateFromBroadcast: (state, { broadcast }) => broadcast.name || state,
-                // Every field a save writes follows the saved copy, or the next save would send the
-                // stale value back under a fresh base and overwrite the other edit without a conflict.
-                applyExternalEdit: (state, { broadcast }) => broadcast.name || state,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, (b) => b.name) ? broadcast.name || state : state,
             },
         ],
         audienceProperties: [
@@ -445,8 +461,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     const trigger = findAction(broadcast, 'trigger')
                     return (trigger?.config?.filters?.properties as AnyPropertyFilter[]) ?? state
                 },
-                applyExternalEdit: (state, { broadcast }) =>
-                    (findAction(broadcast, 'trigger')?.config?.filters?.properties as AnyPropertyFilter[]) ?? state,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, readAudience) ? (readAudience(broadcast) ?? state) : state,
             },
         ],
         goalEnabled: [
@@ -460,8 +476,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     }
                     return (conversion.events?.length ?? 0) > 0 || (conversion.filters?.length ?? 0) > 0
                 },
-                applyExternalEdit: (_, { broadcast }) =>
-                    (broadcast.conversion?.events?.length ?? 0) > 0 || (broadcast.conversion?.filters?.length ?? 0) > 0,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, (b) => b.conversion)
+                        ? (broadcast.conversion?.events?.length ?? 0) > 0 ||
+                          (broadcast.conversion?.filters?.length ?? 0) > 0
+                        : state,
             },
         ],
         conversion: [
@@ -470,8 +489,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 setConversion: (_, { conversion }) => conversion,
                 hydrateFromBroadcast: (state, { broadcast }) =>
                     broadcast.conversion ? { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion } : state,
-                applyExternalEdit: (state, { broadcast }) =>
-                    broadcast.conversion ? { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion } : state,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, (b) => b.conversion) && broadcast.conversion
+                        ? { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion }
+                        : state,
             },
         ],
         emailRateLimit: [
@@ -479,7 +500,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 setEmailRateLimit: (_, { emailRateLimit }) => emailRateLimit,
                 hydrateFromBroadcast: (state, { broadcast }) => broadcast.email_sending_rate_limit ?? state,
-                applyExternalEdit: (_, { broadcast }) => broadcast.email_sending_rate_limit ?? null,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, (b) => b.email_sending_rate_limit)
+                        ? (broadcast.email_sending_rate_limit ?? null)
+                        : state,
             },
         ],
         email: [
@@ -830,7 +854,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     if (fresh) {
                         cache.emailEditPending = false
                         cache.autosaveConflict = true
-                        actions.applyExternalEdit(fresh)
+                        actions.applyExternalEdit(fresh, values.broadcast)
                         lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
                     } else {
                         lemonToast.error(
@@ -890,7 +914,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 cache.emailEditPending = false
                 lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
             }
-            actions.applyExternalEdit(fresh)
+            actions.applyExternalEdit(fresh, values.broadcast)
         },
         setSendAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
@@ -952,7 +976,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             } catch (error: any) {
                 actions.saveBroadcastFinished(null)
                 if (error instanceof EditedElsewhereError) {
-                    actions.applyExternalEdit(error.latest)
+                    actions.applyExternalEdit(error.latest, values.broadcast)
                     lemonToast.info(
                         'This email changed while you were editing it. Review the latest version, then continue.'
                     )
@@ -1047,7 +1071,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 router.actions.push(urls.broadcast(broadcastId))
             } catch (error: any) {
                 if (error instanceof EditedElsewhereError) {
-                    actions.applyExternalEdit(error.latest)
+                    actions.applyExternalEdit(error.latest, values.broadcast)
                     actions.launchBroadcastFinished()
                     lemonToast.info(
                         'This email changed while you were editing it. Review the latest version, then launch.'
