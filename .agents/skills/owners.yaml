@@ -3,3 +3,5 @@ owners: []
 rules:
     - match: '/ingestion-*/'
       owners: team-ingestion
+    - match: '/writing-workflows-as-code/'
+      owners: team-workflows
