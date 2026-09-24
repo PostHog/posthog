@@ -13,11 +13,8 @@ MODULE = "products.alerts.backend.temporal.schedule"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("deployment", ["DEV", "US", "EU"])
 @pytest.mark.parametrize("already_exists, paused", [(False, False), (True, False), (True, True)])
-async def test_schedule_creates_or_updates_with_bounded_policy(
-    already_exists: bool, paused: bool, deployment: str
-) -> None:
+async def test_schedule_creates_or_updates_with_bounded_policy(already_exists: bool, paused: bool) -> None:
     client = MagicMock(spec=Client)
     state = ScheduleState(paused=paused, note="Operator-controlled state")
     client.get_schedule_handle.return_value.describe = AsyncMock(
@@ -25,7 +22,8 @@ async def test_schedule_creates_or_updates_with_bounded_policy(
     )
     with (
         override_settings(
-            CLOUD_DEPLOYMENT=deployment,
+            # Not DEV: registration is deployment-independent, and a reintroduced region gate fails here.
+            CLOUD_DEPLOYMENT="US",
             ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE="orchestration-test-queue",
         ),
         patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,

@@ -30,8 +30,9 @@ See [Temporal development guidance](../../posthog/temporal/README.md) for worker
 
 `python manage.py schedule_temporal_workflows` creates or updates `alerts-platform-check-due-schedule`
 in every deployment that runs it. The normal deployment migration step runs this command, and `bin/migrate`
-skips that step on hobby deploys and on local development, so registration reaches dev, US and EU and
-nowhere else. There is no per-region gate: the schedule is the same everywhere, and what differs between
+skips that step on hobby deploys and on local development. Only the `posthog-web-django` chart app enables
+that migration job, and it has dev, US and EU values files, so registration reaches those three and nowhere
+else. A new deployment that enables the job registers the schedule too. There is no per-region gate: the schedule is the same everywhere, and what differs between
 deployments is which configurations have been backfilled.
 
 The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration queue every minute (UTC).
@@ -69,8 +70,6 @@ is run, one cohort at a time.
 Registering the schedule before the workers poll is untidy rather than dangerous: each tick is created,
 nothing picks up its workflow task, and the 50-second execution timeout closes it. That repeats every
 minute until the workers are ready, then stops on its own.
-
-Roll back by pausing the schedule in Temporal. Reverting the code does not remove it.
 
 ### Shared orchestration rollout and rollback
 
