@@ -123,6 +123,11 @@
                     {
                         "name": "@posthog/brand/hoggies/png",
                         "message": "Import the per-asset stub instead: import * as name from '@posthog/brand/hoggies/png/<name>'. The barrel pulls every hoggie's stub into the graph."
+                    },
+                    {
+                        "name": "storybook/preview-api",
+                        "importNames": ["useArgs"],
+                        "message": "The withKea decorator renders a story after Storybook clears its hook context, so useArgs throws and the story renders blank in visual regression runs. Keep story state in React's useState."
                     }
                 ],
                 "patterns": [
