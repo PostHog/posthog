@@ -29,7 +29,7 @@ export function WizardRunDetailsDialog({
         selectedRunDiffArtifactId,
         selectedRunDiffContent,
     } = useValues(wizardRunDetailsLogic)
-    const { cancelRun, closeRunDiff, copyRunId, openRunDiff, refreshSelectedRun, selectRun } =
+    const { artifactClicked, cancelRun, closeRunDiff, copyRunId, openRunDiff, refreshSelectedRun, selectRun } =
         useActions(wizardRunDetailsLogic)
 
     return (
@@ -53,6 +53,7 @@ export function WizardRunDetailsDialog({
             }}
             onCloseDiff={closeRunDiff}
             onOpenDiff={openRunDiff}
+            onArtifactClick={artifactClicked}
             onRefresh={refreshSelectedRun}
             onCopyRunId={copyRunId}
             onCancel={cancelRun}

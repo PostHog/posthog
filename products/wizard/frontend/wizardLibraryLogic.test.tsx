@@ -225,20 +225,7 @@ describe('wizardLibraryLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(detailsLogic.values.selectedRunSummary?.id).toBe('run-new')
-        expect(posthog.capture).toHaveBeenCalledWith('wizard run create succeeded', {
-            event_source: 'wizard_ui',
-            project_id: '1',
-            environment: 'cloud',
-            run_surface: 'cloud',
-            wizard_run_id: 'run-new',
-            task_run_id: 'run-new',
-            program_id: program.id,
-            wizard_version: '2.67.0',
-            version: '2.67.0',
-            command: 'default',
-            workspace_type: 'git_repository',
-            status: 'created',
-        })
+        expect(posthog.capture).not.toHaveBeenCalledWith('wizard run create succeeded', expect.anything())
         expect(posthog.capture).not.toHaveBeenCalledWith('setup wizard finished', expect.anything())
         expect(JSON.stringify(jest.mocked(posthog.capture).mock.calls)).not.toContain('example/private-project')
         detailsLogic.unmount()

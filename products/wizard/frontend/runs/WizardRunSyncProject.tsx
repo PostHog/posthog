@@ -9,6 +9,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { WizardRunApi } from '../generated/api.schemas'
 import { wizardRunDetailsLogic } from '../wizardRunDetailsLogic'
+import type { WizardRunDetailSource } from '../wizardRunDetailsLogic'
 import { wizardRunIsActive } from '../wizardRunDisplay'
 import { WizardRunSyncCard } from './WizardRunSyncCard'
 import { WizardRunSyncDetailsDialog } from './WizardRunSyncDetailsDialog'
@@ -19,9 +20,9 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
     const logic = wizardRunSyncLogic({ projectId })
     useMountedLogic(logic)
     const { activeCount, visibleRuns, closedRunIds, dismissedRunIds, run, tasks } = useValues(logic)
-    const { closeRun, dismissRun, selectRun: selectSyncRun } = useActions(logic)
+    const { closeRun, dismissRun, expandFab, selectRun: selectSyncRun } = useActions(logic)
     const { sceneKey } = useValues(sceneLogic)
-    const [dialogRun, setDialogRun] = useState<WizardRunApi | null>(null)
+    const [dialogRun, setDialogRun] = useState<{ run: WizardRunApi; source: WizardRunDetailSource } | null>(null)
     const [now, setNow] = useState(Date.now)
     const runHidden = run && (closedRunIds.includes(run.id) || dismissedRunIds.includes(run.id))
     useInterval(() => setNow(Date.now()), run && !runHidden && wizardRunIsActive(run) ? 1000 : null)
@@ -29,14 +30,14 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
     const endMs = run?.finished_at ? new Date(run.finished_at).getTime() : now
     const elapsedSeconds = run ? elapsedSecondsFrom(run.started_at ?? run.created_at, endMs) : 0
 
-    const openDetails = (): void => {
+    const openDetails = (source: WizardRunDetailSource): void => {
         if (!run) {
             return
         }
         if (sceneKey === 'wizardRuns') {
-            wizardRunDetailsLogic.actions.selectRun(run)
+            wizardRunDetailsLogic.actions.selectRun(run, source)
         } else {
-            setDialogRun(run)
+            setDialogRun({ run, source })
         }
     }
 
@@ -55,10 +56,12 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
                                     activeCount={activeCount}
                                     currentRunId={run.id}
                                     onSelect={selectSyncRun}
+                                    onOpen={() => expandFab(visibleRuns.length)}
                                 />
                             )
                         }
-                        onExpand={openDetails}
+                        onExpand={() => openDetails('fab_click')}
+                        onExpandIcon={() => openDetails('fab_expand_icon_click')}
                         onClose={() => closeRun(run.id)}
                         onHide={() => {
                             dismissRun(run.id)
@@ -69,8 +72,9 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
             )}
             {dialogRun && (
                 <WizardRunSyncDetailsDialog
-                    run={dialogRun}
-                    tasks={dialogRun.id === run?.id ? tasks : []}
+                    run={dialogRun.run}
+                    tasks={dialogRun.run.id === run?.id ? tasks : []}
+                    source={dialogRun.source}
                     onClose={() => setDialogRun(null)}
                 />
             )}

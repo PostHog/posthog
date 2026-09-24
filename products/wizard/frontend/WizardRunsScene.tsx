@@ -54,7 +54,16 @@ export function WizardRunsScene(): JSX.Element {
         search,
         status,
     } = useValues(wizardRunsLogic)
-    const { clearRunFilters, refreshRuns, setEnvironment, setSearch, setStatus } = useActions(wizardRunsLogic)
+    const {
+        clearRunFilters,
+        openWorkspace,
+        refreshRun,
+        refreshRuns,
+        setEnvironment,
+        setSearch,
+        setStatus,
+        trackPagination,
+    } = useActions(wizardRunsLogic)
 
     const {
         commandCopied,
@@ -198,9 +207,11 @@ export function WizardRunsScene(): JSX.Element {
                 onOpenLibrary={openLibrary}
                 onClearFilters={clearRunFilters}
                 onRefreshRuns={refreshRuns}
-                onSelect={selectRun}
-                onRefreshRun={refreshRuns}
+                onSelect={(run) => selectRun(run, 'wizard_datatable')}
+                onRefreshRun={refreshRun}
                 onCopyRunId={copyRunId}
+                onOpenWorkspace={openWorkspace}
+                onPaginate={trackPagination}
                 onCancel={cancelRun}
             />
 

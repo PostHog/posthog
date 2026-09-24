@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { getWizardRunsStreamRetrieveUrl, wizardRunsList } from '../generated/api'
 import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../generated/api.schemas'
@@ -39,6 +40,7 @@ export interface wizardRunSyncLogicActions {
     connectRun: () => { value: true }
     closeRun: (runId: string) => { runId: string }
     dismissRun: (runId: string) => { runId: string }
+    expandFab: (runsCount: number) => { runsCount: number }
 }
 
 export type wizardRunSyncLogicType = MakeLogicType<
@@ -61,6 +63,7 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         connectRun: true,
         closeRun: (runId: string) => ({ runId }),
         dismissRun: (runId: string) => ({ runId }),
+        expandFab: (runsCount: number) => ({ runsCount }),
     }),
     reducers({
         activeCount: [0, { runsLoaded: (_, { count }) => count }],
@@ -187,15 +190,31 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
                 return () => stream.close()
             }, 'run-stream')
         },
-        closeRun: () => {
+        closeRun: ({ runId }) => {
+            posthog.capture('wizard run sync fab closed', {
+                event_source: 'wizard_ui',
+                wizard_run_id: runId,
+                type: 'dismiss',
+            })
             cache.disposables.dispose('run-stream')
             cache.connectedRunId = undefined
             actions.runsLoaded(values.activeCount, values.runs)
         },
-        dismissRun: () => {
+        dismissRun: ({ runId }) => {
+            posthog.capture('wizard run sync fab closed', {
+                event_source: 'wizard_ui',
+                wizard_run_id: runId,
+                type: 'close_forever',
+            })
             cache.disposables.dispose('run-stream')
             cache.connectedRunId = undefined
             actions.runsLoaded(values.activeCount, values.runs)
+        },
+        expandFab: ({ runsCount }) => {
+            posthog.capture('wizard run sync fab expanded', {
+                event_source: 'wizard_ui',
+                runs_count: runsCount,
+            })
         },
     })),
     events(({ actions, cache }) => ({

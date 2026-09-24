@@ -117,7 +117,7 @@ Tasks provides only generic repository-token and sandbox helpers through public 
 
 ## Analytics compatibility
 
-Cloud lifecycle events keep their existing names and deterministic event UUIDs.
+The service records `wizard run started`, `wizard run finished`, and `wizard run artifact created` with deterministic event UUIDs.
 They add the legacy properties `run_surface`, `project_id`, `version`, and `command`.
 The existing `environment`, `team_id`, `wizard_version`, and `wizard_run_id` properties remain available.
 `event_source` distinguishes `wizard_run_service` events from `wizard_ui` events.
@@ -131,15 +131,15 @@ The CLI keeps its separate, process-level `run_id`.
 
 The CLI remains the only source of `setup wizard finished`.
 Its `status` values remain `success`, `error`, and `cancelled`.
-Service completion events describe the full cloud lifecycle, including failures before CLI startup and failures during repository publication.
+The service finish event describes the full cloud lifecycle, including failures before CLI startup and failures during repository publication.
 Do not add the CLI and service completion events together when counting runs.
 
-The UI records library opens, successful command copies, create requests and outcomes, retry selections, run views, and diff opens.
+The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, FAB activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
 It also records confirmed cancellation requests and outcomes.
 Polling does not create more view events. Clipboard failures do not count as command copies.
 Use `wizard run create requested` and `wizard run create failed` to measure request failures, including limit responses.
-Use `wizard_run_id` to join successful creation to existing lifecycle events, `wizard pull request created`, and `wizard run diff opened`.
-Events omit repository names, paths, full shell commands, diff contents, tokens, and raw error messages.
+Use `wizard_run_id` to join UI activity to run lifecycle and artifact events.
+Events omit local paths, full shell commands, diff contents, tokens, and raw error messages.
 
 ## Deployment configuration
 

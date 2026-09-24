@@ -23,6 +23,7 @@ describe('WizardRunSyncCard', () => {
             tasks,
             elapsedSeconds: 10,
             onExpand: jest.fn(),
+            onExpandIcon: jest.fn(),
             onClose: jest.fn(),
             onHide: jest.fn(),
         }
@@ -53,6 +54,7 @@ describe('WizardRunSyncCard', () => {
                 activeCount={1}
                 currentRunId={currentRun.id}
                 onSelect={onSelect}
+                onOpen={jest.fn()}
             />
         )
 

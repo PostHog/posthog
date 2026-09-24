@@ -63,6 +63,7 @@ const meta: Meta<typeof WizardRunSyncCard> = {
             task('Verify events in PostHog', 'created'),
         ],
         onExpand: () => {},
+        onExpandIcon: () => {},
         onClose: () => {},
         onHide: () => {},
     },
@@ -107,6 +108,7 @@ export const MultipleRuns: Story = {
                         activeCount={2}
                         currentRunId={selectedRun.id}
                         onSelect={setSelectedRun}
+                        onOpen={() => {}}
                     />
                 }
             />

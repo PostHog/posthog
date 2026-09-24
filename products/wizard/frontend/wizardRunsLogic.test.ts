@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -57,6 +58,7 @@ describe('wizardRunsLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
+        jest.spyOn(posthog, 'capture').mockClear()
         mockWizardRunsList.mockReset()
         mockWizardRunsList.mockResolvedValue({ count: 1, next: null, previous: null, results: [makeRun()] })
         await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
@@ -66,6 +68,7 @@ describe('wizardRunsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
     it('keeps resolved rows visible during background polling', async () => {
@@ -180,6 +183,27 @@ describe('wizardRunsLogic', () => {
             filteredRuns: [],
             hasRunFilters: true,
             runs: [expect.objectContaining({ id: 'run-1' })],
+        })
+    })
+
+    it('tracks table controls', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSearch('setup')
+        logic.actions.setEnvironment('cloud')
+        logic.actions.setStatus('running')
+        logic.actions.trackPagination(1, 2)
+        logic.actions.openWorkspace(makeRun(), 'https://github.com/posthog/posthog')
+
+        expect(posthog.capture).toHaveBeenCalledWith('wizard run datatable searched', { query: 'setup' })
+        expect(posthog.capture).toHaveBeenCalledWith('wizard run datatable filters changed', {
+            environment: 'cloud',
+            status: 'running',
+        })
+        expect(posthog.capture).toHaveBeenCalledWith('wizard run datatable paginated', { page: 1, next_page: 2 })
+        expect(posthog.capture).toHaveBeenCalledWith('wizard run datatable workspace opened', {
+            workspace_type: 'git_repository',
+            url: 'https://github.com/posthog/posthog',
         })
     })
 })

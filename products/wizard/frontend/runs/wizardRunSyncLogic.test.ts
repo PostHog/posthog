@@ -1,6 +1,7 @@
 import { installMockEventSource, MockEventSource } from 'lib/wizard-sync/eventSource.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -38,6 +39,7 @@ describe('wizardRunSyncLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        jest.spyOn(posthog, 'capture').mockClear()
         restoreEventSource = installMockEventSource()
         mockWizardRunsList.mockReset()
         mockRunPages({ count: 2, results: [run('newer')] })
@@ -48,6 +50,7 @@ describe('wizardRunSyncLogic', () => {
     afterEach(() => {
         logic.unmount()
         restoreEventSource()
+        jest.restoreAllMocks()
     })
 
     it('streams only the newest active run and switches when it changes', async () => {
@@ -215,5 +218,26 @@ describe('wizardRunSyncLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.run?.id).toBe('next')
         expect(MockEventSource.instances).toHaveLength(3)
+    })
+
+    it('tracks FAB expansion and both close options', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.expandFab(3)
+        logic.actions.closeRun('newer')
+        logic.actions.dismissRun('older')
+
+        expect(posthog.capture).toHaveBeenCalledWith('wizard run sync fab expanded', {
+            event_source: 'wizard_ui',
+            runs_count: 3,
+        })
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'wizard run sync fab closed',
+            expect.objectContaining({ wizard_run_id: 'newer', type: 'dismiss' })
+        )
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'wizard run sync fab closed',
+            expect.objectContaining({ wizard_run_id: 'older', type: 'close_forever' })
+        )
     })
 })

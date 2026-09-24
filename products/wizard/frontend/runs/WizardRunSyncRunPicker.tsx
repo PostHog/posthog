@@ -11,11 +11,13 @@ export function WizardRunSyncRunPicker({
     activeCount,
     currentRunId,
     onSelect,
+    onOpen,
 }: {
     runs: readonly WizardRunApi[]
     activeCount: number
     currentRunId: string
     onSelect: (run: WizardRunApi) => void
+    onOpen: () => void
 }): JSX.Element {
     const currentIndex = runs.findIndex((run) => run.id === currentRunId)
     const items: LemonMenuItems = runs.map((run) => ({
@@ -52,6 +54,7 @@ export function WizardRunSyncRunPicker({
                 aria-label={`Switch Wizard run, ${runs.length} recent runs, ${activeCount} active runs`}
                 // Keep the analytics selector stable when the picker layout changes.
                 data-attr="wizard-run-sync-stack"
+                onClick={onOpen}
             >
                 <span>{currentIndex >= 0 ? `Run ${currentIndex + 1} of ${runs.length}` : 'Recent runs'}</span>
                 {activeCount > 0 && <span className="ml-auto text-muted">{`${activeCount} active`}</span>}

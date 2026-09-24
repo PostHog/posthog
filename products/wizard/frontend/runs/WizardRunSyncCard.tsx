@@ -43,6 +43,7 @@ export function WizardRunSyncCard({
     tasks,
     elapsedSeconds,
     onExpand,
+    onExpandIcon,
     onClose,
     onHide,
     runPicker,
@@ -51,6 +52,7 @@ export function WizardRunSyncCard({
     tasks: readonly WizardRunTaskApi[]
     elapsedSeconds: number
     onExpand: () => void
+    onExpandIcon: () => void
     onClose: () => void
     onHide: () => void
     runPicker?: ReactNode
@@ -128,7 +130,7 @@ export function WizardRunSyncCard({
                     <LemonButton
                         size="xsmall"
                         icon={<IconExpand45 />}
-                        onClick={onExpand}
+                        onClick={onExpandIcon}
                         tooltip="See all the details"
                         aria-label="Expand"
                     />
