@@ -17,9 +17,14 @@ use std::sync::Arc;
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
 
-/// Rows `from_pg_keeping_undecodable` kept with blank filters, mapped to whether the
-/// document was a v1 object the typed decoder rejected (`false`: not a JSON object).
-pub type UndecodableFlags = HashMap<FeatureFlagId, bool>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndecodableDocument {
+    NotAnObject,
+    UnreadableV1Object,
+}
+
+/// Rows `from_pg_keeping_undecodable` kept with blank filters, and why.
+pub type UndecodableFlags = HashMap<FeatureFlagId, UndecodableDocument>;
 
 /// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
 /// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
@@ -241,7 +246,7 @@ impl FeatureFlagList {
                             "component" => "feature_flag_list",
                         )
                         .increment(1);
-                        undecodable.insert(row.id, e.object);
+                        undecodable.insert(row.id, e.document);
                         FlagFilters::default()
                     });
                 FeatureFlag {

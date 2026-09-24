@@ -27,6 +27,7 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
@@ -672,8 +673,9 @@ class TestOmitUnsupportedFlags(BaseTest):
         fixture, flags = _insert_config_format_fixture(self.team, self.user)
         stored = {key: copy.deepcopy(flag.filters) for key, flag in flags.items()}
 
-        single = _get_feature_flags_for_service(self.team)
-        batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
+        with capture_logs() as log_events:
+            single = _get_feature_flags_for_service(self.team)
+            batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
 
         self._assert_fixture_payload(single, fixture, flags)
         assert {f["id"]: f for f in batch["flags"]} == {f["id"]: f for f in single["flags"]}
@@ -682,6 +684,18 @@ class TestOmitUnsupportedFlags(BaseTest):
         for key, flag in flags.items():
             flag.refresh_from_db()
             assert flag.filters == stored[key], key
+
+        # The warning is the only operator-visible record of what a team's cache left out.
+        def omitted_ids(expect: str) -> list[int]:
+            return sorted(flags[row["key"]].id for row in fixture["flags"] if row["expect"] == expect)
+
+        expected = {
+            "team_id": self.team.id,
+            "unsupported_flag_ids": omitted_ids("unsupported"),
+            "dependent_flag_ids": omitted_ids("dependent"),
+        }
+        omissions = [e for e in log_events if e["event"] == "Omitted flags the service cache cannot carry"]
+        assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
 
     def test_unsupported_flag_in_one_team_leaves_other_teams_in_the_batch_intact(self):
         other_team = Team.objects.create(organization=self.organization, name="other")

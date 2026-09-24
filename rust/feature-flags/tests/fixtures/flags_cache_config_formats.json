@@ -1,5 +1,5 @@
 {
-  "description": "Stored feature flag rows for one team, and what the internal flags.json builders must publish for each. Both the Python builders (products/feature_flags/backend/flags_cache.py) and the Rust builder (rust/feature-flags/src/flags/cache_builder.rs) run this file. A `type: flag` property whose `key` names another fixture key references that row; the harness rewrites it to the inserted id before building. `$missing` becomes `missing_dependency_id`. `expect` is `kept` when the row appears in the published payload and `omitted` when it does not; `blanked` marks a kept row whose filters are published as {\"groups\": []}; `missing_dependency` marks a kept row listed in flags_with_missing_deps.",
+  "description": "Stored feature flag rows for one team, and what the internal flags.json builders must publish for each. Both the Python builders (products/feature_flags/backend/flags_cache.py) and the Rust builder (rust/feature-flags/src/flags/cache_builder.rs) run this file. A `type: flag` property whose `key` names another fixture key references that row; the harness rewrites it to the inserted id before building. `$missing` becomes `missing_dependency_id`. `expect` is `kept` when the row appears in the published payload; otherwise it is `unsupported` (a document the builders reject, logged under unsupported_flag_ids), `dependent` (a row whose dependency conditions reference an unsupported row, transitively, logged under dependent_flag_ids) or `omitted` (left out for another reason); `blanked` marks a kept row whose filters are published as {\"groups\": []}; `missing_dependency` marks a kept row listed in flags_with_missing_deps.",
   "missing_dependency_id": 2147480000,
   "flags": [
     {
@@ -94,80 +94,80 @@
           }
         ]
       },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "v2-malformed-active",
       "active": true,
       "filters": { "version": 2, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "v2-valid-inactive",
       "active": false,
       "filters": { "version": 2, "return_type": "boolean", "default_value": false, "rules": [] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "v2-valid-archived",
       "active": false,
       "archived": true,
       "filters": { "version": 2, "return_type": "boolean", "default_value": false, "rules": [] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "unsupported-version-3",
       "active": true,
       "filters": { "version": 3, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "unsupported-version-1.5",
       "active": true,
       "filters": { "version": 1.5, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "unsupported-version-null",
       "active": true,
       "filters": { "version": null, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "unsupported-version-true",
       "active": true,
       "filters": { "version": true, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "unsupported-version-string",
       "active": true,
       "filters": { "version": "1", "groups": [{ "properties": [], "rollout_percentage": 100 }] },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "malformed-v1-groups-string",
       "active": true,
       "filters": { "groups": "not a list" },
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "malformed-non-object-document",
       "active": true,
       "filters": ["not", "an", "object"],
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "malformed-non-object-inactive",
       "active": false,
       "filters": ["not", "an", "object"],
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "malformed-null-document",
       "active": true,
       "filters": null,
-      "expect": "omitted"
+      "expect": "unsupported"
     },
     {
       "key": "depends-false-on-non-object-inactive",
@@ -180,7 +180,7 @@
           }
         ]
       },
-      "expect": "omitted"
+      "expect": "dependent"
     },
     {
       "key": "depends-true-on-v2-valid-active",
@@ -193,7 +193,7 @@
           }
         ]
       },
-      "expect": "omitted"
+      "expect": "dependent"
     },
     {
       "key": "depends-false-on-v2-valid-inactive",
@@ -206,7 +206,7 @@
           }
         ]
       },
-      "expect": "omitted"
+      "expect": "dependent"
     },
     {
       "key": "depends-false-on-v2-inactive-with-later-condition",
@@ -227,7 +227,7 @@
           ]
         }
       },
-      "expect": "omitted"
+      "expect": "dependent"
     },
     {
       "key": "depends-on-malformed-v1",
@@ -240,7 +240,7 @@
           }
         ]
       },
-      "expect": "omitted"
+      "expect": "dependent"
     },
     {
       "key": "transitive-dependent",
@@ -253,7 +253,7 @@
           }
         ]
       },
-      "expect": "omitted"
+      "expect": "dependent"
     },
     {
       "key": "depends-false-on-inactive-v1",

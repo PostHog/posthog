@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::api::errors::FlagError;
 use crate::flags::config_v2;
+use crate::flags::feature_flag_list::UndecodableDocument;
 use crate::flags::flag_models::FlagFilters;
 use crate::metrics::consts::FLAG_V2_PARSE_COUNTER;
 
@@ -100,12 +101,11 @@ impl FlagFilters {
     }
 }
 
-/// A rejected document; `object` is true for a v1 object the typed decoder rejected.
 #[derive(Debug, thiserror::Error)]
 #[error("{error}")]
 pub(crate) struct FilterDecodeError {
     pub(crate) error: serde_json::Error,
-    pub(crate) object: bool,
+    pub(crate) document: UndecodableDocument,
 }
 
 #[cfg(test)]
@@ -124,7 +124,7 @@ pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, Filt
                 serde_json::from_str::<FilterDocument<false>>(raw.get()).map_err(|error| {
                     FilterDecodeError {
                         error,
-                        object: false,
+                        document: UndecodableDocument::NotAnObject,
                     }
                 })?;
             (probe.format, Err(error))
@@ -135,7 +135,7 @@ pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, Filt
             .and_then(|document| serde_json::from_value(Value::Object(document)))
             .map_err(|error| FilterDecodeError {
                 error,
-                object: true,
+                document: UndecodableDocument::UnreadableV1Object,
             })
     } else {
         let parsed_v2 = (format == ConfigFormat::V2).then(|| {

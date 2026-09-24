@@ -892,39 +892,15 @@ mod tests {
 
     #[tokio::test]
     async fn warm_team_persists_the_team_without_its_unsupported_flags() {
-        use common_redis::{MockRedisClient, MockRedisValue};
+        use common_redis::MockRedisClient;
         use feature_flags::flags::cache_writer::make_cache_config;
-        use feature_flags::flags::flag_models::{FeatureFlagRow, HypercacheFlagsWrapper};
-        use feature_flags::utils::test_utils::{dummy_s3_client, TestContext};
+        use feature_flags::utils::test_utils::{
+            dummy_s3_client, insert_v1_and_v2_flags, published_flag_keys, TestContext,
+        };
 
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await.unwrap();
-        for (key, filters) in [
-            (
-                "v1-flag",
-                serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
-            ),
-            (
-                "v2-flag",
-                serde_json::json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
-            ),
-        ] {
-            context
-                .insert_flag(
-                    team.id,
-                    Some(FeatureFlagRow {
-                        team_id: team.id,
-                        key: key.to_string(),
-                        name: Some(String::new()),
-                        filters,
-                        active: true,
-                        evaluation_runtime: Some("all".to_string()),
-                        ..Default::default()
-                    }),
-                )
-                .await
-                .unwrap();
-        }
+        insert_v1_and_v2_flags(&context, team.id).await;
         let redis = Arc::new(MockRedisClient::new());
         let writer = HyperCacheWriter::new(
             redis.clone(),
@@ -936,17 +912,7 @@ mod tests {
             .await
             .expect("warm_team should succeed");
 
-        let written = redis
-            .get_calls()
-            .into_iter()
-            .find(|call| call.op == "pipeline_setex" && call.key.ends_with("/flags.json"))
-            .expect("payload write");
-        let MockRedisValue::StringWithTTLAndFormat(payload, _, _) = written.value else {
-            panic!("unexpected write {:?}", written.value)
-        };
-        let wrapper: HypercacheFlagsWrapper = serde_json::from_str(&payload).unwrap();
-        let keys: Vec<&str> = wrapper.flags.iter().map(|f| f.key.as_str()).collect();
-        assert_eq!(keys, vec!["v1-flag"]);
+        assert_eq!(published_flag_keys(&redis), ["v1-flag"]);
     }
 
     /// Regression for the warmer overwriting Django's etag. set() unconditionally

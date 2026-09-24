@@ -12,7 +12,7 @@ use common_types::TeamId;
 
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
-use crate::flags::feature_flag_list::UndecodableFlags;
+use crate::flags::feature_flag_list::{UndecodableDocument, UndecodableFlags};
 use crate::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
     HypercacheFlagsWrapper,
@@ -90,9 +90,11 @@ fn omit_unsupported_flags(
         .iter()
         .filter(|flag| {
             !flag.filters.is_v1()
-                || undecodable
-                    .get(&flag.id)
-                    .is_some_and(|&v1_object| !v1_object || is_evaluable(flag))
+                || match undecodable.get(&flag.id) {
+                    Some(UndecodableDocument::NotAnObject) => true,
+                    Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
+                    None => false,
+                }
         })
         .map(|flag| flag.id)
         .collect();
@@ -103,11 +105,11 @@ fn omit_unsupported_flags(
         }
     }
     let mut excluded = unsupported.clone();
-    let mut queue: Vec<FeatureFlagId> = unsupported.iter().copied().collect();
-    while let Some(id) = queue.pop() {
+    let mut pending: Vec<FeatureFlagId> = unsupported.iter().copied().collect();
+    while let Some(id) = pending.pop() {
         for &dependent_id in dependents.get(&id).into_iter().flatten() {
             if excluded.insert(dependent_id) {
-                queue.push(dependent_id);
+                pending.push(dependent_id);
             }
         }
     }
