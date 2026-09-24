@@ -10,6 +10,7 @@ vi.mock("@posthog/harness/extensions/enrichment", () => ({
 import { Logger } from "../../utils/logger";
 import type { TaskState } from "./conversion/task-state";
 import {
+  createBackgroundShellGuardHook,
   createPreToolUseHook,
   createReadEnrichmentHook,
   createReadImageGuardHook,
@@ -538,6 +539,72 @@ describe("createPreToolUseHook", () => {
     expect(result).toMatchObject({
       hookSpecificOutput: { permissionDecision: "ask" },
     });
+  });
+});
+
+describe("createBackgroundShellGuardHook", () => {
+  const guard = createBackgroundShellGuardHook();
+  const opts = { signal: new AbortController().signal };
+
+  test.each([
+    {
+      name: "denies a background Bash call",
+      tool_name: "Bash",
+      tool_input: { command: "pnpm test", run_in_background: true },
+      denied: true,
+    },
+    {
+      name: "allows a foreground Bash call",
+      tool_name: "Bash",
+      tool_input: { command: "pnpm test" },
+      denied: false,
+    },
+    {
+      name: "denies a Monitor that runs a shell command",
+      tool_name: "Monitor",
+      tool_input: {
+        description: "dev server",
+        command: "pnpm dev",
+        timeout_ms: 60000,
+      },
+      denied: true,
+    },
+    {
+      name: "allows a Monitor that watches a websocket",
+      tool_name: "Monitor",
+      tool_input: { description: "events", ws: { url: "wss://example.com" } },
+      denied: false,
+    },
+    {
+      name: "ignores other tools",
+      tool_name: "Agent",
+      tool_input: { prompt: "x", run_in_background: true },
+      denied: false,
+    },
+  ])("$name", async ({ tool_name, tool_input, denied }) => {
+    const result = await guard(
+      {
+        session_id: "s",
+        transcript_path: "/tmp/t",
+        cwd: "/tmp",
+        hook_event_name: "PreToolUse",
+        tool_name,
+        tool_use_id: "toolu_1",
+        tool_input,
+      } as HookInput,
+      undefined,
+      opts,
+    );
+    if (denied) {
+      expect(result).toMatchObject({
+        hookSpecificOutput: {
+          permissionDecision: "deny",
+          permissionDecisionReason: expect.stringContaining("foreground"),
+        },
+      });
+    } else {
+      expect(result).toEqual({ continue: true });
+    }
   });
 });
 

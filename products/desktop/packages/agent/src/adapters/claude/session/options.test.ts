@@ -203,6 +203,45 @@ describe("buildSessionOptions", () => {
     expect(healSpy).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { cloudMode: true, denied: true },
+    { cloudMode: false, denied: false },
+  ])(
+    "disables background shells only in cloud mode (cloudMode=$cloudMode)",
+    async ({ cloudMode, denied }) => {
+      const options = buildSessionOptions({ ...makeParams(), cloudMode });
+      const hooks = (options.hooks?.PreToolUse ?? []).flatMap(
+        (entry) => entry.hooks ?? [],
+      );
+      const opts = { signal: new AbortController().signal };
+      const decisions: string[] = [];
+      for (const hook of hooks) {
+        const result = (await hook(
+          {
+            ...(GIT_COMMIT_HOOK_INPUT as object),
+            tool_input: { command: "pnpm dev", run_in_background: true },
+          } as HookInput,
+          undefined,
+          opts,
+        )) as { hookSpecificOutput?: { permissionDecision?: string } };
+        if (result?.hookSpecificOutput?.permissionDecision) {
+          decisions.push(result.hookSpecificOutput.permissionDecision);
+        }
+      }
+
+      expect(decisions.includes("deny")).toBe(denied);
+      expect(options.env?.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe(
+        denied ? "1" : undefined,
+      );
+      expect(options.env?.BASH_DEFAULT_TIMEOUT_MS).toBe(
+        denied ? "600000" : undefined,
+      );
+      expect(options.env?.BASH_MAX_TIMEOUT_MS).toBe(
+        denied ? "1800000" : undefined,
+      );
+    },
+  );
+
   it("omits the signed-commit guard outside cloud mode", async () => {
     const healSpy = vi.fn().mockResolvedValue(true);
     await runPreToolUseHooks(

@@ -33,6 +33,7 @@ import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
 import {
+  createBackgroundShellGuardHook,
   createPostToolUseHook,
   createPreToolUseHook,
   createReadEnrichmentHook,
@@ -187,12 +188,16 @@ function buildMcpServers(
   };
 }
 
+const CLOUD_BASH_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const CLOUD_BASH_MAX_TIMEOUT_MS = 30 * 60 * 1000;
+
 function buildEnvironment(
   gateway?: GatewayEnv,
   aiSessionId?: string,
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
+  cloudMode = false,
 ): Record<string, string> {
   // SDK 0.3.142 made MCP servers connect in the background by default. That
   // default is what we want: a slow or unreachable user MCP server (PostHog
@@ -214,6 +219,11 @@ function buildEnvironment(
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
     ...(mcpNonblocking !== undefined && {
       MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
+    }),
+    ...(cloudMode && {
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+      BASH_DEFAULT_TIMEOUT_MS: String(CLOUD_BASH_DEFAULT_TIMEOUT_MS),
+      BASH_MAX_TIMEOUT_MS: String(CLOUD_BASH_MAX_TIMEOUT_MS),
     }),
   };
 
@@ -402,6 +412,7 @@ function buildHooks(
   if (cloudMode) {
     preToolUseHooks.push(
       createSignedCommitGuardHook(logger, onEnsureLocalToolsConnected),
+      createBackgroundShellGuardHook(),
     );
   }
   if (budgetGuard) {
@@ -685,6 +696,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,
+      params.cloudMode ?? false,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,

@@ -409,6 +409,32 @@ export const createSignedCommitGuardHook =
     };
   };
 
+export const createBackgroundShellGuardHook =
+  (): HookCallback =>
+  async (input: HookInput, _toolUseID: string | undefined) => {
+    if (input.hook_event_name !== "PreToolUse") return { continue: true };
+
+    const toolInput = input.tool_input as
+      | { run_in_background?: boolean; command?: string }
+      | undefined;
+    const startsBackgroundShell =
+      (input.tool_name === "Bash" && toolInput?.run_in_background === true) ||
+      (input.tool_name === "Monitor" && typeof toolInput?.command === "string");
+    if (!startsBackgroundShell) return { continue: true };
+
+    return {
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "deny" as const,
+        permissionDecisionReason:
+          "Background shells are not available in cloud runs. Nothing waits for them or stops them after your turn ends. " +
+          "Run the command in the foreground and wait for it to finish. " +
+          "If a step needs a server, start it, use it, and stop it inside that same foreground command.",
+      },
+    };
+  };
+
 export const createPreToolUseHook =
   (
     settingsManager: SettingsManager,
