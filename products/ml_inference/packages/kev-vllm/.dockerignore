@@ -7,4 +7,3 @@ __pycache__/
 *.egg-info/
 README.md
 uv.lock
-deploy/
