@@ -1,3 +1,5 @@
+import { ApiError } from 'lib/api-error'
+
 import { terminalCreate, terminalDestroy } from '~/generated/core/api'
 
 import { ModalTerminalRuntime } from './ModalTerminalRuntime'
@@ -82,16 +84,23 @@ describe('ModalTerminalRuntime', () => {
         socket.mockRestore()
     })
 
-    it('allows retrying a failed stop without creating another sandbox', async () => {
+    it.each([
+        ['allows retrying a failed stop', new Error('Unavailable'), true],
+        ['treats a session another tab replaced as stopped', new ApiError('Not found', 404), false],
+    ])('%s without creating another sandbox', async (_, error, retries) => {
         jest.mocked(terminalCreate).mockResolvedValue(session)
-        jest.mocked(terminalDestroy).mockRejectedValueOnce(new Error('Unavailable'))
+        jest.mocked(terminalDestroy).mockRejectedValueOnce(error)
         const runtime = new ModalTerminalRuntime('2', jest.fn(), jest.fn())
         const started = runtime.start('small')
-        await expect(runtime.stop()).rejects.toThrow('Unavailable')
+        if (retries) {
+            await expect(runtime.stop()).rejects.toThrow(error.message)
+        } else {
+            await runtime.stop()
+        }
         await started
         await runtime.stop()
         expect(terminalCreate).toHaveBeenCalledTimes(1)
-        expect(terminalDestroy).toHaveBeenCalledTimes(2)
+        expect(terminalDestroy).toHaveBeenCalledTimes(retries ? 2 : 1)
     })
 })
 import { waitFor } from '@testing-library/react'

@@ -1,3 +1,5 @@
+import { ApiError } from 'lib/api-error'
+
 import { terminalCreate, terminalDestroy } from '~/generated/core/api'
 import type { TerminalSandboxApi, TerminalSandboxSizeEnumApi } from '~/generated/core/api.schemas'
 
@@ -104,7 +106,14 @@ export class ModalTerminalRuntime {
         this.stopping = (async () => {
             const session = await this.request?.catch(() => null)
             if (session) {
-                await terminalDestroy(this.projectId, session.id)
+                try {
+                    await terminalDestroy(this.projectId, session.id)
+                } catch (error) {
+                    // A 404 means another tab replaced this session, so no sandbox is left to destroy.
+                    if (!(error instanceof ApiError && error.status === 404)) {
+                        throw error
+                    }
+                }
             }
         })().catch((error) => {
             this.stopping = null
