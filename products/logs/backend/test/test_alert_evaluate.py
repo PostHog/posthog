@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -7,12 +8,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import SourceBatchEvaluation
-from products.alerts.backend.facade.platform_alerts import record_outcomes
+from products.alerts.backend.facade.contracts import AlertEventKind, SourceBatchEvaluation, SourceKind
+from products.alerts.backend.facade.platform_alerts import announcement, due_checks, record_outcomes
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
-from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertEvent
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -47,17 +50,23 @@ class TestLogsAlertEvaluation(APIBaseTest):
         with team_scope(self.team.id):
             return PlatformAlertConfiguration.objects.create(**defaults)
 
-    def _run(self, *configurations: PlatformAlertConfiguration):
+    def _run(self, *configurations: PlatformAlertConfiguration, query_error: Exception | None = None):
         breaching = {str(c.id): [BucketedCount(timestamp=self.cutoff, count=500)] for c in configurations}
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
         ):
-            query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
-                per_alert=breaching, query_duration_ms=1
-            )
+            if query_error is not None:
+                query.return_value.execute_rolling_checks.side_effect = query_error
+            else:
+                query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
+                    per_alert=breaching, query_duration_ms=1
+                )
             slot = (configurations[0].next_check_at or self.cutoff).replace(second=0, microsecond=0).isoformat()
             return evaluate_logs_batch(self.team.id, slot, self.cutoff), query
+
+    def _slot(self) -> str:
+        return (self.cutoff - timedelta(minutes=1)).isoformat()
 
     def _record(self, evaluation: SourceBatchEvaluation) -> None:
         """The write the platform's own activity runs after the evaluation returns.
@@ -73,7 +82,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t.notification for preview in evaluation.previews for t in preview.transitions] == ["fire"]
+        assert [d.configuration_id for d in evaluation.deliveries] == [str(configuration.id)]
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
@@ -95,7 +104,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        assert evaluation.previews
+        assert evaluation.deliveries
         with team_scope(self.team.id):
             configuration.refresh_from_db()
             assert not PlatformAlert.objects.filter(configuration=configuration).exists()
@@ -104,19 +113,81 @@ class TestLogsAlertEvaluation(APIBaseTest):
     def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
         configurations = [self._configuration(), self._configuration()]
 
-        with patch(f"{_MODULE}.MAX_PREVIEWS_PER_CYCLE", 1):
+        with patch(f"{_MODULE}.MAX_DELIVERIES_PER_CYCLE", 1):
             evaluation, _ = self._run(*configurations)
         self._record(evaluation)
 
         # A firing alert does not fire again, so recording the second outcome would retire its
         # breach with no delivery to announce it.
-        assert len(evaluation.previews) == 1
+        assert len(evaluation.deliveries) == 1
         assert evaluation.omitted == 1
         with team_scope(self.team.id):
             still_due = PlatformAlertConfiguration.objects.filter(
                 id__in=[c.id for c in configurations], next_check_at__lte=self.cutoff
             ).count()
         assert still_due == 1
+
+    def test_a_check_inside_quiet_hours_moves_past_the_window(self) -> None:
+        configuration = self._configuration(
+            schedule_restriction={"blocked_windows": [{"start": "09:00", "end": "12:00"}]}
+        )
+
+        evaluation, query = self._run(configuration)
+        self._record(evaluation)
+
+        query.assert_not_called()
+        assert evaluation.deliveries == ()
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+        # Dropping the check without an outcome left its due time where it was, so the next tick
+        # found it again.
+        assert configuration.next_check_at == datetime(2026, 9, 16, 12, tzinfo=UTC)
+
+    def test_a_broken_filter_config_stops_being_discovered(self) -> None:
+        configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})
+
+        evaluation, query = self._run(configuration)
+        self._record(evaluation)
+
+        query.assert_not_called()
+        with team_scope(self.team.id):
+            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
+        assert alert.state == PlatformAlert.State.BROKEN
+        assert due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff + timedelta(hours=1)) == ()
+
+    @parameterized.expand(
+        [
+            ("a_transient_error_holds_the_counter", ValueError("cluster busy"), 4, "not_firing"),
+            ("an_invalid_query_escalates", ExposedHogQLError("unknown field"), 5, "broken"),
+        ]
+    )
+    def test_a_failed_query_advances_the_schedule_instead_of_leaving_the_check_due(
+        self, _name: str, error: Exception, expected_failures: int, expected_state: str
+    ) -> None:
+        configuration = self._configuration(consecutive_failures=4)
+
+        evaluation, _ = self._run(configuration, query_error=error)
+        self._record(evaluation)
+
+        assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]
+        with team_scope(self.team.id):
+            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
+            configuration.refresh_from_db()
+        assert alert.state == expected_state
+        assert configuration.next_check_at is not None
+        assert configuration.next_check_at > self.cutoff
+
+    def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
+        configuration = self._configuration(consecutive_failures=4)
+
+        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=RuntimeError("destinations unreachable")):
+            with pytest.raises(RuntimeError):
+                self._run(configuration, query_error=ExposedHogQLError("unknown field"))
+
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
@@ -154,9 +225,69 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        assert [p.evaluation_key for p in evaluation.previews] == [
-            f"{configuration.id}:window:{self.cutoff.isoformat()}"
-        ]
+        assert [d.evaluation_key for d in evaluation.deliveries] == [f"window:{self.cutoff.isoformat()}"]
+
+    def test_a_breach_records_the_count_it_measured(self) -> None:
+        configuration = self._configuration()
+
+        evaluation, _ = self._run(configuration)
+        self._record(evaluation)
+
+        # The breach flags say an alert fired, not by how much, so a comparison has nothing.
+        with team_scope(self.team.id):
+            event = PlatformAlertEvent.objects.get(alert__configuration=configuration)
+        assert event.kind == PlatformAlertEvent.Kind.FIRING
+        assert event.value == 500.0
+        assert event.source_config_snapshot == configuration.source_config
+
+    def test_a_failed_query_records_the_error_rather_than_a_value(self) -> None:
+        configuration = self._configuration()
+
+        evaluation, _ = self._run(configuration, query_error=ExposedHogQLError("bad filter"))
+        self._record(evaluation)
+
+        # A recorded zero reads as an absence of logs, resolving an unevaluable alert.
+        with team_scope(self.team.id):
+            event = PlatformAlertEvent.objects.get(alert__configuration=configuration)
+        assert event.value is None
+        assert event.error_message is not None
+
+        # Delivery states why a check failed, so the projection has to carry the reason and the
+        # count. Without them a message says an alert could not be checked and stops there.
+        delivery = evaluation.deliveries[0]
+        announced = announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key)
+        assert announced is not None
+        transition = announced.notifications[0].transitions[0]
+        assert transition.error_message == event.error_message
+        assert announced.consecutive_failures == event.consecutive_failures
+
+    def test_delivery_reads_the_transition_out_of_history(self) -> None:
+        configuration = self._configuration()
+
+        evaluation, _ = self._run(configuration)
+        self._record(evaluation)
+
+        # A transition delivery cannot read back is one nothing announces.
+        delivery = evaluation.deliveries[0]
+        announced = announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key)
+        assert announced is not None
+        assert announced.alert_name == configuration.name
+        # The broken and errored messages interpolate this, and the configuration's running
+        # total moves with every later check, so the announcement has to carry the check's own.
+        assert announced.consecutive_failures == 0
+
+        # Renaming the configuration must not change what an in-flight retry announces, or a
+        # resolve replies into its own thread under a different name.
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(name="Renamed")
+        reread = announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key)
+        assert reread is not None
+        assert reread.alert_name == configuration.name
+        # One message carrying every transition, so fan-in changes the partition and not this.
+        assert len(announced.notifications) == 1
+        transitions = announced.notifications[0].transitions
+        assert [(t.kind, t.value) for t in transitions] == [(AlertEventKind.FIRING, 500.0)]
+        assert transitions[0].condition["threshold_count"] == 10
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

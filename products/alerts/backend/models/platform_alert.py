@@ -52,6 +52,9 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     next_check_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
 
+    # Off by default: only a comparison against the source's own stack reads these rows.
+    record_every_check = models.BooleanField(default=False, db_default=False)
+
     # The row this was copied from, so a backfill can run twice and so a comparison can line
     # an evaluation up against the one the source's own stack produced.
     legacy_configuration_id = models.UUIDField(null=True, blank=True, unique=True)
@@ -99,4 +102,64 @@ class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["configuration", "grouping_key"], name="platform_alert_one_per_group")
+        ]
+
+
+class PlatformAlertEvent(TeamScopedRootMixin, UUIDTModel):
+    """What one evaluation decided about one alert instance.
+
+    One row per `(alert, evaluation_key)`, whatever it decided. `kind` says whether the
+    evaluation moved the alert or only confirmed it, so a transition and the check that
+    produced it are the same row rather than two.
+
+    The snapshots make a row self-sufficient. Delivery renders a message from it without
+    reading the configuration, so a threshold edited between the check and a retried send
+    cannot change what the message claims was breached.
+    """
+
+    class Kind(models.TextChoices):
+        CHECK = "check", "Check"
+        FIRING = "firing", "Firing"
+        RESOLVED = "resolved", "Resolved"
+        ERRORED = "errored", "Errored"
+        BROKEN = "broken", "Broken"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    alert = models.ForeignKey(PlatformAlert, on_delete=models.CASCADE, related_name="events")
+
+    # Stable across retries, which is what lets the unique constraint below reject a replay.
+    evaluation_key = models.CharField(max_length=255)
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+
+    # The configuration's name when the check ran. A rename between the root message and a
+    # later reply would otherwise have one thread contradict itself.
+    alert_name = models.CharField(max_length=255)
+
+    previous_state = models.CharField(max_length=32)
+    state = models.CharField(max_length=32)
+
+    # Float rather than a count: a source may measure something other than records.
+    value = models.FloatField(null=True, blank=True)
+    labels = models.JSONField(default=dict)
+
+    condition_snapshot = models.JSONField(default=dict)
+    source_config_snapshot = models.JSONField(default=dict)
+
+    query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+
+    # What the check counted, which is not what the configuration counts now. The configuration
+    # keeps a running total that later checks move, so the two agree only until the next check.
+    # A message says what its own check saw, whenever it is rendered.
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+
+    # The occasion the check was for, not when the row was written, so a retry repeats it.
+    occurred_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["alert", "evaluation_key"], name="platform_alert_event_one_per_evaluation")
+        ]
+        indexes = [
+            models.Index(fields=["alert", "-occurred_at"], name="platform_alert_event_ts_idx"),
         ]

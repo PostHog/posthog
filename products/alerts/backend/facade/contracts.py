@@ -84,7 +84,7 @@ class SourceEvaluationInputs:
 
 
 @frozen
-class PlatformAlertCheck:
+class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
 
     Flat rather than nested, because a source never holds the rows and has nothing to do with
@@ -137,14 +137,53 @@ class PlatformAlertUpsert:
     next_check_at: datetime | None
 
 
+class CheckOutcomeReason(StrEnum):
+    """Why a check reached the outcome it did.
+
+    A label on the platform's own counters. It never reaches an alert's state or schedule; the
+    one branch on it picks which counter to write.
+    """
+
+    EVALUATED = "evaluated"
+    QUIET_HOURS = "quiet_hours"
+    BROKEN_CONFIG = "broken_config"
+    QUERY_FAILED = "query_failed"
+
+
+class AlertEventKind(StrEnum):
+    """What one evaluation did to an alert.
+
+    `CHECK` is an evaluation that moved nothing. Every other member is a transition, which is
+    why a source reports the kind rather than the platform deriving it: the machine already
+    decided, and deriving it again from the states would be a second implementation of that
+    decision.
+    """
+
+    CHECK = "check"
+    FIRING = "firing"
+    RESOLVED = "resolved"
+    ERRORED = "errored"
+    BROKEN = "broken"
+
+
 @frozen
 class PlatformAlertOutcome:
-    """What one check decided. The platform turns this into rows."""
+    """What one check decided. The platform turns this into rows.
+
+    Every check produces one, including a check a source skipped. A skip that records nothing
+    leaves its due time where it was, so discovery finds the same work every tick.
+    """
 
     configuration_id: UUID
+    evaluation_key: str
+    kind: AlertEventKind
     new_state: str
     notified: bool
     consecutive_failures: int
+    value: float | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    error_message: str | None = None
+    query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
@@ -152,37 +191,83 @@ class PlatformAlertOutcome:
 
 @frozen
 class GroupTransition:
-    """One transition a delivery would carry. `grouping_key` is empty until a source groups,
-    so delivery reads a list of one today and a list of N when fan-out ships."""
+    """One group's transition, as delivery reads it back out of history.
+
+    Projected from a `PlatformAlertEvent` rather than carried from the evaluation, so the
+    facts a message states and the facts history records cannot disagree. `grouping_key` is
+    empty until a source groups, so delivery reads a list of one today and a list of N when
+    fan-out ships.
+    """
 
     grouping_key: str
-    notification: str
+    kind: AlertEventKind
+    previous_state: str
+    state: str
+    value: float | None
+    labels: dict[str, str]
+    condition: dict[str, Any]
+    source_config: dict[str, Any]
+    error_message: str | None
 
 
 @frozen
-class AlertDeliveryPreview:
-    """What delivery would send. The PoC records it instead of contacting a destination."""
+class AlertDeliveryRequest:
+    """Which announcement to make, by reference. The facts live in the rows this names.
+
+    An evaluation hands delivery the key, not the message. Delivery loads the transitions
+    itself, so a retry announces what was recorded rather than what one attempt happened to
+    carry, and the batch's own payload does not grow with the alerts it decided.
+
+    `destination_names` is routing rather than message content, and a source still resolves
+    its own: the destinations are the source's HogFunctions until `AlertDestination` exists.
+    """
 
     source: SourceKind
-    alert_id: str
-    alert_name: str
+    team_id: int
+    configuration_id: str
     evaluation_key: str
     destination_names: tuple[str, ...]
+
+
+@frozen
+class Notification:
+    """One message, and every transition it announces.
+
+    `notification_key` is empty while one message carries one group. Fan-in projects the group
+    labels onto a coarser key and partitions on it, so a delivery that already loops over these
+    needs no other change when that lands.
+    """
+
+    notification_key: str
     transitions: tuple[GroupTransition, ...]
+
+
+@frozen
+class EvaluationAnnouncement:
+    """What one evaluation left for a destination to say."""
+
+    alert_name: str
+    # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
+    # whole evaluation, and every group in one announcement saw the same count.
+    consecutive_failures: int
+    notifications: tuple[Notification, ...]
 
 
 @frozen
 class SourceBatchEvaluation:
     """What one batch decided, before any of it is written.
 
-    Evaluation returns this and the write runs as its own activity, so Temporal has the
-    deliveries in history before anything can advance a schedule past them.
+    Evaluation returns this and the write runs as its own activity, which is what puts the
+    decisions in Temporal's history before a schedule can advance past them.
+
+    A delivery travels as a reference rather than as a message, so the payload no longer grows
+    with what each transition has to say.
     """
 
     outcomes: tuple[PlatformAlertOutcome, ...]
-    previews: tuple[AlertDeliveryPreview, ...]
-    # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
-    # them, the way a truncated cohort already behaves.
+    deliveries: tuple[AlertDeliveryRequest, ...]
+    # Pairs the payload bound left out. A recorded transition announces nothing on its own,
+    # so these keep their due time and a later tick re-evaluates them.
     omitted: int = 0
 
 

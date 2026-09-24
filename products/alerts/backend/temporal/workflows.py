@@ -33,7 +33,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async_pool
 
     from products.alerts.backend.facade.contracts import (
-        AlertDeliveryPreview,
+        AlertDeliveryRequest,
         AlertDemand,
         DemandDiscoveryInputs,
         OrchestrateInputs,
@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
         TickPage,
     )
     from products.alerts.backend.logic.demand import discover_demand
+    from products.alerts.backend.logic.platform_lifecycle import announcement
     from products.alerts.backend.temporal.postgres import check_postgres_connection
 
 
@@ -93,29 +94,56 @@ async def alerts_platform_deliver_activity() -> None:
 
 
 @activity.defn
-async def alerts_platform_deliver_preview_activity(preview: AlertDeliveryPreview) -> None:
-    """Records what delivery would have sent. The PoC contacts no destination."""
-    await LOGGER.ainfo(
-        "alerts_platform_delivery_preview",
-        source=preview.source.value,
-        alert_id=preview.alert_id,
-        alert_name=preview.alert_name,
-        evaluation_key=preview.evaluation_key,
-        destinations=list(preview.destination_names),
-        transitions=[
-            {"grouping_key": transition.grouping_key, "notification": transition.notification}
-            for transition in preview.transitions
-        ],
+async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest) -> None:
+    """Records what delivery would have sent. The PoC contacts no destination.
+
+    The transitions are read back from the rows the evaluation wrote, so a retry announces what
+    was recorded rather than what one attempt happened to carry.
+    """
+    announced = await database_sync_to_async_pool(announcement)(
+        request.team_id, request.configuration_id, request.evaluation_key
     )
-    safe_record(increment_deliveries_previewed, preview.source.value)
+    if announced is None:
+        # No transition under the key, which a deleted configuration also reaches.
+        await LOGGER.ainfo(
+            "alerts_platform_delivery_preview_empty",
+            source=request.source.value,
+            alert_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        return
+
+    for notification in announced.notifications:
+        await LOGGER.ainfo(
+            "alerts_platform_delivery_preview",
+            source=request.source.value,
+            alert_id=request.configuration_id,
+            alert_name=announced.alert_name,
+            consecutive_failures=announced.consecutive_failures,
+            evaluation_key=request.evaluation_key,
+            notification_key=notification.notification_key,
+            destinations=list(request.destination_names),
+            transitions=[
+                {
+                    "grouping_key": transition.grouping_key,
+                    "kind": transition.kind.value,
+                    "previous_state": transition.previous_state,
+                    "state": transition.state,
+                    "value": transition.value,
+                    "labels": transition.labels,
+                }
+                for transition in notification.transitions
+            ],
+        )
+        safe_record(increment_deliveries_previewed, request.source.value)
 
 
 @workflow.defn(name="alerts-platform-deliver-preview")
 class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
-    inputs_cls = AlertDeliveryPreview
+    inputs_cls = AlertDeliveryRequest
 
     @workflow.run
-    async def run(self, inputs: AlertDeliveryPreview) -> None:
+    async def run(self, inputs: AlertDeliveryRequest) -> None:
         await workflow.execute_activity(
             alerts_platform_deliver_preview_activity,
             inputs,

@@ -376,6 +376,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertEvent
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -796,6 +797,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertEvent
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification

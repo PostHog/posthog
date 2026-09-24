@@ -2,11 +2,15 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import PlatformAlertOutcome, SourceKind
+from products.alerts.backend.facade.contracts import AlertEventKind, PlatformAlertOutcome, SourceKind
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
-from products.alerts.backend.models import PlatformAlertConfiguration
+from products.alerts.backend.models import PlatformAlertConfiguration, PlatformAlertEvent
 
 
 class TestPlatformAlertLifecycle(APIBaseTest):
@@ -27,15 +31,22 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
-    def _record(self, **overrides) -> None:
+    def _record(self, now: datetime | None = None, **overrides) -> None:
+        moment = now or self.cutoff
         fields = {
             "configuration_id": self.configuration.id,
+            "evaluation_key": f"window:{moment.isoformat()}",
+            "kind": AlertEventKind.FIRING,
             "new_state": "firing",
             "notified": True,
             "consecutive_failures": 0,
         }
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], self.cutoff, team_timezone=self.team.timezone)
+        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], moment, team_timezone=self.team.timezone)
+
+    def _events(self) -> list[PlatformAlertEvent]:
+        with team_scope(self.team.id):
+            return list(PlatformAlertEvent.objects.filter(alert__configuration=self.configuration))
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
@@ -57,3 +68,68 @@ class TestPlatformAlertLifecycle(APIBaseTest):
         with team_scope(self.team.id):
             self.configuration.refresh_from_db()
         assert self.configuration.next_check_at == after_first
+        # A second row for one evaluation double-counts the alert in any history reading it.
+        assert len(self._events()) == 1
+
+    @parameterized.expand([("off", False, 0), ("on", True, 1)])
+    def test_a_check_that_moved_nothing_is_kept_only_under_comparison(
+        self, _name: str, record_every_check: bool, expected_rows: int
+    ) -> None:
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                record_every_check=record_every_check
+            )
+
+        self._record(kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
+
+        assert len(self._events()) == expected_rows
+
+    def test_a_state_change_nobody_was_notified_of_is_still_recorded(self) -> None:
+        self._record(kind=AlertEventKind.FIRING, new_state="firing", notified=True)
+        # A cooldown holds the notification while the alert still moves.
+        self._record(
+            now=self.cutoff + timedelta(minutes=10),
+            kind=AlertEventKind.CHECK,
+            new_state="not_firing",
+            notified=False,
+        )
+
+        events = sorted(self._events(), key=lambda event: event.occurred_at)
+        assert [(e.previous_state, e.state) for e in events] == [
+            ("not_firing", "firing"),
+            ("firing", "not_firing"),
+        ]
+
+    def test_a_recorded_check_carries_what_it_was_evaluated_against(self) -> None:
+        self._record(value=42.0, query_duration_ms=17)
+
+        # Without the snapshot a retried delivery renders against a threshold nothing measured.
+        event = self._events()[0]
+        # The name too: a rename between the root message and a later reply would otherwise
+        # have one thread contradict itself.
+        assert event.alert_name == self.configuration.name
+        assert event.value == 42.0
+        assert event.query_duration_ms == 17
+        assert event.condition_snapshot["threshold_count"] == 10
+        assert event.condition_snapshot["threshold_operator"] == "above"
+
+    def test_a_recorded_check_keeps_the_failure_count_it_saw(self) -> None:
+        self._record(kind=AlertEventKind.ERRORED, new_state="errored", notified=False, consecutive_failures=3)
+        later = self.cutoff + timedelta(minutes=10)
+        self._record(
+            now=later, kind=AlertEventKind.ERRORED, new_state="errored", notified=False, consecutive_failures=4
+        )
+
+        self.configuration.refresh_from_db()
+        assert self.configuration.consecutive_failures == 4
+        # The row is the check, not the configuration. Reading the running total at delivery time
+        # would have the first message claim a count no check ever reached.
+        assert [event.consecutive_failures for event in sorted(self._events(), key=lambda e: e.occurred_at)] == [3, 4]
+
+
+class TestAlertEventKindVocabulary(SimpleTestCase):
+    """Two enums, no database."""
+
+    def test_the_contract_and_the_column_name_the_same_kinds(self) -> None:
+        # Django does not check `choices` on save, so a drifted kind writes silently.
+        assert {k.value for k in AlertEventKind} == set(PlatformAlertEvent.Kind.values)

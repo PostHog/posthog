@@ -8,16 +8,24 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
-from products.alerts.backend.facade.contracts import PlatformAlertCheck, PlatformAlertOutcome, PlatformAlertUpsert
+from products.alerts.backend.facade.contracts import (
+    AlertEventKind,
+    EvaluationAnnouncement,
+    GroupTransition,
+    Notification,
+    PlatformAlertCheckInput,
+    PlatformAlertOutcome,
+    PlatformAlertUpsert,
+)
 from products.alerts.backend.facade.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds,
     parse_blocked_windows_tuples,
     scan_next_unblocked_utc,
 )
-from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertEvent
 
 
 def due_q(moment: datetime) -> Q:
@@ -55,12 +63,36 @@ def _alerts_for_write(team_id: int, configurations: Sequence[PlatformAlertConfig
     return existing
 
 
-def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheck, ...]:
+def suppressed(cutoff: datetime) -> Exists:
+    """Configurations a runtime state holds back, mirroring the source stacks' `due_alerts_q`.
+
+    Those stacks read both states off the configuration row. Here they live on `PlatformAlert`,
+    so discovery and the batch read both reach for this rather than each writing the predicate
+    out. If the two disagreed, a broken alert would be dispatched by one and dropped by the
+    other, every tick, in silence.
+
+    Excluded as one `Exists` rather than as a lookup across the relation. Django splits an
+    excluded multi-valued lookup into a subquery per leaf, which lets the three conditions match
+    three different alert rows once a source writes a real grouping key, and buries them where
+    Postgres cannot lift them into an anti-join.
+    """
+    # `unscoped` because the subquery runs without ambient scope in both callers, and it is
+    # correlated to a configuration the outer query has already scoped, so the foreign key keeps
+    # it inside that team.
+    return Exists(
+        PlatformAlert.objects.unscoped()
+        .filter(configuration=OuterRef("pk"), grouping_key="")
+        .filter(Q(state=PlatformAlert.State.BROKEN) | Q(state=PlatformAlert.State.SNOOZED, snooze_until__gt=cutoff))
+    )
+
+
+def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheckInput, ...]:
     """Every configuration in one batch key, with its runtime state, ready to evaluate."""
     configurations = list(
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
+        .exclude(suppressed(cutoff))
         # Ordered so a retried attempt keeps the same alerts under any downstream cap.
         .order_by("id")
     )
@@ -72,8 +104,8 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
     return tuple(_check(c, alerts.get(str(c.id))) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheck:
-    return PlatformAlertCheck(
+def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheckInput:
+    return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
         name=c.name,
@@ -105,6 +137,60 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
+def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
+    """What the check was evaluated against, as the message and the history need to read it.
+
+    Taken from the configuration rather than shipped with the outcome. The source's copy would
+    cost payload on every batch, and no path writes a configuration between an evaluation and
+    its record: a source keeps its own control plane and reaches these rows through a backfill.
+    """
+    return {
+        "threshold_count": configuration.threshold_count,
+        "threshold_operator": configuration.threshold_operator,
+        "window_minutes": configuration.window_minutes,
+        "evaluation_periods": configuration.evaluation_periods,
+        "datapoints_to_alarm": configuration.datapoints_to_alarm,
+        "cooldown_minutes": configuration.cooldown_minutes,
+    }
+
+
+def _is_worth_recording(outcome: PlatformAlertOutcome, previous_state: str, record_every_check: bool) -> bool:
+    """Whether one check earns a history row.
+
+    A transition always does. So does a check that moved the alert without announcing it, which
+    a cooldown produces: the move is the thing history is for, and the notification is not.
+    Everything else is a check that confirmed the alert, and only a configuration under
+    comparison keeps those.
+    """
+    return outcome.kind != AlertEventKind.CHECK or previous_state != outcome.new_state or record_every_check
+
+
+def _event(
+    configuration: PlatformAlertConfiguration,
+    alert: PlatformAlert,
+    outcome: PlatformAlertOutcome,
+    previous_state: str,
+    now: datetime,
+) -> PlatformAlertEvent:
+    return PlatformAlertEvent(
+        team_id=configuration.team_id,
+        alert=alert,
+        evaluation_key=outcome.evaluation_key,
+        kind=outcome.kind.value,
+        alert_name=configuration.name,
+        previous_state=previous_state,
+        state=outcome.new_state,
+        value=outcome.value,
+        labels=outcome.labels,
+        condition_snapshot=_condition_snapshot(configuration),
+        source_config_snapshot=configuration.source_config,
+        query_duration_ms=outcome.query_duration_ms,
+        error_message=outcome.error_message,
+        consecutive_failures=outcome.consecutive_failures,
+        occurred_at=now,
+    )
+
+
 def record_outcomes(
     team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime, *, team_timezone: str
 ) -> int:
@@ -133,12 +219,17 @@ def record_outcomes(
             return 0
         alerts = _alerts_for_write(team_id, configurations)
 
+        unblocked: dict[tuple[datetime, tuple | None], datetime | None] = {}
+        events: list[PlatformAlertEvent] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
+            previous_state = alert.state
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now
+            if _is_worth_recording(outcome, previous_state, configuration.record_every_check):
+                events.append(_event(configuration, alert, outcome, previous_state, now))
 
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
@@ -152,10 +243,17 @@ def record_outcomes(
                 ),
             )
             windows = parse_blocked_windows_tuples(configuration.schedule_restriction)
-            configuration.next_check_at = (
-                scan_next_unblocked_utc(next_check_at, team_timezone, windows) or next_check_at
-            )
+            # `scan_next_unblocked_utc` walks a minute at a time, and a held check's next slot is
+            # inside the window by construction, so it walks the rest of it. Checks sharing a
+            # cadence and a restriction land on the same minute, so the walk is done once per
+            # distinct answer rather than once per configuration.
+            unblocked_key = (next_check_at, tuple(windows) if windows else None)
+            if unblocked_key not in unblocked:
+                unblocked[unblocked_key] = scan_next_unblocked_utc(next_check_at, team_timezone, windows)
+            configuration.next_check_at = unblocked[unblocked_key] or next_check_at
 
+        # `ignore_conflicts` leans on the unique constraint, so a racing cycle writes it once.
+        PlatformAlertEvent.objects.for_team(team_id).bulk_create(events, ignore_conflicts=True)
         PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
@@ -188,3 +286,59 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         },
     )
     return created
+
+
+def _fan_in(transitions: tuple[GroupTransition, ...]) -> tuple[Notification, ...]:
+    """Collapses N alert instances into the messages that announce them.
+
+    One message carrying every transition, until a configuration can say otherwise. How far to
+    collapse is a policy rather than a default: an alert grouped by service wants one message
+    naming all fifty, and an alert grouped by error identity wants a message per identity that
+    a person can resolve on its own. This is the only place that policy changes, because
+    delivery already reads a list.
+    """
+    if not transitions:
+        return ()
+    return (Notification(notification_key="", transitions=transitions),)
+
+
+def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> EvaluationAnnouncement | None:
+    """What delivery says about one evaluation, read back out of history.
+
+    Only the rows that announced something. A check that confirmed the alert is recorded for
+    a comparison to read and has nothing to send.
+
+    Nothing here reads the configuration, so a rename between the root message and a reply
+    cannot make one thread contradict itself. A deleted configuration cascades these rows
+    away, so it reaches the same empty answer without needing its own check.
+    """
+    events = list(
+        PlatformAlertEvent.objects.for_team(team_id)
+        .filter(alert__configuration_id=configuration_id, evaluation_key=evaluation_key)
+        .exclude(kind=PlatformAlertEvent.Kind.CHECK)
+        # One row per group once a source groups, so the order has to be stated.
+        .order_by("alert__grouping_key")
+        .select_related("alert")
+    )
+    transitions = tuple(
+        GroupTransition(
+            grouping_key=event.alert.grouping_key,
+            kind=AlertEventKind(event.kind),
+            previous_state=event.previous_state,
+            state=event.state,
+            value=event.value,
+            labels=event.labels,
+            condition=event.condition_snapshot,
+            source_config=event.source_config_snapshot,
+            error_message=event.error_message,
+        )
+        for event in events
+    )
+    if not transitions:
+        return None
+    # Both are configuration-level, so any row carries them.
+    return EvaluationAnnouncement(
+        alert_name=events[0].alert_name,
+        consecutive_failures=events[0].consecutive_failures,
+        notifications=_fan_in(transitions),
+    )

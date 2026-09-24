@@ -212,7 +212,7 @@ The alerts product imports nothing from a source: the binding holds a name, and 
 
 ## Logs source evaluation
 
-`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
+`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and starts one delivery per notification.
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
 It writes its own state and never the logs product's rows.
@@ -220,6 +220,7 @@ The production `logs-alerting-task-queue` fleet evaluates these same alerts ever
 so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would transition an alert twice and notify a person twice for one breach.
 State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
 Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
+It is handed a key rather than a message, and reads the transitions back out of `PlatformAlertEvent`.
 
 The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
 which is the shared machine the logs product's own state machine is a thin adapter over.
@@ -229,6 +230,59 @@ It evaluates against the tick cutoff rather than the clock, so a retried attempt
 resolves the same windows and derives the same evaluation keys as the attempt it replaced.
 The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
 can have been disabled, snoozed or broken since.
+
+### Every check produces an outcome
+
+A check the source cannot evaluate still records what it decided, and the three cases decide differently.
+
+| Case                            | State                                   | Schedule                                                   |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| Inside a blocked window         | Unchanged                               | The next cadence step, pushed past the window              |
+| Filter config no data satisfies | BROKEN                                  | The next cadence step, though discovery stops selecting it |
+| Query failed                    | The shared machine's error path decides | The next cadence step                                      |
+
+A skip that records nothing leaves its due time where it was, so discovery hands the same check back every tick.
+That is the whole reason these exist: the work is not lost, it is repeated, and a permanently broken alert repeats it forever.
+The schedule the platform already computes lands past every blocked window, so a quiet-hours skip needs no time
+of its own. The source reports the skip; the platform stays the only writer of `next_check_at`.
+
+The failure case goes through `evaluate_alert_check` with an errored `CheckInput`, so the shared machine raises
+`consecutive_failures` and escalates to BROKEN at five, and `classify_alert_error` decides whether the error is
+transient. A transient error advances the schedule but holds the counter, because a cluster outage must not
+disable every alert that ran during it.
+
+`suppressed` is the single definition of what holds a configuration back, mirroring the source stacks'
+`due_alerts_q`. Both `discover_demand` and `due_checks` exclude on it. Discovery has to, because a broken alert
+that still mints a batch key spends the manifest bound on work its own evaluation then drops.
+It is one correlated `Exists` rather than a lookup across the relation: Django splits an excluded multi-valued
+lookup into a subquery per leaf, which would let the three conditions match three different alert rows once a
+source writes a real grouping key, and would bury them where Postgres cannot lift them into an anti-join.
+
+`alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
+
+### What one check leaves behind
+
+`PlatformAlertEvent` is the history row, one per `(alert, evaluation_key)`.
+`kind` says whether the evaluation announced anything: `check` when it did not, and `firing`, `resolved`, `errored` or `broken` when it did.
+A transition and the check that produced it are one row rather than two, which is what keeps the unique constraint usable as the idempotency key.
+
+A row is kept when the check announced something, when it moved the alert without announcing anything, or when the configuration asks for every check.
+The middle case is a cooldown: the alert moves and the notification is held, and the move is the thing history is for.
+
+`record_every_check` on the configuration is off by default.
+A one-minute alert produces about 43,000 confirming checks a month, and the only reader that wants them is a comparison against the source's own stack, which runs on a cohort rather than on the fleet.
+Turn it on for the configurations under comparison and leave it off everywhere else.
+
+The row is self-sufficient by design.
+`condition_snapshot` and `source_config_snapshot` record what the check was evaluated against, so delivery renders a message from the row without reading the configuration, and a threshold edited between the check and a retried send cannot change what the message claims was breached.
+Both are taken from the configuration at write time rather than shipped with the outcome: the source's copy would cost payload on every batch, and no path writes a platform configuration between an evaluation and its record, because a source keeps its own control plane and reaches these rows through a backfill.
+
+`labels` stays empty until a source groups its results.
+It is the group's identity, not the alert's filter scope; the scope is in `source_config_snapshot`.
+
+`evaluation_key` is `window:<end>` for logs.
+It names the occasion rather than the attempt, and it is not scoped to the alert in the string, because `unique(alert, evaluation_key)` already scopes it.
+The rows go in with `ignore_conflicts`, inside the same transaction that advances the schedule, so a replayed batch writes each row once.
 
 ### Evaluating and writing are separate activities
 
@@ -245,8 +299,9 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
-Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+A recorded transition announces nothing on its own: something has to start the delivery that reads it.
+So recording an outcome whose delivery the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.
 
@@ -270,8 +325,21 @@ The budget covers the cohort queries only. The per-alert destination lookup is o
 The cap reaches ClickHouse as `max_execution_time` on `BatchedAlertCheckQuery`, with `timeout_overflow_mode` set to throw,
 because a partial count could resolve an alert that is actually breaching.
 
-Delivery previews carry a list of group transitions with one entry and an empty grouping key.
-Logs does not group yet; the list is the shape that lets fan-out change the evaluation and nothing downstream.
+A delivery travels as `(source, team, configuration, evaluation key, destination names)` and nothing else.
+The facts a message states come from the rows, so what it says and what history records cannot disagree,
+a retry announces what was recorded rather than what one attempt carried,
+and the batch payload does not grow with what each transition has to say.
+Destination names are the exception, because they are routing rather than content and a source still resolves its own:
+the destinations stay the source's HogFunctions until `AlertDestination` exists.
+
+`announcement` reads one evaluation's transitions and skips the `check` rows, which announce nothing by definition.
+It reads no configuration, so a rename between a root message and a later reply cannot make one thread contradict itself, and a deleted configuration cascades these rows away rather than needing its own check.
+It returns them partitioned into notifications: one message carrying every transition today, ordered by grouping key.
+
+`_fan_in` is where that partition is decided, and it is the only place notification fan-in changes.
+How far to collapse is a policy a configuration will carry, not a default: an alert grouped by service wants one message naming all fifty,
+and an alert grouped by error identity wants a message per identity that a person can resolve on its own.
+`notification_key` names the projection that produced a message and is empty while one message carries every group.
 
 ### Metrics
 
