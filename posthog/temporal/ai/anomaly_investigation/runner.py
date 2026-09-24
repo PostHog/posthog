@@ -268,8 +268,12 @@ async def run_investigation(
             response = await llm_with_tools.ainvoke(messages, config=config)
         except Exception as err:
             logger.warning("anomaly_investigation.llm_invoke_error", extra={"error": str(err)})
+            report = _salvage_from_history(report_args_history) or _fallback_report(
+                f"LLM tool-calling loop failed: {err}"
+            )
+            report.tool_calls_used = tool_calls_used
             return InvestigationRunResult(
-                report=_fallback_report(f"LLM tool-calling loop failed: {err}"),
+                report=report,
                 tool_calls_used=tool_calls_used,
                 model=AGENT_MODEL,
             )

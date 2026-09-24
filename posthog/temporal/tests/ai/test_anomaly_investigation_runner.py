@@ -307,7 +307,10 @@ class _ScriptedRunnable:
         self._responses = list(responses)
 
     async def ainvoke(self, messages, config=None):
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def _budget_burning_turn() -> AIMessage:
@@ -333,6 +336,39 @@ _VALID_REPORT_ARGS = {
     "hypotheses": [{"title": "Runaway tenant", "rationale": "Loops on the cap check.", "evidence": []}],
     "recommendations": ["Check the tenant."],
 }
+
+
+@pytest.mark.parametrize(
+    "report_args,expected_verdict",
+    [
+        pytest.param(_UNRECOVERABLE_REPORT_ARGS, "true_positive", id="salvage_previous_report"),
+        pytest.param({"verdict": "maybe", "summary": "x"}, "inconclusive", id="fallback_without_salvage"),
+    ],
+)
+async def test_loop_failure_keeps_best_report_and_tool_count(report_args: dict, expected_verdict: str) -> None:
+    llm = MagicMock()
+    llm.bind_tools.side_effect = lambda tools: _ScriptedRunnable(
+        [
+            AIMessage(content="", tool_calls=[{"name": "noop_tool", "args": {}, "id": "call-1"}]),
+            _report_turn(report_args),
+            RuntimeError("LLM unavailable"),
+        ]
+    )
+
+    with (
+        patch("ee.hogai.llm.MaxChatAnthropic", return_value=llm),
+        patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
+    ):
+        mock_module.default_client = None
+        result = await run_investigation(
+            team=MagicMock(id=1),
+            user=MagicMock(id=2),
+            anomaly_context="anomaly context",
+        )
+
+    assert result.report.verdict == expected_verdict
+    assert result.tool_calls_used == 1
+    assert result.report.tool_calls_used == 1
 
 
 @pytest.mark.parametrize(
