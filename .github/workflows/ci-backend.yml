@@ -1856,9 +1856,10 @@ jobs:
                         app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       fi
 
-                      # Only show SQL for new migrations, not modifications to existing ones
-                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
-                        echo "Skipping $file (already exists on base branch)"
+                      # Only show SQL for new migrations, not modifications to existing ones. A stacked
+                      # PR that merged a newer master than its base branch also carries master's migrations.
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null || git cat-file -e "origin/master:$file" 2>/dev/null; then
+                        echo "Skipping $file (already exists on the base branch or master)"
                         continue
                       fi
 
@@ -2220,25 +2221,30 @@ jobs:
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
 
-            - name: Check CH migrations
+            - name: List this PR's ClickHouse migrations
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  # A stacked PR's base branch already carries the lower layers' migrations, so diff against it.
                   DIFF_BASE=origin/master
                   if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
                       if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
                           DIFF_BASE="origin/$BASE_REF"
                       else
-                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                          echo "::warning::Could not fetch base ref $BASE_REF; listing CH migrations against master instead"
                       fi
                   fi
-                  added_ch_migrations() {
-                      git diff --name-only --diff-filter=A "$1"..HEAD -- posthog/clickhouse/migrations/ | grep -v README | sort
+                  ch_migrations() {
+                      git diff --name-only --diff-filter="$1" "$2"..HEAD -- posthog/clickhouse/migrations/ | grep -v -e README -e __pycache__ | sort
                   }
-                  # A stacked PR that merged a newer master than its base branch also adds master's
-                  # migrations against that base, so a migration that master already has does not count.
-                  comm -12 <(added_ch_migrations "$DIFF_BASE") <(added_ch_migrations origin/master) | python manage.py test_ch_migrations_are_safe
+                  # A stacked PR that merged a newer master than its base branch also carries master's
+                  # migrations, so only a file that differs from master and from the base is this PR's.
+                  comm -12 <(ch_migrations A "$DIFF_BASE") <(ch_migrations A origin/master) > "$RUNNER_TEMP/ch-migrations-added.txt"
+                  comm -12 <(ch_migrations AM "$DIFF_BASE") <(ch_migrations AM origin/master) > "$RUNNER_TEMP/ch-migrations-changed.txt"
+                  cat "$RUNNER_TEMP/ch-migrations-changed.txt"
+
+            - name: Check CH migrations
+              run: python manage.py test_ch_migrations_are_safe < "$RUNNER_TEMP/ch-migrations-added.txt"
 
             - name: Render CH migration SQL per cloud environment
               # CH migrations can build different `operations` lists at import time depending on
@@ -2251,7 +2257,7 @@ jobs:
               id: render_ch_sql
               if: github.event_name == 'pull_request'
               run: |
-                  CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  CHANGED=$(grep '^posthog/clickhouse/migrations/[0-9]' "$RUNNER_TEMP/ch-migrations-changed.txt" || true)
                   if [ -z "$CHANGED" ]; then
                       echo "No ClickHouse migrations changed."
                       echo "has_changes=false" >> "$GITHUB_OUTPUT"
