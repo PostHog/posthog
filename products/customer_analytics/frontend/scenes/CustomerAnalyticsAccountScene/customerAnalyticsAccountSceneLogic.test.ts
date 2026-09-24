@@ -606,7 +606,9 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
             logic.actions.setActiveTab('notes')
 
-            expect(router.values.location.pathname).toBe(urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID)))
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, 'notes'))
+            )
             expect(router.values.currentLocation.searchParams).toEqual(searchParams)
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
         })

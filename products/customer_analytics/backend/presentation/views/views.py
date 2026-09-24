@@ -59,6 +59,7 @@ from posthog.rate_limit import RunSavedQueryRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
@@ -80,6 +81,10 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountTrackRuleRunRequestSerializer,
     AccountTrackRuleRunSerializer,
     AccountTrackRulesConfigSerializer,
+    AccountViewCreateSerializer,
+    AccountViewDeleteQuerySerializer,
+    AccountViewSerializer,
+    AccountViewUpdateSerializer,
     CalendarSyncBackfillSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
@@ -864,6 +869,130 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
+class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    serializer_class = AccountViewSerializer
+    lookup_value_regex = r"[0-9a-f-]{36}"
+    queryset = None
+    pagination_class = None
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
+
+    def _is_project_admin(self) -> bool:
+        if self.user_access_control.is_organization_admin:
+            return True
+        return bool(self.user_access_control.check_access_level_for_object(self.team, "admin", explicit=True))
+
+    def _can_edit_team_views(self) -> bool:
+        return self.user_access_control.check_access_level_for_resource("account", "editor")
+
+    @extend_schema(responses={200: AccountViewSerializer(many=True)}, summary="List account views")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        views = api.list_account_views(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+            can_edit_team_views=self._can_edit_team_views(),
+            is_project_admin=self._is_project_admin(),
+        )
+        return Response(AccountViewSerializer(instance=views, many=True).data)
+
+    @extend_schema(responses={200: AccountViewSerializer}, summary="Get an account view")
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        view = api.get_account_view(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+            view_id=UUID(self.kwargs["pk"]),
+            can_edit_team_views=self._can_edit_team_views(),
+            is_project_admin=self._is_project_admin(),
+        )
+        if view is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountViewSerializer(instance=view).data)
+
+    @validated_request(
+        request_serializer=AccountViewCreateSerializer,
+        responses={201: AccountViewSerializer, 400: OpenApiResponse(description="The content is invalid.")},
+        summary="Create a personal account view",
+    )
+    def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        try:
+            view = api.create_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                name=request.validated_data["name"],
+                content=request.validated_data["content"],
+                is_project_admin=self._is_project_admin(),
+            )
+        except api.InvalidAccountViewContent as error:
+            raise ValidationError({"content": error.errors})
+        return Response(AccountViewSerializer(instance=view).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=AccountViewUpdateSerializer,
+        responses={
+            200: AccountViewSerializer,
+            400: OpenApiResponse(description="The content is invalid."),
+            403: OpenApiResponse(description="The view cannot be changed by this user."),
+            404: OpenApiResponse(description="The view was not found."),
+            409: OpenApiResponse(description="The view changed since the supplied version."),
+        },
+        summary="Update an account view",
+    )
+    def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        try:
+            view = api.update_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                view_id=UUID(self.kwargs["pk"]),
+                expected_version=request.validated_data["version"],
+                is_project_admin=self._is_project_admin(),
+                name=request.validated_data.get("name"),
+                content=request.validated_data.get("content"),
+                visibility=request.validated_data.get("visibility"),
+            )
+        except api.InvalidAccountViewContent as error:
+            raise ValidationError({"content": error.errors})
+        except api.AccountViewVersionConflict as error:
+            raise Conflict(str(error))
+        except api.AccountViewPermissionDenied as error:
+            raise PermissionDenied(str(error))
+        if view is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountViewSerializer(instance=view).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="version",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Version returned by the last read.",
+            )
+        ],
+        responses={204: None, 403: OpenApiResponse(), 404: OpenApiResponse(), 409: OpenApiResponse()},
+        summary="Delete an account view",
+    )
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = AccountViewDeleteQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            deleted = api.delete_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                view_id=UUID(self.kwargs["pk"]),
+                expected_version=query.validated_data["version"],
+                is_project_admin=self._is_project_admin(),
+            )
+        except api.AccountViewVersionConflict as error:
+            raise Conflict(str(error))
+        except api.AccountViewPermissionDenied as error:
+            raise PermissionDenied(str(error))
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class UserConfigCanonicalTeamAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
@@ -972,6 +1101,19 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
                 send_time=task_digest.get("send_time"),
                 cadence=task_digest.get("cadence"),
             )
+
+        if "account_detail_tabs" in request.validated_data:
+            account_detail_tabs = request.validated_data["account_detail_tabs"]
+            try:
+                config = api.update_user_account_detail_tabs(
+                    team_id=self.team_id,
+                    user_id=user_id,
+                    ordered_tab_ids=account_detail_tabs["ordered_tab_ids"],
+                    hidden_tab_ids=account_detail_tabs["hidden_tab_ids"],
+                    default_tab_id=account_detail_tabs["default_tab_id"],
+                )
+            except ValueError as error:
+                raise ValidationError({"account_detail_tabs": str(error)})
 
         if config is None:
             return self.retrieve(request, *args, **kwargs)

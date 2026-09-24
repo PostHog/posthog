@@ -100,11 +100,13 @@ from products.customer_analytics.backend.facade.email_matching import schedule_e
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
+    AccountViewVisibility,
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
+    account_views as _account_views_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
@@ -147,6 +149,7 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
+    AccountView as AccountViewModel,
     Announcement,
     CustomerJourney,
     CustomerProfileConfig,
@@ -1203,6 +1206,136 @@ def delete_customer_profile_config(
     return True
 
 
+# --- AccountView ---
+
+
+InvalidAccountViewContent = _account_views_logic.InvalidAccountViewContent
+AccountViewVersionConflict = _account_views_logic.AccountViewVersionConflict
+AccountViewPermissionDenied = _account_views_logic.AccountViewPermissionDenied
+
+
+def _to_account_view(
+    view: AccountViewModel,
+    *,
+    actor_user_id: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+) -> contracts.AccountView:
+    is_creator = view.created_by_id == actor_user_id
+    return contracts.AccountView(
+        id=view.id,
+        name=view.name,
+        visibility=view.visibility,
+        content=view.content,
+        text_content=view.text_content,
+        version=view.version,
+        created_by=view.created_by_id,
+        last_modified_by=view.last_modified_by_id,
+        created_at=view.created_at,
+        updated_at=view.updated_at,
+        can_edit=is_creator or (view.visibility == AccountViewVisibility.TEAM and can_edit_team_views),
+        can_delete=is_creator or is_project_admin,
+        can_change_visibility=is_creator or is_project_admin,
+    )
+
+
+def list_account_views(
+    *,
+    team_id: int,
+    user_id: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+) -> list[contracts.AccountView]:
+    return [
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        for view in _account_views_logic.list_account_views(team_id=team_id, user_id=user_id)
+    ]
+
+
+def get_account_view(
+    *,
+    team_id: int,
+    user_id: int,
+    view_id: UUID,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+) -> contracts.AccountView | None:
+    view = _account_views_logic.get_account_view(team_id=team_id, user_id=user_id, view_id=view_id)
+    return (
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        if view is not None
+        else None
+    )
+
+
+def create_account_view(
+    *, team_id: int, user_id: int, name: str, content: dict[str, Any], is_project_admin: bool
+) -> contracts.AccountView:
+    view = _account_views_logic.create_account_view(team_id=team_id, user_id=user_id, name=name, content=content)
+    return _to_account_view(
+        view,
+        actor_user_id=user_id,
+        can_edit_team_views=True,
+        is_project_admin=is_project_admin,
+    )
+
+
+def update_account_view(
+    *,
+    team_id: int,
+    user_id: int,
+    view_id: UUID,
+    expected_version: int,
+    is_project_admin: bool,
+    name: str | None = None,
+    content: dict[str, Any] | None = None,
+    visibility: str | None = None,
+) -> contracts.AccountView | None:
+    view = _account_views_logic.update_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+        can_edit_team_views=True,
+        is_project_admin=is_project_admin,
+        name=name,
+        content=content,
+        visibility=visibility,
+    )
+    return (
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=True,
+            is_project_admin=is_project_admin,
+        )
+        if view is not None
+        else None
+    )
+
+
+def delete_account_view(
+    *, team_id: int, user_id: int, view_id: UUID, expected_version: int, is_project_admin: bool
+) -> bool:
+    return _account_views_logic.delete_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+        is_project_admin=is_project_admin,
+    )
+
+
 # --- UserCustomerAnalyticsConfig ---
 
 
@@ -1219,6 +1352,7 @@ def _to_user_customer_analytics_config(
             for reference in raw_references
         ],
         task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
+        account_detail_tabs=_user_customer_analytics_config_logic.read_account_detail_tabs(config),
     )
 
 
@@ -1234,6 +1368,24 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_account_detail_tabs(
+    *,
+    team_id: int,
+    user_id: int,
+    ordered_tab_ids: list[str],
+    hidden_tab_ids: list[str],
+    default_tab_id: str | None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_account_detail_tabs(
+        team_id=team_id,
+        user_id=user_id,
+        ordered_tab_ids=ordered_tab_ids,
+        hidden_tab_ids=hidden_tab_ids,
+        default_tab_id=default_tab_id,
     )
     return _to_user_customer_analytics_config(config)
 
@@ -2898,8 +3050,8 @@ def _account_view_notebooks(account: Account) -> list[str]:
     return [link.notebook.short_id for link in account.notebooks.all()]
 
 
-def _to_account_view(account: Account) -> contracts.AccountView:
-    return contracts.AccountView(
+def _to_account_details(account: Account) -> contracts.AccountDetails:
+    return contracts.AccountDetails(
         id=account.id,
         name=account.name,
         external_id=account.external_id,
@@ -3414,7 +3566,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
-) -> tuple[list[contracts.AccountView], int]:
+) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
@@ -3448,25 +3600,25 @@ def list_accounts_for_view(
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
-    return [_to_account_view(a) for a in page], total_count
+    return [_to_account_details(a) for a in page], total_count
 
 
 def get_account_for_view(
     *, team_id: int, account_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     """Fetch one team-scoped account with tags + notebooks, enforcing object-level access.
     Raises ``Account.DoesNotExist`` (→ 404) / ``ResourceForbiddenError`` (→ 403)."""
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 def get_account_for_view_by_external_id(
     *, team_id: int, external_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = _account_detail_queryset(team_id).get(external_id=external_id)
     _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 class _Unset(Enum):
@@ -3595,7 +3747,7 @@ def create_account_for_view(
     input: contracts.CreateAccountInput,
     user: "User",
     was_impersonated: bool,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = create_account(
         team=team,
         created_by=user,
@@ -3607,7 +3759,7 @@ def create_account_for_view(
         churned_at=input.churned_at,
         was_impersonated=was_impersonated,
     )
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 def update_account_for_view(
@@ -3621,7 +3773,7 @@ def update_account_for_view(
     user: "User",
     was_impersonated: bool,
     allow_matching_updates: bool = False,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     previous = Account.objects.unscoped().get(pk=account.pk)
@@ -3667,7 +3819,7 @@ def update_account_for_view(
     # and one backfill per switch is LLM spend nobody asked for.
     if not previous.slack_summary_cadence and account.slack_summary_cadence:
         _dispatch_initial_channel_summary(account)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 # Roughly 70 accounts opting into a daily cadence in one day, far above real use.
