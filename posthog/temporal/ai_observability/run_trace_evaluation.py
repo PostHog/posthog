@@ -88,6 +88,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -576,8 +577,10 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
 
 
 def _has_state_content(state: object) -> bool:
-    """The formatter writes a state header for any truthy state, so whitespace renders as a heading
-    above nothing. Strings carry content only once stripped."""
+    # Message headers and whitespace can render without any content for the judge to grade.
+    if isinstance(state, list) and state and isinstance(state[0], dict):
+        if "role" in state[0] or "content" in state[0]:
+            return has_message_content(state)
     return bool(state.strip()) if isinstance(state, str) else bool(state)
 
 

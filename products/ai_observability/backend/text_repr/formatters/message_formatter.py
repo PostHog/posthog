@@ -661,6 +661,27 @@ def _flatten_parts_messages(messages: list[Any]) -> Iterable[Any]:
             yield msg
 
 
+def _safe_format_message_body(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    try:
+        return _format_message_body(msg, options)
+    except RenderBudgetExceeded:
+        raise
+    except Exception:
+        # Customer payloads can break any shape assumption in the body formatters, so one
+        # malformed message degrades to its own repr and the rest of the trace still renders.
+        body_lines, _ = truncate_content(safe_extract_text(msg), options)
+        return body_lines
+
+
+def has_message_content(messages: list[Any]) -> bool:
+    return any(
+        line.strip()
+        for msg in _flatten_parts_messages(messages)
+        if isinstance(msg, dict)
+        for line in _safe_format_message_body(msg, {"truncated": False, "include_markers": False})
+    )
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -694,15 +715,7 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        try:
-            body_lines = _format_message_body(msg, options)
-        except RenderBudgetExceeded:
-            raise
-        except Exception:
-            # Customer payloads can break any shape assumption in the body formatters, so one
-            # malformed message degrades to its own repr and the rest of the trace still renders.
-            body_lines, _ = truncate_content(safe_extract_text(msg), options)
-        lines.extend(body_lines)
+        lines.extend(_safe_format_message_body(msg, options))
 
     return lines
 

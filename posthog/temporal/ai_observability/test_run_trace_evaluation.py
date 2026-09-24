@@ -604,14 +604,41 @@ class TestRunHogEvalOverRecentTraces:
 
 class TestExecuteTraceLLMJudgeActivity:
     @pytest.mark.django_db(transaction=True)
-    def test_judges_full_trace_transcript(self, setup_data, active_key_config):
-        trace = create_trace(
-            [
-                create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),
-                create_trace_event("$ai_generation", **{"$ai_input": "And times 3?", "$ai_output": "12"}),
-            ]
-        )
-
+    @pytest.mark.parametrize(
+        "trace,expected_fragments",
+        [
+            (
+                create_trace(
+                    [
+                        create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),
+                        create_trace_event("$ai_generation", **{"$ai_input": "And times 3?", "$ai_output": "12"}),
+                    ]
+                ),
+                ["TRACE HIERARCHY", "What is 2+2?", "And times 3?"],
+            ),
+            (
+                create_trace([], inputState=[{"role": "user", "content": ""}, {"role": "user", "content": "2+2?"}]),
+                ["2+2?"],
+            ),
+            (
+                create_trace(
+                    [],
+                    outputState=[
+                        {"role": "assistant", "parts": [{"type": "tool_call", "name": "get_weather", "arguments": {}}]}
+                    ],
+                ),
+                ["get_weather()"],
+            ),
+            (create_trace([], outputState={"score": 0}), ['"score": 0']),
+        ],
+    )
+    def test_judges_full_trace_transcript(
+        self,
+        setup_data: dict[str, Any],
+        active_key_config: None,
+        trace: LLMTrace,
+        expected_fragments: list[str],
+    ) -> None:
         with patch(
             "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
             return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=2),
@@ -636,18 +663,30 @@ class TestExecuteTraceLLMJudgeActivity:
                 request = mock_client.complete.call_args[0][0]
                 content = request.messages[0]["content"]
                 assert "AI trace" in request.system
-                assert "TRACE HIERARCHY" in content
-                assert content.count("[GEN]") == 2
-                assert "What is 2+2?" in content
-                assert "And times 3?" in content
+                assert content.count("[GEN]") == len(trace.events)
+                for fragment in expected_fragments:
+                    assert fragment in content
 
         assert result["verdict"] is True
         assert result["reasoning"] == "Resolved both questions"
 
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("trace_state", [{}, {"inputState": ""}, {"inputState": "   ", "outputState": "\n"}])
+    @pytest.mark.parametrize(
+        "trace_state",
+        [
+            {},
+            {"inputState": ""},
+            {"inputState": "   ", "outputState": "\n"},
+            {"inputState": [{"role": "user", "content": ""}]},
+            {"outputState": [{"role": "assistant", "content": " \n "}]},
+            {"inputState": [{"role": "user", "content": []}]},
+            {"inputState": [{"role": "user", "parts": []}]},
+            {"outputState": [{"role": "assistant", "parts": [{"type": "text", "content": " \n "}]}]},
+        ],
+    )
     @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
-    def test_skips_without_llm_call_when_the_trace_has_no_transcript(self, setup_data, trace_state, output_type):
+    def test_skips_without_llm_call_when_the_trace_has_no_transcript(
+        self, trace_state: dict[str, Any], output_type: str
+    ) -> None:
         # With no events and no trace-level state the formatter emits the trace name alone, and the
         # judge would confidently report that there is nothing to grade. Whitespace state renders as
         # a heading above nothing, which reads the same way.
@@ -660,8 +699,14 @@ class TestExecuteTraceLLMJudgeActivity:
             with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
                 result = execute_trace_llm_judge_activity(
                     ExecuteTraceEvaluationInputs(
-                        evaluation=evaluation_dict(setup_data, output_type=output_type),
-                        team_id=setup_data["team"].id,
+                        evaluation={
+                            "evaluation_type": "llm_judge",
+                            "evaluation_config": {"prompt": "Is the response correct?"},
+                            "output_type": output_type,
+                            "output_config": {},
+                            "team_id": 1,
+                        },
+                        team_id=1,
                         trace_id="trace-123",
                         window_start=FROZEN_NOW.isoformat(),
                     )

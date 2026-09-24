@@ -16,6 +16,7 @@ from ..message_formatter import (
     format_output_messages,
     format_single_tool_call,
     format_tool_calls,
+    has_message_content,
     safe_extract_text,
     sanitize_surrogates,
     truncate_content,
@@ -758,6 +759,28 @@ class TestResponsesApiItems:
         result = "\n".join(format_input_messages(messages))
         assert "Run the scout" in result
         assert "[INPUT_TEXT]" not in result
+
+
+class TestMessageContent:
+    @pytest.mark.parametrize(
+        "messages,expected",
+        [
+            ([{"role": "user", "content": " " * 2000}], False),
+            ([{"role": "user", "content": [{"type": "text", "text": "\n"}]}], False),
+            ([{"role": "user", "parts": []}], False),
+            ([{"role": "assistant", "parts": [{"type": "text", "content": " "}]}], False),
+            ([{"role": "user", "content": ""}, {"role": "assistant", "content": "4"}], True),
+            ([{"role": "assistant", "tool_calls": [{"function": {"name": "get_weather", "arguments": {}}}]}], True),
+            ([{"role": "assistant", "parts": [{"type": "text", "content": "4"}]}], True),
+            ([{"role": "assistant", "parts": [{"type": "tool_call", "name": "get_weather", "arguments": {}}]}], True),
+            ([{"role": "tool", "parts": [{"type": "tool_call_response", "response": {"temp_c": 0}}]}], True),
+            ([{"role": "user", "parts": [{"type": "blob", "modality": "image"}]}], True),
+        ],
+    )
+    def test_ignores_empty_bodies_but_keeps_renderable_content(
+        self, messages: list[dict[str, object]], expected: bool
+    ) -> None:
+        assert has_message_content(messages) is expected
 
 
 class TestOtelPartsMessages:
