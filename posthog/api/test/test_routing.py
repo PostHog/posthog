@@ -3,7 +3,6 @@ import pathlib
 import importlib
 import importlib.util
 from datetime import timedelta
-from typing import Any, cast
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -101,8 +100,7 @@ def test_stable_cursor_pagination_adds_a_direction_consistent_primary_key_tiebre
 
 
 def test_stable_pagination_leaves_non_queryset_results_unchanged() -> None:
-    viewset = OrderedFooViewSet()
-    viewset.request = cast(Any, Request(APIRequestFactory().get("/", {"limit": 2, "offset": 1})))
+    viewset = OrderedFooViewSet(request=Request(APIRequestFactory().get("/", {"limit": 2, "offset": 1})))
 
     assert viewset.paginate_queryset(["a", "b", "c"]) == ["b", "c"]
 
