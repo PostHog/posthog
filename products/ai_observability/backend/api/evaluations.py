@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -17,7 +17,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
@@ -41,6 +40,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 
+from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
@@ -74,6 +74,9 @@ from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -870,6 +873,7 @@ def _test_hog_over_sessions(
     try:
         session_results = run_hog_eval_over_recent_sessions(
             team=team,
+            user=cast("User", request.user),
             bytecode=bytecode,
             condition_filter=condition_filter,
             sample_count=sample_count,
@@ -940,6 +944,7 @@ def _test_hog_over_traces(
     try:
         trace_results = run_hog_eval_over_recent_traces(
             team=team,
+            user=cast("User", request.user),
             bytecode=bytecode,
             condition_filter=condition_filter,
             sample_count=sample_count,
@@ -1014,7 +1019,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[Evaluation]) -> QuerySet[Evaluation]:
-        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at", "id")
         if not self._wants_slim_list():
             queryset = queryset.select_related("created_by", "model_configuration", "model_configuration__provider_key")
         if not self.action.endswith("update"):
@@ -1224,18 +1229,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         team = Team.objects.get(id=self.team_id)
 
-        # Build the trigger-condition filter once (OR between condition sets, AND within each).
-        # Both targets reuse it — for traces it filters which triggering generation qualifies.
-        condition_exprs: list[ast.Expr] = []
-        for condition in conditions:
-            props = condition.get("properties", [])
-            if props:
-                condition_exprs.append(property_to_expr(props, team))
-        condition_filter: ast.Expr | None = None
-        if len(condition_exprs) == 1:
-            condition_filter = condition_exprs[0]
-        elif condition_exprs:
-            condition_filter = ast.Or(exprs=condition_exprs)
+        # Both targets reuse it; for traces it filters which triggering generation qualifies.
+        condition_filter = build_condition_filter(conditions, team)
 
         if target == EvaluationTarget.SESSION.value:
             return _test_hog_over_sessions(
@@ -1306,6 +1301,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 query=query,
                 placeholders={"where_clause": ast.And(exprs=where_exprs)},
                 team=team,
+                user=cast("User", request.user),
                 query_type="EvaluationTestHog",
                 fall_back_to_events=False,
                 limit_context=None,

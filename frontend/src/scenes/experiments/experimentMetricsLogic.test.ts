@@ -115,6 +115,17 @@ const timeseriesFallbackRecalculation = {
     results: [{ metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null }],
 }
 
+// Timeseries placeholder that covers every current metric: the backend returns this when the daily timeseries
+// data is newer than the latest run, so nothing is missing and no run should start.
+const completeTimeseriesFallbackRecalculation = {
+    ...timeseriesFallbackRecalculation,
+    completed_metrics: 2,
+    results: [
+        { metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null },
+        { metric_uuid: SECONDARY_METRIC_UUID, status: 'completed', result: secondaryResult, error_message: null },
+    ],
+}
+
 describe('experimentMetricsLogic', () => {
     let logic: ReturnType<typeof experimentMetricsLogic.build>
 
@@ -498,7 +509,25 @@ describe('experimentMetricsLogic', () => {
                 .toNotHaveDispatchedActions(['triggerRecalculation'])
         })
 
-        it('renders the timeseries fallback and triggers a cold_run to fill gaps and refresh', async () => {
+        it('accepts a timeseries fallback that covers every metric without triggering a run', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completeTimeseriesFallbackRecalculation,
+                    ],
+                },
+            })
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['setCurrentRecalculation'])
+                .toNotHaveDispatchedActions(['triggerRecalculation'])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
+        })
+
+        it('renders the timeseries fallback and triggers a cold_run to fill gaps', async () => {
             let capturedBody: any
             useMocks({
                 get: {
@@ -522,7 +551,7 @@ describe('experimentMetricsLogic', () => {
                 .toFinishAllListeners()
             // The placeholder timeseries result is shown immediately for the metric it covered.
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
-            // A real cold_run is fired to fill the gap (secondary) and refresh.
+            // A real cold_run is fired to fill the gap (secondary).
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
@@ -1233,7 +1262,7 @@ describe('experimentMetricsLogic', () => {
         })
     })
 
-    describe('feature flags unresolved on mount', () => {
+    describe('feature flag races on mount', () => {
         it('defers the latest fetch until flags arrive, then replays it', async () => {
             // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). Reading the flag as
             // off here would clear loading and skip the fetch, hiding the recalculation results.
@@ -1263,6 +1292,39 @@ describe('experimentMetricsLogic', () => {
                     [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
                 })
             }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+            expect(latestMock).toHaveBeenCalledTimes(1)
+        })
+
+        it('re-runs the load when a later flag update contradicts the value the mount decision used', async () => {
+            // The first flag set of a page load can come from the server bootstrap, which omits
+            // org-targeted flags: flags count as received, but this flag reads off, so the mount load bails.
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            const latestMock = jest.fn(() => [200, completedRecalculation])
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
+            })
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadLatestRecalculation'])
+                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
+            expect(latestMock).not.toHaveBeenCalled()
+
+            // The real flag response lands with the flag on. The load must re-run, or the recalculation
+            // UI waits forever for results that nothing fetches.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+            expect(latestMock).toHaveBeenCalledTimes(1)
+
+            // A repeated update with the same value must not re-run the load.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toNotHaveDispatchedActions(['loadLatestRecalculation'])
             expect(latestMock).toHaveBeenCalledTimes(1)
         })
     })

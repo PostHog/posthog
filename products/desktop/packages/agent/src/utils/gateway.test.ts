@@ -74,6 +74,11 @@ describe("resolveGatewayProduct", () => {
       expected: "conversations",
     },
     {
+      isInternal: false,
+      originProduct: "workflow",
+      expected: "workflows",
+    },
+    {
       isInternal: true,
       originProduct: "support_reply",
       expected: "conversations",

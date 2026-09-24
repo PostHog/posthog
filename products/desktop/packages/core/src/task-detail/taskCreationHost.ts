@@ -1,6 +1,11 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { CloudSkillBundleRef } from "@posthog/core/sessions/cloudArtifactIdentifiers";
-import type { Workspace, WorkspaceInfo, WorkspaceMode } from "@posthog/shared";
+import type {
+  ExecutionMode,
+  Workspace,
+  WorkspaceInfo,
+  WorkspaceMode,
+} from "@posthog/shared";
 import type { TaskCreationApiClient } from "./taskCreationApiClient";
 
 export interface CloudPromptTransport {
@@ -117,6 +122,7 @@ export interface ITaskCreationHost {
     runtimeAdapter?: string | null;
     model?: string | null;
     reasoningEffort?: string | null;
+    permissionMode?: ExecutionMode | null;
     sandboxEnvironmentId?: string | null;
     customImageId?: string | null;
   }): { taskId: string; runId: string } | null;

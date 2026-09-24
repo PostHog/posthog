@@ -2,7 +2,7 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 4
+export const PATTERN_VERSION = 5
 
 /**
  * Everything here shapes the emitted pattern, so it sits inside `PATTERN_VERSION`: two records may
@@ -35,8 +35,9 @@ export type MaskRuleName =
     | 'ctime'
     | 'httpdate'
     | 'syslogtime'
-    | 'uuid'
     | 'email'
+    | 'id'
+    | 'uuid'
     | 'host'
     | 'hex0x'
     | 'hex'
@@ -130,12 +131,25 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: `\\b(?:${WEEKDAY} )?${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}`,
         replacement: '<TIMESTAMP>',
     },
+    // Listed ahead of `id`, which would otherwise take a local part shaped like `john_D2oe` and leave
+    // the domain to `host`.
+    { name: 'email', pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', replacement: '<EMAIL>' },
+    // Prefixed vendor ids (Stripe `cus_`/`sub_`, Clerk `user_`, ULID-shaped `org_`). The first segment
+    // needs an uppercase letter and a digit to stay off snake_case words; RE2 lacks lookahead, so both
+    // orders are spelled out. Hyphen-joined segments belong to the id, so a hyphenated token masks
+    // whole instead of leaving its tail behind as literals. Listed ahead of `uuid` so the sequential
+    // chain agrees with the single pass on a prefixed uppercase UUID.
+    {
+        name: 'id',
+        pattern:
+            '\\b[a-z]{2,10}_(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[0-9]|[A-Za-z0-9]*[0-9][A-Za-z0-9]*[A-Z])[A-Za-z0-9]*(?:-[A-Za-z0-9]+)*',
+        replacement: '<ID>',
+    },
     {
         name: 'uuid',
         pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '<UUID>',
     },
-    { name: 'email', pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', replacement: '<EMAIL>' },
     // The suffix list carries no `so` or `sh`. Both are real TLDs, but the rule cannot tell a host
     // from a filename, and shared object and shell script names reach it far more often than a
     // Somali or Saint Helenian domain does. With them in the list, `libssl.so` and `deploy.sh` both

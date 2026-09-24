@@ -37,7 +37,7 @@ interface FeedQuerySuggestionGroup {
 
 function keyIcon(icon: ReactNode): ReactNode {
   return (
-    <span className="flex size-4 items-center justify-center text-(--gray-9)">
+    <span className="flex size-4 items-center justify-center text-subtle-foreground">
       {icon}
     </span>
   );

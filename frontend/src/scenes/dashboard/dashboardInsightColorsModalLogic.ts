@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
-import { DashboardMode, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardTile } from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -26,7 +26,7 @@ export interface dashboardInsightColorsModalLogicValues {
     breakdownValues: BreakdownValueAndType[]
     colorStateAtOpen: ColorStateAtOpen | null
     dashboardId: number | null
-    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
+    insightTiles: DashboardTile[] | null
     insightTilesLoading: boolean | null
     isOpen: boolean
 }
@@ -51,17 +51,9 @@ export interface dashboardInsightColorsModalLogicActions {
 export interface dashboardInsightColorsModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isOpen: (dashboardId: number | null) => boolean
-        insightTiles: (
-            arg:
-                | DashboardTile<QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>>[]
-                | null
-        ) => DashboardTile<QueryBasedInsightModel>[] | null
+        insightTiles: (arg: DashboardTile[] | null) => DashboardTile[] | null
         insightTilesLoading: (arg: null | true) => boolean | null
-        breakdownValues: (
-            insightTiles:
-                | DashboardTile<QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>>[]
-                | null
-        ) => BreakdownValueAndType[]
+        breakdownValues: (insightTiles: DashboardTile[] | null) => BreakdownValueAndType[]
         breakdownValueGroups: (breakdownValues: BreakdownValueAndType[]) => BreakdownValueGroup[]
     }
 }
@@ -105,7 +97,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
                     ? {
                           colors: mountedDashboardLogic.values.temporaryBreakdownColors,
                           themeId: mountedDashboardLogic.values.temporaryDataColorThemeId,
-                          wasInEditMode: mountedDashboardLogic.values.dashboardMode === DashboardMode.Edit,
+                          wasInEditMode: mountedDashboardLogic.values.dashboardEditing !== null,
                       }
                     : null
             )
@@ -119,10 +111,10 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
                     // Edit mode predates the modal, so filter or layout edits may be pending.
                     // Revert only the color state and leave the rest of the edit session alone.
                     mountedDashboardLogic.actions.restoreTemporaryColorState(stateAtOpen.colors, stateAtOpen.themeId)
-                } else if (mountedDashboardLogic.values.dashboardMode === DashboardMode.Edit) {
+                } else if (mountedDashboardLogic.values.dashboardEditing !== null) {
                     // The modal entered edit mode itself, so the color edits are the only unsaved
                     // changes and a full discard both reverts them and exits edit mode.
-                    mountedDashboardLogic.actions.setDashboardMode(
+                    mountedDashboardLogic.actions.setDashboardEditing(
                         null,
                         DashboardEventSource.DashboardHeaderDiscardChanges
                     )
@@ -135,11 +127,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
         isOpen: [(s) => [s.dashboardId], (dashboardId: number | null) => dashboardId != null],
         insightTiles: [
             (s) => [(state) => dashboardLogic.findMounted({ id: s.dashboardId(state) })?.values.insightTiles || null],
-            (
-                insightTiles:
-                    | DashboardTile<QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>>[]
-                    | null
-            ): DashboardTile<QueryBasedInsightModel>[] | null => insightTiles,
+            (insightTiles: DashboardTile[] | null): DashboardTile[] | null => insightTiles,
         ],
         insightTilesLoading: [
             (s) => [(state) => dashboardLogic.findMounted({ id: s.dashboardId(state) })?.values.itemsLoading || null],
@@ -148,7 +136,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
         ],
         breakdownValues: [
             (s) => [s.insightTiles],
-            (insightTiles: DashboardTile<QueryBasedInsightModel>[] | null) => extractBreakdownValues(insightTiles),
+            (insightTiles: DashboardTile[] | null) => extractBreakdownValues(insightTiles),
         ],
         breakdownValueGroups: [
             (s) => [s.breakdownValues],

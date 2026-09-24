@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -23,7 +27,7 @@ describe('IntegrationChoice', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations': () => [200, { results: [GITHUB_INTEGRATION] }],
+                '/api/projects/:team_id/integrations': () => [200, { results: [GITHUB_INTEGRATION] }],
             },
             post: {
                 '/api/environments/:team_id/integrations': () => [
@@ -124,6 +128,26 @@ describe('IntegrationChoice', () => {
             expect(onChangeFirst).toHaveBeenCalledWith(42)
         })
         expect(onChangeSecond).not.toHaveBeenCalled()
+    })
+
+    it('disables connecting for a member who cannot create integrations', async () => {
+        // Creating an integration needs project admin, which is stricter than the access a product
+        // needs to reach this picker. Members used to be sent through the provider's whole OAuth
+        // flow only to have the callback fail to save the connection.
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+
+        render(
+            <Provider>
+                <IntegrationChoice integration="google-ads" onChange={jest.fn()} />
+            </Provider>
+        )
+
+        fireEvent.click(await screen.findByText('Choose Google Ads connection'))
+        const connect = await screen.findByText('Connect to Google Ads')
+        expect(connect.closest('[aria-disabled]')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('still warns when the stored id matches no integration', async () => {

@@ -24,13 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardBasicType,
-    DashboardMode,
-    DashboardType,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardBasicType, DashboardType } from '~/types'
 
 import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
@@ -119,7 +113,7 @@ export function DashboardsTable({
         {
             title: 'Name',
             dataIndex: 'name',
-            width: '40%',
+            width: 440,
             render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = accessLevelSatisfied(
@@ -176,12 +170,13 @@ export function DashboardsTable({
         {
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
+            width: 240,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? (
                     <ObjectTags
                         tags={[...tags].sort()}
                         staticOnly
-                        maxVisibleTags={5}
+                        wrap
                         data-attr="dashboard-tags"
                         onTagClick={(tag) => setFilters({ tags: [tag] })}
                     />
@@ -255,8 +250,8 @@ export function DashboardsTable({
                                               to={urls.dashboard(id)}
                                               onClick={() => {
                                                   dashboardLogic({ id }).mount()
-                                                  dashboardLogic({ id }).actions.setDashboardMode(
-                                                      DashboardMode.Edit,
+                                                  dashboardLogic({ id }).actions.setDashboardEditing(
+                                                      { filters: true, layout: true },
                                                       DashboardEventSource.DashboardsList
                                                   )
                                               }}
@@ -341,6 +336,7 @@ export function DashboardsTable({
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 tableLayout="fixed"
+                tableStyle={{ minWidth: '1400px' }}
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}

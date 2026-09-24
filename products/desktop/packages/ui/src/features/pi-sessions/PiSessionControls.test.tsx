@@ -1,5 +1,11 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import { configure, fireEvent, render, screen } from "@testing-library/react";
+import {
+  configure,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PiModelSelector } from "./PiSessionControls";
@@ -40,6 +46,14 @@ function groupedModelOption(): SessionConfigOption {
             name: "GPT-5.5",
             value: "gpt-5.5",
             _meta: { "posthog.code/modelHarness": "codex" },
+          },
+          {
+            name: "GPT-6 Astra",
+            value: "gpt-6-astra",
+            _meta: {
+              "posthog.code/modelHarness": "codex",
+              "posthog.code/restrictedModel": true,
+            },
           },
         ],
       },
@@ -85,5 +99,29 @@ describe("PiModelSelector", () => {
     expect(onGatewayModelSelect).toHaveBeenCalledWith("gpt-5.5");
     expect(onGatewayModelSelect).toHaveBeenCalledTimes(1);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("shows the cost multiplier beside a restricted model lock", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <PiModelSelector
+        models={piModels}
+        currentModel={piModels[0]}
+        onChange={vi.fn()}
+        modelOption={groupedModelOption()}
+        onGatewayModelSelect={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Model: Claude Opus 5" }),
+    );
+    await openSub(user, /^Model/);
+
+    const astra = await screen.findByRole("menuitemradio", {
+      name: "GPT-6 Astra",
+    });
+    expect(within(astra).getByText("5×")).toBeInTheDocument();
+    expect(astra.querySelector("svg")).toBeInTheDocument();
   });
 });

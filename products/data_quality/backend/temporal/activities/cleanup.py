@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -14,10 +14,12 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 
+from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ...facade.enums import SubjectType, SuiteRunStatus
+from ...logic import posthog_tables
 from ...models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import CleanupOutcome
 
@@ -32,6 +34,8 @@ RETENTION_DELETE_BATCH_SIZE = 1_000
 # A row created while the sweep is running postdates the snapshot of live subjects its team's pass
 # took, so it would read as pointing at a subject that does not exist. Spared this round instead.
 SUBJECT_GRACE_HOURS = 1
+# The one column that does not hold a subject id: a check names its PostHog table instead.
+_CHECK_POSTHOG_TABLE_FIELD = "posthog_table"
 
 _COUNTER_COLUMNS = {
     "passed": "checks_passed",
@@ -122,19 +126,44 @@ def _cleanup() -> CleanupOutcome:
     return outcome
 
 
+def _registered_posthog_tables(field: str) -> Collection[Any]:
+    """The registry values the column holds: a check binds by name, a run and a suite by id."""
+    return posthog_tables.names() if field == _CHECK_POSTHOG_TABLE_FIELD else posthog_tables.all_ids()
+
+
 @frozen
 class _LiveSubjects:
-    """The warehouse objects a team still has, by id."""
+    """The warehouse objects a team still has, by id.
+
+    PostHog tables are not held here: they come from a static registry rather than from the team,
+    so every row of that kind is alive as long as its name is still registered.
+    """
 
     table_ids: frozenset[UUID]
     view_ids: frozenset[UUID]
+    metric_ids: frozenset[UUID] = frozenset()
 
-    def alive_q(self, table_field: str = "subject_uuid", view_field: str = "subject_uuid") -> Q:
+    def alive_q(
+        self,
+        table_field: str = "subject_uuid",
+        view_field: str = "subject_uuid",
+        metric_field: str = "subject_uuid",
+        posthog_table_field: str = "subject_uuid",
+    ) -> Q:
         # An explicit predicate per known kind, so a row of a kind this sweep does not know reads as
         # dead rather than as alive by default. Runs and suites denormalize the subject into one
-        # column; a check carries it as whichever of its two foreign keys is set.
-        return Q(**{"subject_type": SubjectType.TABLE, f"{table_field}__in": self.table_ids}) | Q(
-            **{"subject_type": SubjectType.VIEW, f"{view_field}__in": self.view_ids}
+        # column; a check carries it as whichever of its subject foreign keys or its PostHog table
+        # name is set.
+        return (
+            Q(**{"subject_type": SubjectType.TABLE, f"{table_field}__in": self.table_ids})
+            | Q(**{"subject_type": SubjectType.VIEW, f"{view_field}__in": self.view_ids})
+            | Q(**{"subject_type": SubjectType.METRIC, f"{metric_field}__in": self.metric_ids})
+            | Q(
+                **{
+                    "subject_type": SubjectType.POSTHOG_TABLE,
+                    f"{posthog_table_field}__in": _registered_posthog_tables(posthog_table_field),
+                }
+            )
         )
 
 
@@ -171,11 +200,17 @@ def _live_subjects(team_id: int) -> _LiveSubjects:
     return _LiveSubjects(
         table_ids=frozenset(warehouse_facade.all_queryable_table_names(team_id)),
         view_ids=frozenset(UUID(view_id) for view_id in data_modeling_facade.all_saved_query_names(team_id)),
+        metric_ids=frozenset(data_catalog_facade.live_metric_ids(team_id)),
     )
 
 
 def _delete_dead_checks(team_id: int, live: _LiveSubjects, grace: datetime) -> int:
-    alive = live.alive_q(table_field="table_id", view_field="saved_query_id")
+    alive = live.alive_q(
+        table_field="table_id",
+        view_field="saved_query_id",
+        metric_field="metric_id",
+        posthog_table_field=_CHECK_POSTHOG_TABLE_FIELD,
+    )
     dead = DataQualityCheck.objects.for_team(team_id).filter(created_at__lt=grace).exclude(alive)
     return _delete_in_batches(dead).get(DataQualityCheck._meta.label, 0)
 

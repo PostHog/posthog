@@ -8,6 +8,7 @@ import {
   ItemSeparator,
   ItemTitle,
 } from "@posthog/quill";
+import { formatRelativeAge } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import {
   type ChannelActionItem,
@@ -36,6 +37,12 @@ const MAX_PEOPLE = 5;
 
 /** Repos past this are counted rather than named — the card has one line. */
 const MAX_REPOS = 3;
+
+const SPACE_KIND: Record<Channel["channelType"], string> = {
+  public: "Space",
+  private: "Private space",
+  personal: "Personal space",
+};
 
 /** A counted signal, drawn as the dot the row shows for it plus the words. */
 function CountSignal({
@@ -138,6 +145,7 @@ export function SpacePreviewContent({
   people,
   liveUuids,
   total,
+  lastActivityAt,
   onAction,
 }: {
   payload: SpacePreviewPayload;
@@ -146,6 +154,7 @@ export function SpacePreviewContent({
   liveUuids?: ReadonlySet<string>;
   /** Sessions in the space, or `null` while the page hasn't arrived. */
   total: number | null;
+  lastActivityAt: string | null;
   onAction: () => void;
 }) {
   const { channel, unreadSessions, blockedSessions, actions } = payload;
@@ -158,7 +167,9 @@ export function SpacePreviewContent({
           {/* The row's own mark rides with the name rather than in a gutter of
               its own: a quiet space has no mark, and a column that is empty on
               most cards is an indent nothing pays for. */}
-          <ItemTitle className="flex items-center gap-2 break-words">
+          {/* `wrap-anywhere` for the reason a session's card takes it, which
+              `ChannelItemPreview` spells out. */}
+          <ItemTitle className="wrap-anywhere flex items-center gap-2">
             {hasAttention && (
               <span
                 aria-hidden
@@ -169,15 +180,22 @@ export function SpacePreviewContent({
                 }}
               />
             )}
-            {channel.name}
+            <span className="min-w-0 font-bold">{channel.name}</span>
           </ItemTitle>
           <ItemDescription>
             {/* No count until the page lands: "0 sessions" on a space that has
                 them is a wrong answer, and the card is about to have a right
                 one. */}
-            {total == null
-              ? "Space"
-              : `Space \u00b7 ${total} ${total === 1 ? "session" : "sessions"}`}
+            <span className="block">
+              {SPACE_KIND[channel.channelType]}
+              {total != null &&
+                ` \u00b7 ${total} ${total === 1 ? "session" : "sessions"}`}
+            </span>
+            {lastActivityAt && (
+              <span className="block">
+                Active {formatRelativeAge(lastActivityAt)}
+              </span>
+            )}
           </ItemDescription>
         </ItemContent>
         {/* Top-aligned: the people belong to the space's name, not to the
@@ -229,6 +247,7 @@ export function SpacePreview({
       people={overview.people}
       liveUuids={overview.liveUuids}
       total={overview.total}
+      lastActivityAt={overview.lastActivityAt}
       onAction={onAction}
     />
   );

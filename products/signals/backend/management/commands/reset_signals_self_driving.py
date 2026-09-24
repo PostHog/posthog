@@ -264,14 +264,13 @@ class Command(BaseCommand):
             delete_discover_schemas_schedule,
             delete_external_data_schedule,
         )
-        from products.signals.backend.serializers import _DATA_IMPORT_SOURCE_MAP
+        from products.signals.backend.serializers import _DATA_IMPORT_EXTERNAL_SOURCE_TYPES
         from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
-        dwh_source_types = {ext_source_type for (ext_source_type, _schema_name) in _DATA_IMPORT_SOURCE_MAP.values()}
         sources = list(
             ExternalDataSource.objects.filter(
                 team=team,
-                source_type__in=dwh_source_types,
+                source_type__in=_DATA_IMPORT_EXTERNAL_SOURCE_TYPES,
                 created_via=ExternalDataSourceCreatedVia.MCP,
                 deleted=False,
             )

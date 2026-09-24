@@ -34,6 +34,9 @@ interface LemonInputPropsBase extends Pick<
     | 'pattern'
 > {
     inputRef?: React.Ref<HTMLInputElement>
+    inputComponent?: React.JSXElementConstructor<
+        React.InputHTMLAttributes<HTMLInputElement> & React.RefAttributes<HTMLInputElement>
+    >
     id?: string
     placeholder?: string
     /** Use the danger status for invalid input. */
@@ -44,6 +47,7 @@ interface LemonInputPropsBase extends Pick<
     prefix?: React.ReactElement | null
     /** Element to suffix input field */
     suffix?: React.ReactElement | null
+    suffixAfterClear?: boolean
     /** @deprecated Use `disabledReason` instead and provide a reason. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
@@ -105,12 +109,14 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         autoWidth,
         prefix,
         suffix,
+        suffixAfterClear = false,
         type,
         value,
         transparentBackground = false,
         size = 'medium',
         stopPropagation = false,
         inputRef,
+        inputComponent,
         disabled,
         disabledReason,
         disabledReasonInteractive,
@@ -196,15 +202,15 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         )
         suffix = suffix ? (
             <>
-                {suffix}
-                {clearButton}
+                {suffixAfterClear ? clearButton : suffix}
+                {suffixAfterClear ? suffix : clearButton}
             </>
         ) : (
             clearButton
         )
     }
 
-    const InputComponent = autoWidth ? RawInputAutosize : 'input'
+    const InputComponent = autoWidth ? RawInputAutosize : (inputComponent ?? 'input')
     // A cleared controlled number input holds NaN; show '' so it stays controlled instead of feeding
     // NaN to the DOM. While the field is focused and the user has emptied it, their empty text also
     // wins over the fallback a consumer echoes back. Both branches require a controlled input —

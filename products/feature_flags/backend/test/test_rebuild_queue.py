@@ -1,15 +1,22 @@
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
 
+from django.conf import settings
+from django.test import override_settings
+
 import fakeredis
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import REGISTRY
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+
 from products.feature_flags.backend import rebuild_queue
+from products.feature_flags.backend.local_evaluation import _build_flag_definitions_hypercache
 from products.feature_flags.backend.rebuild_queue import (
     CIRCUIT_OPEN_THRESHOLD,
     CIRCUIT_ZSET,
@@ -28,16 +35,17 @@ def fake_redis():
 
 
 @contextmanager
-def _rebuilds(error=None, skip_write=False, load_error=None):
+def _rebuilds(error=None, skip_write=False, load_error=None, omit=()):
     """Patch the batch DB-load + cache-write seam so rebuilds succeed (error=None) or
     fail with the given exception, without touching the DB or the real caches.
     `skip_write=True` makes the group-mapping-emptied guard veto every write.
-    `load_error` makes the batch DB load raise (simulating a DB/query failure)."""
+    `load_error` makes the batch DB load raise (simulating a DB/query failure).
+    `omit` leaves those team IDs out of the batch load, as a failed team build does."""
 
     def _load(teams):
         if load_error is not None:
             raise load_error
-        return {t.id: {} for t in teams}
+        return {t.id: {} for t in teams if t.id not in omit}
 
     with (
         patch.object(rebuild_queue, "Team") as team,
@@ -51,6 +59,26 @@ def _rebuilds(error=None, skip_write=False, load_error=None):
 
 def _enqueue(client, team_id, score=0):
     client.zadd(REBUILD_REQUESTS_ZSET, {str(team_id): score})
+
+
+DEDICATED_REDIS_URL = "redis://flags-dedicated:6379/"
+
+
+@contextmanager
+def _dedicated_cache(registered: bool) -> Iterator[None]:
+    """Force the dedicated flags cache alias on or off, then rebuild the hypercache so the
+    real cache_alias derivation runs rather than a patched URL. Both cases are pinned
+    because FLAGS_REDIS_URL decides this and a developer's environment may set it while CI
+    does not. Without the alias the hypercache URL collapses onto settings.REDIS_URL, which
+    makes a split between the producer's cluster and the consumer's unrepresentable."""
+    caches = {alias: cache for alias, cache in settings.CACHES.items() if alias != FLAGS_DEDICATED_CACHE_ALIAS}
+    if registered:
+        caches[FLAGS_DEDICATED_CACHE_ALIAS] = {**settings.CACHES["default"], "LOCATION": DEDICATED_REDIS_URL}
+    with (
+        override_settings(CACHES=caches),
+        patch.object(rebuild_queue, "flag_definitions_hypercache", _build_flag_definitions_hypercache()),
+    ):
+        yield
 
 
 def test_drain_rebuilds_queued_team_and_clears_it(fake_redis):
@@ -150,6 +178,17 @@ def test_batch_load_failure_counts_every_team_as_failure(fake_redis):
         assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=team_id)) == b"1"
 
 
+def test_team_missing_from_batch_load_fails_alone(fake_redis):
+    for team_id in (21, 22):
+        _enqueue(fake_redis, team_id)
+    with _rebuilds(omit={22}):
+        stats = drain_rebuild_requests()
+
+    assert stats["success"] == 1 and stats["failure"] == 1
+    assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=21)) is None
+    assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=22)) == b"1"
+
+
 def test_group_mapping_guard_skips_write_without_counting_failure(fake_redis):
     _enqueue(fake_redis, 8)
     with _rebuilds(skip_write=True) as set_cache:
@@ -196,3 +235,66 @@ def test_request_zset_key_matches_rust_contract():
     # Tripwire for the hand-synced cross-language key: a Python-side rename trips here
     # and prompts updating FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET in the Rust service.
     assert REBUILD_REQUESTS_ZSET == "flag_definitions:rebuild_requests"
+
+
+def test_drain_reads_the_dedicated_cluster_and_ignores_the_shared_one():
+    # Rust enqueues on the dedicated cluster whenever FLAGS_REDIS_URL is configured
+    # (State::flags_namespace_redis_client), so a drain that reads the shared one finds an
+    # empty set while misses pile up unseen.
+    dedicated, shared = fakeredis.FakeRedis(), fakeredis.FakeRedis()
+    clients = {DEDICATED_REDIS_URL: dedicated, settings.REDIS_URL: shared}
+
+    with _dedicated_cache(registered=True):
+        _enqueue(dedicated, 140414)
+        _enqueue(shared, 999999)
+        with (
+            patch.object(rebuild_queue, "get_client", side_effect=lambda url: clients[url]),
+            _rebuilds() as set_cache,
+        ):
+            stats = drain_rebuild_requests()
+
+    assert stats["success"] == 1
+    assert [call.args[0].id for call in set_cache.call_args_list] == [140414]
+    assert dedicated.zcard(REBUILD_REQUESTS_ZSET) == 0
+    assert shared.zrange(REBUILD_REQUESTS_ZSET, 0, -1) == [b"999999"]
+
+
+def test_unread_cluster_gauge_reports_the_other_cluster_depth():
+    # Every other gauge follows the cluster the drain resolved, so a producer and consumer
+    # split reads zero on all of them. This one is the signal that the split happened, and
+    # the one that shows the post-deploy cleanup worked.
+    dedicated, shared = fakeredis.FakeRedis(), fakeredis.FakeRedis()
+    clients = {DEDICATED_REDIS_URL: dedicated, settings.REDIS_URL: shared}
+
+    with _dedicated_cache(registered=True):
+        _enqueue(shared, 999999)
+        _enqueue(shared, 999998)
+        with (
+            patch.object(rebuild_queue, "get_client", side_effect=lambda url: clients[url]),
+            _rebuilds(),
+        ):
+            drain_rebuild_requests()
+
+    assert REGISTRY.get_sample_value("posthog_flag_definitions_rebuild_unread_cluster_depth") == 2.0
+
+
+def test_unread_cluster_gauge_is_zero_when_both_ends_agree():
+    # Self-hosted resolves both ends to one cluster, where "the other cluster" does not
+    # exist. The gauge must read 0 rather than repeat the live queue depth.
+    with _dedicated_cache(registered=False):
+        with patch.object(rebuild_queue, "get_client", return_value=fakeredis.FakeRedis()), _rebuilds():
+            drain_rebuild_requests()
+
+    assert REGISTRY.get_sample_value("posthog_flag_definitions_rebuild_unread_cluster_depth") == 0.0
+
+
+def test_drain_falls_back_to_the_shared_cluster_without_the_alias():
+    # Self-hosted installs leave FLAGS_REDIS_URL unset, so the alias never registers and
+    # both ends stay on the shared cluster. A derivation that hardcodes the dedicated URL
+    # points every self-hosted drain at a cluster that does not exist.
+    with (
+        _dedicated_cache(registered=False),
+        patch.object(rebuild_queue, "get_client") as get_client_mock,
+    ):
+        rebuild_queue._redis()
+    get_client_mock.assert_called_once_with(settings.REDIS_URL)

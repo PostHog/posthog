@@ -85,6 +85,7 @@ export const API_SCOPES: APIScope[] = [
         info: 'Grants the ability to promote catalog entries (approve a metric, certify a table, accept a relationship). This is the human-in-the-loop trust boundary: agents that can write to the catalog still cannot self-approve without this scope.',
         disabledActions: ['read'],
     },
+    { key: 'data_deletion', objectName: 'Data deletion', objectPlural: 'data deletion requests' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
@@ -264,6 +265,7 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
     // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
     clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
+    context_layer_internal: 'Internal: permits channel-bound Context Wiki writes from task runs.',
     internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
     mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
     signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
@@ -282,11 +284,14 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
+// Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
+// posthog/test/test_scopes.py compares the two lists.
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
     'feature_flag:read',
     'account:read',
     'loop:write',
+    'experiment:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]

@@ -4,10 +4,11 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Group, GroupTypeIndex } from '~/types'
+
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 export interface GroupKeySelectLogicProps {
     groupTypeIndex: GroupTypeIndex
@@ -29,7 +30,7 @@ export async function findGroups(
         groupKeys.map(async (groupKey) => {
             try {
                 const response: Group = await api.get(
-                    `api/environments/${teamId}/groups/find/?${new URLSearchParams({
+                    `api/projects/${teamId}/groups/find/?${new URLSearchParams({
                         group_type_index: String(groupTypeIndex),
                         group_key: groupKey,
                         // Resolving a display name is read-only; don't lazily
@@ -158,7 +159,7 @@ export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
                         params.search = search
                     }
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/groups/?${new URLSearchParams(
+                        `api/projects/${values.currentTeamId}/groups/?${new URLSearchParams(
                             Object.entries(params).map(([k, v]) => [k, String(v)])
                         ).toString()}`
                     )

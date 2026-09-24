@@ -14,9 +14,11 @@ Keep the body lean and push depth into references — every line of the body is 
 
 ## Naming
 
-The skill name **must** match `signals-scout-<scope>` — the harness discovers scouts by globbing `signals-scout-*`.
-`<scope>` is lowercase kebab-case naming the surface or question the scout watches: `signals-scout-error-tracking`, `signals-scout-checkout-funnel`, `signals-scout-mcp-feedback`.
-A skill named anything else is just a normal skill and never runs as a scout.
+Any valid skill name works: lowercase letters, numbers, and hyphens.
+The `SignalScoutConfig` row is what makes a skill a scout.
+Name it in lowercase kebab-case after the surface or question the scout watches: `error-tracking`, `checkout-funnel`, `mcp-feedback`.
+The canonical fleet keeps the `signals-scout-` prefix, and a per-team scout can use it too.
+The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a scout named anything else comes in through `scout-create`, which writes the skill and its config in one call.
 
 ## Frontmatter
 
@@ -36,8 +38,9 @@ compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_report:write for reports and
   signal_scout_internal:write for scratchpad).
-  Assumes the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report)
+  Assumes the signals-scout MCP family (scout-project-profile-get, scout-runs-list,
+  scout-runs-retrieve, scout-scratchpad-search, scout-scratchpad-remember,
+  scout-scratchpad-forget, scout-emit-report, scout-edit-report)
   plus whatever query tools the scope needs (e.g. execute-sql, read-data-schema,
   query-error-tracking-issues-list, inbox-reports-list).
 metadata:
@@ -207,8 +210,9 @@ One paragraph: looked at what, filed/edited what, remembered what, ruled out wha
 
 ## MCP tools
 
-Direct (read-only): <list>. Harness-level: project-profile-get, scratchpad-search,
-runs-list, runs-retrieve, emit-report, edit-report, scratchpad-remember.
+Direct (read-only): <list>. Harness-level: scout-project-profile-get, scout-scratchpad-search,
+scout-runs-list, scout-runs-retrieve, scout-emit-report, scout-edit-report,
+scout-scratchpad-remember.
 ```
 
 ## Skeleton — broad / cross-product scout

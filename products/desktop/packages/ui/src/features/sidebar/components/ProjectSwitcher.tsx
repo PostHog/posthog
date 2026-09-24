@@ -2,6 +2,7 @@ import {
   Archive,
   ArrowSquareOut,
   Buildings,
+  ChatCircleDots,
   DiscordLogo,
   FolderSimple,
   Gear,
@@ -31,6 +32,10 @@ import {
   ItemTitle,
 } from "@posthog/quill";
 import { EXTERNAL_LINKS } from "@posthog/shared";
+import {
+  ANALYTICS_EVENTS,
+  type ProjectMenuAction,
+} from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -41,6 +46,11 @@ import {
 } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
@@ -52,6 +62,7 @@ import {
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
+import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { isMac } from "@posthog/ui/utils/platform";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
@@ -68,17 +79,30 @@ interface ProjectSwitcherProps {
   onNavigateToSettings?: (category: SettingsCategory) => void;
 }
 
-/** The account / project / org menu. */
 export function ProjectSwitcher({
   appearance = "row",
   onNavigateToSettings,
 }: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const openFeedback = useFeedbackStore((state) => state.open);
+
+  const trackMenu = (
+    action: ProjectMenuAction,
+    properties?: { changed: boolean },
+  ): void => {
+    track(ANALYTICS_EVENTS.PROJECT_MENU_ACTION, {
+      action,
+      appearance,
+      ...properties,
+    });
+  };
 
   const holdPeek = useHoldSidebarPeek();
   const handleOpenChange = (next: boolean): void => {
     setPopoverOpen(next);
     holdPeek(next);
+    // Only the way in: a menu dismissed without a pick is not an action.
+    if (next) trackMenu("open");
   };
 
   const currentOrgId = useAuthStateValue((state) => state.currentOrgId);
@@ -151,6 +175,7 @@ export function ProjectSwitcher({
   );
 
   const handleProjectSelect = (projectId: number) => {
+    trackMenu("switch_project", { changed: projectId !== currentProjectId });
     if (projectId !== currentProjectId) {
       selectProjectMutation.mutate(projectId);
     }
@@ -158,6 +183,7 @@ export function ProjectSwitcher({
   };
 
   const handleOrgSelect = (orgId: string) => {
+    trackMenu("switch_organization", { changed: orgId !== currentOrgId });
     if (orgId !== currentOrgId) {
       switchOrgMutation.mutate(orgId);
     }
@@ -165,18 +191,21 @@ export function ProjectSwitcher({
   };
 
   const handleCreateProject = () => {
+    trackMenu("create_project");
     const url = getPostHogUrl("/organization/create-project");
     if (url) openExternalUrl(url);
     setPopoverOpen(false);
   };
 
   const handleCreateOrg = () => {
+    trackMenu("create_organization");
     const url = getPostHogUrl("/create-organization");
     if (url) openExternalUrl(url);
     setPopoverOpen(false);
   };
 
   const handleArchived = () => {
+    trackMenu("archived");
     setPopoverOpen(false);
     navigateToArchived();
   };
@@ -190,26 +219,41 @@ export function ProjectSwitcher({
     openSettings(category);
   };
 
-  const handleSettings = () => goToSettings("general");
+  const handleSettings = () => {
+    trackMenu("settings");
+    goToSettings("general");
+  };
 
-  const handleKeyboardShortcuts = () => goToSettings("shortcuts");
+  const handleKeyboardShortcuts = () => {
+    trackMenu("keyboard_shortcuts");
+    goToSettings("shortcuts");
+  };
 
-  const handleOpenExternal = (url: string) => {
+  const handleOpenExternal = (action: ProjectMenuAction, url: string) => {
+    trackMenu(action);
     openExternalUrl(url);
     setPopoverOpen(false);
   };
 
   const handleDiscord = () => {
+    trackMenu("discord");
     openExternalUrl(EXTERNAL_LINKS.discord);
     setPopoverOpen(false);
   };
 
   const handleViewChangelog = () => {
+    trackMenu("changelog");
     useWhatsNewStore.getState().open();
     setPopoverOpen(false);
   };
 
+  const handleFeedback = () => {
+    setPopoverOpen(false);
+    openFeedback();
+  };
+
   const handleLogout = () => {
+    trackMenu("log_out");
     setPopoverOpen(false);
     logoutMutation.mutate();
   };
@@ -351,6 +395,14 @@ export function ProjectSwitcher({
               View changelog
             </DropdownMenuItem>
 
+            <DropdownMenuItem onClick={handleFeedback}>
+              <ChatCircleDots size={14} className="text-gray-11" />
+              Send feedback…
+              <DropdownMenuShortcut>
+                {formatHotkey(SHORTCUTS.SEND_FEEDBACK)}
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Info size={14} className="text-gray-11" />
@@ -358,14 +410,18 @@ export function ProjectSwitcher({
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent side="right" sideOffset={4}>
                 <DropdownMenuItem
-                  onClick={() => handleOpenExternal(EXTERNAL_LINKS.website)}
+                  onClick={() =>
+                    handleOpenExternal("website", EXTERNAL_LINKS.website)
+                  }
                 >
                   <ArrowSquareOut size={14} className="text-gray-11" />
                   Website
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => handleOpenExternal(EXTERNAL_LINKS.privacy)}
+                  onClick={() =>
+                    handleOpenExternal("privacy_policy", EXTERNAL_LINKS.privacy)
+                  }
                 >
                   <ShieldCheck size={14} className="text-gray-11" />
                   Privacy Policy

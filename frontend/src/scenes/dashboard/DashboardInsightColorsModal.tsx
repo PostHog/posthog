@@ -20,7 +20,7 @@ import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorTheme
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
-import { DashboardMode, DataColorThemeModel } from '~/types'
+import { DataColorThemeModel } from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -76,12 +76,12 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const {
         effectiveBreakdownColors,
         dataColorThemeId,
-        dashboardMode,
+        dashboardEditing,
         dashboardLoading,
         canEditDashboard,
         hasUnsavedColorChanges,
     } = useValues(dashboardLogic)
-    const { setBreakdownColorConfig, setDataColorThemeId, setDashboardMode } = useActions(dashboardLogic)
+    const { setBreakdownColorConfig, setDataColorThemeId, setDashboardEditing } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { allCohorts } = useValues(cohortsModel)
@@ -89,8 +89,8 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const themes = _themes || []
 
     const ensureEditMode = (): void => {
-        if (dashboardMode !== DashboardMode.Edit) {
-            setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+        if (!dashboardEditing) {
+            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardInsightColorsModal)
         }
     }
 
@@ -198,7 +198,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                         data-attr="dashboard-colors-save"
                         onClick={() => {
                             hideInsightColorsModal()
-                            setDashboardMode(null, DashboardEventSource.DashboardInsightColorsModal)
+                            setDashboardEditing(null, DashboardEventSource.DashboardInsightColorsModal)
                         }}
                         disabledReason={
                             dashboardLoading

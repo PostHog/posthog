@@ -84,8 +84,16 @@ orchestrates these activities:
 2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a
    Docker sandbox (reusing a snapshot if one exists), clones the repository, and
    stores the sandbox URL in `TaskRun.state`
-3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls
-   `/health` until it responds
+3. **start_agent_server** — Prepares and starts the agent server inside the sandbox, then polls `/health` until it responds.
+   Modal uploads one preparation script to install the shell environment hook and GitHub CLI shim.
+   When network enforcement is enabled, that script also installs the agentsh configuration, policy, and environment wrapper, then starts the daemon and creates its session.
+   Files are staged with their required permissions before atomic replacement, and any preparation failure stops the launch.
+   Failed preparation terminates and reaps its agentsh daemon, and captured errors include a bounded daemon log tail when available.
+   The `Modal launch preparation finished` worker log records upload, installation, daemon/session, and total preparation times in milliseconds.
+   This preparation runs inside the `agent_server_invoke` latency metric; `agent_server_prepare` measures credentials and MCP configuration before the sandbox call.
+   The `tasks_modal_launch_preparation_latency` histogram measures the preparation upload and execution in milliseconds, excluding later launch work and failure diagnostics.
+   Labels identify runtime, boot path, origin product, snapshot use, and `COMPLETED` or `FAILED` status; healthy-server reuse emits no preparation sample.
+   Its `_count`, `_sum`, and `_bucket` series support attempt counts, mean duration, and percentiles, with finer buckets between 1 and 10 seconds.
 4. **wait_condition** — The workflow blocks with a 30-minute inactivity timeout,
    extended by `heartbeat` signals from the agent. Exits on a `complete_task`
    signal or when no heartbeat arrives within 30 minutes
@@ -187,6 +195,65 @@ what it derives itself. Both are reserved keys: a sandbox environment cannot set
 When a run lands on the Python gateway unexpectedly, check those two variables first.
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
+
+ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
+The **ReviewHog Flash - Experimental** subsection under **What gets reviewed** on the Code review page groups the automatic Flash review toggle and **Flash strength** setting.
+These settings apply only to Flash reviews.
+**Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
+Each turn saves the effort it starts with, so a settings change applies to later turns.
+The shared `FLASH_ARM` and `flash_arm_for_effort` in `products/review_hog/backend/reviewer/constants.py` pin the Codex runtime and `full-access` permission mode.
+Flash uses the existing `review_hog` model allowance.
+Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
+The agent can fetch referenced bundled files with `skill-file-get`.
+Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
+Flash requests preserve an existing report's review tier, including when they join a running review.
+Flash labels its GitHub messages with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` and never starts comment resolution.
+
+**Review all your PRs in Flash mode** is off by default.
+Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.
+The head branch must belong to `PostHog/posthog`; fork PRs are excluded.
+Enabling it does not review existing PRs immediately; an existing PR becomes eligible on its next push.
+Only one review runs per PR, and pushes during a review coalesce into a follow-up for the latest head.
+An explicit Full request also runs after an active Flash review when that head still needs a Full review.
+Turning the setting off stops future and pending automatic starts; a running review finishes.
+Automatic Flash uses your existing severity threshold and never resolves comments or changes the PR branch.
+
+To change this setting from the CLI for a selected user:
+
+```bash
+.codex/with-flox python manage.py enable_authored_pr_reviews \
+  --team-id 1 --user-ids 1 --effort medium
+.codex/with-flox python manage.py disable_authored_pr_reviews \
+  --team-id 1 --user-ids 1
+```
+
+Use `--effort xhigh` to select Extra high; omitting `--effort` preserves the saved choice.
+Disabling automatic reviews also preserves that choice for manual Flash reviews.
+Both commands accept `--dry-run`.
+Omitting `--user-ids` changes every active member of the team's organization.
+
+To run Flash locally, use `run_review --review-mode flash` from the repository root:
+
+```bash
+.codex/with-flox python manage.py run_review \
+  --pr-url https://github.com/PostHog/posthog/pull/PR_NUMBER \
+  --team-id 1 --user-id 1 --review-mode flash
+```
+
+Replace `PR_NUMBER` and use the team and user IDs from your local instance.
+The command defaults to Full mode and only requests GitHub publishing when you add `--publish`.
+For isolated tests, use a fresh local report with no active review on the same PR and an original branch that still points at the reviewed commit.
+An active turn keeps its settings snapshot, and an existing report's status comment can still receive progress updates.
+If a review fails, the next attempt keeps cached reviewer results for the same commit, model, and reasoning effort.
+Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
+Completed turns remain in the report history.
+Review-started, completed, and failed event IDs distinguish Full and Flash retries while preserving the legacy Full IDs.
+When calculating completion rates, match report, turn, and mode, treating an absent mode as Full for legacy events.
+Flash finding-outcome events use the model configuration saved with the finding, even if the Flash defaults change before classification.
+Full findings retain report-level model attribution, and findings without readable saved context have an unknown review mode.
+When recovering a failed publish with `python manage.py publish_review`, the command infers Full or Flash from the completed turn's findings.
+Legacy findings without a stored mode default to Full, and an explicit `--review-mode` must match the stored mode.
+Recovery uses the completed turn's commit when recorded, even if a newer unfinished turn has fetched another commit.
 
 ### Agent run telemetry (optional)
 

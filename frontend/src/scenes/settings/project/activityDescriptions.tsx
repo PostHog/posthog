@@ -1,9 +1,10 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     Describer,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 const projectNameForLog = (logItem: ActivityLogItem): string => {
@@ -21,12 +22,19 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const keyName = <strong>{keyLabel(logItem)}</strong>
     const scopeName = <strong>{projectNameForLog(logItem)}</strong>
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the project secret API key',
+                <>
+                    {keyName} for {scopeName}
+                </>
+            ),
             description: (
                 <>
                     {actor} created project secret API key {keyName} for {scopeName}
@@ -40,6 +48,13 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
 
         if (rolled) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Rolled the project secret API key',
+                    <>
+                        {keyName} for {scopeName}
+                    </>
+                ),
                 description: (
                     <>
                         {actor} rolled project secret API key {keyName} for {scopeName}
@@ -49,6 +64,13 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Updated the project secret API key',
+                <>
+                    {keyName} for {scopeName}
+                </>
+            ),
             description: (
                 <>
                     {actor} updated project secret API key {keyName} for {scopeName}
@@ -59,6 +81,13 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Deleted the project secret API key',
+                <>
+                    {keyName} for {scopeName}
+                </>
+            ),
             description: (
                 <>
                     {actor} deleted project secret API key {keyName} for {scopeName}

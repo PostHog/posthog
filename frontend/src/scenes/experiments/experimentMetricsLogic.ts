@@ -54,8 +54,6 @@ export const RECALCULATION_STATUSES = {
     failed: 'failed',
 } as const
 
-export type RecalculationStatuses = (typeof RECALCULATION_STATUSES)[keyof typeof RECALCULATION_STATUSES]
-
 /** Transient per-metric retry state written by the calc activity between failed attempts. */
 export interface MetricRetryInfo {
     attempt: number
@@ -212,18 +210,7 @@ export interface experimentMetricsLogicActions {
             recalculation_id: string | null
             succeeded?: number
             total_metrics?: number
-            trigger?:
-                | 'agent_mcp'
-                | 'auto_refresh'
-                | 'cold_run'
-                | 'config_change'
-                | 'experiment_config_change'
-                | 'experiment_launch'
-                | 'experiment_stop'
-                | 'experiment_update'
-                | 'manual'
-                | 'metric_config_change'
-                | 'stale_refresh'
+            trigger?: ExperimentMetricsRecalculationTriggerEnumApi
         }
     ) => {
         properties: {
@@ -235,19 +222,7 @@ export interface experimentMetricsLogicActions {
             recalculation_id: string | null
             succeeded?: number | undefined
             total_metrics?: number | undefined
-            trigger?:
-                | 'agent_mcp'
-                | 'auto_refresh'
-                | 'cold_run'
-                | 'config_change'
-                | 'experiment_config_change'
-                | 'experiment_launch'
-                | 'experiment_stop'
-                | 'experiment_update'
-                | 'manual'
-                | 'metric_config_change'
-                | 'stale_refresh'
-                | undefined
+            trigger?: ExperimentMetricsRecalculationTriggerEnumApi | undefined
         }
         status: 'completed' | 'failed' | 'triggered'
     } // eventUsageLogic
@@ -641,6 +616,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculationLoading(false)
                     return
                 }
+                // The setFeatureFlags listener re-runs this load if a later flag update contradicts this value.
+                cache.branchFlagValue = flagEnabled()
                 /**
                  * bail if feature not enabled. Clear recalculation loading state
                  */
@@ -699,34 +676,38 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
 
                     /**
-                     * Timeseries fallback is a placeholder: it may cover only some metrics and is cumulative
-                     * daily data, not a fresh point-in-time result. Always trigger a real cold_run to fill the
-                     * gaps and refresh; the placeholder stays visible and cells update in place as it polls.
-                     */
-                    if (recalculation.result_source === 'timeseries_fallback') {
-                        actions.triggerRecalculation('cold_run')
-                        return
-                    }
-
-                    /**
-                     * Heal a completed run that does not cover every current metric. Two cases:
-                     * 1. The run diverged: its own resolved count fell short of its total (also fires after a
-                     *    reset and relaunch).
-                     * 2. A metric was added after this run finished, so a current metric uuid is absent from the
-                     *    run's results. The run's own counts look complete, so only a uuid comparison catches it.
-                     * Otherwise the new metric shows a perpetual loading state, since nothing else re-runs on
-                     * page load. Advance the window with experiment_config_change rather than reuse a cutoff that
-                     * may predate the new start_date.
+                     * A run has a gap when its own resolved count fell short of its total (also after a reset and
+                     * relaunch), or when a metric was added after it finished so a current metric uuid is absent
+                     * from its results. The run's own counts look complete in the second case, so only a uuid
+                     * comparison catches it.
                      */
                     const coveredUuids = new Set(coveredMetricUuids(recalculation))
                     const missingCurrentMetric = currentMetricUuids(props.experiment).some(
                         (uuid) => !coveredUuids.has(uuid)
                     )
-                    if (
-                        recalculation.status === RECALCULATION_STATUSES.completed &&
-                        (recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
-                            missingCurrentMetric)
-                    ) {
+                    const hasGap =
+                        recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
+                        missingCurrentMetric
+
+                    /**
+                     * The timeseries fallback is daily data the backend serves when no run exists yet. Accept it
+                     * as is: a cold_run only when a metric has no point (the daily workflow never computes
+                     * retention metrics, for one), so a page load does not recompute results the timeseries
+                     * already holds. The placeholder stays visible and cells update in place as the run polls.
+                     */
+                    if (recalculation.result_source === 'timeseries_fallback') {
+                        if (hasGap) {
+                            actions.triggerRecalculation('cold_run')
+                        }
+                        return
+                    }
+
+                    /**
+                     * Heal a completed run with a gap; otherwise the new metric shows a perpetual loading state,
+                     * since nothing else re-runs on page load. Advance the window with experiment_config_change
+                     * rather than reuse a cutoff that may predate the new start_date.
+                     */
+                    if (recalculation.status === RECALCULATION_STATUSES.completed && hasGap) {
                         actions.triggerRecalculation('experiment_config_change')
                         return
                     }
@@ -750,6 +731,18 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 // branch decision uses the real flag value. One-shot: clear the deferred flag first.
                 if (cache.deferredLoadLatest) {
                     cache.deferredLoadLatest = false
+                    actions.loadLatestRecalculation()
+                    return
+                }
+                /**
+                 * The deferred replay only covers loads that ran before any flags arrived. The first
+                 * setFeatureFlags of a page load can carry the server bootstrap set, which omits every flag
+                 * it could not evaluate locally (org-targeted flags among them), so this flag reads off. A
+                 * load that branched on that value bailed, and nothing else re-runs it when the real flag
+                 * response lands, which leaves the recalculation UI waiting forever. Re-run it when the
+                 * current value contradicts the recorded one; equal values no-op.
+                 */
+                if (cache.branchFlagValue !== undefined && flagEnabled() !== cache.branchFlagValue) {
                     actions.loadLatestRecalculation()
                 }
             },

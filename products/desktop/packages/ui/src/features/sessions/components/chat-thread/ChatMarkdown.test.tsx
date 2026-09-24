@@ -59,7 +59,32 @@ vi.mock("@posthog/ui/features/pr-review/usePrChecks", () => ({
   usePrChecks: () => ({ data: [], isLoading: false }),
 }));
 
-import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
+vi.mock("@posthog/ui/features/sidebar/useCwd", () => ({
+  useCwd: () => "/repo",
+}));
+
+const { useWorkspaceFileAsBase64 } = vi.hoisted(() => ({
+  useWorkspaceFileAsBase64: vi.fn<
+    (
+      workspaceRoot: string,
+      filePath: string,
+      enabled: boolean,
+    ) => {
+      data: string | null;
+      isPending: boolean;
+    }
+  >(() => ({ data: null, isPending: false })),
+}));
+vi.mock("@posthog/ui/features/code-editor/hooks/useFileContent", () => ({
+  useWorkspaceFileAsBase64,
+}));
+
+import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
+import {
+  ChatMarkdown,
+  ChatStreamingMarkdown,
+  resolveLocalImage,
+} from "./ChatMarkdown";
 
 const MERMAID_FENCE = "```mermaid\ngraph TD; A-->B\n```";
 
@@ -98,12 +123,34 @@ Verdict: valid.
     expect(html).not.toContain("http://127.0.0.1/action");
   });
 
+  it("renders local workspace images from the filesystem", () => {
+    useWorkspaceFileAsBase64.mockReturnValue({
+      data: "aGVsbG8=",
+      isPending: false,
+    });
+
+    const html = renderStatic(
+      <SessionTaskIdProvider taskId="task-1">
+        <ChatMarkdown content="![Agent list](/repo/.qa/agent-list.png)" />
+      </SessionTaskIdProvider>,
+    );
+
+    expect(html).toContain('src="data:image/png;base64,aGVsbG8="');
+    expect(html).toContain('alt="Agent list"');
+    expect(useWorkspaceFileAsBase64).toHaveBeenCalledWith(
+      "/repo",
+      "/repo/.qa/agent-list.png",
+      true,
+    );
+  });
+
   it("renders a GitHub pull request with its live status chip", () => {
     const html = renderStatic(
       <ChatMarkdown content="Review https://github.com/PostHog/posthog/pull/23985" />,
     );
 
-    expect(html).toContain("PostHog/posthog#23985");
+    expect(html).toContain(">PostHog/posthog</span>");
+    expect(html).toContain(">#23985</span>");
     expect(html).toContain('aria-label="Open"');
     expect(html).toContain(
       'data-github-ref-url="https://github.com/PostHog/posthog/pull/23985"',
@@ -115,8 +162,31 @@ Verdict: valid.
       "https://github.com/PostHog/posthog/pull/86811/changes#r3832262653";
     const html = renderStatic(<ChatMarkdown content={href} />);
 
-    expect(html).toContain("Comment on PR #86811");
+    expect(html).toContain(">Comment on PR </span>");
+    expect(html).toContain(">#86811</span>");
     expect(html).toContain(`data-github-ref-url="${href}"`);
+  });
+});
+
+describe("resolveLocalImage", () => {
+  it("resolves relative and absolute images inside the workspace", () => {
+    expect(resolveLocalImage("screenshots/result.webp", "/repo")).toEqual({
+      path: "/repo/screenshots/result.webp",
+      mimeType: "image/webp",
+    });
+    expect(resolveLocalImage("/repo/result.png", "/repo")).toEqual({
+      path: "/repo/result.png",
+      mimeType: "image/png",
+    });
+  });
+
+  it("rejects paths outside the workspace and unsupported image types", () => {
+    expect(resolveLocalImage("../secret.png", "/repo")).toBeNull();
+    expect(resolveLocalImage("/other/secret.png", "/repo")).toBeNull();
+    expect(resolveLocalImage("diagram.svg", "/repo")).toBeNull();
+    expect(
+      resolveLocalImage("https://example.com/image.png", "/repo"),
+    ).toBeNull();
   });
 });
 
@@ -189,5 +259,18 @@ describe("ChatStreamingMarkdown", () => {
 
     expect(html).toContain('href="https://example.com/report"');
     expect(html).toContain("the report");
+  });
+});
+
+describe("ChatMarkdown file links", () => {
+  it("shows the filename but carries the whole path in its text", () => {
+    render(
+      <SessionTaskIdProvider taskId="task-1">
+        <ChatMarkdown content="See `src/utils/helpers.ts:12` for the fix." />
+      </SessionTaskIdProvider>,
+    );
+
+    const link = screen.getByText("helpers.ts:12");
+    expect(link).toHaveTextContent("src/utils/helpers.ts:12");
   });
 });

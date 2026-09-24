@@ -36,6 +36,7 @@ from django.db.models import Q
 import structlog
 import pyarrow.parquet as pq
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
@@ -87,7 +88,7 @@ def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
 _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 
 
-@dataclasses.dataclass
+@frozen(frozen=False)
 class PerSourceResult:
     """One source's funnel counts within a run, so the recorder can persist a run row per source."""
 
@@ -97,6 +98,9 @@ class PerSourceResult:
     existing: int = 0
     produced: int = 0
     skipped_missing_person: int = 0
+    # Set when the source can't write anything for a reason its counts alone don't explain, so the
+    # recorder persists a failed run instead of a clean one that produced nothing.
+    error: str | None = None
 
 
 @dataclasses.dataclass
@@ -258,7 +262,13 @@ async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, st
     them oldest-first). Decodes off the event loop so a large parquet can't starve the heartbeater."""
     hashes: dict[str, str] = {}
     for key in file_keys:
-        data = await s3_client._cat_file(_s3_uri(key))
+        try:
+            data = await s3_client._cat_file(_s3_uri(key))
+        except FileNotFoundError:
+            # A concurrent _write_snapshot_hashes compacted this file into a new one and deleted it
+            # after we listed the folder but before we read it. Its rows survive in that new file (or
+            # whichever one replaces it next run) — skip rather than fail the whole read.
+            continue
         for record in await asyncio.to_thread(_decode_parquet_rows, data):
             hashes[record["distinct_id"]] = record["sent_hash"]
     return hashes
@@ -642,12 +652,21 @@ BACKFILL_BATCH_SIZE = 50_000
 BACKFILL_RUN_TOKEN = "backfill"
 
 
+@frozen
+class DeltaBundleRead:
+    """What one full-table Delta read yielded for a backfill."""
+
+    bundles_by_source: dict[str, dict[str, dict]]
+    rows_read: int
+    sources_missing_key_column: frozenset[str]
+
+
 def _read_delta_bundles(
     uri: str, storage_options: dict[str, str], sources: list[PersonPropertySyncSource]
-) -> tuple[dict[str, dict[str, dict]], int]:
+) -> DeltaBundleRead:
     """Stream the table's Delta files from S3 and accumulate {source_id: {distinct_id: bundle}}
     (last-write-wins per distinct_id). Streams batches — never materializes the whole table — so peak
-    memory tracks distinct persons, not row count. Returns (accumulated, rows_read)."""
+    memory tracks distinct persons, not row count."""
     import deltalake  # noqa: PLC0415 — keeps the heavy delta-rs/pandas stack off the import path
 
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
@@ -656,7 +675,7 @@ def _read_delta_bundles(
         # as an empty read rather than erroring, but log it since a persistent empty backfill is a
         # likely "why didn't anything happen" answer.
         logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
-        return accumulated, 0
+        return DeltaBundleRead(bundles_by_source=accumulated, rows_read=0, sources_missing_key_column=frozenset())
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
@@ -667,10 +686,12 @@ def _read_delta_bundles(
     project = sorted(wanted & available)
 
     # A source whose key column itself is missing produces zero bundles for the whole table, which is
-    # otherwise indistinguishable from a genuinely idle backfill. Log it so a misconfigured mapping
-    # (table dropped/renamed the identifier column) is diagnosable rather than silent.
+    # otherwise indistinguishable from a genuinely idle backfill. Report it back so the caller can fail
+    # the run rather than complete a no-op, and log it for the same reason.
+    missing_key_column: set[str] = set()
     for source in sources:
         if source.key_column not in available:
+            missing_key_column.add(str(source.source_id))
             logger.warning(
                 "person-property backfill: source key column missing from table, will produce nothing",
                 uri=uri,
@@ -686,7 +707,11 @@ def _read_delta_bundles(
             bucket = accumulated[str(source.source_id)]
             for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
                 bucket[distinct_id] = bundle
-    return accumulated, rows_read
+    return DeltaBundleRead(
+        bundles_by_source=accumulated,
+        rows_read=rows_read,
+        sources_missing_key_column=frozenset(missing_key_column),
+    )
 
 
 def _schema_delta_uri(team_id: int, schema_id: str) -> str | None:
@@ -742,20 +767,37 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    accumulated, rows_read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
+    read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
     result.sources = len(sources)
-    result.rows_read = rows_read
+    result.rows_read = read.rows_read
     logger.info(
         "person-property backfill: read full Delta table",
         team_id=team_id,
         **_log_fields(binding),
         trigger=trigger,
         sources=len(sources),
-        rows_read=rows_read,
+        rows_read=read.rows_read,
     )
 
     for source in sources:
-        bundles = list(accumulated[str(source.source_id)].items())
+        if str(source.source_id) in read.sources_missing_key_column:
+            # Nothing this source can match on, so every later stage is a no-op. Surfaced as a failed
+            # run because the mapping stays broken until someone changes it — a completed run would
+            # clear the source's last error and read as a healthy sync that happened to write nothing.
+            _accumulate(
+                result,
+                PerSourceResult(
+                    source_id=str(source.source_id),
+                    rows_read=read.rows_read,
+                    error=(
+                        f"Key column '{source.key_column}' is not a column of the synced table, so no rows "
+                        "could be matched. It may have been renamed or dropped upstream, or it may be a "
+                        "query-time SQL expression rather than a synced column."
+                    ),
+                ),
+            )
+            continue
+        bundles = list(read.bundles_by_source[str(source.source_id)].items())
         ps = await _process_source_bundles(
             team_id=team_id,
             project_id=team.project_id,
@@ -764,7 +806,7 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
             team_uuid=str(team.uuid),
             source=source,
             bundles=bundles,
-            rows_read=rows_read,
+            rows_read=read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
         )
         _accumulate(result, ps)
@@ -851,7 +893,8 @@ async def record_completed_runs(
     finished_at: str,
     result: SyncResult,
 ) -> None:
-    """Persist one completed run row per source. Never raises — the recorder swallows its own errors,
+    """Persist one terminal run row per source: completed, or failed for a source that carried an
+    error the run's counts alone wouldn't explain. Never raises — the recorder swallows its own errors,
     and we still guard here so run bookkeeping can't fail the sync/backfill that produced it (which
     would otherwise trigger a wasteful Temporal retry of an already-successful, produced run)."""
     try:
@@ -861,11 +904,11 @@ async def record_completed_runs(
                 binding=binding,
                 job_id=job_id,
                 trigger=trigger,
-                status="completed",
+                status="failed" if ps.error else "completed",
                 started_at=started_at,
                 finished_at=finished_at,
                 ps=ps,
-                error=None,
+                error=ps.error,
             )
     except Exception as e:
         logger.exception(

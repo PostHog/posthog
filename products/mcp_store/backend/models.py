@@ -8,6 +8,8 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from .oauth_credentials import oauth_credentials_source_is_allowed
+
 
 class MCPAuthType(models.TextChoices):
     API_KEY = "api_key", "API Key"
@@ -174,6 +176,16 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
 
+    @classmethod
+    def available_for_team(cls, team_id: int) -> models.QuerySet["MCPServerTemplate"]:
+        templates = cls.objects.filter(is_active=True)
+        if not oauth_credentials_source_is_allowed("slack_dev_app", team_id):
+            templates = templates.exclude(oauth_credentials_source="slack_dev_app")
+        return templates
+
+    def oauth_credentials_source_is_allowed_for_team(self, team_id: int) -> bool:
+        return oauth_credentials_source_is_allowed(self.oauth_credentials_source, team_id)
+
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         if update_fields is None or "icon_key" in update_fields:
@@ -188,7 +200,7 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
 
 class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="mcp_server_installations")
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="installations", null=True, blank=True
@@ -264,7 +276,7 @@ class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel)
 class MCPOAuthState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     installation = models.ForeignKey(MCPServerInstallation, on_delete=models.CASCADE, related_name="oauth_states")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.CASCADE, related_name="oauth_states", null=True, blank=True
     )

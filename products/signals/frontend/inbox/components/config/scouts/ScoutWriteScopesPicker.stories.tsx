@@ -55,6 +55,25 @@ export const ScoutSettingsVariant: Story = {
     ),
 }
 
+export const MaintainerScout: Story = {
+    render: () => (
+        <div className="max-w-md p-4">
+            <ControlledPicker
+                compact
+                initialScopes={['llm_skill:write', 'warehouse_view:write', 'warehouse_table:write']}
+            />
+        </div>
+    ),
+}
+
+export const ScannerMaintainerScout: Story = {
+    render: () => (
+        <div className="max-w-md p-4">
+            <ControlledPicker compact initialScopes={['replay_scanner:write']} />
+        </div>
+    ),
+}
+
 export const CannotEdit: Story = {
     render: () => (
         <div className="max-w-md p-4">

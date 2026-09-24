@@ -51,7 +51,7 @@ def diff_for(path: str, body: str) -> str:
                 "frontend/src/lib/thing.ts",
                 """
                 +/**
-                + * Block comment line
+                + * Block comment with one ` marker
                 + */
                 +const a = 1 // trailing
                 +// full line
@@ -59,11 +59,19 @@ def diff_for(path: str, body: str) -> str:
                 +const b = 2
                 +/* note */ doWork()
                 +*ptr = 1
+                +const snippet = `
+                +// rendered SDK line
+                +const escaped = \\`code\\`
+                +/* rendered block */
+                +`
+                +const label = "Use one ` marker"
+                +// real comment with one ` marker
+                +// another real comment
                 """,
             ),
-            9,
-            5,
-            id="typescript-block-and-line-comments",
+            17,
+            7,
+            id="typescript-block-line-and-template-comments",
         ),
         pytest.param(
             diff_for(
@@ -85,13 +93,22 @@ def diff_for(path: str, body: str) -> str:
             diff_for("frontend/src/generated/api.ts", "+// generated\n+// generated\n")
             + diff_for("frontend/src/lib/agentScopes.generated.ts", "+// AUTO-GENERATED\n+// Do not edit\n")
             + diff_for("products/x/backend/generated_configs/ably.py", "+# generated\n+# do not edit\n")
+            + diff_for("posthog/hogql/test/_generated_grammar_strategies.py", "+# generated\n+# do not edit\n")
             + diff_for(".github/workflows/ci.yml", "+# yaml prose\n+run: echo\n")
             + diff_for("posthog/test/__snapshots__/x.ambr", "+# name: test\n")
             + diff_for("docs/readme.md", "+<!-- not code -->\n")
-            + diff_for("posthog/hogql/q.sql", "+-- sql comment\n+SELECT 1\n"),
-            2,
-            1,
-            id="excluded-paths-and-non-code-files-are-ignored",
+            + diff_for("posthog/hogql/q.sql", "+-- sql comment\n+SELECT 1\n")
+            + diff_for(
+                "products/notebooks/frontend/NotebookNodeGeneratedWidget/index.ts",
+                "+// hand-written component\n+export const widget = 1\n",
+            )
+            + diff_for(
+                "services/mcp/tests/unit/schema-generated.test.ts",
+                "+// hand-written test\n+const schema = 1\n",
+            ),
+            6,
+            3,
+            id="only-generated-paths-and-non-code-files-are-ignored",
         ),
     ],
 )

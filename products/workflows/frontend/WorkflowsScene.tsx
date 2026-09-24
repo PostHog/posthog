@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -25,7 +25,9 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
+import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
+import { MessagingNavTabKey, messagingNavTabs } from './messagingTabs'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
@@ -34,7 +36,6 @@ import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -133,13 +134,20 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
+const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
+    library: <MessageTemplatesTable />,
+    channels: <MessageChannels />,
+    'opt-outs': <OptOutScene />,
+    suppression: <SuppressionScene />,
+    reputation: <WorkflowsReputation />,
+}
+
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { emailSendingSuspended, emailSendingSuspensionReason } = useValues(workflowsEmailSuspensionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const { startNewWorkflow } = useActions(newWorkflowLogic)
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -204,47 +212,8 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             content: <WorkflowsTable />,
             link: urls.workflows(),
         },
-        {
-            label: 'Library',
-            key: 'library',
-            content: (
-                <>
-                    <MessageTemplatesTable />
-                </>
-            ),
-            link: urls.workflows('library'),
-        },
-        {
-            label: 'Channels',
-            key: 'channels',
-            content: <MessageChannels />,
-            link: urls.workflows('channels'),
-        },
-        {
-            label: 'Opt-outs',
-            key: 'opt-outs',
-            content: <OptOutScene />,
-            link: urls.workflows('opt-outs'),
-        },
-        {
-            label: 'Suppression list',
-            key: 'suppression',
-            content: <SuppressionScene />,
-            link: urls.workflows('suppression'),
-        },
-        {
-            label: (
-                <>
-                    Reputation{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            key: 'reputation',
-            content: <WorkflowsReputation />,
-            link: urls.workflows('reputation'),
-        },
+        // Shared with the broadcasts scene; the content lives here because this is where they open.
+        ...messagingNavTabs().map((tab) => ({ ...tab, content: MESSAGING_TAB_CONTENT[tab.key] })),
     ]
 
     return (
@@ -269,7 +238,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                             product_type: ProductKey.WORKFLOWS,
                                             intent_context: ProductIntentContext.WORKFLOW_CREATED,
                                         })
-                                        showNewWorkflowModal()
+                                        startNewWorkflow()
                                     }}
                                     type="primary"
                                     size="small"
@@ -320,13 +289,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            {emailSendingSuspended && (
-                <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
-                    Email sending is suspended for this project. Workflow emails are not being delivered.
-                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} Contact
-                    support to get sending re-enabled.
-                </LemonBanner>
-            )}
+            <EmailSuspensionBanner />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

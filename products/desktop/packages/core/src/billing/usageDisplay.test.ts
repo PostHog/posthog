@@ -3,6 +3,8 @@ import type { UsageOutput } from "../usage/schemas";
 import {
   codeOrgSpendLimitUsd,
   codeUsageMeter,
+  codeUsageResetLabel,
+  codeUsageWindowLabel,
   desktopUsageComponents,
   formatResetTime,
   formatUsageBreakdown,
@@ -32,7 +34,6 @@ function makeUsage(
       exceeded: overrides.burst ?? false,
     },
     is_rate_limited: overrides.isRateLimited ?? false,
-    is_pro: false,
   };
 }
 
@@ -94,7 +95,7 @@ describe("codeUsageMeter", () => {
       limitUsd: 50,
       percent: 25,
       exceeded: false,
-      resetAt: "2026-06-01T00:00:00.000Z",
+      periodEndsAt: "2026-06-01T00:00:00.000Z",
       breakdown: { includedUsd: 20, spendLimitUsd: 30 },
     });
   });
@@ -121,7 +122,7 @@ describe("codeUsageMeter", () => {
     expect(meter).toMatchObject({ kind: "dollars", breakdown: null });
   });
 
-  it("marks the dollars meter exceeded from the org bucket and falls back to the sustained reset", () => {
+  it("marks the dollars meter exceeded from the org bucket, and never borrows the valve reset as a period end", () => {
     const meter = codeUsageMeter({
       ...makeUsage(),
       code_usage_subscribed: false,
@@ -131,7 +132,7 @@ describe("codeUsageMeter", () => {
       kind: "dollars",
       percent: 100,
       exceeded: true,
-      resetAt: "2026-05-01T13:00:00.000Z",
+      periodEndsAt: null,
     });
   });
 
@@ -157,6 +158,62 @@ describe("codeUsageMeter", () => {
     ).toEqual({ kind: "hidden" });
     expect(codeUsageMeter(makeUsage())).toEqual({ kind: "hidden" });
     expect(codeUsageMeter(null)).toEqual({ kind: "hidden" });
+  });
+});
+
+describe("codeUsageWindowLabel", () => {
+  const dollars = codeUsageMeter({
+    ...makeUsage(),
+    code_usage_subscribed: true,
+    ai_credits: { exhausted: false, used_usd: 12.4, limit_usd: 50 },
+    billing_period_end: "2026-06-01T00:00:00.000Z",
+  });
+  const bucket = codeUsageMeter({
+    ...makeUsage(),
+    code_usage_subscribed: false,
+  });
+
+  it.each([
+    [dollars, false, "Usage this billing period"],
+    [dollars, true, "Free usage this billing period"],
+    [bucket, true, "Free usage this 30-day window"],
+  ])("names the window the number covers", (meter, freeTier, expected) => {
+    expect(codeUsageWindowLabel(meter, freeTier)).toBe(expected);
+  });
+});
+
+describe("codeUsageResetLabel", () => {
+  const now = Date.parse("2026-05-01T12:00:00.000Z");
+
+  it("counts down to billing's own period end", () => {
+    const meter = codeUsageMeter({
+      ...makeUsage(),
+      code_usage_subscribed: true,
+      ai_credits: { exhausted: false, used_usd: 12.4, limit_usd: 50 },
+      billing_period_end: "2026-05-01T18:00:00.000Z",
+    });
+    expect(codeUsageResetLabel(meter, { now })).toBe(
+      "Billing period ends in 6h",
+    );
+  });
+
+  it("claims no period end when billing reported none", () => {
+    const meter = codeUsageMeter({
+      ...makeUsage(),
+      code_usage_subscribed: true,
+      ai_credits: { exhausted: false, used_usd: 12.4, limit_usd: 50 },
+    });
+    expect(codeUsageResetLabel(meter, { now })).toBe(
+      "Resets when your billing period ends",
+    );
+  });
+
+  it("counts down to the valve bucket's own reset", () => {
+    const meter = codeUsageMeter({
+      ...makeUsage(),
+      code_usage_subscribed: false,
+    });
+    expect(codeUsageResetLabel(meter, { now })).toBe("Resets in 1h");
   });
 });
 

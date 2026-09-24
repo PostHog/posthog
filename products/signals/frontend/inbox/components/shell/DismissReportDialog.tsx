@@ -8,9 +8,9 @@ import { DismissCorrectedRepoField } from './DismissCorrectedRepoField'
 import { HotkeyRadio } from './HotkeyRadio'
 
 interface OpenDismissReportDialogParams {
-    /** Report title for single-report copy. Ignored when `selectedCount > 1`. */
+    /** Report title for single-report copy. Ignored when `selectedCount` is set. */
     reportTitle?: string | null
-    /** When greater than 1, copy reflects a bulk dismiss of the current selection. */
+    /** How many reports the selection bar holds. When set, the copy counts reports instead of naming one. */
     selectedCount?: number
     /** Whether the report has an implementation PR that is still open. Dismissing closes it, so the copy says so. */
     hasOpenPr?: boolean
@@ -37,17 +37,20 @@ const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL
  */
 export function openDismissReportDialog({
     reportTitle,
-    selectedCount = 1,
+    selectedCount,
     hasOpenPr = false,
     hotkeys = false,
     initialReason,
     onConfirm,
 }: OpenDismissReportDialogParams): void {
-    const isBulk = selectedCount > 1
-    const title = isBulk
-        ? `Dismiss ${selectedCount} reports?`
+    // The selection bar knows the count and no titles, so its copy counts reports even when one
+    // report is selected. Every other caller names the report instead.
+    const isSelection = selectedCount !== undefined
+    const isPlural = (selectedCount ?? 1) > 1
+    const title = isSelection
+        ? `Dismiss ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
         : `Dismiss report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
-    const description = isBulk
+    const description = isPlural
         ? `These reports leave your inbox. Your feedback is saved on each report, and your note goes to the agents that filed them.${
               hasOpenPr ? ' Any open pull request for these reports is closed.' : ''
           }`

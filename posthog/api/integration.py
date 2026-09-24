@@ -7,7 +7,7 @@ from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import HttpResponse
@@ -17,11 +17,14 @@ from django.utils.dateparse import parse_datetime
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
+from django_redis.cache import RedisCache
+from django_redis.exceptions import ConnectionInterrupted
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -97,6 +100,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
+    resolve_aliased_oauth_kind,
 )
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -105,6 +109,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
@@ -210,7 +215,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
+        # 300s tolerance matches the Stripe provisioning check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -624,6 +629,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     def create(self, validated_data: Any) -> Any:
         team_id = self.context["team_id"]
+        config_in = validated_data.get("config") or {}
+
+        # A kind that borrows another kind's connected app returns on the owner's callback path, so
+        # the client posts the path's kind. Both kinds derive the same integration id from the same
+        # provider account, so the grant would overwrite the borrowed kind's working integration
+        # with a token its API rejects. Promote the state kind before anything keys on it.
+        state = config_in.get("state")
+        validated_data["kind"] = resolve_aliased_oauth_kind(
+            validated_data["kind"], state if isinstance(state, str) else ""
+        )
         kind = validated_data["kind"]
 
         # Setting push identity verification is a security policy change, not a credential upload, so it
@@ -638,7 +653,6 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # still be classified as a create and could land `disabled` over the policy an admin had just
         # written. Omitting the key entirely stays open to members and is what connecting a channel
         # without touching the policy does — that path preserves whatever is already stored.
-        config_in = validated_data.get("config") or {}
         requested_verification = config_in.get("push_identity_verification")
         # Registering/clearing public keys is a security-policy change (it decides which signer is
         # trusted), so it carries the same admin bar as the mode. `is not None` covers clearing too.
@@ -1230,6 +1244,24 @@ class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
         )
 
 
+class PersonalConnectionRecentAuthPermission(BasePermission):
+    """A `posthog` connection is the creator's personal credential, so creating or removing one needs a fresh
+    session, like the other personal integrations. Team-shared kinds keep their existing rules."""
+
+    message = TimeSensitiveActionPermission.message
+    code = TimeSensitiveActionPermission.code
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) == "create" and request.data.get("kind") == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        if isinstance(obj, Integration) and obj.kind == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1268,8 +1300,12 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
     ]
-    permission_classes = [IntegrationManagementPermission]
-    queryset = defer_repository_cache_fields(Integration.objects.all())
+    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
+    # page boundary. Clients page this list to find one kind, so a dropped row reads as
+    # "not configured". Order oldest-first: several clients take the first row of a kind as their
+    # default connection.
+    queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
@@ -1295,6 +1331,7 @@ class IntegrationViewSet(
             APIScopePermission(),
             AccessControlPermission(),
             TeamMemberAccessPermission(),
+            PersonalConnectionRecentAuthPermission(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
@@ -1462,6 +1499,42 @@ class IntegrationViewSet(
         }
 
     @staticmethod
+    def _cache_slack_channel(key: str, channel: dict) -> None:
+        backend = caches["default"]
+        if not isinstance(backend, RedisCache):
+            return
+        try:
+            client = backend.client
+            redis_client = client.get_client(write=True)
+            redis_key = client.make_key(key)
+            for _ in range(5):
+                previous = redis_client.get(redis_key)
+                if previous is None or redis_client.pttl(redis_key) <= 0:
+                    return
+                data = client.decode(previous)
+                channels_by_id = {item["id"]: item for item in data["channels"]}
+                channels_by_id[channel["id"]] = channel
+                updated = client.encode({**data, "channels": list(channels_by_id.values())})
+                # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
+                if redis_client.eval(
+                    """
+                    if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('PTTL', KEYS[1]) > 0 then
+                        return redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')
+                    end
+                    return false
+                    """,
+                    1,
+                    redis_key,
+                    previous,
+                    updated,
+                ):
+                    return
+        except (ConnectionInterrupted, RedisError, OSError):
+            # The caller already resolved the channel, so a Redis failure here must not turn a
+            # successful lookup into a 500. The next list refresh rebuilds the cache.
+            logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
+
+    @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
         query = search.strip()
@@ -1511,7 +1584,9 @@ class IntegrationViewSet(
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
             if channel:
-                return Response({"channels": [self._serialize_slack_channel(channel)]})
+                serialized_channel = self._serialize_slack_channel(channel)
+                self._cache_slack_channel(key, serialized_channel)
+                return Response({"channels": [serialized_channel]})
             return Response({"channels": []})
 
         query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
@@ -2225,6 +2300,7 @@ class IntegrationViewSet(
 
         return Response(IntegrationSerializer(email.integration).data)
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="domain-connect/check")
     def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         domain = request.query_params.get("domain", "")
@@ -2242,6 +2318,7 @@ class IntegrationViewSet(
             }
         )
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="domain-connect/apply-url")
     def domain_connect_apply_url(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Unified endpoint for generating Domain Connect apply URLs.
@@ -2265,14 +2342,12 @@ class IntegrationViewSet(
         if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
             raise ValidationError("Unsupported provider endpoint")
 
-        host: str | None = None
-
         if context == "email":
             integration_id = request.data.get("integration_id")
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(integration_id, self.team_id)
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(
@@ -2285,7 +2360,7 @@ class IntegrationViewSet(
                 raise ValidationError("proxy_record_id is required for proxy context")
             organization = self.organization
             try:
-                domain, service_id, host, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
+                resolved = resolve_proxy_context(proxy_record_id, str(organization.id))
             except ValueError as e:
                 capture_exception(
                     e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
@@ -2298,15 +2373,17 @@ class IntegrationViewSet(
 
         try:
             url = generate_apply_url(
-                domain=domain,
-                service_id=service_id,
-                variables=variables,
-                host=host,
+                domain=resolved.root_domain,
+                service_id=resolved.service_id,
+                variables=resolved.variables,
+                host=resolved.host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
             )
         except DomainConnectSigningKeyMissing as e:
-            capture_exception(e, {"context": context, "domain": domain, "provider_endpoint": provider_endpoint})
+            capture_exception(
+                e, {"context": context, "domain": resolved.root_domain, "provider_endpoint": provider_endpoint}
+            )
             raise ValidationError(
                 "Automatic DNS configuration is temporarily unavailable for this provider. "
                 "Please configure your DNS records manually."
@@ -2316,9 +2393,9 @@ class IntegrationViewSet(
                 e,
                 {
                     "context": context,
-                    "domain": domain,
-                    "service_id": service_id,
-                    "host": host,
+                    "domain": resolved.root_domain,
+                    "service_id": resolved.service_id,
+                    "host": resolved.host,
                     "provider_endpoint": provider_endpoint,
                     "redirect_uri": redirect_uri,
                 },

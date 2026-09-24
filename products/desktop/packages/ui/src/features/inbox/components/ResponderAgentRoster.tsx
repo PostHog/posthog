@@ -10,7 +10,8 @@ import type { SignalSourceValues } from "@posthog/ui/features/inbox/components/S
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { Badge } from "@posthog/ui/primitives/Badge";
-import { Box, Flex, Spinner, Switch, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Box, Flex, Switch, Text } from "@radix-ui/themes";
 import { type ComponentType, memo, useCallback } from "react";
 
 type AgentRosterStatus = "standby" | "watching" | "syncing" | "sync_failed";
@@ -198,7 +199,7 @@ const ResponderAgentCard = memo(function ResponderAgentCard({
             {statusBadge.label}
           </InboxBadge>
           {loading ? (
-            <Spinner size="2" />
+            <Spinner size="md" />
           ) : requiresSetup ? (
             <Button
               type="button"

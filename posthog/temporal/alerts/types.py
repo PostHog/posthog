@@ -3,7 +3,10 @@ from enum import StrEnum
 
 from posthog.schema import AlertState
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
+
+DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 300
 
 
 class PrepareAction(StrEnum):
@@ -20,6 +23,7 @@ class SkipReason(StrEnum):
     WEEKEND = "weekend"
     QUIET_HOURS = "quiet_hours"
     SNOOZED = "snoozed"
+    CHANGED_DURING_EVALUATION = "changed_during_evaluation"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -29,6 +33,11 @@ class AlertInfo:
     distinct_id: str
     calculation_interval: str | None
     insight_id: int
+
+
+@frozen
+class ScheduleDueAlertChecksWorkflowInputs:
+    max_alerts_per_run: int = DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN
 
 
 @dataclasses.dataclass(frozen=True)
@@ -50,17 +59,29 @@ class PrepareAlertActivityInputs:
 class PrepareAlertResult:
     action: PrepareAction
     reason: str | None = None
+    # True when the check will make a model call, so the workflow can route it to the
+    # evaluate activity's dedicated executor.
+    uses_llm_detector: bool = False
+    evaluation_fingerprint: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertActivityInputs:
     alert_id: str
+    uses_llm_detector: bool = False
+    # Scopes the evaluation lookup. None on a workflow that started before this field existed.
+    team_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class RecordFailedEvaluationActivityInputs:
     alert_id: str
     error_message: str
+    evaluation_fingerprint: str | None = None
+    team_id: int | None = None
+    # Class name of the failure, so the activity can pick a reason written for the alert's
+    # owner. None on a workflow that started before this field existed.
+    error_type: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,7 +94,8 @@ class RecordFailedEvaluationResult:
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertResult:
     # AlertCheck PK is a UUIDT; stringified here so Temporal's JSON codec can pass it through.
-    alert_check_id: str
+    # None when an edit or deletion made the result obsolete before it could be saved.
+    alert_check_id: str | None
     should_notify: bool
     new_state: AlertState
     # Human-readable breach descriptions the FIRING email uses as match_descriptions.

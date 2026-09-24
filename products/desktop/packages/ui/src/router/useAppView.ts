@@ -3,6 +3,10 @@ import {
   type TaskInputReportAssociation,
   useTaskInputPrefillStore,
 } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
+import {
+  isReportPath,
+  reportSourceHrefFromLocation,
+} from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { getCurrentMatches } from "./navigationBridge";
@@ -12,8 +16,10 @@ export type AppViewType =
   | "task-input"
   | "folder-settings"
   | "activity"
+  | "canvases"
   | "home"
   | "inbox"
+  | "report"
   // The Agents page moved into Settings, so no route yields this view any
   // more. It stays for tabs that were opened on the old page.
   | "agents"
@@ -65,11 +71,17 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "folder-settings", folderId: last.params.folderId };
     case "/activity":
       return { type: "activity" };
+    case "/canvases":
+      return { type: "canvases" };
     case "/":
       return { type: "home" };
     case "/inbox":
       return { type: "inbox" };
+    case "/reports/$reportId":
+      return { type: "report" };
     case "/loops":
+    case "/spaces/$channelId/loops/":
+    case "/spaces/$channelId/loops/$loopId":
       return { type: "loops" };
     case "/archived":
       return { type: "archived" };
@@ -155,6 +167,35 @@ export function useAppView(): AppView {
     }
     return view;
   }, [fullPath, taskId, pendingKey, folderId, prefill]);
+}
+
+/**
+ * The legacy navigation row a report's source path belongs to. Only the types
+ * the legacy sidebar highlights; settings, tasks and other non-row surfaces
+ * return null.
+ */
+export function legacyNavTypeForPath(path: string): AppViewType | null {
+  if (/^\/inbox(\/|$)/.test(path)) return "inbox";
+  if (/^\/activity(\/|$)/.test(path)) return "activity";
+  if (/^\/loops(\/|$)/.test(path)) return "loops";
+  if (/^\/command-center(\/|$)/.test(path)) return "command-center";
+  return null;
+}
+
+/**
+ * On a report, the legacy navigation row its source names; null on any other
+ * route (or a report with no row-shaped source). Lets the legacy sidebar keep
+ * "you are here" while a report is open, matching what the rail does with the
+ * same `?from=`.
+ */
+export function useReportSourceNavType(): AppViewType | null {
+  return useRouterState({
+    select: (s) => {
+      if (!isReportPath(s.location.pathname)) return null;
+      const source = reportSourceHrefFromLocation(s.location);
+      return source ? legacyNavTypeForPath(source.split(/[?#]/)[0]) : null;
+    },
+  });
 }
 
 /**

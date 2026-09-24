@@ -8,9 +8,9 @@ import {
   EmptyMedia,
   EmptyTitle,
   Heading,
-  Spinner,
   Text,
 } from "@posthog/quill";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useMemo } from "react";
 import { useContextWikiHealthReport } from "../hooks/useContextWiki";
 
@@ -24,7 +24,7 @@ export function ContextWikiHealthPane({
   const groups = useMemo(() => groupFindings(data?.findings ?? []), [data]);
 
   if (isLoading) {
-    return <Spinner className="m-auto" />;
+    return <LoadingState />;
   }
   if (error) {
     return (

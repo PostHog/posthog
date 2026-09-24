@@ -22,8 +22,12 @@ from rest_framework.views import APIView
 
 from posthog.models import Team
 
-from products.conversations.backend.api.ticket_actions import handle_ticket_get, handle_ticket_patch
-from products.conversations.backend.metrics import TICKET_ACTION_AUTH_COUNTER
+from products.conversations.backend.api.ticket_actions import (
+    handle_ticket_get,
+    handle_ticket_patch,
+    wants_first_customer_message_text,
+)
+from products.conversations.backend.metrics import LEGACY_TICKET_AUTH_BY_TEAM_COUNTER, TICKET_ACTION_AUTH_COUNTER
 
 
 class _ExternalTicketThrottle(SimpleRateThrottle):
@@ -67,6 +71,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     TICKET_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method=(request.method or "").lower()).inc()
+    LEGACY_TICKET_AUTH_BY_TEAM_COUNTER.labels(team_id=str(team.id)).inc()
     return team, None
 
 
@@ -89,7 +94,9 @@ class ExternalTicketView(APIView):
 
         assert team is not None
 
-        return handle_ticket_get(team, ticket_id)
+        return handle_ticket_get(
+            team, ticket_id, include_first_customer_message_text=wants_first_customer_message_text(request)
+        )
 
     def patch(self, request: Request, ticket_id: str) -> Response:
         team, error = _authenticate_team(request)

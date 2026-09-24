@@ -423,4 +423,5 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
         context.enable_select_queries = True
         printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
         sql = printed[0] if isinstance(printed, tuple) else printed
-        assert pretty_print_in_tests(sql, self.team.pk) == self.snapshot
+        pretty = pretty_print_in_tests(sql, self.team.pk)
+        assert pretty == self.sql_snapshot(pretty)
