@@ -127,6 +127,7 @@ class TestCollectEligibleTeams(SimpleTestCase):
         [
             ("master_flag_off", {"master_flag": False}),
             ("toggle_off", {"ticket_patterns_enabled": False}),
+            ("toggle_stored_as_string_false", {"ticket_patterns_enabled": "false"}),
             ("ai_data_processing_not_approved", {"ai_data_processing_approved": False}),
             ("conversations_disabled", {"conversations_enabled": False}),
         ]

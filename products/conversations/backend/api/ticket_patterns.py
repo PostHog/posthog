@@ -12,8 +12,36 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.temporal.ticket_patterns.constants import (
+    LOOKBACK_MINUTES_RANGE,
+    MIN_REQUESTERS_RANGE,
+    MIN_TICKETS_RANGE,
+)
 from products.conversations.backend.temporal.ticket_patterns.eligibility import is_master_flag_enabled
 from products.conversations.backend.temporal.ticket_patterns.recent import dismiss_spike, recent_spikes, spike_key
+
+
+def validate_ticket_patterns_conversations_settings(value: dict) -> None:
+    """Reject malformed ticket spike detection settings. Raises DRF ValidationError."""
+    # Reject rather than clamp, so a typo in the window length is visible instead of silently
+    # becoming a different setting.
+    for threshold_key, (low, high) in (
+        ("ticket_patterns_lookback_minutes", LOOKBACK_MINUTES_RANGE),
+        ("ticket_patterns_min_tickets", MIN_TICKETS_RANGE),
+        ("ticket_patterns_min_requesters", MIN_REQUESTERS_RANGE),
+    ):
+        if threshold_key not in value:
+            continue
+        threshold = value.get(threshold_key)
+        # Null stays in the payload so the settings merge writes it and the threshold falls
+        # back to its default. Popping it would make an explicit reset a silent no-op.
+        if threshold is None:
+            continue
+        if not isinstance(threshold, int) or isinstance(threshold, bool) or not low <= threshold <= high:
+            raise serializers.ValidationError({threshold_key: f"Must be a whole number from {low} to {high}."})
+    for switch_key in ("ticket_patterns_enabled", "ticket_patterns_banner_enabled"):
+        if switch_key in value and not isinstance(value[switch_key], bool):
+            raise serializers.ValidationError({switch_key: "Must be true or false."})
 
 
 class TicketPatternSerializer(serializers.Serializer):

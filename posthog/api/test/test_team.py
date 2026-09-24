@@ -1909,6 +1909,18 @@ def team_api_test_factory():
                 assert response.status_code == status.HTTP_200_OK
                 assert not any(c.args[1] == "support setting changed" for c in mock_report.call_args_list)
 
+        # The settings UI writes through the environments API, but API clients write through the
+        # projects API. Both must reject a spike setting the detector would misread.
+        @parameterized.expand(
+            [
+                ("switch_as_string", {"ticket_patterns_enabled": "false"}),
+                ("threshold_out_of_range", {"ticket_patterns_min_tickets": 1}),
+            ]
+        )
+        def test_conversations_settings_rejects_malformed_ticket_spike_settings(self, _name, spike_settings):
+            response = self.client.patch("/api/environments/@current/", {"conversations_settings": spike_settings})
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
         def test_conversations_widget_position_setting(self):
             response = self.client.patch(
                 "/api/environments/@current/",

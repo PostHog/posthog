@@ -46,7 +46,7 @@ def is_team_eligible(team: Team, *, check_flag: bool = True) -> bool:
     lever, and a local run has no flag definition to read."""
     if not team.conversations_enabled:
         return False
-    if not (team.conversations_settings or {}).get("ticket_patterns_enabled"):
+    if (team.conversations_settings or {}).get("ticket_patterns_enabled") is not True:
         return False
     if not team.organization.is_ai_data_processing_approved:
         return False

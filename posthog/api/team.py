@@ -1885,34 +1885,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
-        from products.conversations.backend.temporal.ticket_patterns.constants import (
-            LOOKBACK_MINUTES_RANGE,
-            MIN_REQUESTERS_RANGE,
-            MIN_TICKETS_RANGE,
-        )
-
-        # Ticket spike detection thresholds. Reject rather than clamp, so a typo in the window
-        # length is visible instead of silently becoming a different setting.
-        for threshold_key, (low, high) in (
-            ("ticket_patterns_lookback_minutes", LOOKBACK_MINUTES_RANGE),
-            ("ticket_patterns_min_tickets", MIN_TICKETS_RANGE),
-            ("ticket_patterns_min_requesters", MIN_REQUESTERS_RANGE),
-        ):
-            if threshold_key not in value:
-                continue
-            threshold = value.get(threshold_key)
-            # Null stays in the payload so the settings merge writes it and the threshold falls
-            # back to its default. Popping it would make an explicit reset a silent no-op.
-            if threshold is None:
-                continue
-            if not isinstance(threshold, int) or isinstance(threshold, bool) or not low <= threshold <= high:
-                raise serializers.ValidationError({threshold_key: f"Must be a whole number from {low} to {high}."})
-        for switch_key in ("ticket_patterns_enabled", "ticket_patterns_banner_enabled"):
-            if switch_key in value and not isinstance(value[switch_key], bool):
-                raise serializers.ValidationError({switch_key: "Must be true or false."})
         from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
         from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+        from products.conversations.backend.api.ticket_patterns import validate_ticket_patterns_conversations_settings
 
+        validate_ticket_patterns_conversations_settings(value)
         existing = getattr(self.instance, "conversations_settings", None) if self.instance is not None else None
         validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
         validate_ai_context_conversations_settings(
