@@ -288,11 +288,14 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                         option.disabledReason || !canDerive
                             ? null
                             : deriveChartPreview(option.display, trendsSource, freeResponse, timeSeriesResponse)
+                    const response = derived?.response ?? null
                     return {
                         option,
-                        suggested: suggestedDisplays.has(option.display),
+                        // A recommendation can still have no preview, for example a pie chart of unique users that the
+                        // buckets cannot sum. Once a result loads, move it out of the suggested row to the blank tiles.
+                        suggested: suggestedDisplays.has(option.display) && !(canDerive && !response),
                         query: previewVizNode(trendsSource, option.display),
-                        response: derived?.response ?? null,
+                        response,
                         sample: derived?.sample ?? false,
                         uniqueKey: `chart-preview-${logicKey}-${option.display}`,
                     }

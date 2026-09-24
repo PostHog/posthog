@@ -85,30 +85,37 @@ describe('chartPreviewsLogic', () => {
         )
     }
 
-    it('orders tiles as suggested, previewed, blank, then disabled', () => {
-        insightVizDataLogic(insightProps).actions.updateQuerySource({
-            ...trendsQuery(ChartDisplayType.ActionsLineGraph),
-            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
-        })
-        insightDataLogic(insightProps).actions.setInsightData({
-            results: [timeSeriesRow],
-            hasMore: true,
-            last_refresh: FIRST_REFRESH,
-        })
+    // Unique users cannot be summed across buckets, so the suggested pie and donut have no preview.
+    it.each([BaseMathType.TotalCount, BaseMathType.UniqueUsers])(
+        'orders tiles as suggested, previewed, blank, then disabled with %s math',
+        (math) => {
+            insightVizDataLogic(insightProps).actions.updateQuerySource({
+                ...trendsQuery(ChartDisplayType.ActionsLineGraph),
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math }],
+                breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+            })
+            insightDataLogic(insightProps).actions.setInsightData({
+                results: [{ ...timeSeriesRow, action: { ...timeSeriesRow.action, math } }],
+                hasMore: true,
+                last_refresh: FIRST_REFRESH,
+            })
 
-        const bands = chartPreviewsLogic(logicProps).values.previews.map((preview) =>
-            preview.suggested
-                ? 'suggested'
-                : preview.option.disabledReason
-                  ? 'disabled'
-                  : preview.response
-                    ? 'previewed'
-                    : 'blank'
-        )
-        const order = ['suggested', 'previewed', 'blank', 'disabled']
-        expect(new Set(bands)).toEqual(new Set(order))
-        expect(bands).toEqual([...bands].sort((a, b) => order.indexOf(a) - order.indexOf(b)))
-    })
+            const previews = chartPreviewsLogic(logicProps).values.previews
+            const bands = previews.map((preview) =>
+                preview.option.disabledReason
+                    ? 'disabled'
+                    : !preview.response
+                      ? 'blank'
+                      : preview.suggested
+                        ? 'suggested'
+                        : 'previewed'
+            )
+            const order = ['suggested', 'previewed', 'blank', 'disabled']
+            expect(new Set(bands)).toEqual(new Set(order))
+            expect(bands).toEqual([...bands].sort((a, b) => order.indexOf(a) - order.indexOf(b)))
+            expect(previews.filter((preview) => preview.suggested && !preview.response)).toEqual([])
+        }
+    )
 
     it('reuses the time series it saw before the chart became a total value, even when the total loaded later', async () => {
         load(trendsQuery(ChartDisplayType.ActionsLineGraph), timeSeriesRow)
