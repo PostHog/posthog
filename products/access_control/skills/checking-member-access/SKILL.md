@@ -80,10 +80,10 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 
 All access control tools take an optional project id and default to the active project.
 
-The organization also has member and role tools: `posthog:org-members-list`, `posthog:roles-list` and
+The organization also has `posthog:org-members-list`, `posthog:roles-list` and
 `posthog:role-members-list`. Do not build the answer on them. A connection whose API key is restricted to
-one project never sees them, because the catalog drops every tool that needs an `organization` scope for
-such a key. The access control tools above already carry the ids and the names this skill needs.
+one project never sees them, because the catalog drops every tool that needs an `organization` scope. The
+tools above already carry every id and name this skill needs.
 
 ## Workflow
 
