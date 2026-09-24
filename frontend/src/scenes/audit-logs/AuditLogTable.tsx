@@ -24,7 +24,7 @@ export interface AuditLogTableProps {
     teamsById?: Record<number, string>
 }
 
-const SANDBOX_IP_TOOLTIP = 'An agent made this change in a PostHog sandbox, so there is no IP address to show'
+const SANDBOX_IP_TOOLTIP = 'An agent made this change in a PostHog sandbox, so there is no IP address to show.'
 
 const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
@@ -93,7 +93,7 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
             }
             const label = sandboxIpLabel(logItem)
             return label ? (
-                <Tooltip title={SANDBOX_IP_TOOLTIP}>
+                <Tooltip title={`${label}. ${SANDBOX_IP_TOOLTIP}`}>
                     <span className="block truncate text-xs text-muted">{label}</span>
                 </Tooltip>
             ) : (
