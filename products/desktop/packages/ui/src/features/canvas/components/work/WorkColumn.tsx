@@ -486,8 +486,7 @@ export function WorkColumn() {
     item: ChannelItemModel,
     { showPinBadge }: { showPinBadge: boolean },
   ) => {
-    const inSelection =
-      item.kind === "task" && selectedTaskIdSet.has(item.id);
+    const inSelection = item.kind === "task" && selectedTaskIdSet.has(item.id);
     return (
       <ChannelItemRow
         key={item.key}
