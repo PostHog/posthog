@@ -195,6 +195,52 @@ export interface PropertyApi {
     values: PropertyItemApi[]
 }
 
+/**
+ * * `distinct_id` - Distinct ID
+ * * `email` - Email
+ * * `name` - Name
+ * * `id` - Person ID
+ */
+export type PersonSearchMatchFieldEnumApi =
+    (typeof PersonSearchMatchFieldEnumApi)[keyof typeof PersonSearchMatchFieldEnumApi]
+
+export const PersonSearchMatchFieldEnumApi = {
+    DistinctId: 'distinct_id',
+    Email: 'email',
+    Name: 'name',
+    Id: 'id',
+} as const
+
+export interface PersonListRecordApi {
+    /** Numeric person ID. */
+    readonly id: number
+    /** Display name derived from person properties (email, name, or username). */
+    readonly name: string
+    readonly distinct_ids: readonly string[]
+    /** Key-value map of person properties set via $set and $set_once operations. */
+    properties?: unknown
+    /** When this person was first seen (ISO 8601). */
+    readonly created_at: string
+    /** Unique identifier (UUID) for this person. */
+    readonly uuid: string
+    /**
+     * Timestamp of the last event from this person, or null.
+     * @nullable
+     */
+    readonly last_seen_at: string | null
+    /** Only on a search result with `include_matched_fields`: the searched fields the term was found in. */
+    matched_fields?: PersonSearchMatchFieldEnumApi[]
+}
+
+export interface PaginatedPersonListRecordListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    count?: number
+    results?: PersonListRecordApi[]
+}
+
 export interface PersonRecordApi {
     /** Numeric person ID. */
     readonly id: number
@@ -212,15 +258,6 @@ export interface PersonRecordApi {
      * @nullable
      */
     readonly last_seen_at: string | null
-}
-
-export interface PaginatedPersonRecordListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    count?: number
-    results?: PersonRecordApi[]
 }
 
 export interface PatchedPersonRecordApi {
@@ -445,6 +482,10 @@ export type PersonsListParams = {
      */
     email?: string
     format?: PersonsListFormat
+    /**
+     * Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.
+     */
+    include_matched_fields?: boolean
     /**
      * Number of results to return per page.
      */
