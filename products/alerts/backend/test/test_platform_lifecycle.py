@@ -60,7 +60,7 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             self.configuration.refresh_from_db()
         assert self.configuration.next_check_at == after_first
 
-    def test_a_copied_snooze_reaches_the_check_and_a_later_unsnooze_clears_it(self) -> None:
+    def test_a_copied_snooze_lands_on_the_alert_and_a_later_unsnooze_clears_it(self) -> None:
         legacy_id = uuid4()
         snoozed_until = self.cutoff + timedelta(hours=2)
 
@@ -86,6 +86,11 @@ class TestPlatformAlertLifecycle(APIBaseTest):
                 )
             )
 
+        def snooze_on_the_alert() -> tuple[str, datetime | None]:
+            with team_scope(self.team.id):
+                alert = PlatformAlert.objects.get(configuration__legacy_configuration_id=legacy_id)
+            return alert.state, alert.snooze_until
+
         def snooze_seen_by_check() -> tuple[str, datetime | None]:
             (check,) = [
                 c
@@ -96,7 +101,9 @@ class TestPlatformAlertLifecycle(APIBaseTest):
 
         with time_machine.travel(self.cutoff, tick=False):
             copy(snoozed_until)
-        assert snooze_seen_by_check() == ("snoozed", snoozed_until)
+        # Read off the alert rather than through a check. Discovery holds back an alert whose
+        # snooze has not expired, so this one reaches no check until `snoozed_until` passes.
+        assert snooze_on_the_alert() == ("snoozed", snoozed_until)
 
         copy(None)
         assert snooze_seen_by_check() == ("not_firing", None)
