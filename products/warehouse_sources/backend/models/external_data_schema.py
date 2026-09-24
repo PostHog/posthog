@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -275,6 +276,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     full_refresh_interval_days = models.SmallIntegerField(
         null=True,
         blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_FULL_REFRESH_INTERVAL_DAYS)],
         help_text="Days between scheduled full refreshes. A full refresh re-imports every row, so rows deleted "
         "at the source are removed from the table. Null means no scheduled full refreshes.",
     )

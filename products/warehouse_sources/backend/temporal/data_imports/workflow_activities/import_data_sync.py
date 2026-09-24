@@ -109,6 +109,8 @@ class ImportDataActivityInputs:
     # a cursor, is past its initial sync, and owes no repair work, so a negative probe may
     # complete this run without extracting. Defaults False so old payloads keep the full path.
     fast_return_eligible: bool = False
+    # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
+    scheduled_full_refresh: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -119,7 +121,18 @@ class ImportDataActivityInputs:
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
+            "scheduled_full_refresh": self.scheduled_full_refresh,
         }
+
+
+def _resolve_reset_pipeline(inputs: ImportDataActivityInputs, schema: ExternalDataSchema) -> bool:
+    if inputs.reset_pipeline is not None:
+        return inputs.reset_pipeline
+    if schema.sync_type_config.get("reset_pipeline", False) is True:
+        return True
+    # Each attempt loads the schema again, and the first wipe moves the due time a full interval ahead, so a
+    # retry after the wipe carries on with the re-import instead of wiping it again.
+    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due()
 
 
 @database_sync_to_async_pool
@@ -435,10 +448,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         schema: ExternalDataSchema | None = model.schema
         assert schema is not None
 
-        if inputs.reset_pipeline is not None:
-            reset_pipeline = inputs.reset_pipeline
-        else:
-            reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
+        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")

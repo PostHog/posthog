@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     CreateSourceTemplateInputs,
     ExternalDataJobWorkflow,
     UpdateExternalDataJobStatusInputs,
+    _started_by_own_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
@@ -53,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 _JOB_ID = "01960000-0000-0000-0000-000000000000"
+_SCHEMA_ID = uuid.UUID("01960000-0000-0000-0000-000000000001")
 
 
 def _stub_activities(
@@ -108,8 +110,8 @@ def _stub_activities(
     @activity.defn(name="import_data_activity_sync")
     async def import_data(inputs: ImportDataActivityInputs) -> PipelineResult:
         executed.append("import_data_activity_sync")
-        if inputs.reset_pipeline:
-            executed.append("import_data_activity_sync:reset")
+        if inputs.scheduled_full_refresh:
+            executed.append("import_data_activity_sync:scheduled_full_refresh")
         if inputs.fast_return_eligible and not source_has_new_data:
             return PipelineResult(
                 should_trigger_cdp_producer=False,
@@ -296,12 +298,24 @@ async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheduled_full_refresh", [True, False])
-async def test_only_a_scheduled_full_refresh_run_resets_its_import(scheduled_full_refresh: bool):
+async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_full_refresh: bool):
     executed, _ = await _run_workflow(
         is_v3=False, consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh
     )
 
-    assert ("import_data_activity_sync:reset" in executed) is scheduled_full_refresh
+    assert ("import_data_activity_sync:scheduled_full_refresh" in executed) is scheduled_full_refresh
+
+
+@pytest.mark.parametrize(
+    "search_attributes,expected",
+    [
+        pytest.param({"TemporalScheduledById": [str(_SCHEMA_ID)]}, True, id="own_schedule"),
+        pytest.param({"TemporalScheduledById": [str(uuid.uuid4())]}, False, id="another_schedule"),
+        pytest.param({}, False, id="started_directly"),
+    ],
+)
+def test_only_the_schemas_own_schedule_counts_as_scheduled(search_attributes: dict, expected: bool):
+    assert _started_by_own_schedule(search_attributes, _SCHEMA_ID) is expected
 
 
 @pytest.mark.asyncio

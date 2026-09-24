@@ -181,7 +181,7 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .max(externalDataSchemasUpdateBodyFullRefreshIntervalDaysMax)
             .nullish()
             .describe(
-                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. The table is empty while a full refresh runs, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
             ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
@@ -292,7 +292,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .max(externalDataSchemasPartialUpdateBodyFullRefreshIntervalDaysMax)
             .nullish()
             .describe(
-                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. The table is empty while a full refresh runs, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
             ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod

@@ -1046,8 +1046,8 @@ function FullRefreshIntervalField({
             <span>Scheduled full refresh</span>
             <span className="text-xs text-muted max-w-md">
                 Re-import every row of the table on this cadence, so rows deleted at the source are removed. The refresh
-                runs on a scheduled sync, and the table is empty until it finishes. Re-imported rows count toward your
-                usage. Leave it empty to turn it off.
+                runs on a scheduled sync, and queries keep showing the current rows until it finishes. Re-imported rows
+                count toward your usage. Leave it empty to turn it off.
                 {schema.sync_type === 'append' && (
                     <span>
                         {' '}

@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 import typing
 import datetime as dt
 import dataclasses
@@ -12,7 +13,7 @@ from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import TimeoutType, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
@@ -742,11 +743,11 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
-def _started_by_own_schedule(inputs: ExternalDataWorkflowInputs) -> bool:
+def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uuid.UUID | None) -> bool:
     # Temporal sets this on every run a schedule starts, manual triggers included. It comes from the start
     # event, so replay reads the same value.
-    scheduled_by = workflow.info().search_attributes.get("TemporalScheduledById") or []
-    return any(str(value) == str(inputs.external_data_schema_id) for value in scheduled_by)
+    scheduled_by = search_attributes.get("TemporalScheduledById") or []
+    return any(str(value) == str(schema_id) for value in scheduled_by)
 
 
 # TODO: update retry policies
@@ -852,7 +853,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
                 is_v3=is_v3,
-                started_by_schedule=_started_by_own_schedule(inputs),
+                started_by_schedule=_started_by_own_schedule(
+                    workflow.info().search_attributes, inputs.external_data_schema_id
+                ),
             )
 
             create_job_result = await workflow.execute_activity(
@@ -931,8 +934,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 run_id=job_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
-                reset_pipeline=True if scheduled_full_refresh else inputs.reset_pipeline,
+                reset_pipeline=inputs.reset_pipeline,
                 fast_return_eligible=fast_return_eligible,
+                scheduled_full_refresh=scheduled_full_refresh,
             )
 
             is_resumable_source = False

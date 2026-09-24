@@ -1,7 +1,7 @@
 import uuid
 import contextlib
 import dataclasses
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
+    _resolve_reset_pipeline,
     import_data_activity_sync,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -1363,3 +1364,31 @@ def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_sa
 
     assert held is expected
     flag.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "scheduled_full_refresh,due_in_days,expected",
+    [
+        pytest.param(True, -1, True, id="first_attempt_of_a_due_refresh"),
+        pytest.param(True, 7, False, id="retry_after_the_wipe_moved_the_due_time"),
+        pytest.param(False, -1, False, id="run_not_marked_as_a_refresh"),
+    ],
+)
+def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
+    scheduled_full_refresh: bool, due_in_days: int, expected: bool
+) -> None:
+    schema = ExternalDataSchema(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={},
+        full_refresh_interval_days=7,
+        next_full_refresh_at=datetime.now(UTC) + timedelta(days=due_in_days),
+    )
+    inputs = ImportDataActivityInputs(
+        team_id=1,
+        schema_id=uuid.uuid4(),
+        source_id=uuid.uuid4(),
+        run_id="run",
+        scheduled_full_refresh=scheduled_full_refresh,
+    )
+
+    assert _resolve_reset_pipeline(inputs, schema) is expected
