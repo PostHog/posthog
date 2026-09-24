@@ -216,21 +216,22 @@ const panelLayoutStorage: StateStorage = createDebouncedStorage(
 );
 
 function updateLayoutIfChanged(
-  set: (
-    updater: (state: PanelLayoutStore) => Partial<PanelLayoutStore>,
-  ) => void,
+  get: () => PanelLayoutStore,
+  set: (partial: Partial<PanelLayoutStore>) => void,
   taskId: string,
   updater: (layout: TaskLayout) => Partial<TaskLayout>,
 ): boolean {
-  let changed = false;
-  set((state) =>
-    updateTaskLayout(state, taskId, (layout) => {
-      const updates = updater(layout);
-      changed = Object.keys(updates).length > 0;
-      return updates;
-    }),
-  );
-  return changed;
+  const state = get();
+  const layout = state.taskLayouts[taskId];
+  if (!layout) return false;
+
+  const updates = updater(layout);
+  // A set call with no updates still notifies subscribers and schedules a
+  // persist write.
+  if (Object.keys(updates).length === 0) return false;
+
+  set(updateTaskLayout(state, taskId, () => updates));
+  return true;
 }
 
 export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
@@ -510,6 +511,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
       splitPanelWithCopy: (taskId, panelId, direction, source) => {
         const changed = updateLayoutIfChanged(
+          get,
           set,
           taskId,
           (layout) =>
@@ -530,6 +532,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
       closePanel: (taskId, panelId, source) => {
         const changed = updateLayoutIfChanged(
+          get,
           set,
           taskId,
           (layout) => coreClosePanel(layout, panelId) as Partial<TaskLayout>,

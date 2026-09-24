@@ -675,10 +675,14 @@ describe("panelLayoutStore", () => {
     it("leaves drag-and-drop splits and actions on a missing pane untracked", () => {
       const state = usePanelLayoutStore.getState();
       state.splitPanel("task-1", "logs", "main-panel", "main-panel", "right");
+      const layoutsBeforeNoOps = usePanelLayoutStore.getState().taskLayouts;
       state.splitPanelWithCopy("task-1", "missing", "right", "shortcut");
       state.closePanel("task-1", "missing", "shortcut");
 
       expect(track).not.toHaveBeenCalled();
+      expect(usePanelLayoutStore.getState().taskLayouts).toBe(
+        layoutsBeforeNoOps,
+      );
     });
   });
 
