@@ -1945,11 +1945,14 @@ class TestBillingResponseCache(BaseTest):
     @parameterized.expand(
         [(name, call, 200) for name, call in _billing_mutations()]
         + [("update_billing_failed", _billing_mutations()[0][1], 500)]
+        + [("handle_billing_provider_webhook_post_raises", _billing_mutations()[-1][1], None)]
     )
     @patch("ee.billing.billing_manager.http_session")
     def test_billing_mutation_clears_cached_billing_response(self, _name, call, status_code, mock_session):
         response = MagicMock(status_code=status_code, ok=status_code == 200, text="", json=MagicMock(return_value={}))
         mock_session.post.return_value = response
+        if status_code is None:
+            mock_session.post.side_effect = requests.Timeout()
         mock_session.patch.return_value = response
         mock_session.get.return_value = MagicMock(
             status_code=200, json=MagicMock(return_value={"available_product_features": []})
@@ -1958,6 +1961,9 @@ class TestBillingResponseCache(BaseTest):
 
         if status_code == 200:
             call(BillingManager(self.license), self.organization)
+        elif status_code is None:
+            with self.assertRaises(requests.Timeout):
+                call(BillingManager(self.license), self.organization)
         else:
             with self.assertRaises(Exception):
                 call(BillingManager(self.license), self.organization)

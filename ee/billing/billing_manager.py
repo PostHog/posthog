@@ -1279,14 +1279,17 @@ class BillingManager:
             "Content-Type": "application/json",
         }
 
-        res = http_session.post(
-            f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
-            headers=headers,
-            data=body,
-            timeout=30,
-        )
-        # The provider event (a marketplace plan change, for example) can change what billing returns.
-        invalidate_billing_cache(organization.id)
+        try:
+            res = http_session.post(
+                f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
+                headers=headers,
+                data=body,
+                timeout=30,
+            )
+        finally:
+            # The provider event (a marketplace plan change, for example) can change what billing returns,
+            # and a POST that raises may still have reached billing.
+            invalidate_billing_cache(organization.id)
 
         if not res.ok:
             logger.error(
