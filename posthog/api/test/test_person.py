@@ -1,5 +1,5 @@
 import json
-from typing import Optional, cast
+from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -2417,6 +2417,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertNotIn(distinct_ids[200], results)
+
+    @parameterized.expand(
+        [
+            ("distinct_ids", "integer", 123),
+            ("distinct_ids", "null", None),
+            ("distinct_ids", "nested list", ["nested"]),
+            ("uuids", "null", None),
+        ]
+    )
+    def test_batch_endpoint_rejects_non_string_entries(self, field: str, _name: str, bad_entry: Any) -> None:
+        valid_entry = "valid_entry" if field == "distinct_ids" else str(UUID(int=1))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_{field}/",
+            {field: [valid_entry, bad_entry]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestTagClientQueryId(SimpleTestCase):
