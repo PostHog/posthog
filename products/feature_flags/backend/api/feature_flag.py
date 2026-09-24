@@ -1741,7 +1741,8 @@ class FeatureFlagSerializer(
         """Trusted limits when this v2 write's team is admitted, else None.
 
         None on a stored v2 row means only the safety fields are open; None on a create means
-        the v1 path and its reserved-discriminator rejection apply.
+        the v1 path and its reserved-discriminator rejection apply. Admission is the project's
+        internal writes flag, evaluated once per serializer.
         """
         if not self._v2_write:
             return None
@@ -1814,7 +1815,7 @@ class FeatureFlagSerializer(
     def _reject_unsupported_v2_operations(self, attrs: dict) -> None:
         """Deny everything about a v2 update that this milestone does not own.
 
-        Disabling and soft-deleting need no admission; every other change needs the team allowlisted.
+        Disabling and soft-deleting need no admission; every other change needs the project's writes flag.
         Restoring a deleted row stays closed until a later task owns it.
         """
         admitted = self._v2_limits is not None

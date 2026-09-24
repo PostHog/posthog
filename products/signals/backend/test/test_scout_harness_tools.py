@@ -20,7 +20,7 @@ from parameterized import parameterized
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
-from posthog.settings.utils import parse_team_ids
+from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import ReportLink
@@ -2109,4 +2109,4 @@ class TestParseTeamIds:
         ]
     )
     def test_keeps_the_deployment_alive(self, _name: str, raw: str, expected: set[int]) -> None:
-        assert parse_team_ids(raw) == expected
+        assert _parse_team_ids(raw) == expected

@@ -55,10 +55,10 @@ In particular, retain v1-to-v2 dependency protection once v2 targets can exist; 
 
 ## Config version 2 writes
 
-Two settings in `posthog/settings/feature_flags.py` form the writer policy, read at call time by `facade.config_writes`:
+Two internal feature flags form the writer policy, evaluated by `facade.config_writes` for the `project` group (targeted by project `id`) with local evaluation only, so an unresolved flag reads as off:
 
-- `FEATURE_FLAG_RULES_V2_TEAM_IDS`: the project IDs whose flags may be created, updated and enabled with config version 2. Default empty.
-- `FEATURE_FLAG_RULES_V2_CREATION_ENABLED`: whether an admitted project may create a new version 2 flag. Default false. Closing it leaves existing rows updatable, enableable and disableable.
+- `feature-flag-rules-v2-writes`: the projects whose flags may be created, updated and enabled with config version 2.
+- `feature-flag-rules-v2-creation`: whether an admitted project may create a new version 2 flag. Turning it off leaves existing rows updatable, enableable and disableable.
 
 Nothing else grants admission: no request field, serializer context flag, staff status, internal team or missing user.
 `FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES` bounds one rule's opaque `metadata` object in an admitted write; the default is pilot scope and is revisited before users author documents through the editor or broader API use.
@@ -86,4 +86,4 @@ A stored version 2 row that is not remote-configured and carries no encrypted pa
   Flag writes take the lock in shared mode so different flags can update concurrently; policy writes take it in exclusive mode.
 - Each accepted write saves once, increments `version` once, runs the existing cache invalidation and produces one activity log entry through the existing receiver. The entry carries the generic field diff; canonical version 2 summaries and version-history reconstruction are later work.
 
-Rollback sets both settings back to their defaults. Existing version 2 rows stay readable, disableable and deletable; there is no data conversion, and v1-to-v2 dependency protection is not removed.
+Rollback turns both flags off. Existing version 2 rows stay readable, disableable and deletable; there is no data conversion, and v1-to-v2 dependency protection is not removed.

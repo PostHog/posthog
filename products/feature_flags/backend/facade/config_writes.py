@@ -2,10 +2,10 @@
 
 Three things a v2 write needs that the pure validator deliberately does not do:
 
-- **Admission.** ``v2_write_limits`` and ``v2_creation_enabled`` are the writer policy, read
-  from two settings that default closed: a project allowlist and a creation switch. Nothing
-  else grants admission. Disabling and archiving an existing v2 row need neither, which the
-  serializer decides; the operation matrix is in ``docs/internal/feature-flags/api-writes.md``.
+- **Admission.** ``v2_write_limits`` and ``v2_creation_enabled`` are the writer policy: two
+  internal feature flags evaluated for the project, both off by default. Nothing else grants
+  admission. Disabling and soft-deleting an existing v2 row need neither, which the serializer
+  decides; the operation matrix is in ``docs/internal/feature-flags/api-writes.md``.
 - **Identity.** Rule ids and assignment seeds are server-owned and identify rules, not
   list positions. ``resolve_identity`` echoes back existing identity, allocates it for
   genuinely new rules, and rejects a client that tries to choose it.
@@ -25,6 +25,8 @@ from uuid import uuid4
 
 from django.conf import settings
 
+from posthog.ph_client import feature_enabled_or_false
+
 from products.feature_flags.backend.facade.config_validation import (
     ConfigError,
     ConfigValidationError,
@@ -37,20 +39,39 @@ from products.feature_flags.backend.facade.warnings import ManagementWarning
 
 _SEEDED_RULE_TYPE = "percentage_rollout"
 
+# Internal feature flags, targeted at the ``project`` group by id. Both off means closed.
+V2_WRITES_FLAG = "feature-flag-rules-v2-writes"
+V2_CREATION_FLAG = "feature-flag-rules-v2-creation"
+
+
+def _flag_enabled(key: str, team_id: int) -> bool:
+    # Local evaluation only: a write path must not wait on a remote flag call, and an
+    # unresolved flag (client not loaded yet, unsupported condition) reads as closed.
+    try:
+        return feature_enabled_or_false(
+            key,
+            f"team-{team_id}",
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
+
 
 def v2_write_limits(team_id: int) -> ValidationLimits | None:
-    """Trusted limits for a v2 write on ``team_id``'s flags, or ``None`` when the team is not admitted.
+    """Trusted limits for a v2 write on ``team_id``'s flags, or ``None`` when the project is not admitted.
 
-    Admission is the ``FEATURE_FLAG_RULES_V2_TEAM_IDS`` allowlist alone: no request field,
-    serializer context flag, staff status or missing user opens it. Settings are read at call
-    time so ``override_settings`` applies in tests.
+    Admission is the ``feature-flag-rules-v2-writes`` flag for the project alone: no request
+    field, serializer context flag, staff status or missing user opens it.
 
     ``max_config_bytes`` is the deployment filter-size limit the v1 write path and the Rust
     reader both enforce. ``max_metadata_bytes`` is pilot scope: its default is sized for the
     known pilot documents and is revisited at the shared-project gate, before users author
     documents through the editor or broader API use.
     """
-    if team_id not in settings.FEATURE_FLAG_RULES_V2_TEAM_IDS:
+    if not _flag_enabled(V2_WRITES_FLAG, team_id):
         return None
     return ValidationLimits(
         max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES,
@@ -59,11 +80,11 @@ def v2_write_limits(team_id: int) -> ValidationLimits | None:
 
 
 def v2_creation_enabled(team_id: int) -> bool:
-    """Whether ``team_id`` may create a new v2 flag: admitted and ``FEATURE_FLAG_RULES_V2_CREATION_ENABLED``.
+    """Whether ``team_id`` may create a new v2 flag: both the writes and the creation flag are on.
 
-    Closing the creation switch leaves existing rows updatable and enableable in admitted teams.
+    Turning the creation flag off leaves existing rows updatable and enableable in admitted projects.
     """
-    return bool(settings.FEATURE_FLAG_RULES_V2_CREATION_ENABLED) and team_id in settings.FEATURE_FLAG_RULES_V2_TEAM_IDS
+    return _flag_enabled(V2_CREATION_FLAG, team_id) and _flag_enabled(V2_WRITES_FLAG, team_id)
 
 
 def reject_duplicate_json_keys(body: bytes) -> None:

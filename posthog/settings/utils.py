@@ -78,22 +78,3 @@ def get_set(text: str) -> set[str]:
     if not text:
         return set()
     return {item.strip() for item in text.split(",")}
-
-
-def parse_team_ids(raw: str) -> set[int]:
-    """Team ids from a comma-separated env value, ignoring blanks and non-numeric entries.
-
-    Deliberately lenient: this runs at settings import, so raising here takes down every process
-    — web, worker, migrations — over an optional capability. A trailing comma is the most common
-    way to write this env var wrong, and losing the feature beats losing the deployment. The
-    conversion itself decides what counts as numeric, because a shape test that accepts what
-    `int()` then rejects — `--1`, or a value longer than the interpreter's digit limit — brings
-    back the crash it was meant to prevent.
-    """
-    team_ids: set[int] = set()
-    for team_id in get_set(raw):
-        try:
-            team_ids.add(int(team_id))
-        except ValueError:
-            continue
-    return team_ids

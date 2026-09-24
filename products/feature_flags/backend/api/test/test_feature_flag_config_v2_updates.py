@@ -1,8 +1,8 @@
 """Config version 2 update path: full-document replacement, identity, concurrency and admission.
 
-Both writer settings default closed, so the closed-path tests run with production settings and
-the admitted ones override the project allowlist. Create, enable, disable and archive are covered
-in test_feature_flag_config_v2_lifecycle. These flags are invented test rows.
+Both writer flags are off in tests, so the closed-path tests run as production does and the
+admitted ones stub the flag client for one project. Create, enable, disable and soft delete are
+covered in test_feature_flag_config_v2_lifecycle. These flags are invented test rows.
 """
 
 import copy
@@ -28,7 +28,10 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-from products.feature_flags.backend.facade import api as flag_facade
+from products.feature_flags.backend.facade import (
+    api as flag_facade,
+    config_writes,
+)
 from products.feature_flags.backend.models import FeatureFlag
 
 RULE_A = "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90"
@@ -38,9 +41,13 @@ UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
 def admit_v2(team_id: int, *, creation: bool = False):
-    return override_settings(
-        FEATURE_FLAG_RULES_V2_TEAM_IDS=frozenset({team_id}), FEATURE_FLAG_RULES_V2_CREATION_ENABLED=creation
-    )
+    """Turn the writer flags on for one project the way the local flag client would answer."""
+    enabled = {config_writes.V2_WRITES_FLAG} | ({config_writes.V2_CREATION_FLAG} if creation else set())
+
+    def evaluate(key: str, distinct_id: str, **kwargs: Any) -> bool:
+        return key in enabled and kwargs.get("groups", {}).get("project") == str(team_id)
+
+    return patch("posthoganalytics.feature_enabled", side_effect=evaluate)
 
 
 def targeted(rule_id: str | None = RULE_A, **extra: Any) -> dict:

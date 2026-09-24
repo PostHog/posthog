@@ -1,5 +1,5 @@
 """Disabling and soft-deleting a stored v2 row are the pilot's incident controls, so they must
-work with both writer settings closed; creating and enabling need the project allowlisted.
+work with both writer flags off; creating and enabling need the project's flags on.
 """
 
 from django.conf import settings

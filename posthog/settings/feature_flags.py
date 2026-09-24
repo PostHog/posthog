@@ -4,7 +4,7 @@ from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import get_from_env, get_list, get_set, parse_team_ids, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
@@ -172,16 +172,9 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     type_cast=int,  # 512KB
 )
 
-# Config version 2 writer policy, default closed: the projects whose flags may be created,
-# updated and enabled with config version 2, and whether they may create new ones. Disabling
-# and archiving an existing row never depend on either. See docs/internal/feature-flags/api-writes.md.
-FEATURE_FLAG_RULES_V2_TEAM_IDS: frozenset[int] = frozenset(
-    parse_team_ids(os.getenv("FEATURE_FLAG_RULES_V2_TEAM_IDS", ""))
-)
-FEATURE_FLAG_RULES_V2_CREATION_ENABLED: bool = get_from_env(
-    "FEATURE_FLAG_RULES_V2_CREATION_ENABLED", False, type_cast=str_to_bool
-)
-# Pilot-scope bound for one rule's opaque metadata object; revisited at the shared-project gate.
+# Config version 2 writes are admitted per project by internal feature flags (see
+# products/feature_flags/backend/facade/config_writes.py). This bounds one rule's opaque
+# metadata object in an admitted write; pilot scope, revisited at the shared-project gate.
 FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES: int = get_from_env(
     "FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES", 2048, type_cast=int
 )
