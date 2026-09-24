@@ -615,7 +615,7 @@ class TestGitHubPRWebhook(TestCase):
         )
         payload = {"action": action, "pull_request": {"html_url": pr_url, "merged": merged}}
 
-        with patch("products.tasks.backend.facade.tasks.dispatch_loop_pr_notification_task.delay") as mock_delay:
+        with patch("products.tasks.backend.tasks.tasks.dispatch_loop_pr_notification_task.delay") as mock_delay:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._make_webhook_request(payload)
 

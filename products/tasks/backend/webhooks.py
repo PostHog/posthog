@@ -552,7 +552,7 @@ def _notify_loop_on_pr_event(task_run: TaskRun, event: str, pr_url: str) -> None
 
     def _enqueue() -> None:
         try:
-            from products.tasks.backend.facade.tasks import (  # noqa: PLC0415 — keeps the Celery task module off the webhook import path
+            from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the Celery task module off the webhook import path
                 dispatch_loop_pr_notification_task,
             )
 

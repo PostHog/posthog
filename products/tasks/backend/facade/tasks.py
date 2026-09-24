@@ -26,16 +26,6 @@ def dispatch_loop_run_terminal_notification_task(loop_id: str, team_id: int, eve
     dispatch_loop_run_terminal_notification(loop_id, team_id, event, payload)
 
 
-# No retries: the run records the event before it goes out, so a retry finds it and sends nothing.
-@shared_task(ignore_result=True)
-def dispatch_loop_pr_notification_task(run_id: str, event: str, pr_url: str) -> None:
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the celery import path)
-        dispatch_loop_pr_notification,
-    )
-
-    dispatch_loop_pr_notification(run_id, event, pr_url)
-
-
 @shared_task(ignore_result=True)
 def refresh_stale_sandbox_custom_images_task() -> None:
     from products.tasks.backend.logic.services.custom_image_refresh import (  # noqa: PLC0415
