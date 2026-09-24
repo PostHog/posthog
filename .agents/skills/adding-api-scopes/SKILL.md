@@ -35,7 +35,7 @@ The groups make a long list readable, so a person can find a product quickly.
 - A group is a product area that a person recognizes, such as "Session replay" or "Feature flags, experiments & surveys". It is not a code module or a team.
 - Put the object in the existing group that a person would look in first.
 - Add a new group only when it gets two or more objects. A group with one object makes the list longer, not easier to read.
-- Internal and OAuth-hidden objects go in "Internal tools".
+- Internal and OAuth-hidden objects go in "Internal tools". The pickers do not show these objects, so a person never sees this group. Do not put a public object there, because it would show under the "Internal tools" label.
 
 If `API_SCOPE_GROUPS` does not exist yet, skip this step.
 
