@@ -1676,6 +1676,15 @@ describe('exec tool', () => {
             expect(message.includes(redirectHint)).toBe(kept)
         })
 
+        // A generic unknown-command reply reads as "the tool does not exist".
+        it('routes a tool name typed as a command to the call form', async () => {
+            const exec = createExec([makeMockTool({ name: 'docs-search' })])
+
+            await expect(exec.handler(mockContext, { command: 'docs-search {"query":"funnels"}' })).rejects.toThrow(
+                /"docs-search" is a tool, not a command[\s\S]*call docs-search/
+            )
+        })
+
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
@@ -1807,6 +1816,9 @@ describe('exec tool', () => {
             // A removed tool is still one of our own names, so the redirect it
             // triggers stays diagnosable.
             ['call query-run {}', 'call', 'query-run'],
+            // Recording the tool separates a dropped `call` prefix from a genuine typo.
+            ['execute-sql {"query":"select 1"}', 'unrecognized', 'execute-sql'],
+            ['frobnicate now', 'unrecognized', undefined],
             // Verb present, target absent: nothing to record for the tool, but the
             // verb still is.
             ['info', 'info', undefined],

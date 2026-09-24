@@ -196,6 +196,8 @@ describe('InstructionsFormatter', () => {
             expect(result.indexOf('### PostHog knowledge sources')).toBeLessThan(
                 result.indexOf('Using the `posthog` tool')
             )
+            // The mandate leads the description, ahead of the grammar it depends on.
+            expect(result).toContain('`call docs-search <json_input>`')
         })
 
         it('omits knowledge guidance when only business knowledge search is available', () => {
@@ -214,9 +216,7 @@ describe('InstructionsFormatter', () => {
             })
 
             expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
-            expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
-                result.indexOf('`docs-search`')
-            )
+            expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(result.indexOf('docs-search'))
             expect(result.length).toBeLessThanOrEqual(2048)
         })
     })

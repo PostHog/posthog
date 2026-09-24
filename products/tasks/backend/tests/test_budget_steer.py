@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
+import fakeredis
 from parameterized import parameterized
 
 from posthog.ph_client import get_client
@@ -31,12 +32,24 @@ class TestBudgetSteerCapture(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (None, "2026-01-01T23:59:59+00:00"),
-            ("2026-01-01T23:59:58.000Z", "2026-01-01T23:59:58+00:00"),
+            ((6, 2), None, "2026-01-01T23:59:59+00:00"),
+            ((6, 2), "2026-01-01T23:59:58.000Z", "2026-01-01T23:59:58+00:00"),
+            ((7, 4), None, "2026-01-01T23:59:59+00:00"),
+            ((7, 4), "2026-01-01T23:59:58.000Z", "2026-01-01T23:59:58+00:00"),
         ]
     )
-    def test_replays_preserve_timestamp_across_midnight(self, event_timestamp: str | None, expected: str) -> None:
-        with patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as dispatch:
+    def test_replays_preserve_timestamp_across_midnight(
+        self, redis_version: tuple[int, int], event_timestamp: str | None, expected: str
+    ) -> None:
+        # The shared fake client speaks the newest command set, which hides commands older servers reject.
+        redis = fakeredis.FakeRedis(server=fakeredis.FakeServer(version=redis_version))
+        with (
+            patch(
+                "products.tasks.backend.logic.stream.budget_steer.get_tasks_stream_redis_sync",
+                return_value=redis,
+            ),
+            patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as dispatch,
+        ):
             with time_machine.travel("2026-01-01T23:59:59Z", tick=False):
                 BudgetSteerCapture.enqueue(1, self.run_id, 7, self.properties, event_timestamp)
             with time_machine.travel("2026-01-02T00:00:01Z", tick=False):
