@@ -1472,12 +1472,20 @@ class CDCExtractActivity:
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
+        # The re-seeding snapshot starts after this run, so it covers every change this run read.
+        # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
+        if self.batcher is not None:
+            self.batcher.discard(schema.name)
+        # Purged before the marker is set, because the hand-over keeps every file of a marked schema.
+        # On a buffered source a stale file can outlive the run and be replayed, so a failed purge
+        # fails the run while the slot still holds the TRUNCATE, and the next run repeats the reset.
+        purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema), strict=self._source_buffered)
         removes = ["cdc_last_log_position"]
         if clear_deferred_runs:
             removes.append("cdc_deferred_runs")
         updates: dict[str, typing.Any] = {"cdc_mode": "snapshot", "reset_pipeline": True}
-        # The rest of this run keeps writing the table's changes to the buffer, which the purge below
-        # leaves as an unbroken run from here, so the next snapshot stays in the buffer with them.
+        # Later runs write the table's changes to the emptied buffer as an unbroken run, so the next
+        # snapshot stays in the buffer with them.
         if schema.name in self._buffered_table_names and (
             snapshot_in_buffer(schema) or self._buffered_snapshot_enabled()
         ):
@@ -1491,18 +1499,6 @@ class CDCExtractActivity:
             updates=updates,
             removes=removes,
             extra_model_fields={"initial_sync_complete": False},
-        )
-        # The re-seeding snapshot starts after this run, so it covers every change this run read.
-        # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
-        if self.batcher is not None:
-            self.batcher.discard(schema.name)
-        purge_buffer_prefix(
-            schema.team_id,
-            str(schema.id),
-            self._schema_log(schema),
-            # On a buffered source a stale file can outlive the run and be replayed, so a failed purge
-            # fails the run while the slot still holds the TRUNCATE.
-            strict=self._source_buffered,
         )
         if clear_deferred_runs:
             self._emit_deferred_runs_depth()

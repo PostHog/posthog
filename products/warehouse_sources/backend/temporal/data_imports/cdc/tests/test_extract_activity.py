@@ -3820,6 +3820,26 @@ class TestBufferedIngressCapture:
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert schema.sync_type_config[CDC_SNAPSHOT_LANE_KEY] == "buffer"
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix",
+        side_effect=Exception("s3 down"),
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_failed_purge_after_a_truncate_leaves_the_table_unmarked(self, MockBufferWriter, _mock_purge):
+        # The hand-over keeps every file of a marked schema, so a marker left by a failed purge would
+        # replay the pre-TRUNCATE files over the re-snapshot.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+        captured: dict = {}
+
+        with pytest.raises(Exception, match="s3 down"):
+            self._run(MockBufferWriter, events, [schema], source, capture=captured, truncated=["users"])
+
+        captured["reader_ref"].confirm_position.assert_not_called()
+        assert schema.sync_type_config["cdc_mode"] == "streaming"
+        assert CDC_SNAPSHOT_LANE_KEY not in schema.sync_type_config
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
         # The opposite of the shadow lane's policy: swallowing here would advance the slot past
