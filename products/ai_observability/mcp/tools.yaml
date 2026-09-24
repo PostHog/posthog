@@ -981,10 +981,10 @@ tools:
             are omitted. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full
             prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the
             prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.
-            With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references
-            resolved and `resolved_references` listing the spliced versions; unlabeled listings return raw
-            content with any reference tags intact. Reference resolution is rolling out gradually and returns
-            raw tags when not enabled for the team.
+            With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references resolved and
+            `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference
+            tags intact. Reference resolution is rolling out gradually and returns raw tags when not enabled for the
+            team.
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
