@@ -8,7 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
-import { isBroadcastShaped } from './broadcastsLogic'
+import { canEditInWizard, isBroadcastShaped } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
@@ -45,12 +45,16 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (!broadcast) {
             return <NotFound object="broadcast" />
         }
-        // Any workflow id resolves on this route. A workflow shaped like a broadcast opens here like
-        // one (the wizard edits its steps in place); any other workflow is not a broadcast at all.
-        if (broadcast.origin_product !== 'broadcasts' && !isBroadcastShaped(broadcast.actions as any)) {
+        // Any workflow id resolves on this route. An unowned workflow shaped like a broadcast opens here
+        // like one, matching the list; a workflow another product owns, or any other shape, does not.
+        const isBroadcast = broadcast.origin_product === 'broadcasts'
+        if (!isBroadcast && (broadcast.origin_product || !isBroadcastShaped(broadcast.actions as any))) {
             return <NotFound object="broadcast" />
         }
-        if (broadcast.status !== 'draft') {
+        if (
+            broadcast.status !== 'draft' ||
+            (!isBroadcast && !canEditInWizard(broadcast.actions as any, broadcast.edges as any))
+        ) {
             return <BroadcastSummary />
         }
     }

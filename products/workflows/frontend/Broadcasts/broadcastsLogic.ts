@@ -40,6 +40,35 @@ export function isBroadcastShaped(
     )
 }
 
+const DEFAULT_RECIPIENT = '{{ person.properties.email }}'
+
+type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
+type FlowEdge = { from?: string; to?: string }
+
+/**
+ * Whether the broadcast wizard can edit a broadcast-shaped workflow without misdescribing it. The
+ * wizard only models a person audience sent to each person's own email along trigger, email, exit;
+ * anything else opens as the read-only summary instead.
+ */
+export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
+    const steps = actions ?? []
+    const trigger = steps.find((step) => step.type === 'trigger')
+    const email = steps.find((step) => step.type === 'function_email')
+    const exit = steps.find((step) => step.type === 'exit')
+    if (!trigger || !email || !exit) {
+        return false
+    }
+    const recipient = email.config?.inputs?.email?.value?.to?.email
+    const connected = (from?: string, to?: string): boolean =>
+        (edges ?? []).some((edge) => edge.from === from && edge.to === to)
+    return (
+        trigger.config?.filters?.audience_type !== 'accounts' &&
+        (!recipient || recipient === DEFAULT_RECIPIENT) &&
+        connected(trigger.id, email.id) &&
+        connected(email.id, exit.id)
+    )
+}
+
 export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
     return flow.origin_product !== 'broadcasts'
 }
