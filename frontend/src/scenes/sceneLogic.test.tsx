@@ -1,8 +1,9 @@
 import { MOCK_USER_UUID } from 'lib/api.mock'
 
-import { kea, path } from 'kea'
+import { afterMount, kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -29,6 +30,13 @@ const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
+const failingLogic = kea<testLogicType>([
+    path(['scenes', 'sceneLogic', 'testFailingLogic']),
+    afterMount(() => {
+        throw new Error('scene logic mount failed')
+    }),
+])
+
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.Billing]: sceneImport,
@@ -38,6 +46,8 @@ const testScenes: Record<string, () => any> = {
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
+    [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
+    [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
 }
 
 describe('sceneLogic', () => {
@@ -65,6 +75,38 @@ describe('sceneLogic', () => {
                 (obj: Record<string, any>) =>
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
+        })
+    })
+
+    // A dashboard tile link to a scene that never mounts used to leave the address bar on the new
+    // scene with the old one still rendered, and emitted nothing error tracking could count.
+    describe('a scene that fails to load', () => {
+        let captureSpy: jest.SpyInstance
+        let captureExceptionSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+            captureExceptionSpy.mockRestore()
+        })
+
+        it.each([
+            ['its code cannot be imported', () => urls.surveys(), 'import'],
+            ['its logic throws while mounting', () => urls.cohorts(), 'logic_mount'],
+        ])('shows the load error and reports it when %s', async (_desc, url, stage) => {
+            router.actions.push(url())
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
+            expect(captureExceptionSpy).toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'scene load failed',
+                expect.objectContaining({ stage, scene_id: expect.any(String) })
+            )
         })
     })
 

@@ -173,7 +173,9 @@ export function TrendsLineChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    // `querySource` is what builds the actors query, so the persons modal alone is not enough:
+    // without it the click handler returns early and the tooltip hint promises nothing.
+    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && !!querySource)
     // The persons modal is intentionally unavailable for multi-series formulas (there's no
     // single series of actors behind a computed ratio). On dashboard/card tiles a click
     // instead opens the underlying insight, since there's nowhere else for the click to go.

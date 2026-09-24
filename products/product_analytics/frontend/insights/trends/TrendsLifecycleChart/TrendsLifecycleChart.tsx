@@ -155,7 +155,9 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
     const config = useChartConfig(() => baseConfig, [baseConfig])
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    // `querySource` is what builds the actors query, so the persons modal alone is not enough:
+    // without it the click handler returns early and the tooltip hint promises nothing.
+    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && !!querySource)
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({
