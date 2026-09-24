@@ -521,6 +521,17 @@
             },
             "type": "object"
         },
+        "has_encrypted_payloads": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true."
+        },
         "id": {
             "description": "A unique integer value identifying this feature flag.",
             "type": "number"

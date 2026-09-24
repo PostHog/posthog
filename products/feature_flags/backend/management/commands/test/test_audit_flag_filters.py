@@ -471,7 +471,12 @@ class TestAuditFlagFilters(BaseTest):
         [
             ("inactive", {"payloads": {}}, {"active": False}, "inactive or deleted"),
             ("soft_deleted", {"payloads": {}}, {"deleted": True}, "inactive or deleted"),
-            ("encrypted", {"payloads": {}}, {"has_encrypted_payloads": True}, "encrypted payloads"),
+            (
+                "encrypted",
+                {"payloads": {}},
+                {"is_remote_configuration": True, "has_encrypted_payloads": True},
+                "encrypted payloads",
+            ),
             (
                 "structural_violation",
                 {"groups": [{"properties": [{"key": 1}]}]},
