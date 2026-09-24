@@ -24,6 +24,23 @@ class PropertyMatchingVersion(models.IntegerChoices):
     EXPLICIT = 2, "Explicit"
 
 
+class FlagEvaluationsMode(models.IntegerChoices):
+    """Which table the product reads a team's $feature_flag_called data from, and which tables
+    ingestion writes it to. Ingestion writes both tables in every mode. FLAG_EVALUATIONS_ONLY is
+    reserved for the ingestion change that stops the events writes.
+    """
+
+    # The Usage tab reads the events table. The flag_evaluations HogQL table stays hidden unless
+    # the flag-evaluations-hogql-table flag is on for the organization.
+    EVENTS = 0, "Events"
+    # The Usage tab reads flag_evaluations, and the HogQL table is visible.
+    READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"
+    # As READ_FLAG_EVALUATIONS, and ingestion stops writing $feature_flag_called to events. Ingestion
+    # ignores this mode until the change that implements it deploys. Until then the mode acts as
+    # READ_FLAG_EVALUATIONS. A team already on this mode stops the events writes when that change deploys.
+    FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
+
+
 class TeamFeatureFlagsConfig(models.Model):
     """Internal-only team-level feature flags settings, written by staff and never by customers.
 
@@ -67,6 +84,14 @@ class TeamFeatureFlagsConfig(models.Model):
         blank=True,
         default=None,
         validators=[MinValueValidator(1), MaxValueValidator(MAX_FEATURE_FLAGS_OVERRIDE_CEILING)],
+    )
+
+    # The database default keeps older writers, and raw INSERTs that omit this column, valid during
+    # rolling deploys.
+    flag_evaluations_mode = models.SmallIntegerField(
+        choices=FlagEvaluationsMode,
+        default=FlagEvaluationsMode.EVENTS,
+        db_default=FlagEvaluationsMode.EVENTS,
     )
 
     class Meta:
