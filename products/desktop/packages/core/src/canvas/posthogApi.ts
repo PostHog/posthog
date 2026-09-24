@@ -89,9 +89,10 @@ async function postQuery(
   if (!response.ok) {
     const detail = await response
       .json()
-      .then((error: { detail?: unknown }) =>
-        typeof error.detail === "string" ? error.detail : null,
-      )
+      .then((error: unknown) => {
+        const errorDetail = (error as { detail?: unknown } | null)?.detail;
+        return typeof errorDetail === "string" ? errorDetail : null;
+      })
       .catch(() => null);
     throw new Error(detail ?? `Query failed (${response.status})`);
   }
