@@ -71,6 +71,10 @@ When either engine cancels a superseded run, it posts a `cancelled` check for ea
 - Depot: gate check `107582798883` of cancelled workflow `x17bxd5m0z` started and completed at 09:55:14, 54 seconds after the next event and before that event's gate appeared.
 - GitHub Actions: hand-off check `107604825793` of cancelled run `35990511352` started and completed at 11:05:40, after the next event (11:04:23) and 14 seconds before that event's hand-off check.
 
+## Finding one event's Depot run
+
+Check times and `pull_requests` cannot pick out the Depot run of one pull request event, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's own payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate or the migration check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, the GitHub relay job `107655803961` ran with `EVENT_AT: 2026-09-24T13:33:14Z`, and it found that run and relayed its gate.
+
 ## Depot CI CLI recipes
 
 The CLI needs ids that the GitHub API does not carry. Start from a check run's `details_url`, which encodes the workflow id and job id.
