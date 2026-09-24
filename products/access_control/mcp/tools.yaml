@@ -65,11 +65,12 @@ tools:
         description: >
             Sets the level everyone in the project gets for one scope when they have no member rule or role rule of
             their own there. Use it to change the project baseline (`resource: project` with the project id as
-            `resource_id`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object
-            (add `resource_id`), or one person or event property (`resource: property_definition` with the property
-            definition id as `resource_id`, level `none`, `read` or `read_write`). A null `access_level` removes the
-            rule, so the scope falls back to its inherited level. Read access-control-defaults-get first and tell the
-            user the current and the new level before you ask for confirmation. Requires human typed confirmation.
+            `resource_id`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level
+            `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property
+            (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or
+            `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. Read
+            access-control-defaults-get first and tell the user the current and the new level before you ask for
+            confirmation. Requires human typed confirmation.
         agent_note: >
             A member rule or a role rule on the same scope still wins over this default. Verify the result with
             access-control-defaults-get or access-control-members-list.
@@ -85,9 +86,9 @@ tools:
                     The tool names are the keys of `resource_access_levels` on access-control-defaults-get.
             resource_id:
                 description: >
-                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the
-                    object's own get tool), or the property definition id for a property rule. Null only for a rule on a
-                    whole tool.
+                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by
+                    the object's own get tool), or the property definition id for a property rule. Null only for a rule
+                    on a whole tool.
                 default: null
             access_level:
                 description: >
@@ -200,13 +201,13 @@ tools:
         title: Set or clear one member's access rule for a scope
         description: >
             Sets the level one organization member gets for one scope. A member rule applies to that person only and
-            wins over their role rules and the default. The scope is the project (`resource: project` with the project id as
-            `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object
-            (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or
-            `read_write`). A null `access_level` removes the member's rule, so they fall back to their role rules or the
-            default. When several people need the same change, prefer a role rule. Read access-control-members-list with
-            `member_id` first and tell the user the current and the new level before you ask for confirmation. Requires
-            human typed confirmation.
+            wins over their role rules and the default. The scope is the project (`resource: project` with the project
+            id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`,
+            `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource:
+            property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's
+            rule, so they fall back to their role rules or the default. When several people need the same change, prefer
+            a role rule. Read access-control-members-list with `member_id` first and tell the user the current and the
+            new level before you ask for confirmation. Requires human typed confirmation.
         agent_note: >
             Organization admins and owners have full access regardless of rules. Verify the result with
             access-control-members-list and `member_id`.
@@ -225,9 +226,9 @@ tools:
                     The tool names are the keys of `resources` in access-control-members-list.
             resource_id:
                 description: >
-                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the
-                    object's own get tool), or the property definition id for a property rule. Null only for a rule on a
-                    whole tool.
+                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by
+                    the object's own get tool), or the property definition id for a property rule. Null only for a rule
+                    on a whole tool.
                 default: null
             access_level:
                 description: >
@@ -342,12 +343,12 @@ tools:
         title: Set or clear one role's access rule for a scope
         description: >
             Sets the level every member of one role gets for one scope. A role rule wins over the default, and a
-            member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`,
-            level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add
-            `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A
-            null `access_level` removes the role's rule. Role rules are enforced only on plans with role-based access.
-            Read access-control-roles-list with `role_id` first and tell the user the current and the new level before
-            you ask for confirmation. Requires human typed confirmation.
+            member's own rule wins over it. The scope is the project (`resource: project` with the project id as
+            `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`,
+            `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`,
+            level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. Role rules are
+            enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell
+            the user the current and the new level before you ask for confirmation. Requires human typed confirmation.
         agent_note: |
             Who is in the role is on role-members-list. Verify the result with access-control-roles-list and `role_id`.
         param_overrides:
@@ -365,9 +366,9 @@ tools:
                     The tool names are the keys of `resources` in access-control-roles-list.
             resource_id:
                 description: >
-                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the
-                    object's own get tool), or the property definition id for a property rule. Null only for a rule on a
-                    whole tool.
+                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by
+                    the object's own get tool), or the property definition id for a property rule. Null only for a rule
+                    on a whole tool.
                 default: null
             access_level:
                 description: >
