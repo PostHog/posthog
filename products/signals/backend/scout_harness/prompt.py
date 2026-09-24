@@ -450,6 +450,7 @@ _EDIT_EVIDENCE_VS_NOTE = (
 )
 
 _EDIT_REPOSITORY_BULLET = "- **Fix a misrouted report.** If a report points at the wrong codebase, set `repository` to the right `owner/repo` instead of authoring a duplicate that carries the correct one. It replaces the report's target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Pass `NO_REPO` when nothing under version control could change, and omit the field entirely when the target is already right. The response carries `repository`, the target the report holds afterwards — read it back to confirm the correction landed."
+_EDIT_ADDRESSED_BULLET = "- **Mark work already addressed.** If a later check confirms an active report is already handled, use `edit_report(mark_addressed=true, append_note=<verified evidence>)` to record that decision. This blocks new autonomous work but does not resolve the report or close its pull requests. Check each affected path and leave exceptions for human review."
 
 _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbox first
 
@@ -457,7 +458,7 @@ _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbo
 
 {_REPORT_SEARCH_BULLET}
 - **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `scout-edit-report`. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own. One living report beats three near-duplicates fragmenting the inbox. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item: when the match is no longer live, treat the relapse as genuinely new, author a fresh report, and repoint your `report:` pointer at it.
-- **Mark work already addressed.** If a later check confirms an active report is already handled, use `edit_report(mark_addressed=true, append_note=<verified evidence>)` to record that decision. This blocks new autonomous work but does not resolve the report or close its pull requests. Check each affected path and leave exceptions for human review.
+{_EDIT_ADDRESSED_BULLET}
 {_EDIT_REPOSITORY_BULLET}
 - **Author only when it's genuinely new.** A materially new issue, a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_BOTH}"""
 
