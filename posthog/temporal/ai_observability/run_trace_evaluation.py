@@ -53,7 +53,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     payload_budget_bytes,
     should_skip_for_payload,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
@@ -303,7 +303,7 @@ def fetch_trace_for_evaluation(
     return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
 
 
-@dataclass
+@frozen
 class TraceHogTestResult:
     """One trace's outcome from `run_hog_eval_over_recent_traces`, shaped for the editor test
     endpoint and Max's authoring tool rather than for online emission."""
@@ -314,6 +314,8 @@ class TraceHogTestResult:
     error: str | None
     input_preview: str
     output_preview: str
+    score: float | None = None
+    applicable: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -421,6 +423,8 @@ def run_hog_eval_over_recent_traces(
     allows_na: bool,
     window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    output_type: str = "boolean",
+    output_config: dict[str, Any] | None = None,
     user: "User | None" = None,
 ) -> list[TraceHogTestResult]:
     """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
@@ -462,12 +466,16 @@ def run_hog_eval_over_recent_traces(
             continue
 
         globals_dict = build_trace_hog_globals(outcome.trace, sample.trace_id, bytecode=bytecode)
-        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+        result = execute_hog_eval_bytecode(
+            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+        )
         input_preview, output_preview = _trace_io_preview(outcome.trace)
         results.append(
             TraceHogTestResult(
                 trace_id=sample.trace_id,
-                verdict=result["verdict"],
+                verdict=result.get("verdict"),
+                score=result.get("score"),
+                applicable=result.get("applicable"),
                 reasoning=result["reasoning"],
                 error=result["error"],
                 input_preview=input_preview,
@@ -477,26 +485,25 @@ def run_hog_eval_over_recent_traces(
     return results
 
 
-def _build_trace_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
+def _build_trace_skip_result(
+    allows_na: bool, skip_reason: str, *, output_type: str = "boolean"
+) -> EvaluationActivityResult:
     """Mirror of `_build_errored_trace_result` for trace-level skips — no LLM call is made,
     so model/provider are omitted and downstream cost attribution stays clean."""
-    result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": _SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": skip_reason,
-    }
-    if allows_na:
-        result["applicable"] = False
-    return result
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=_SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
+        skip_reason=skip_reason,
+    )
 
 
-def build_trace_system_prompt(prompt: str, allows_na: bool) -> str:
+def build_trace_system_prompt(
+    prompt: str, allows_na: bool, *, output_type: str = "boolean", output_config: dict[str, Any] | None = None
+) -> str:
     """Trace-level variant of `build_system_prompt` — frames the unit under evaluation as the
     whole trace rather than a single generation."""
-    config = get_output_type_config(allows_na)
+    config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     return f"""You are an evaluator. Evaluate the following AI trace — the full sequence of LLM calls and operations from one execution — according to this criteria:
 
 {prompt}
@@ -608,23 +615,27 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     if not prompt:
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
-    if evaluation["output_type"] != "boolean":
+    if evaluation["output_type"] not in ("boolean", "numeric"):
         raise ApplicationError(
-            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean'.",
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric'.",
             non_retryable=True,
         )
 
-    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+    output_type = evaluation.get("output_type", "boolean")
+    output_config = evaluation.get("output_config") or {}
+    allows_na = output_config.get("allows_na", False)
 
     outcome = fetch_trace_for_evaluation(
         inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
     )
     if outcome.skip_reason or outcome.trace is None:
-        return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found")
+        return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found", output_type=output_type)
 
     return call_llm_judge(
         evaluation=evaluation,
-        system_prompt=build_trace_system_prompt(prompt, allows_na),
+        system_prompt=build_trace_system_prompt(
+            prompt, allows_na, output_type=output_type, output_config=output_config
+        ),
         user_prompt=format_trace_for_judge(outcome.trace),
         allows_na=allows_na,
     )
@@ -645,7 +656,9 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     if not bytecode:
         raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
 
-    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+    output_type = evaluation.get("output_type", "boolean")
+    output_config = evaluation.get("output_config") or {}
+    allows_na = output_config.get("allows_na", False)
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
         outcome = fetch_trace_for_evaluation(
@@ -654,12 +667,14 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
         if outcome.skip_reason or outcome.trace is None:
             return None, outcome.skip_reason or "trace_not_found"
         globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id, bytecode=bytecode)
-        return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na), None
+        return execute_hog_eval_bytecode(
+            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+        ), None
 
     result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
 
     if skip_reason or result is None:
-        return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
+        return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found", output_type=output_type)
 
     return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
@@ -792,12 +807,13 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
             disabled_result: WorkflowResult = {
-                "verdict": None,
                 "skipped": True,
                 "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
+            if evaluation.get("output_type") != "numeric":
+                disabled_result["verdict"] = None
             return disabled_result
 
         execute_inputs = ExecuteTraceEvaluationInputs(
@@ -869,13 +885,16 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
             )
 
         workflow_result: WorkflowResult = {
-            "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "verdict" in result:
+            workflow_result["verdict"] = result["verdict"]
+        if "score" in result:
+            workflow_result["score"] = result["score"]
         if result.get("skipped"):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:

@@ -3955,7 +3955,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
 
 class ScoutLimitsSerializer(serializers.Serializer):
-    """A team's enforced scout run caps and current usage.
+    """A team's enforced scout caps and current usage.
 
     These are the values the coordinator actually applies at dispatch (resolved per-team override →
     fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -3975,6 +3975,9 @@ class ScoutLimitsSerializer(serializers.Serializer):
     runs_remaining_today = serializers.IntegerField(
         allow_null=True,
         help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+    max_enabled_scouts = serializers.IntegerField(
+        help_text="Most scouts the project can have switched on at once. Enabling another past this is rejected.",
     )
 
 

@@ -134,6 +134,7 @@ const meta: Meta<typeof TerminalScene> = {
                                 type: 'notebook',
                                 ref: item.short_id,
                                 user_access_level: 'editor',
+                                meta: { content_type: 'text/markdown' },
                             }))
                             .concat(
                                 [...folders].map(([id, path]) => ({
@@ -142,6 +143,7 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: 'folder',
                                     ref: '',
                                     user_access_level: 'editor',
+                                    meta: { content_type: 'inode/directory' },
                                 }))
                             )
                             .concat(
@@ -151,6 +153,9 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: item.type,
                                     ref: item.ref,
                                     user_access_level: 'editor',
+                                    meta: {
+                                        content_type: item.type === 'insight' ? 'application/sql' : 'application/json',
+                                    },
                                 }))
                             ),
                     },
@@ -369,6 +374,7 @@ export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
 }
 
 export const Framebuffer: StoryObj<typeof TerminalScene> = {
+    parameters: { testOptions: { snapshotTargetSelector: 'body' } },
     play: async () => {
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         terminalLogic.actions.setDisplayOpen(true)
