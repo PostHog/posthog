@@ -44,8 +44,8 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
-from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
+from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
     DecisionGatewayError,
