@@ -900,7 +900,7 @@ jobs:
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python manage.py start_temporal_worker --task-queue analytics-platform-task-queue &> /tmp/temporal-worker.log &
-                  # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+                  # WARNING: Worker count is tuned together with the Playwright --workers count in the test step. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
                   # Start the Node.js containers now that the database exists and migrations have run.
                   # plugins: CDP (no mode = default capabilities)
@@ -949,8 +949,8 @@ jobs:
                   # Empty when select-specs was skipped (full-run events) or chose a full run.
                   SELECT_MODE: ${{ needs.select-specs.outputs.mode }}
                   SELECT_SPECS: ${{ needs.select-specs.outputs.spec_files }}
-              # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
-              # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
+              # WARNING: Worker count is tuned together with the Granian --workers count. Talk to #team-devex before changing.
+              # Measurements: "Raise the Playwright worker count" in docs/internal/ci-things-already-tried.md.
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
                   # Time the test step so the telemetry can turn "specs skipped" into
@@ -958,16 +958,17 @@ jobs:
                   # duration; the original exit code is preserved for the quarantine gate.
                   start=$(date +%s)
                   set +e
+                  specs=""
                   if [[ "$SELECT_MODE" == "selected" && -n "$SELECT_SPECS" ]]; then
                       echo "Selective run: $SELECT_SPECS"
-                      # Word-splitting is intentional: SELECT_SPECS is a space-separated list
-                      # of controlled spec paths (from the area map + on-disk globs).
-                      # shellcheck disable=SC2086
-                      pnpm --filter=@posthog/playwright exec playwright test $SELECT_SPECS --workers=6 --update-snapshots
+                      specs=$SELECT_SPECS
                   else
                       echo "Full run (mode='${SELECT_MODE:-<skipped>}')"
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots
                   fi
+                  # Word-splitting is intentional: SELECT_SPECS is a space-separated list
+                  # of controlled spec paths (from the area map + on-disk globs).
+                  # shellcheck disable=SC2086
+                  pnpm --filter=@posthog/playwright exec playwright test $specs --workers=6 --update-snapshots
                   rc=$?
                   echo "test_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
                   exit "$rc"
