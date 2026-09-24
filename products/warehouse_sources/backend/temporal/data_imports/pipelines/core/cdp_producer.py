@@ -370,6 +370,8 @@ class CDPProducer:
                                 emitted_rows.record_on_delivery(event_id, delivery)
                                 row_index += 1
 
+                            emitted_rows.record_settled()
+
                     await kafka_producer.flush()
                     CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="produced").inc()
                     await self.logger.adebug(f"Finished producing file {file_path} to Kafka")

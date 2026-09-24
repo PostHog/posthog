@@ -1262,12 +1262,19 @@ def _producer_with_known_table_name(producer: CDPProducer) -> CDPProducer:
 
 
 async def _produce_staged_rows(
-    producer: CDPProducer, rows: list[dict], *, produce_raises: bool = False, delivery_fails: bool = False
+    producer: CDPProducer,
+    rows: list[dict],
+    *,
+    produce_raises: bool = False,
+    delivery_fails: bool = False,
+    delivery_settles_on_flush: bool = False,
 ) -> list[dict]:
     """Stage `rows` as one chunk, run a whole produce cycle, and return the rows it produced.
 
     With `produce_raises`, the Kafka produce raises on every call. With `delivery_fails`, the produce
-    returns a delivery that Kafka later reports as failed, the way a real produce does.
+    returns a delivery that Kafka later reports as failed, the way a real produce does. With
+    `delivery_settles_on_flush`, Kafka confirms a delivery only when the producer flushes, the way it
+    does for the rows still in flight at the end of a file.
     """
     parquet_buffer = BytesIO()
     pq.write_table(pa.Table.from_pylist(rows), parquet_buffer, compression="zstd")
@@ -1276,19 +1283,27 @@ async def _produce_staged_rows(
     mock_s3_client = MagicMock()
     mock_s3_client._ls = mock.AsyncMock(return_value=[{"Key": "chunk_0.parquet", "type": "file"}])
 
+    in_flight: list[asyncio.Future[None]] = []
+
     def _delivery(**_kwargs: object) -> asyncio.Future[None]:
         delivery: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         if delivery_fails:
             delivery.set_exception(Exception("Message timed out"))
+        elif delivery_settles_on_flush:
+            in_flight.append(delivery)
         else:
             delivery.set_result(None)
         return delivery
+
+    async def _flush() -> None:
+        for delivery in in_flight:
+            delivery.set_result(None)
 
     mock_kafka_producer = MagicMock()
     mock_kafka_producer.produce = mock.AsyncMock(
         side_effect=Exception("Kafka connection failed") if produce_raises else _delivery
     )
-    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock(side_effect=_flush)
     mock_kafka_producer.close = mock.AsyncMock()
 
     mock_fs = MagicMock()
@@ -1367,6 +1382,18 @@ async def test_a_view_row_whose_produce_failed_is_produced_on_the_next_run(failu
     await _produce_staged_rows(_view_producer_for_id(view_id), rows, **failure)
 
     assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == rows
+
+
+@pytest.mark.asyncio
+async def test_a_view_row_confirmed_only_at_flush_is_suppressed_on_the_next_run():
+    # Settled deliveries are recorded between batches to bound memory. A delivery still in flight at
+    # that point must stay held until the flush confirms it, or the row triggers again next run.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}]
+
+    await _produce_staged_rows(_view_producer_for_id(view_id), rows, delivery_settles_on_flush=True)
+
+    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == []
 
 
 @pytest.mark.asyncio

@@ -113,15 +113,28 @@ class EmittedRowStore:
 
         self._pending_deliveries.append((event_id, delivery))
 
+    def record_settled(self) -> None:
+        """Record the held rows whose delivery Kafka confirmed so far, and keep the rest held.
+
+        Call it between the batches of a file. A delivered row's future keeps the row's serialized
+        payload, and one file can hold millions of rows, so holding every future until the file is
+        flushed can run the worker out of memory. A row still in flight stays held for a later call.
+        """
+        in_flight: list[tuple[str, asyncio.Future[Any]]] = []
+        for event_id, delivery in self._pending_deliveries:
+            if not delivery.done():
+                in_flight.append((event_id, delivery))
+            elif not delivery.cancelled() and delivery.exception() is None:
+                self.record_produced(event_id)
+        self._pending_deliveries = in_flight
+
     def record_delivered(self) -> None:
         """Record the held rows whose delivery Kafka confirmed, and drop the rest.
 
         Call it after a file's rows are flushed, or after the file fails. A row with no confirmed
         delivery at that point is not recorded, so the worst case is one more trigger next run.
         """
-        for event_id, delivery in self._pending_deliveries:
-            if delivery.done() and not delivery.cancelled() and delivery.exception() is None:
-                self.record_produced(event_id)
+        self.record_settled()
         self._pending_deliveries.clear()
 
     def record_produced(self, event_id: str) -> None:
