@@ -591,6 +591,85 @@ function buildSpawnWrapper(
   };
 }
 
+const PINNED_GATEWAY_ENV_KEYS = [
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_CUSTOM_HEADERS",
+] as const;
+
+function pinnedSettingsDir(): string {
+  return path.join(
+    process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"),
+    "posthog-session-settings",
+  );
+}
+
+function isPinnedSettingsFile(value: string): boolean {
+  return path.dirname(value) === pinnedSettingsDir();
+}
+
+export function settingsFlagIncludes(options: Options, nonce: string): boolean {
+  const settings = options.extraArgs?.settings;
+  if (typeof settings !== "string") return false;
+  if (!isPinnedSettingsFile(settings)) return settings.includes(nonce);
+  try {
+    return fs.readFileSync(settings, "utf-8").includes(nonce);
+  } catch {
+    return false;
+  }
+}
+
+export function removePinnedSettings(options: Options): void {
+  const file = options.extraArgs?.settings;
+  if (!file || !isPinnedSettingsFile(file)) return;
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    // Best-effort: the next session with this id overwrites it.
+  }
+}
+
+/**
+ * Repeats the gateway env in `--settings`, which outranks a repo's project and
+ * local settings. Written to an owner-only file because argv is readable by
+ * any local user and the base URL carries the proxy's path token.
+ */
+function pinGatewayEnvSettings(options: Options, sessionId: string): boolean {
+  const pins: Record<string, string> = {};
+  for (const key of PINNED_GATEWAY_ENV_KEYS) {
+    const value = options.env?.[key];
+    if (value !== undefined) pins[key] = value;
+  }
+  if (typeof options.settings === "string") return false;
+  let base: Settings = options.settings ?? {};
+  const raw = options.extraArgs?.settings;
+  if (raw) {
+    try {
+      base = { ...(JSON.parse(raw) as Settings), ...base };
+    } catch {
+      return false;
+    }
+  }
+  const merged: Settings = { ...base, env: { ...base.env, ...pins } };
+  const dir = pinnedSettingsDir();
+  const file = path.join(
+    dir,
+    `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`,
+  );
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify(merged), { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+  } catch {
+    return false;
+  }
+  // The SDK drops extraArgs.settings when `settings` is set, so use one channel.
+  delete options.settings;
+  options.extraArgs = { ...options.extraArgs, settings: file };
+  return true;
+}
+
 function ensureLocalSettings(cwd: string): void {
   const claudeDir = path.join(cwd, ".claude");
   const localSettingsPath = path.join(claudeDir, "settings.local.json");
@@ -721,6 +800,20 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       ),
     }),
   };
+
+  if (
+    params.gatewayEnv?.anthropicBaseUrl &&
+    !params.machineAuth &&
+    !pinGatewayEnvSettings(options, params.sessionId)
+  ) {
+    // Without the pin, repo settings could repoint the gateway env.
+    params.logger.warn(
+      "Gateway env is not pinned; skipping project and local settings",
+    );
+    options.settingSources = options.settingSources?.filter(
+      (source) => source !== "project" && source !== "local",
+    );
+  }
 
   if (params.machineAuth?.oauthToken) {
     delete options.pathToClaudeCodeExecutable;

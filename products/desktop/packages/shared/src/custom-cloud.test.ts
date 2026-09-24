@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configureCustomCloud,
   getCustomCloud,
+  isCredentialOriginAllowed,
   isCustomCloudHost,
   normalizeCustomCloud,
 } from "./custom-cloud";
@@ -68,6 +69,15 @@ describe("custom cloud", () => {
       ).toBeNull();
     });
 
+    it("accepts an http IPv6 loopback URL", () => {
+      expect(
+        normalizeCustomCloud({
+          url: "http://[::1]:8000",
+          oauthClientId: "client-id",
+        })?.url,
+      ).toBe("http://[::1]:8000");
+    });
+
     it("refuses a built-in host written with a trailing dot", () => {
       expect(
         normalizeCustomCloud({
@@ -131,5 +141,86 @@ describe("custom cloud", () => {
       vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
       expect(isCustomCloudHost("https://posthog.example.com")).toBe(false);
     });
+  });
+});
+
+describe("isCredentialOriginAllowed", () => {
+  afterEach(() => configureCustomCloud(null));
+
+  it.each([
+    ["https://us.posthog.com/api/users/@me/", "https://us.posthog.com"],
+    [
+      "https://gateway.us.posthog.com/posthog_code/v1/messages",
+      "https://us.posthog.com",
+    ],
+    ["https://mcp.posthog.com/mcp", "https://eu.posthog.com"],
+    ["https://gateway.dev.posthog.dev/x", "https://app.dev.posthog.dev"],
+    ["http://localhost:8787/mcp", "http://localhost:8010"],
+    ["http://[::1]:8787/mcp", "http://localhost:8010"],
+    ["http://localhost:8787/mcp", "http://[::1]:8010"],
+    ["http://posthog.internal:8000/api/x", "http://posthog.internal:8000"],
+  ])("allows %s for %s", (url, apiHost) => {
+    expect(isCredentialOriginAllowed(url, apiHost)).toBe(true);
+  });
+
+  it.each([
+    ["https://evil.example/steal", "https://us.posthog.com"],
+    ["http://us.posthog.com/api", "https://us.posthog.com"],
+    ["http://localhost:8787/mcp", "https://us.posthog.com"],
+    ["https://posthog.com.evil.example/", "https://us.posthog.com"],
+    ["https://evilposthog.com/", "https://us.posthog.com"],
+    ["https://1.2.3.4/", "https://us.posthog.com"],
+    ["https://evilexample.com/", "https://posthog.example.com"],
+    ["https://other.example/", "https://posthog.example.com"],
+    ["https://1.2.3.4/", "https://10.0.0.5"],
+    ["https://evil/", "https://posthog"],
+    ["https://attacker.github.io/", "https://customer.github.io"],
+    ["https://mcp.example.com/mcp", "https://posthog.example.com"],
+    ["https://llm.acme.co.uk/", "https://posthog.acme.co.uk"],
+    ["https://us.posthog.com/api", "https://posthog.example.com"],
+    ["https://mcp.posthog.com/mcp", "https://app.dev.posthog.dev"],
+    ["https://gateway.dev.posthog.dev/x", "https://us.posthog.com"],
+    ["http://[::1]:8787/mcp", "https://us.posthog.com"],
+  ])("refuses %s for %s", (url, apiHost) => {
+    expect(isCredentialOriginAllowed(url, apiHost)).toBe(false);
+  });
+
+  it("allows a root-relative path and refuses a protocol-relative one", () => {
+    expect(
+      isCredentialOriginAllowed("/api/users/@me/", "https://us.posthog.com"),
+    ).toBe(true);
+    expect(
+      isCredentialOriginAllowed("//evil.example/x", "https://us.posthog.com"),
+    ).toBe(false);
+  });
+
+  it.each(["/\\evil.example/x", "/\\/evil.example/x", "/\t/evil.example/x"])(
+    "refuses %j, which the URL parser reads as protocol-relative",
+    (url) => {
+      expect(isCredentialOriginAllowed(url, "https://us.posthog.com")).toBe(
+        false,
+      );
+    },
+  );
+
+  it("allows explicit extra origins and the custom cloud gateway", () => {
+    expect(
+      isCredentialOriginAllowed(
+        "http://127.0.0.1:9000/mcp",
+        "https://us.posthog.com",
+        ["http://127.0.0.1:9000"],
+      ),
+    ).toBe(true);
+    configureCustomCloud({
+      url: "https://posthog.acme.internal",
+      oauthClientId: "id",
+      gatewayUrl: "https://llm.other-domain.io",
+    });
+    expect(
+      isCredentialOriginAllowed(
+        "https://llm.other-domain.io/posthog_code/v1/messages",
+        "https://posthog.acme.internal",
+      ),
+    ).toBe(true);
   });
 });

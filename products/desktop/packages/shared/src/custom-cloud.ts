@@ -45,8 +45,12 @@ function httpUrl(value: string | undefined): string | undefined {
   return `${parsed.protocol}//${canonicalHost(parsed)}`;
 }
 
+// URL.hostname keeps the brackets on an IPv6 literal.
 function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.replace(/\.+$/, "").toLowerCase();
+  const host = hostname
+    .replace(/\.+$/, "")
+    .replace(/^\[(.*)\]$/, "$1")
+    .toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
@@ -104,4 +108,55 @@ export function configureCustomCloud(target: CustomCloud | null): void {
 
 export function getCustomCloud(): CustomCloud | null {
   return configured ?? fromEnv();
+}
+
+const POSTHOG_DOMAINS = ["posthog.com", "posthog.dev"];
+
+function postHogDomain(host: string): string | undefined {
+  return POSTHOG_DOMAINS.find(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  );
+}
+
+function safeUrl(value: string, base?: string): URL | null {
+  try {
+    return new URL(value, base);
+  } catch {
+    return null;
+  }
+}
+
+export function isCredentialOriginAllowed(
+  url: string,
+  apiHost: string,
+  extraOrigins: readonly string[] = [],
+): boolean {
+  // A root-relative path stays on the page's own origin (browser hosts).
+  // Resolved with the fetch's parser, which reads "/\host" as "//host".
+  if (url.startsWith("/")) {
+    const probe = "https://relative.invalid";
+    return safeUrl(url, probe)?.origin === probe;
+  }
+  const target = safeUrl(url);
+  const api = safeUrl(apiHost);
+  if (!target || !api) return false;
+  if (target.origin === api.origin) return true;
+  if (extraOrigins.some((extra) => safeUrl(extra)?.origin === target.origin)) {
+    return true;
+  }
+  const customGateway = getCustomCloud()?.gatewayUrl;
+  if (customGateway && safeUrl(customGateway)?.origin === target.origin) {
+    return true;
+  }
+  const targetHost = target.hostname.replace(/\.+$/, "").toLowerCase();
+  const apiHostname = api.hostname.replace(/\.+$/, "").toLowerCase();
+  if (isLoopbackHost(targetHost)) return isLoopbackHost(apiHostname);
+  // Only PostHog's own domains are trusted by name, and only the API host's
+  // own one, so a prod token never reaches a dev host or the reverse.
+  const domain = postHogDomain(apiHostname);
+  return (
+    target.protocol === "https:" &&
+    domain !== undefined &&
+    postHogDomain(targetHost) === domain
+  );
 }

@@ -56,7 +56,9 @@ describe("McpProxyService", () => {
     it("starts on a loopback port and returns a URL for register()", async () => {
       await service.start();
       const url = service.register("alpha", "https://upstream.example/path");
-      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/alpha$/);
+      expect(url).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}\/alpha$/,
+      );
     });
 
     it("throws from register() before start()", () => {
@@ -68,7 +70,9 @@ describe("McpProxyService", () => {
     it("handles concurrent start() calls without races", async () => {
       await Promise.all([service.start(), service.start(), service.start()]);
       const url = service.register("alpha", "https://upstream.example");
-      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/alpha$/);
+      expect(url).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}\/alpha$/,
+      );
     });
 
     it("stop() closes the server and clears registered targets", async () => {
@@ -82,6 +86,95 @@ describe("McpProxyService", () => {
   });
 
   describe("request forwarding", () => {
+    it.each([
+      [
+        "a wrong secret",
+        (url: string) =>
+          url.replace(/\/[^/]+\/alpha$/, `/${"x".repeat(43)}/alpha`),
+      ],
+      ["no secret", (url: string) => url.replace(/\/[^/]+\/alpha$/, "/alpha")],
+      [
+        "a truncated secret",
+        (url: string) => url.replace(/[A-Za-z0-9_-]\/alpha$/, "/alpha"),
+      ],
+    ])("refuses a request with %s", async (_label, mangle) => {
+      await service.start();
+      const proxyUrl = service.register("alpha", "https://upstream.example");
+
+      const res = await fetch(mangle(proxyUrl));
+
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe("Unknown target");
+      expect(authServiceMock.authenticatedFetch).not.toHaveBeenCalled();
+    });
+
+    it("issues a new secret after a restart", async () => {
+      await service.start();
+      const before = service.register("alpha", "https://upstream.example");
+      await service.stop();
+      await service.start();
+      const after = service.register("alpha", "https://upstream.example");
+
+      expect(new URL(after).pathname).not.toBe(new URL(before).pathname);
+    });
+
+    it("strips hop-by-hop headers in both directions", async () => {
+      authServiceMock.authenticatedFetch.mockResolvedValue(
+        new Response("{}", {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "keep-alive": "timeout=5",
+            "proxy-connection": "keep-alive",
+            upgrade: "h2c",
+            "x-hop": "1",
+            connection: "x-hop",
+            "x-kept": "yes",
+          },
+        }),
+      );
+      await service.start();
+      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { request } = await import("node:http");
+
+      const res = await new Promise<import("node:http").IncomingMessage>(
+        (resolve, reject) => {
+          const req = request(proxyUrl, {
+            headers: {
+              connection: "keep-alive, x-drop",
+              "keep-alive": "timeout=5",
+              "proxy-connection": "keep-alive",
+              te: "trailers",
+              "x-drop": "1",
+              "x-keep": "1",
+            },
+          });
+          req.on("response", resolve);
+          req.on("error", reject);
+          req.end();
+        },
+      );
+      res.resume();
+
+      const init = authServiceMock.authenticatedFetch.mock
+        .calls[0]?.[1] as RequestInit;
+      const sent = Object.keys(init.headers as Record<string, string>);
+      for (const name of [
+        "connection",
+        "keep-alive",
+        "proxy-connection",
+        "te",
+        "x-drop",
+      ]) {
+        expect(sent).not.toContain(name);
+      }
+      expect(sent).toContain("x-keep");
+      for (const name of ["proxy-connection", "upgrade", "x-hop"]) {
+        expect(res.headers[name]).toBeUndefined();
+      }
+      expect(res.headers["x-kept"]).toBe("yes");
+    });
+
     it("returns 404 for unknown targets", async () => {
       await service.start();
       const proxyUrl = service.register("alpha", "https://upstream.example");
@@ -201,11 +294,12 @@ describe("McpProxyService", () => {
 
       await service.start();
       service.register("alpha", "https://upstream.example/inst-2/");
-      const port = new URL(
-        service.register("alpha", "https://upstream.example/inst-2/"),
-      ).port;
+      const proxyUrl = service.register(
+        "alpha",
+        "https://upstream.example/inst-2/",
+      );
 
-      await fetch(`http://127.0.0.1:${port}/alpha/tools/list`);
+      await fetch(`${proxyUrl}/tools/list`);
 
       const [url] = authServiceMock.authenticatedFetch.mock.calls.at(-1) ?? [];
       expect(url).toBe("https://upstream.example/inst-2/tools/list");
