@@ -9,7 +9,7 @@ import { BroadcastWizardLogicProps } from './broadcastWizardLogic'
 /** How many recipients a page holds. A run can reach far more, so further pages load on request. */
 const SENT_ROW_LIMIT = 500
 
-/** Matches MESSAGE_ASSETS_TTL_DAYS: ClickHouse deletes a send this many days after it went out. */
+/** Matches MESSAGE_ASSETS_TTL_DAYS: ClickHouse drops a day's sends at UTC midnight this many days after that day. */
 const SEND_RETENTION_DAYS = 30
 
 interface SendsQuery {
@@ -233,7 +233,8 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
         runPastRetention: [
             (_, p) => [p.runCreatedAt],
             (runCreatedAt: string | null): boolean =>
-                !!runCreatedAt && dayjs().diff(dayjs(runCreatedAt), 'day') >= SEND_RETENTION_DAYS,
+                !!runCreatedAt &&
+                dayjs().isSameOrAfter(dayjs.utc(runCreatedAt).startOf('day').add(SEND_RETENTION_DAYS, 'day')),
         ],
     }),
 ])

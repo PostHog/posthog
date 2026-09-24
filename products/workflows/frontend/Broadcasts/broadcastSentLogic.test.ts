@@ -65,4 +65,24 @@ describe('broadcastSentLogic', () => {
             jest.useRealTimers()
         }
     })
+
+    it.each([
+        ['on the 29th UTC day after the run started', '2026-01-30T23:59:00Z', false],
+        ['from UTC midnight on the 30th day, before 30 full days pass', '2026-01-31T00:00:00Z', true],
+    ])('marks a late-day run as past retention %s', (_, now, expected) => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(now))
+        try {
+            const logic = broadcastSentLogic({
+                id: 'flow-1',
+                parentRunId: 'run-1',
+                runCreatedAt: '2026-01-01T23:00:00Z',
+            })
+            logic.mount()
+
+            expect(logic.values.runPastRetention).toBe(expected)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })
