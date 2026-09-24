@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
@@ -11,7 +11,13 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { BroadcastStatus, broadcastsLogic, getBroadcastStatus, isEligibleWorkflow } from './broadcastsLogic'
+import {
+    BROADCASTS_PAGE_SIZE,
+    BroadcastStatus,
+    broadcastsLogic,
+    getBroadcastStatus,
+    isEligibleWorkflow,
+} from './broadcastsLogic'
 
 const STATUS_CONFIG: Record<BroadcastStatus, { label: string; type: LemonTagType }> = {
     draft: { label: 'Draft', type: 'default' },
@@ -31,7 +37,8 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 ]
 
 export function BroadcastsTable(): JSX.Element {
-    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById } = useValues(broadcastsLogic)
+    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, page } = useValues(broadcastsLogic)
+    const { setPage } = useActions(broadcastsLogic)
 
     const columns: LemonTableColumns<HogFlowMinimalApi> = [
         {
@@ -103,6 +110,14 @@ export function BroadcastsTable(): JSX.Element {
     return (
         <LemonTable
             dataSource={broadcasts.results}
+            pagination={{
+                controlled: true,
+                pageSize: BROADCASTS_PAGE_SIZE,
+                currentPage: page,
+                entryCount: broadcasts.count,
+                onForward: broadcasts.next ? () => setPage(page + 1) : undefined,
+                onBackward: page > 1 ? () => setPage(page - 1) : undefined,
+            }}
             loading={broadcastsLoading}
             rowKey="id"
             columns={columns}
