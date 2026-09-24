@@ -113,7 +113,7 @@ class TestConversationQueueStore(BaseTest):
         self.assertEqual(len(self.store.list()), 2)
 
     async def test_a_new_run_reopens_the_drain(self):
-        await self.store.close_drain_async()
+        await self.store.clear_and_close_async()
         await self.store.open_drain_async()
 
         message = build_queue_message(content="hello")

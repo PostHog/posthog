@@ -96,7 +96,7 @@ import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
-import { AttachedContext, MaxUIContext } from './maxTypes'
+import { AskMaxOptions, AttachedContext, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
 import { canCreateSupportTicket, isTicketCommand } from './ticketUtils'
@@ -262,11 +262,11 @@ export interface maxThreadLogicActions {
         prompt: string | null,
         addToThread?: boolean | undefined,
         uiContext?: Partial<MaxUIContext> | undefined,
-        skipQueue?: boolean | undefined
+        options?: AskMaxOptions | undefined
     ) => {
         addToThread: boolean
+        options: AskMaxOptions
         prompt: string | null
-        skipQueue: boolean
         uiContext: Partial<MaxUIContext> | undefined
     } // maxLogic
     decrActiveStreamingThreads: () => {
@@ -1870,14 +1870,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (error: any) {
                 posthog.captureException(error)
                 actions.setQueuedMessages(values.queuedMessages)
-                if (error?.data?.error === 'not_running') {
-                    // The run ended while this message was in flight, so the server refused to
-                    // queue it. Send it as a new turn, bypassing the queue the stale local
-                    // `threadLoading` would otherwise route it back into.
-                    actions.askMax(content, true, undefined, true)
+                // Both queue conflicts answer 409, so each branch checks the error code rather
+                // than relying on the order they are written in.
+                if (error instanceof ApiError && error.status === 409 && error.data?.error === 'not_running') {
+                    // Skip the queue on the retry: the stale local `threadLoading` would
+                    // otherwise route the message straight back into it.
+                    actions.askMax(content, true, uiContext, { skipQueue: true })
                     return
                 }
-                if (error instanceof ApiError && error.status === 409) {
+                if (error instanceof ApiError && error.status === 409 && error.data?.error === 'queue_full') {
                     lemonToast.error('You can only queue two messages at a time.')
                     return
                 }
@@ -1972,7 +1973,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext, skipQueue = false }, breakpoint) => {
+        askMax: async ({ prompt, addToThread = true, uiContext, options }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
@@ -2071,7 +2072,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             if (
                 values.queueingEnabled &&
-                !skipQueue &&
+                !options?.skipQueue &&
                 values.threadLoading &&
                 addToThread &&
                 typeof prompt === 'string' &&

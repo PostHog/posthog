@@ -53,8 +53,6 @@ class TestConversationQueue(APIBaseTest):
 
     def test_queue_enqueue_raises_conflict_when_the_run_already_ended(self):
         store = ConversationQueueStore(str(self.conversation.id))
-        # The last drain of the run found the queue empty, so nothing is left to consume a
-        # message sent after it.
         async_to_sync(store.pop_next_or_close_async)()
 
         response = self.client.post(self.queue_url, {"content": "hello"})

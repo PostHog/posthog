@@ -200,7 +200,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAg
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
     queue_store = ConversationQueueStore(str(inputs.conversation_id))
-    # This run drains the queue when it ends, so follow-ups sent mid-turn are accepted again.
+    # The run before this one may have closed the queue on its way out.
     await queue_store.open_drain_async()
     should_stop_queue = False
 
@@ -214,7 +214,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAg
         nonlocal should_stop_queue
         async for event_type, message in runner.astream():
             if event_type == AssistantEventType.APPROVAL:
-                await queue_store.clear_async()
+                await queue_store.clear_and_close_async()
                 should_stop_queue = True
             yield cast(AssistantOutput, (event_type, message))
 
@@ -243,8 +243,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAg
     async def build_queued_workflow_inputs() -> tuple[ChatAgentWorkflowInputs, ConversationQueueMessage] | None:
         conversation = await Conversation.objects.aget(id=inputs.conversation_id)
         if has_pending_approvals(conversation):
-            await queue_store.clear_async()
-            await queue_store.close_drain_async()
+            await queue_store.clear_and_close_async()
             return None
 
         while True:
@@ -331,8 +330,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAg
     await redis_stream.write_to_stream(stream, activity.heartbeat, emit_completion=False)
 
     if should_stop_queue:
-        await queue_store.clear_async()
-        await queue_store.close_drain_async()
+        await queue_store.clear_and_close_async()
         await redis_stream.mark_complete()
         return result
 
