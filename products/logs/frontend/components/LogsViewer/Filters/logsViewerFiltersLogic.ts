@@ -89,7 +89,11 @@ export function normalizeFilterGroup(filterGroup: unknown): UniversalFiltersGrou
     }
     const values = withoutInvalidEntries(group.values)
     const inner = values[0]
-    if (inner !== undefined && isUniversalGroupFilterLike(inner) && Array.isArray(inner.values)) {
+    if (inner !== undefined && isUniversalGroupFilterLike(inner)) {
+        // A group whose own values are not an array reaches the nested logic, which spreads them.
+        if (!Array.isArray(inner.values)) {
+            return DEFAULT_UNIVERSAL_GROUP_FILTER
+        }
         const innerValues = withoutInvalidEntries(inner.values)
         const trailing = withoutInvalidEntries(values.slice(1))
         if (trailing.length === 0) {
@@ -107,8 +111,9 @@ export function normalizeFilterGroup(filterGroup: unknown): UniversalFiltersGrou
         }
         return DEFAULT_UNIVERSAL_GROUP_FILTER
     }
-    // A one-level group: every entry is a filter, so move them all into the inner group.
-    return { ...group, values: [{ type: FilterLogicalOperator.And, values }] }
+    // A one-level group: every entry is a filter, so move them all into the inner group. The inner
+    // group takes the outer operator, so a group of `a OR b` does not come back matching `a AND b`.
+    return { ...group, values: [{ type: group.type, values }] }
 }
 
 export function innerFilterGroup(filterGroup: UniversalFiltersGroup): UniversalFiltersGroup {

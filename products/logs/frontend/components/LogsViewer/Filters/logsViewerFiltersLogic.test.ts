@@ -147,6 +147,23 @@ describe('logsViewerFiltersLogic', () => {
             ).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
         })
 
+        // Wrapping the filters in an AND group would quietly turn `a OR b` into `a AND b`.
+        it('keeps the outer operator when wrapping a one-level group', () => {
+            expect(normalizeFilterGroup({ type: FilterLogicalOperator.Or, values: [messageFilter] })).toEqual({
+                type: FilterLogicalOperator.Or,
+                values: [{ type: FilterLogicalOperator.Or, values: [messageFilter] }],
+            })
+        })
+
+        it('falls back to the default group for an inner group whose values are not an array', () => {
+            expect(
+                normalizeFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: null }],
+                })
+            ).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
+        })
+
         it('leaves a two-level group as it is', () => {
             const group = {
                 type: FilterLogicalOperator.And,
