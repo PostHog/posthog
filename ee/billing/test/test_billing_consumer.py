@@ -3,9 +3,10 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models import Organization, User
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from ee.billing.billing_response_cache import cache_billing_response, get_cached_billing_response
 from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, BillingConsumer
 
 CONSUMER = "ee.billing.queue.BillingConsumer"
@@ -155,3 +156,24 @@ class TestBillingConsumerBillingActivity(BaseTest):
         # process_message leaves the message for SQS to redeliver instead of dropping the audit.
         with self.assertRaises(Exception):
             self._build_consumer()._process_billing_activity(self._message())
+
+
+class TestBillingConsumerInvalidatesBillingCache(BaseTest):
+    @parameterized.expand(
+        [
+            ("billing_customer_update", "_process_billing_customer_update", {"data": {"customer": {}}}),
+            (
+                "billing_activity",
+                "_process_billing_activity",
+                {"activity": "created", "item_id": "billing", "detail": {"name": "Billing", "changes": []}},
+            ),
+        ]
+    )
+    def test_inbound_billing_message_clears_cached_billing_response(self, _name, handler, body):
+        cache_billing_response(self.organization.id, OrganizationMembership.Level.MEMBER, None, {"customer_id": "c"})
+        with patch("ee.sqs.SQSConsumer.boto3"):
+            consumer = BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
+
+        getattr(consumer, handler)({"organization_id": str(self.organization.id), **body})
+
+        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.MEMBER) is None

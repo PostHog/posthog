@@ -15,6 +15,7 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -28,6 +29,8 @@ import {
     BillingPlanType,
     BillingProductV2AddonType,
     BillingProductV2Type,
+    BillingSummary,
+    BillingSummaryProduct,
     BillingType,
     StartupProgramLabel,
 } from '~/types'
@@ -125,6 +128,32 @@ const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     return data as BillingType
 }
 
+const formatBillingPeriodEnd = (currentPeriodEnd: string | null | undefined): string | undefined =>
+    currentPeriodEnd ? dayjs(currentPeriodEnd).format('YYYY-MM-DD') : undefined
+
+const summarizeBilling = (billing: BillingType): BillingSummary => ({
+    deactivated: !!billing.deactivated,
+    current_period_end: billing.billing_period?.current_period_end?.toISOString() ?? null,
+    trial: billing.trial
+        ? {
+              type: billing.trial.type,
+              status: billing.trial.status,
+              target: billing.trial.target,
+              expires_at: billing.trial.expires_at,
+          }
+        : null,
+    account_owner: billing.account_owner
+        ? { name: billing.account_owner.name ?? null, email: billing.account_owner.email ?? null }
+        : null,
+    products: (billing.products ?? []).map((product) => ({
+        type: product.type,
+        name: product.name,
+        usage_key: product.usage_key ?? null,
+        percentage_usage: product.percentage_usage ?? 0,
+        subscribed: product.subscribed ?? null,
+    })),
+})
+
 const storeBillingAlertDismissal = (
     organizationId: string | undefined,
     productType: string,
@@ -212,6 +241,7 @@ export interface billingLogicValues {
     billingLoading: boolean
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
+    billingSummary: BillingSummary | null
     canAccessBilling: boolean
     canOnlyViewUsageAndSpend: boolean
     canViewUsageAndSpend: boolean
@@ -298,6 +328,13 @@ export interface billingLogicActions {
     reportProductUnsubscribed: (product: string) => {
         product: string
     } // eventUsageLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     resetUsageLimitApproachingKey: () => {
         value: true
     } // lemonBannerLogic
@@ -479,6 +516,9 @@ export interface billingLogicActions {
     }
     setBillingAlert: (billingAlert: BillingAlertConfig | null) => {
         billingAlert: BillingAlertConfig | null
+    }
+    setBillingSummary: (billingSummary: BillingSummary) => {
+        billingSummary: BillingSummary
     }
     setComputedDiscount: (discount: number) => {
         discount: number
@@ -710,6 +750,7 @@ export const billingLogic = kea<billingLogicType>([
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
+        setBillingSummary: (billingSummary: BillingSummary) => ({ billingSummary }),
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
@@ -728,6 +769,8 @@ export const billingLogic = kea<billingLogicType>([
             ['currentOrganization', 'currentOrganizationId'],
         ],
         actions: [
+            featureFlagLogic,
+            ['setFeatureFlags'],
             userLogic,
             ['loadUser'],
             organizationLogic,
@@ -741,6 +784,13 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     reducers({
+        billingSummary: [
+            null as BillingSummary | null,
+            {
+                setBillingSummary: (_, { billingSummary }) => billingSummary,
+                loadBillingSuccess: (_, { billing }) => (billing ? summarizeBilling(billing) : null),
+            },
+        ],
         billingAlert: [
             null as BillingAlertConfig | null,
             {
@@ -1373,6 +1423,16 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        setBillingSummary: () => {
+            actions.determineBillingAlert()
+        },
+        setFeatureFlags: () => {
+            // A summary from the app context computes its alert at mount, which can be before
+            // posthog-js loads the billing_hide_product_* flags that the alert reads.
+            if (values.billingSummary) {
+                actions.determineBillingAlert()
+            }
+        },
         reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
@@ -1447,12 +1507,12 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            if (!values.billing || !values.preflight?.cloud) {
+            if (!values.billingSummary || !values.preflight?.cloud) {
                 clearBillingAlert()
                 return
             }
 
-            const trial = values.billing.trial
+            const trial = values.billingSummary.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
                 if (trial.type === 'autosubscribe' || trial.status !== 'active') {
                     // Only show for standard ones (managed by sales)
@@ -1467,11 +1527,11 @@ export const billingLogic = kea<billingLogicType>([
                     return
                 }
 
-                const contactEmail = values.billing.account_owner?.email || 'sales@posthog.com'
-                const contactName = values.billing.account_owner?.name || 'sales'
+                const contactEmail = values.billingSummary.account_owner?.email || 'sales@posthog.com'
+                const contactName = values.billingSummary.account_owner?.name || 'sales'
                 const timeRemaining =
                     remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
-                const planName = capitalizeFirstLetter(trial.target)
+                const planName = capitalizeFirstLetter(trial.target ?? '')
                 actions.setBillingAlert({
                     kind: 'trial',
                     status: 'info',
@@ -1481,7 +1541,7 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            if (values.billing.deactivated) {
+            if (values.billingSummary.deactivated) {
                 actions.setBillingAlert({
                     kind: 'deactivated',
                     status: 'error',
@@ -1492,10 +1552,10 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            const billingPeriodEnd = values.billing.billing_period?.current_period_end?.format('YYYY-MM-DD')
+            const billingPeriodEnd = formatBillingPeriodEnd(values.billingSummary.current_period_end)
 
             const productsAtOrOverLimit =
-                values.billing.products?.filter((x: BillingProductV2Type) => {
+                values.billingSummary.products.filter((x: BillingSummaryProduct) => {
                     if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key) {
                         return false
                     }
@@ -1526,8 +1586,7 @@ export const billingLogic = kea<billingLogicType>([
                         productsAtOrOverLimit.length === 1 ? (productsAtOrOverLimit[0].type as ProductKey) : undefined,
                     onClose: () => {
                         // Store dismissal for all affected products in localStorage
-                        const billingPeriodEnd =
-                            values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                        const billingPeriodEnd = formatBillingPeriodEnd(values.billingSummary?.current_period_end)
                         for (const product of productsAtOrOverLimit) {
                             storeBillingAlertDismissal(values.currentOrganizationId, product.type, billingPeriodEnd)
                         }
@@ -1540,7 +1599,7 @@ export const billingLogic = kea<billingLogicType>([
             actions.resetUsageLimitExceededKey()
 
             const productsApproachingLimit =
-                values.billing.products?.filter((x: BillingProductV2Type) => {
+                values.billingSummary.products.filter((x: BillingSummaryProduct) => {
                     if (!isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT)) {
                         return false
                     }
@@ -1575,8 +1634,7 @@ export const billingLogic = kea<billingLogicType>([
                             : undefined,
                     onClose: () => {
                         // Store dismissal for all affected products
-                        const billingPeriodEnd =
-                            values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                        const billingPeriodEnd = formatBillingPeriodEnd(values.billingSummary?.current_period_end)
                         for (const product of productsApproachingLimit) {
                             storeBillingAlertDismissal(
                                 values.currentOrganizationId,
@@ -1738,11 +1796,32 @@ export const billingLogic = kea<billingLogicType>([
             },
         }
     }),
-    events(({ actions, values }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             const { location, searchParams, hashParams } = router.values
             const isBillingOverviewRoute =
                 location.pathname.endsWith('/billing') || location.pathname.endsWith('/billing/overview')
+
+            const contextBillingSummary = getAppContext()?.billing_summary
+            if (contextBillingSummary) {
+                actions.setBillingSummary(contextBillingSummary)
+            } else if (values.preflight?.cloud) {
+                // Without a server copy, load billing once the page is idle so billing alerts still
+                // appear. The request also fills the server cache for the next page load.
+                cache.disposables.add(() => {
+                    const run = (): void => {
+                        if (!values.billingSummary && !values.billingLoading) {
+                            actions.loadBilling()
+                        }
+                    }
+                    if (typeof window.requestIdleCallback === 'function') {
+                        const id = window.requestIdleCallback(run, { timeout: 5000 })
+                        return () => window.cancelIdleCallback(id)
+                    }
+                    const id = window.setTimeout(run, 1000)
+                    return () => clearTimeout(id)
+                }, 'billing-summary-fallback')
+            }
 
             if (isBillingOverviewRoute) {
                 if (typeof hashParams.license === 'string') {

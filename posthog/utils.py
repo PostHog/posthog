@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
     from posthog.models import Team, User
+    from posthog.user_permissions import UserPermissions
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -485,6 +486,22 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
+def _get_billing_summary_for_app_context(
+    request: HttpRequest, user: "User", user_permissions: "UserPermissions"
+) -> Optional[dict[str, Any]]:
+    try:
+        from ee.billing.billing_response_cache import get_billing_summary_for_app_context
+    except ImportError:
+        return None
+    try:
+        summary = get_billing_summary_for_app_context(request, user, user_permissions)
+        return dataclasses.asdict(summary) if summary is not None else None
+    except Exception as error:
+        # Billing only seeds the frontend, which fetches it itself when the key is absent.
+        capture_exception(error)
+        return None
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -690,6 +707,11 @@ def _build_template_context(
                 with tracer.start_as_current_span("template.user_home_settings"):
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
+
+                with tracer.start_as_current_span("template.billing_summary"):
+                    billing_summary = _get_billing_summary_for_app_context(request, user, user_permissions)
+                    if billing_summary is not None:
+                        posthog_app_context["billing_summary"] = billing_summary
 
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view).
     # A key absent from this list never reaches `window.POSTHOG_APP_CONTEXT`, so the scene that reads it

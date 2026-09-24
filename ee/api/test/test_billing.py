@@ -50,6 +50,7 @@ from ee.api.billing import (
     _stream_chunks,
 )
 from ee.api.test.base import APILicensedTest
+from ee.billing.billing_response_cache import cache_billing_response, get_cached_billing_response
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
@@ -389,6 +390,7 @@ class TestBillingAPI(APILicensedTest):
         TEST_clear_instance_license_cache()
         response = self.client.get("/api/billing")
         assert response.status_code == status.HTTP_200_OK
+        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.MEMBER) == response.json()
 
         assert response.json() == {
             "customer_id": "cus_123",
@@ -483,6 +485,24 @@ class TestBillingAPI(APILicensedTest):
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
         }
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_billing_without_a_customer_is_not_cached(self, mock_request):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock(status_code=200)
+            if "api/products" in url:
+                mock.json.return_value = create_billing_products_response()
+            else:
+                mock.json.return_value = create_billing_response()
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
+        response = self.client.get("/api/billing")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "customer_id" not in response.json()
+        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.MEMBER) is None
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_doesnt_exist(self, mock_request):
@@ -616,6 +636,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.license.delete()
+        cache_billing_response(self.organization.id, OrganizationMembership.Level.ADMIN, None, {"customer_id": "old"})
 
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {
@@ -636,6 +657,7 @@ class TestBillingAPI(APILicensedTest):
         assert license
         assert license.key == "test::test"
         assert license.plan == "scale"
+        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.ADMIN) is None
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_ignores_invalid_license(self, mock_request):

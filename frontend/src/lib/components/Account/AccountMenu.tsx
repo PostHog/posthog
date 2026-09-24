@@ -143,7 +143,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billing, billingEntryUrl } = useValues(billingLogic)
+    const { billingSummary, billingEntryUrl } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
@@ -270,7 +270,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <DropdownMenuSeparator />
 
-                    {billing?.account_owner?.email && billing?.account_owner?.name && (
+                    {billingSummary?.account_owner?.email && billingSummary?.account_owner?.name && (
                         <>
                             <Label intent="menu" className="px-2 mt-2">
                                 YOUR POSTHOG HUMAN
@@ -280,10 +280,10 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 <ButtonPrimitive
                                     menuItem
                                     onClick={() => {
-                                        void copyToClipboard(billing?.account_owner?.email || '', 'email')
+                                        void copyToClipboard(billingSummary?.account_owner?.email || '', 'email')
                                         reportAccountOwnerClicked({
-                                            name: billing?.account_owner?.name || '',
-                                            email: billing?.account_owner?.email || '',
+                                            name: billingSummary?.account_owner?.name || '',
+                                            email: billingSummary?.account_owner?.email || '',
                                         })
                                     }}
                                     tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
@@ -292,12 +292,12 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 >
                                     <ProfilePicture
                                         user={{
-                                            first_name: billing.account_owner.name,
-                                            email: billing.account_owner.email,
+                                            first_name: billingSummary.account_owner.name,
+                                            email: billingSummary.account_owner.email,
                                         }}
                                         size="xs"
                                     />
-                                    <span className="truncate font-semibold">{billing.account_owner.name}</span>
+                                    <span className="truncate font-semibold">{billingSummary.account_owner.name}</span>
                                     <div className="ml-auto">
                                         <IconCopy />
                                     </div>

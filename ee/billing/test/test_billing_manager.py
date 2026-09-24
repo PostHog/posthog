@@ -3,6 +3,8 @@ import json
 import math
 import hashlib
 import datetime
+import dataclasses
+from collections.abc import Callable
 from email.message import Message
 from types import SimpleNamespace
 from typing import Any, cast
@@ -12,7 +14,9 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import HttpResponse
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 import jwt
 import requests
@@ -23,6 +27,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.utils import get_context_for_template
 
 from products.logs.backend.models import LogsRetentionRule
 
@@ -38,6 +43,12 @@ from ee.billing.billing_manager import (
     _parse_funding_status,
     build_billing_token,
     http_session,
+)
+from ee.billing.billing_response_cache import (
+    cache_billing_response,
+    get_cached_billing_response,
+    invalidate_billing_cache,
+    summarize_billing_response,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
@@ -1866,3 +1877,193 @@ class TestDisputeSignalsPr(BaseTest):
                     self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}
                 )
         assert str(status_code) in str(context.exception)
+
+
+def _billing_mutations() -> list[tuple[str, Callable[[BillingManager, Organization], Any]]]:
+    return [
+        ("update_billing", lambda manager, org: manager.update_billing(org, {"custom_limits_usd": {}})),
+        ("activate_subscription", lambda manager, org: manager.activate_subscription(org, {"products": "all"})),
+        ("deactivate_products", lambda manager, org: manager.deactivate_products(org, "product_analytics")),
+        ("switch_plan", lambda manager, org: manager.switch_plan(org, {"to_plan_key": "paid"})),
+        ("purchase_credits", lambda manager, org: manager.purchase_credits(org, {"annual_credit_amount_usd": 1})),
+        ("activate_trial", lambda manager, org: manager.activate_trial(org, {"target": "teams"})),
+        ("cancel_trial", lambda manager, org: manager.cancel_trial(org, {})),
+        ("authorize", lambda manager, org: manager.authorize(org)),
+        ("authorize_status", lambda manager, org: manager.authorize_status(org, {"payment_intent_id": "pi_1"})),
+        ("deauthorize", lambda manager, org: manager.deauthorize(org, BillingProvider.VERCEL)),
+        ("apply_startup_program", lambda manager, org: manager.apply_startup_program(org, {})),
+        ("claim_coupon", lambda manager, org: manager.claim_coupon(org, {"code": "CODE"})),
+        ("dispute_signals_pr", lambda manager, org: manager.dispute_signals_pr(org, {"refund_id": "r1"})),
+        (
+            "handle_billing_provider_webhook",
+            lambda manager, org: manager.handle_billing_provider_webhook(
+                event_type="marketplace.invoice.paid", event_data={}, organization=org, billing_provider="vercel"
+            ),
+        ),
+    ]
+
+
+@override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
+class TestBillingResponseCache(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        TEST_clear_instance_license_cache()
+        self.cached_response = {
+            "customer_id": "cus_123",
+            "deactivated": False,
+            "billing_period": {
+                "current_period_start": "2026-09-01T00:00:00Z",
+                "current_period_end": "2026-10-01T00:00:00Z",
+            },
+            "products": [],
+        }
+        cache_billing_response(
+            self.organization.id, OrganizationMembership.Level.MEMBER, None, dict(self.cached_response)
+        )
+        cache_billing_response(
+            self.organization.id, OrganizationMembership.Level.OWNER, "false", dict(self.cached_response)
+        )
+
+    def _cached_levels(self) -> list[int]:
+        return [
+            level
+            for level in OrganizationMembership.Level
+            if get_cached_billing_response(self.organization.id, level) is not None
+        ]
+
+    def _request(self) -> Any:
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+        return request
+
+    @parameterized.expand(
+        [(name, call, 200) for name, call in _billing_mutations()]
+        + [("update_billing_failed", _billing_mutations()[0][1], 500)]
+    )
+    @patch("ee.billing.billing_manager.http_session")
+    def test_billing_mutation_clears_cached_billing_response(self, _name, call, status_code, mock_session):
+        response = MagicMock(status_code=status_code, ok=status_code == 200, text="", json=MagicMock(return_value={}))
+        mock_session.post.return_value = response
+        mock_session.patch.return_value = response
+        mock_session.get.return_value = MagicMock(
+            status_code=200, json=MagicMock(return_value={"available_product_features": []})
+        )
+        assert self._cached_levels() == [OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.OWNER]
+
+        if status_code == 200:
+            call(BillingManager(self.license), self.organization)
+        else:
+            with self.assertRaises(Exception):
+                call(BillingManager(self.license), self.organization)
+
+        assert self._cached_levels() == []
+
+    @parameterized.expand(
+        [
+            ("cache_hit", None, True),
+            ("cache_empty", "clear_cache", False),
+            ("pre_v2_license", "pre_v2_license", False),
+            ("no_license", "no_license", False),
+            ("v1_billing", "v1_billing", False),
+            ("outside_verified_domains", "enforce_verified_domains", False),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session")
+    def test_app_context_billing_is_read_from_cache_only(self, _name, setup, expect_billing, mock_session):
+        if setup == "clear_cache":
+            invalidate_billing_cache(self.organization.id)
+        elif setup == "pre_v2_license":
+            self.license.key = "legacy_key"
+            self.license.save()
+            TEST_clear_instance_license_cache()
+        elif setup == "no_license":
+            self.license.delete()
+            TEST_clear_instance_license_cache()
+        elif setup == "enforce_verified_domains":
+            self.organization.enforce_verified_domains = True
+            self.organization.save()
+
+        with patch.object(
+            Organization,
+            "billing",
+            SimpleNamespace(stripe_subscription_id="sub_123" if setup == "v1_billing" else None),
+            create=True,
+        ):
+            context = get_context_for_template("layout", self._request())
+
+        app_context = json.loads(context["posthog_app_context"])
+        expected_summary = {
+            "deactivated": False,
+            "current_period_end": "2026-10-01T00:00:00Z",
+            "trial": None,
+            "account_owner": None,
+            "products": [],
+        }
+        assert app_context.get("billing_summary") == (expected_summary if expect_billing else None)
+        assert "billing" not in app_context
+        assert mock_session.method_calls == []
+
+
+class TestSummarizeBillingResponse(SimpleTestCase):
+    def test_summary_keeps_only_the_fields_every_page_reads(self) -> None:
+        tier = {"flat_amount_usd": "0", "unit_amount_usd": "0.00", "up_to": 1000000, "current_usage": 0}
+        response = {
+            "customer_id": "cus_123",
+            "deactivated": True,
+            "has_active_subscription": True,
+            "current_total_amount_usd": "100.00",
+            "custom_limits_usd": {"product_analytics": 100},
+            "usage_summary": {"events": {"usage": 1000, "limit": 1000}},
+            "billing_period": {
+                "current_period_start": "2026-09-01T00:00:00Z",
+                "current_period_end": "2026-10-01T00:00:00Z",
+                "interval": "month",
+            },
+            "trial": {"type": "standard", "status": "active", "target": "enterprise", "expires_at": "2026-09-30"},
+            "account_owner": {"name": "Ada", "email": "ada@example.com", "phone": "000"},
+            "products": [
+                {
+                    "type": "product_analytics",
+                    "name": "Product analytics",
+                    "usage_key": "events",
+                    "percentage_usage": 1.2,
+                    "subscribed": True,
+                    "description": "Long marketing copy",
+                    "tiers": [tier],
+                    "plans": [{"plan_key": "paid", "features": [{"key": "f"}], "tiers": [tier]}],
+                    "addons": [{"type": "group_analytics", "plans": [], "tiers": [tier]}],
+                },
+                {"type": "platform_and_support", "name": "Platform", "usage_key": None, "percentage_usage": None},
+            ],
+        }
+
+        summary = dataclasses.asdict(summarize_billing_response(response))
+
+        assert summary == {
+            "deactivated": True,
+            "current_period_end": "2026-10-01T00:00:00Z",
+            "trial": {"type": "standard", "status": "active", "target": "enterprise", "expires_at": "2026-09-30"},
+            "account_owner": {"name": "Ada", "email": "ada@example.com"},
+            "products": (
+                {
+                    "type": "product_analytics",
+                    "name": "Product analytics",
+                    "usage_key": "events",
+                    "percentage_usage": 1.2,
+                    "subscribed": True,
+                },
+                {
+                    "type": "platform_and_support",
+                    "name": "Platform",
+                    "usage_key": None,
+                    "percentage_usage": 0.0,
+                    "subscribed": None,
+                },
+            ),
+        }

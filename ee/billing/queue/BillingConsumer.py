@@ -15,6 +15,7 @@ from posthog.utils import sanitize_ip_address
 from products.customer_analytics.backend.facade.api import notify_managers_of_usage_spike
 
 from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_response_cache import invalidate_billing_cache
 from ee.sqs.SQSConsumer import SQSConsumer
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,7 @@ class BillingConsumer(SQSConsumer):
         license = get_cached_instance_license()
         billing_manager = BillingManager(license)
         billing_manager.update_org_details(organization, data)
+        invalidate_billing_cache(organization.id)
 
         logger.info(f"Successfully processed billing customer update for {organization_id}")
 
@@ -204,6 +206,9 @@ class BillingConsumer(SQSConsumer):
                 {"organization_id": organization_id},
             )
             return
+
+        # The message reports a change billing already made, such as a spend limit or a product change.
+        invalidate_billing_cache(organization.id)
 
         distinct_id = body.get("distinct_id")
         # Constrain the actor to a member of this organization: distinct_id is globally

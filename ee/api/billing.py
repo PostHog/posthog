@@ -39,7 +39,8 @@ from posthog.utils import generate_short_id, get_trusted_client_ip, relative_dat
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session
+from ee.billing.billing_manager import BillingManager, http_session, is_customer_billing_response
+from ee.billing.billing_response_cache import cache_billing_response, has_active_v1_billing, invalidate_billing_cache
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_KEYS,
@@ -678,9 +679,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise PermissionDenied(BILLING_ACCESS_DENIED_MESSAGE)
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
-        if hasattr(org, "billing"):
-            if org.billing.stripe_subscription_id:  # type: ignore
-                raise NotFound("Billing V1 is active for this organization")
+        if org and has_active_v1_billing(org):
+            raise NotFound("Billing V1 is active for this organization")
 
         billing_manager = self.get_billing_manager()
         query = {}
@@ -697,6 +697,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             account_url = vercel_integration.config.get("account", {}).get("url", "")
             if account_url:
                 response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
+
+        # Cached after the Vercel link is added, so the app context can serve this response as-is.
+        if org and isinstance(request.user, User) and is_customer_billing_response(response):
+            membership = self.user_permissions.organization_memberships.get(org.id)
+            if membership is not None:
+                cache_billing_response(org.id, membership.level, query.get("include_forecasting"), response)
 
         return Response(response)
 
@@ -1022,6 +1028,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         data = res.json()
         BillingManager(license, ip_address=ip_address).update_license_details(data)
+        invalidate_billing_cache(organization.id)
         return Response({"success": True})
 
     @action(

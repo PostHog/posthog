@@ -5243,6 +5243,30 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+    /** The billing fields every page reads, present only when the server had a cached `api/billing` response. */
+    billing_summary?: BillingSummary
+}
+
+/** Mirrors `BillingSummary` in `ee/billing/billing_response_cache.py`. */
+export interface BillingSummary {
+    deactivated: boolean
+    current_period_end: string | null
+    trial: {
+        type: string | null
+        status: string | null
+        target: string | null
+        expires_at: string | null
+    } | null
+    account_owner: { name: string | null; email: string | null } | null
+    products: BillingSummaryProduct[]
+}
+
+export interface BillingSummaryProduct {
+    type: string
+    name: string
+    usage_key: string | null
+    percentage_usage: number
+    subscribed: boolean | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

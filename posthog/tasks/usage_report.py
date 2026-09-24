@@ -547,6 +547,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         return
 
     from ee.billing.billing_manager import BillingManager, build_billing_token
+    from ee.billing.billing_response_cache import invalidate_billing_cache
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
 
@@ -572,6 +573,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
+        invalidate_billing_cache(organization.id)
 
     except Exception as err:
         logger.exception(

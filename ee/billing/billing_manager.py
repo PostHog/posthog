@@ -34,6 +34,7 @@ from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.access_token import mint_billing_access_token
+from ee.billing.billing_response_cache import invalidate_billing_cache, invalidates_billing_cache
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
@@ -313,6 +314,11 @@ def _parse_funding_status(data: object) -> OrganizationFundingStatus:
     )
 
 
+def is_customer_billing_response(response: dict[str, Any]) -> bool:
+    """Whether `BillingManager.get_billing` built the response from a billing customer, not the default products."""
+    return "stripe_portal_url" in response
+
+
 class BillingManager:
     license: License | None
     user: User | None
@@ -355,6 +361,7 @@ class BillingManager:
             products = self.get_default_products(organization)
             response["products"] = products["products"]
 
+        # is_customer_billing_response relies on only this path setting the portal link.
         response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
 
         usage_summary = response.get("usage_summary") or {}
@@ -387,6 +394,7 @@ class BillingManager:
 
         return response
 
+    @invalidates_billing_cache
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None
     ) -> None:
@@ -485,6 +493,7 @@ class BillingManager:
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
 
+    @invalidates_billing_cache
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/activate",
@@ -496,6 +505,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate",
@@ -928,6 +938,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/credits/purchase",
@@ -939,6 +950,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def dispute_signals_pr(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         """Ask billing to credit back a refunded Signals PR (idempotent on data['refund_id']).
 
@@ -961,6 +973,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/trials/activate",
@@ -974,6 +987,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def cancel_trial(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/trials/cancel",
@@ -985,6 +999,7 @@ class BillingManager:
 
         self.update_available_product_features(organization)
 
+    @invalidates_billing_cache
     def authorize(self, organization: Organization, billing_provider: BillingProvider | None = None):
         """
         Authorize billing for an organization, optionally through a marketplace provider.
@@ -1021,6 +1036,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
@@ -1032,6 +1048,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def deauthorize(self, organization: Organization, billing_provider: BillingProvider) -> dict[str, Any]:
         """
         Deauthorize billing for an organization when a marketplace provider uninstalls.
@@ -1065,6 +1082,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
@@ -1077,6 +1095,7 @@ class BillingManager:
 
         return res.json()
 
+    @invalidates_billing_cache
     def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/startups/apply",
@@ -1087,6 +1106,7 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    @invalidates_billing_cache
     def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
@@ -1265,6 +1285,8 @@ class BillingManager:
             data=body,
             timeout=30,
         )
+        # The provider event (a marketplace plan change, for example) can change what billing returns.
+        invalidate_billing_cache(organization.id)
 
         if not res.ok:
             logger.error(

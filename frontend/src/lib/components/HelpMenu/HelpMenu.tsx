@@ -46,7 +46,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { user } = useValues(userLogic)
     const { isCloudOrDev, preflight } = useValues(preflightLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
-    const { billing } = useValues(billingLogic)
+    const { billingSummary } = useValues(billingLogic)
     const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
         useValues(posthogStatusLogic)
     const { unsnoozedCount, snoozedCount } = useValues(healthSummaryLogic)
@@ -327,7 +327,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     </Menu.SubmenuRoot>
                                 )}
 
-                                {billing?.account_owner?.email && billing?.account_owner?.name && (
+                                {billingSummary?.account_owner?.email && billingSummary?.account_owner?.name && (
                                     <>
                                         <Label intent="menu" className="px-2 mt-4">
                                             YOUR POSTHOG HUMAN
@@ -335,14 +335,17 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         <Menu.Item
                                             onClick={() => {
                                                 // It's dumb rechecking this, but TS needs it because of closures
-                                                if (!billing?.account_owner?.email || !billing?.account_owner?.name) {
+                                                if (
+                                                    !billingSummary?.account_owner?.email ||
+                                                    !billingSummary?.account_owner?.name
+                                                ) {
                                                     return
                                                 }
 
-                                                void copyToClipboard(billing.account_owner.email, 'email')
+                                                void copyToClipboard(billingSummary.account_owner.email, 'email')
                                                 reportAccountOwnerClicked({
-                                                    name: billing.account_owner.name,
-                                                    email: billing.account_owner.email,
+                                                    name: billingSummary.account_owner.name,
+                                                    email: billingSummary.account_owner.email,
                                                 })
                                             }}
                                             render={
@@ -354,13 +357,13 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                 >
                                                     <ProfilePicture
                                                         user={{
-                                                            first_name: billing.account_owner.name,
-                                                            email: billing.account_owner.email,
+                                                            first_name: billingSummary.account_owner.name,
+                                                            email: billingSummary.account_owner.email,
                                                         }}
                                                         size="xs"
                                                     />
                                                     <span className="truncate font-semibold">
-                                                        {billing.account_owner.name}
+                                                        {billingSummary.account_owner.name}
                                                     </span>
                                                     <div className="ml-auto">
                                                         <IconCopy />

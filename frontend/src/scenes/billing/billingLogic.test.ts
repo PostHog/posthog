@@ -16,7 +16,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BillingProductV2Type, BillingType } from '~/types'
+import { AppContext, BillingProductV2Type, BillingSummary, BillingType } from '~/types'
 
 const creditOverviewResponse = {
     eligible: false,
@@ -68,13 +68,18 @@ type BillingAccessCase = {
 
 describe('billingLogic', () => {
     let billingState: BillingType
+    let billingRequestCount: number
 
     beforeEach(() => {
         billingState = billingWithProducts([productWithUsage(0.5)])
+        billingRequestCount = 0
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': () => [200, billingState],
+                '/api/billing': () => {
+                    billingRequestCount += 1
+                    return [200, billingState]
+                },
                 '/api/billing/credits/overview': [200, creditOverviewResponse],
             },
         })
@@ -120,6 +125,73 @@ describe('billingLogic', () => {
             expect(billingLogic.values.scrollToProductKey).toBe(null)
         }
     )
+
+    describe('billing summary from the app context', () => {
+        let previousAppContext: AppContext | undefined
+
+        const mountWithAppContext = (billingSummary?: BillingSummary): void => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...previousAppContext,
+                preflight: { ...preflightJson, cloud: true },
+                billing_summary: billingSummary,
+            } as unknown as AppContext
+            initKeaTests()
+            router.actions.push('/project/997/insights')
+            billingLogic.mount()
+        }
+
+        beforeEach(() => {
+            previousAppContext = window.POSTHOG_APP_CONTEXT
+            billingState = billingWithProducts([productWithUsage(1)])
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+            window.POSTHOG_APP_CONTEXT = previousAppContext
+        })
+
+        it('computes the usage limit alert from the summary without requesting api/billing', async () => {
+            mountWithAppContext({
+                deactivated: false,
+                current_period_end: '2026-10-01T00:00:00Z',
+                trial: null,
+                account_owner: null,
+                products: [
+                    {
+                        type: ProductKey.PRODUCT_ANALYTICS,
+                        name: 'Product analytics',
+                        usage_key: 'events',
+                        percentage_usage: 1,
+                        subscribed: true,
+                    },
+                ],
+            })
+            await expectLogic(billingLogic).toFinishAllListeners()
+
+            expect(billingRequestCount).toBe(0)
+            expect(billingLogic.values.billingAlert).toMatchObject({
+                status: 'error',
+                title: 'Usage limit reached',
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+            })
+        })
+
+        it('loads api/billing once the page is idle when the app context has no summary', async () => {
+            jest.useFakeTimers()
+            mountWithAppContext()
+            expect(billingRequestCount).toBe(0)
+
+            jest.runOnlyPendingTimers()
+            jest.useRealTimers()
+            await expectLogic(billingLogic).toFinishAllListeners()
+
+            expect(billingRequestCount).toBe(1)
+            expect(billingLogic.values.billingAlert).toMatchObject({
+                title: 'Usage limit reached',
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+            })
+        })
+    })
 
     it('treats exactly 100% usage as a reached limit alert', async () => {
         billingState = billingWithProducts([productWithUsage(1)])
