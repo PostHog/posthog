@@ -6,6 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
@@ -17,7 +18,7 @@ RELOAD_PATH = "products.cdp.backend.models.hog_functions.hog_function.reload_hog
 LIVE_HOG = "fetch(inputs.url);"
 EDITED_HOG = "fetch(inputs.url, {'method': 'PUT'});"
 
-BASE_FUNCTION = {
+BASE_FUNCTION: dict[str, Any] = {
     "name": "Webhook",
     "type": "destination",
     "hog": LIVE_HOG,
@@ -324,6 +325,153 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert stored_draft is not None
         assert "token" not in stored_draft["inputs"]
 
+    @parameterized.expand(
+        [
+            ("live_secret_last", False, [False, True]),
+            ("live_secret_first", False, [True, False]),
+            ("draft_secret_last", True, [False, True]),
+            ("draft_secret_first", True, [True, False]),
+            ("enabled_raw_api_secret_last", True, [False, True], False),
+            ("enabled_raw_api_secret_first", True, [True, False], False),
+        ]
+    )
+    def test_duplicate_input_keys_are_rejected(
+        self, _name: str, enabled: bool, secret_flags: list[bool], from_agent: bool = True
+    ) -> None:
+        function_id = self._create(enabled=enabled)
+        function = HogFunction.objects.get(id=function_id)
+        saved_inputs = function.inputs
+        saved_secrets = function.encrypted_inputs
+        revision_count = self._revisions(function_id).count()
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", item_id=function_id)
+        log_count = logs.count()
+
+        payload = {
+            "inputs_schema": [
+                BASE_FUNCTION["inputs_schema"][0],
+                *[{"key": "token", "type": "string", "secret": secret} for secret in secret_flags],
+            ]
+        }
+        response = (
+            self._agent_patch(function_id, payload)
+            if from_agent
+            else self.client.patch(self._url(function_id), payload)
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs_schema"
+        function.refresh_from_db()
+        assert function.inputs == saved_inputs
+        assert function.encrypted_inputs == saved_secrets
+        assert function.draft is None
+        assert self._revisions(function_id).count() == revision_count
+        assert logs.count() == log_count
+        assert all("live-token" not in str(log.detail) for log in logs)
+        response = self.client.get(self._url(function_id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["inputs"]["token"] == {"secret": True}
+        assert "live-token" not in response.content.decode()
+
+    @parameterized.expand([("inputs",), ("mappings",)])
+    def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:
+        function_id = self._create(enabled=False)
+        payload = (
+            {"inputs": {"url": {"value": "https://example.com/private-input"}, "token": {"secret": True}}}
+            if field == "inputs"
+            else {
+                "mappings": [
+                    {
+                        "inputs_schema": [{"key": "message", "type": "string"}],
+                        "inputs": {"message": {"value": "example-private-input"}},
+                    }
+                ]
+            }
+        )
+
+        self._live_edit(function_id, payload)
+
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
+        )
+        changes = [
+            change
+            for log in logs
+            for change in (log.detail["changes"] if log.detail else [])
+            if change["field"] == field
+        ]
+        assert changes
+        assert all(change["after"] == "masked" for change in changes)
+        assert all("private-input" not in str(log.detail) for log in logs)
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_site_function_transpiled_output_is_not_written_to_activity_logs(self, _mock_transpile) -> None:
+        function_id = self._create(
+            type="site_destination",
+            hog="export function onEvent() {}",
+            inputs_schema=[{"key": "url", "type": "string", "label": "Webhook URL", "required": True}],
+            inputs={"url": {"value": "https://example.com/private-input"}},
+        )
+
+        self._live_edit(function_id, {"hog": "export function onEvent() { return 1; }"})
+
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
+        )
+        changed_fields = {change["field"] for log in logs for change in (log.detail["changes"] if log.detail else [])}
+        assert "hog" in changed_fields
+        assert "transpiled" not in changed_fields
+        assert all("private-input" not in str(log.detail) for log in logs)
+
+    @parameterized.expand(
+        [
+            ("live_mask", False, {"secret": True}),
+            ("draft_mask", True, {"secret": True}),
+            ("draft_display_mask", True, {"secret": True, "value": "********"}),
+            ("draft_empty", True, {}),
+            ("draft_new_value", True, {"value": "example-mapping-token"}),
+            ("draft_schema_only", True, None),
+        ]
+    )
+    def test_mapping_secret_inputs_are_rejected(self, _name: str, enabled: bool, input_value: dict | None) -> None:
+        function_id = self._create(enabled=enabled)
+        if enabled:
+            self._stage(
+                function_id,
+                {
+                    "inputs": {
+                        "url": {"value": "https://example.com/live"},
+                        "token": {"value": "example-staged-token"},
+                    }
+                },
+            )
+        function = HogFunction.objects.get(id=function_id)
+        saved_draft = function.draft
+        saved_secrets = function.encrypted_inputs
+        saved_draft_secrets = function.draft_encrypted_inputs
+        revision_count = self._revisions(function_id).count()
+        mapping: dict[str, Any] = {
+            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+        }
+        if input_value is not None:
+            mapping["inputs"] = {"token": input_value}
+
+        response = self._agent_patch(function_id, {"mappings": [mapping]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "mappings__0__inputs_schema"
+        function.refresh_from_db()
+        assert function.mappings is None
+        assert function.draft == saved_draft
+        assert function.encrypted_inputs == saved_secrets
+        assert function.draft_encrypted_inputs == saved_draft_secrets
+        assert self._revisions(function_id).count() == revision_count
+        response = self.client.get(self._url(function_id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["inputs"]["token"] == {"secret": True}
+        for secret in ("live-token", "example-staged-token", "example-mapping-token"):
+            assert secret not in response.content.decode()
+            assert not self._revisions(function_id).filter(content__icontains=secret).exists()
+
     def test_enabling_with_a_draft_open_is_refused_for_coercible_booleans(self):
         function_id = self._create()
         self._stage(function_id, {"hog": EDITED_HOG})
@@ -430,6 +578,45 @@ class TestHogFunctionDrafts(DraftTestCase):
 
 
 class TestHogFunctionRevisions(DraftTestCase):
+    @parameterized.expand([("secret_first", True), ("secret_last", False)])
+    def test_legacy_mapping_secrets_are_masked_on_reads(self, _name: str, secret_first: bool) -> None:
+        function_id = self._create()
+        schemas = [
+            {"key": "credential", "type": "string", "secret": True, "default": "example-private-default"},
+            {"key": "credential", "type": "string", "default": "example-private-default"},
+        ]
+        if not secret_first:
+            schemas.reverse()
+        mappings = [
+            {
+                "name": "Page view",
+                "inputs_schema": schemas,
+                "inputs": {
+                    "credential": {"value": "example-private-value", "bytecode": ["example-private-value"]},
+                    "event_name": {"value": "page_view"},
+                },
+            }
+        ]
+        content = {"inputs_schema": [], "inputs": {}, "mappings": mappings}
+        HogFunction.objects.filter(id=function_id).update(mappings=mappings, draft=content)
+        function = HogFunction.objects.get(id=function_id)
+        self._revisions(function_id).create(team_id=self.team.id, hog_function=function, version=1, content=content)
+
+        for suffix in ("", "/revisions/1"):
+            response = self.client.get(self._url(function_id, suffix))
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert "example-private" not in response.content.decode()
+            data = response.json().get("content", response.json())
+            assert data["mappings"][0]["inputs"]["credential"] == {"secret": True}
+            assert data["mappings"][0]["inputs"]["event_name"] == {"value": "page_view"}
+        response = self.client.get(self._url(), {"full": "true"})
+        assert response.status_code == status.HTTP_200_OK
+        assert "example-private" not in response.content.decode()
+        function.refresh_from_db()
+        assert function.mappings == mappings
+        assert function.draft == content
+        assert self._revisions(function_id).get(version=1).content == content
+
     def test_first_live_config_change_also_snapshots_the_outgoing_config(self):
         function_id = self._create()
 

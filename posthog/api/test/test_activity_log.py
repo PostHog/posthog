@@ -205,6 +205,50 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
 
 class TestActivityLogAuditLogsGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("activity_log/",),
+            ("advanced_activity_logs/",),
+            ("advanced_activity_logs/?is_csv_export=1",),
+            ("advanced_activity_logs/?schema=ocsf&include_values=true",),
+        ]
+    )
+    def test_legacy_destination_values_are_masked(self, endpoint: str) -> None:
+        detail = {
+            "name": "Example destination",
+            "changes": [
+                {
+                    "type": "HogFunction",
+                    "field": field,
+                    "action": "changed",
+                    "before": "example-private-before",
+                    "after": "example-private-after",
+                }
+                for field in ("inputs", "mappings", "draft", "encrypted_inputs", "draft_encrypted_inputs", "transpiled")
+            ]
+            + [
+                {"type": "HogFunction", "field": "name", "action": "changed", "before": "Old name", "after": "New name"}
+            ],
+        }
+        entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFunction",
+            activity="updated",
+            item_id="example-function",
+            detail=detail,
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert str(entry.id) in body
+        assert "example-private" not in body
+        assert "masked" in body
+        assert "New name" in body
+        entry.refresh_from_db()
+        assert entry.detail == detail
+
     @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
     def test_endpoint_blocked_on_cloud_without_audit_logs_feature(self, endpoint: str) -> None:
         self.organization.available_product_features = []

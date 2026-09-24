@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 
@@ -7,6 +8,34 @@ from posthog.cdp.validation import transpile_template_code
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import transpile
+
+
+def exposed_secret_input_keys(hog_function: HogFunction) -> set[str]:
+    """Secret input keys whose value the transpiled JavaScript would carry into a browser.
+
+    The transpiler reads the plaintext `inputs` columns, so a secret is only exposed while its value
+    is still stored in one. `move_secret_inputs` moves a top-level secret into `encrypted_inputs` on
+    every save and never touches a mapping, which is why a mapping secret and a row saved before
+    that split are the ones that reach the browser.
+    """
+    exposed: set[str] = set()
+    configs: list[Any] = [
+        {"inputs_schema": hog_function.inputs_schema, "inputs": hog_function.inputs},
+        *(hog_function.mappings or []),
+    ]
+    for config in configs:
+        if not isinstance(config, dict):
+            continue
+        inputs = config.get("inputs") or {}
+        for schema in config.get("inputs_schema") or []:
+            if not isinstance(schema, dict) or not schema.get("secret") or "key" not in schema:
+                continue
+            value = inputs.get(schema["key"])
+            # A mapping input the caller left out falls back to the schema default below, so a
+            # default carries into the browser the same way a stored value does.
+            if (isinstance(value, dict) and value.get("value") is not None) or schema.get("default") is not None:
+                exposed.add(str(schema["key"]))
+    return exposed
 
 
 def get_transpiled_function(hog_function: HogFunction) -> str:

@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
@@ -32,11 +33,13 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
+    DUPLICATE_INPUT_KEYS_ERROR,
     HogFunctionFiltersSerializer,
-    InputsSchemaItemSerializer,
+    InputsSchemaSerializer,
     InputsSerializer,
     MappingsSerializer,
     compile_hog,
+    duplicate_input_keys,
     generate_template_bytecode,
     masked_secret_input_keys,
     reserved_functions_used,
@@ -148,6 +151,25 @@ def split_content_secrets(content: dict) -> dict:
     }
     content["inputs"] = {key: value for key, value in inputs.items() if key not in secret_keys}
     return {key: value for key, value in inputs.items() if key in secret_keys}
+
+
+def mask_config_secrets(content: dict) -> dict:
+    content = deepcopy(content)
+    for config in [content, *(content.get("mappings") or [])]:
+        if not isinstance(config, dict):
+            continue
+        schemas = config.get("inputs_schema") or []
+        secret_keys = {schema["key"] for schema in schemas if schema.get("secret") and "key" in schema}
+        for schema in schemas:
+            if schema.get("key") in secret_keys:
+                schema.pop("default", None)
+        inputs = config.get("inputs") or {}
+        for key in secret_keys:
+            if key in inputs:
+                inputs[key] = {"secret": True}
+        if secret_keys and "transpiled" in content:
+            content["transpiled"] = None
+    return content
 
 
 def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
@@ -359,9 +381,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         allow_null=True,
         help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.",
     )
-    inputs_schema = serializers.ListField(
-        child=InputsSchemaItemSerializer(required=True),
+    inputs_schema = InputsSchemaSerializer(
         required=False,
+        unique_keys=False,
         help_text="Schema defining the configurable input parameters for this function.",
     )
     inputs = InputsSerializer(required=False, help_text="Values for each input defined in inputs_schema.")
@@ -626,6 +648,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
+        # `to_internal_value` injects the stored schema whenever the request omits it, so the field
+        # itself cannot reject duplicate keys: a row saved before the rule could no longer be
+        # disabled or deleted. Only keys this request adds a duplicate of are rejected.
+        existing = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        stored_duplicates = duplicate_input_keys(existing.inputs_schema if existing else None)
+        if duplicate_input_keys(attrs.get("inputs_schema")) - stored_duplicates:
+            raise serializers.ValidationError({"inputs_schema": DUPLICATE_INPUT_KEYS_ERROR})
+
         if not self.context.get("allow_managed_alert_destination"):
             current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}
             proposed_filters = attrs.get("filters", current_filters)
@@ -768,7 +798,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs"] = inputs
         data["draft"] = self._mask_draft_secrets(data.get("draft"), draft_encrypted_inputs, encrypted_inputs)
 
-        return data
+        return mask_config_secrets(data)
 
     @staticmethod
     def _mask_draft_secrets(
@@ -787,7 +817,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 continue
             if draft_encrypted_inputs.get(key) or encrypted_inputs.get(key) or inputs.get(key):
                 inputs[key] = {"secret": True}
-        return {**draft, "inputs": inputs}
+        return mask_config_secrets({**draft, "inputs": inputs})
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         # An in-process caller has no request to take the acting user from, so it passes
@@ -839,6 +869,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             highest_order = self._get_highest_execution_order(instance.team_id, instance.type)
             validated_data["execution_order"] = highest_order + 1
+
+        # `move_secret_inputs` keeps a stored secret out of the plaintext column by refusing any key
+        # that still has an encrypted value, and the save has no request to tell a replacement the
+        # caller typed from the secret it must not expose, so that value would reach neither column.
+        # Drop the superseded entry here, where the request says which keys carry a real value.
+        supplied = explicit_secret_input_keys(getattr(self, "initial_data", {}).get("inputs"))
+        secret_keys = {schema["key"] for schema in (validated_data.get("inputs_schema") or []) if schema.get("secret")}
+        stored_secrets = instance.encrypted_inputs or {}
+        superseded = (supplied - secret_keys) & stored_secrets.keys()
+        if superseded:
+            instance.encrypted_inputs = {key: value for key, value in stored_secrets.items() if key not in superseded}
 
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
@@ -895,6 +936,11 @@ class HogFunctionRevisionSerializer(HogFunctionRevisionBasicSerializer):
     class Meta(HogFunctionRevisionBasicSerializer.Meta):
         fields = [*HogFunctionRevisionBasicSerializer.Meta.fields, "content"]
         read_only_fields = fields
+
+    def to_representation(self, instance: HogFunctionRevision) -> dict:
+        data = super().to_representation(instance)
+        data["content"] = mask_config_secrets(data["content"])
+        return data
 
 
 class HogFunctionRevisionRestoreRequestSerializer(serializers.Serializer):

@@ -127,6 +127,21 @@ Four registries in `activity_log.py` tune it per scope:
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
 Reading their fail-closed managers can require team context that background writes do not have.
 
+Destination mappings do not support secret inputs.
+Set secrets in the destination's top-level inputs so encryption and masking also apply to drafts and revisions.
+The API rejects mapping schemas that declare secret inputs before it validates their values.
+Input schema keys must be unique, including in mappings and workflow function inputs.
+Destination activity logs record changes to `inputs` and `mappings` without recording their values.
+Changing an input from secret to non-secret does not copy its stored value into plaintext storage.
+An explicit replacement value can be stored as a non-secret input.
+Existing duplicate input keys do not block disabling or deleting a destination, but requests cannot add a duplicate key.
+Activity log reads and exports also mask old destination input, mapping, draft, and compiled JavaScript values.
+Other change details remain available, including the actor, time, field, and action.
+Destination, draft, and revision responses mask secret mapping values from old records, including defaults.
+New browser configuration builds exclude functions with secret input schemas, including mapping schemas.
+Regenerate existing browser configurations after deployment to replace cached JavaScript.
+These read protections do not remove old stored values or revoke exposed credentials.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
