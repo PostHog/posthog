@@ -14,7 +14,6 @@ Other lists are generated from it, and some are kept by hand.
 Most endpoints belong under an existing object.
 Add a new object only for a product surface that a person wants to grant or refuse on its own.
 Use a `snake_case` singular noun.
-If the object is also an access-control resource, use the same name for both.
 
 ## Decide what kind of object it is
 
@@ -23,7 +22,10 @@ If the object is also an access-control resource, use the same name for both.
 - **OAuth-hidden:** a person can paste it into a personal API key, but OAuth clients do not see it. Use this for staff-only or unreleased surfaces. Use `OAUTH_HIDDEN_SCOPE_OBJECTS`.
 - **Privileged:** only PostHog staff can give it to an OAuth app, through Django admin or a data migration. An app that registers itself cannot get it, and the CLI login and the key picker presets never include it. Use this for a scope that a partner app must not grant to itself, such as `llm_gateway`. Use `PRIVILEGED_SCOPES`, and set `unprivilegedExcluded: true` on the picker row.
 
-Also decide if project secret API keys need it (see `/adding-project-secret-api-key-auth`), and if organizations can restrict it with access control (`ACCESS_CONTROL_RESOURCES` in `products/access_control/backend/facade/user_access_control.py`).
+Then decide two more things, separately from the kind:
+
+- **Project secret API keys:** a project secret API key is a project credential with no user, for server-to-server calls. Allow the scope on it only when such a caller needs it. The allowed list is `PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION`, in both `posthog/scopes.py` and `frontend/src/lib/scopes.tsx`. Read `/adding-project-secret-api-key-auth` first.
+- **Access control:** if an organization must be able to restrict the resource per role or per object, add it to `ACCESS_CONTROL_RESOURCES` in `products/access_control/backend/facade/user_access_control.py`. Use the same name for the scope object and the resource.
 
 ## Choose a group
 
