@@ -65,6 +65,12 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 # GitHub secret alert relay URL - set in US deployment to forward alerts to EU
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
+# Fraction of cache-served SQL detector checks that also run the full scan and report
+# whether the two series match (observe-only; 0 disables the comparison).
+ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE: float = get_from_env(
+    "ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE", 0.0, type_cast=float
+)
+
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
 # `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
 # background agents, etc). Used by /api/llm_analytics/personal_spend/.

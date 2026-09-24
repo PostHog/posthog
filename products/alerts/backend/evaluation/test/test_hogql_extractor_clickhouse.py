@@ -4,6 +4,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.schema import HogQLAlertConfig
@@ -191,6 +193,7 @@ NESTED_SQL = """SELECT h AS window_start, greatest(viewers, senders) AS value FR
 ) ORDER BY window_start ASC"""
 FLAG_PATH = "products.alerts.backend.evaluation.detector_history.feature_enabled_or_false"
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
+CAPTURE_PATH = "products.alerts.backend.evaluation.detector_history.ph_background_capture"
 SERIES_SQL = """SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events
     WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
       AND timestamp < toStartOfHour(now()) GROUP BY bucket ORDER BY bucket ASC"""
@@ -312,6 +315,30 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
         narrowed_sql = calculator.call_args_list[-1].kwargs["query_override"]["query"]
         assert "now()" not in narrowed_sql
         assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
+
+    def test_shadow_sampling_reports_the_full_scan_comparison(self) -> None:
+        with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                with (
+                    override_settings(ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE=1.0),
+                    patch(CAPTURE_PATH) as capture,
+                ):
+                    incremental = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+        events = [call.kwargs for call in capture.return_value.call_args_list]
+        outcomes = [e["properties"] for e in events if e["event"] == "alert detector cache outcome"]
+        assert len(outcomes) == 1
+        assert outcomes[0]["outcome"] == "cache_hit"
+        assert outcomes[0]["shadow_compared"] is True
+        assert outcomes[0]["shadow_equal"] is True
+        assert outcomes[0]["shadow_diverging_rows"] == 0
 
     def test_the_second_occurrence_of_a_dst_fold_hour_scans_its_own_buckets(self) -> None:
         self.team.timezone = "Europe/Amsterdam"
