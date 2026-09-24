@@ -95,7 +95,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert run.state["systemPrompt"] == SYS_PROMPT
         assert run.state["initial_permission_mode"] == "auto"
         assert run.state["attached_context"] == [{"type": "dashboard", "id": 123, "name": "Funnel"}]
-        assert "<posthog_context>" in run.state["pending_user_message"]
+        assert "<posthog_untrusted_context>" in run.state["pending_user_message"]
         assert run.state["pending_user_message"].endswith("Why did checkout drop?")
 
         self.conversation.refresh_from_db()
@@ -176,6 +176,22 @@ class TestOpenSandboxMessage(APIBaseTest):
         run.refresh_from_db()
         assert run.state["pending_user_message"] == "Hello"
         assert run.state["attached_context"] == []
+
+    def test_instructions_attachment_reaches_the_trusted_block(self):
+        # A provider that attaches its own guidance must not have the send rejected at the boundary.
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow, sysprompt:
+            self._service().open(
+                {
+                    "content": "Investigate",
+                    "attached_context": [{"type": "instructions", "value": "Prefer the live query."}],
+                }
+            )
+
+        run.refresh_from_db()
+        message = run.state["pending_user_message"]
+        assert "<posthog_trusted_context>\n- Prefer the live query.\n</posthog_trusted_context>" in message
 
     def test_unknown_attached_context_type_raises(self):
         with self.assertRaises(exceptions.ValidationError):

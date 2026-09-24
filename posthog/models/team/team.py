@@ -704,41 +704,6 @@ class Team(UUIDTClassicModel):
         "admin",
     )
 
-    experiment_recalculation_time = field_access_control(
-        models.TimeField(
-            null=True,
-            blank=True,
-            help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
-        ),
-        "project",
-        "admin",
-    )
-
-    default_experiment_confidence_level = field_access_control(
-        models.DecimalField(
-            max_digits=3,
-            decimal_places=2,
-            null=True,
-            blank=True,
-            help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
-        ),
-        "project",
-        "admin",
-    )
-
-    default_experiment_stats_method = field_access_control(
-        models.CharField(
-            max_length=20,
-            choices=Organization.DefaultExperimentStatsMethod,
-            default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
-            help_text="Default statistical method for new experiments in this environment.",
-            null=True,
-            blank=True,
-        ),
-        "project",
-        "admin",
-    )
-
     business_model = field_access_control(
         models.CharField(
             max_length=10,

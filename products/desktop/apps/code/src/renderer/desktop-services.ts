@@ -103,7 +103,10 @@ import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  notificationsPaused,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import {
   type ISpeechKeyStore,
   SPEECH_KEY_STORE,
@@ -326,6 +329,7 @@ container
         completionVolume: s.completionVolume,
         scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
         customSounds: s.customSounds,
+        notificationsPausedUntil: s.notificationsPausedUntil,
       };
     },
   });
@@ -388,7 +392,9 @@ container
     get: () => {
       const s = useSettingsStore.getState();
       return {
-        enabled: s.spokenNotifications,
+        enabled:
+          s.spokenNotifications &&
+          !notificationsPaused(s.notificationsPausedUntil),
         voiceId: s.elevenLabsVoiceId || undefined,
       };
     },

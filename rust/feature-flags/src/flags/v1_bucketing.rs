@@ -1,12 +1,8 @@
-use crate::api::errors::FlagError;
 use crate::flags::flag_models::MultivariateFlagVariant;
 
 /// The hash is a closure because identifier resolution and hashing must stay lazy at 100%:
 /// a flag at full rollout is included even when the identifier cannot be resolved.
-pub fn is_in_rollout(
-    percentage: f64,
-    hash: impl FnOnce() -> Result<f64, FlagError>,
-) -> Result<bool, FlagError> {
+pub fn is_in_rollout<E>(percentage: f64, hash: impl FnOnce() -> Result<f64, E>) -> Result<bool, E> {
     if percentage == 100.0 {
         return Ok(true);
     }
@@ -27,6 +23,7 @@ pub fn select_variant(hash: f64, variants: &[MultivariateFlagVariant]) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::errors::FlagError;
 
     #[test]
     fn full_rollout_bypasses_hash_errors() {
@@ -36,7 +33,7 @@ mod tests {
             is_in_rollout(99.0, hash_error),
             Err(FlagError::HashKeyOverrideError)
         ));
-        assert!(is_in_rollout(100.0, || panic!("must not hash")).unwrap());
+        assert!(is_in_rollout::<FlagError>(100.0, || panic!("must not hash")).unwrap());
     }
 
     #[test]

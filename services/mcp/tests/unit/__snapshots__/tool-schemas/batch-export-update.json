@@ -537,6 +537,17 @@
             ],
             "description": "Destination configuration. Required integration_id is enforced per destination type."
         },
+        "hogql_query": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+        },
         "id": {
             "description": "A UUID string identifying this batch export.",
             "type": "string"
@@ -547,7 +558,7 @@
             "type": "string"
         },
         "model": {
-            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions\n* `hogql` - Hogql",
+            "description": "Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions\n* `hogql` - Hogql",
             "enum": ["events", "persons", "sessions", "hogql"],
             "type": "string"
         },

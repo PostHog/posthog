@@ -40,7 +40,7 @@ export function ContentHeader() {
   if (!content && !showTaskSection) return null;
 
   return (
-    <ChromeBar inset="control">
+    <ChromeBar inset="title">
       {content && (
         <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
           {content}

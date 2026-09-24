@@ -818,6 +818,21 @@ class SentryStatsSummaryRejectedError(Exception):
     """The stats-summary endpoint rejected our request with a non-recoverable 400."""
 
 
+# Sessions (release health) shares the same failure mode as organization_stats_summary: a plan's
+# release-health data retention can be shorter than SENTRY_RETENTION_DAYS, so the clamped window
+# still lands outside it and Sentry 400s. The wording never interpolates the org, URL, or response
+# body.
+SESSIONS_REJECTED_MESSAGE = (
+    "Sentry rejected PostHog's request for your release health data (the sessions table) with an "
+    "HTTP 400. This usually means the requested date range is outside your Sentry plan's session "
+    "data retention. Remove that table from this source's selected tables, then re-enable the sync."
+)
+
+
+class SentrySessionsRejectedError(Exception):
+    """The sessions endpoint rejected our request with a non-recoverable 400."""
+
+
 def _iter_rows_tolerating_unavailable(
     rows: Iterator[dict[str, Any]],
     endpoint: str,
@@ -877,18 +892,35 @@ def _iter_sessions_rows(
 ) -> Iterator[dict[str, Any]]:
     """Release health sessions, flattened to one row per interval per group."""
     window = _retention_window(incremental_value)
-    payload = _fetch_json(
-        base_api_url,
-        _endpoint_path("sessions", organization_slug=organization_slug),
-        headers,
-        {
-            "field": ["sum(session)", "count_unique(user)"],
-            "groupBy": ["project", "release", "environment", "session.status"],
-            "interval": "1d",
-            "start": window.start,
-            "end": window.end,
-        },
-    )
+    try:
+        payload = _fetch_json(
+            base_api_url,
+            _endpoint_path("sessions", organization_slug=organization_slug),
+            headers,
+            {
+                "field": ["sum(session)", "count_unique(user)"],
+                "groupBy": ["project", "release", "environment", "session.status"],
+                "interval": "1d",
+                "start": window.start,
+                "end": window.end,
+            },
+        )
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 400:
+            try:
+                body = response.json()
+            except JSONDecodeError:
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
+            if detail == _NO_PROJECTS_AVAILABLE_DETAIL:
+                logger.warning(
+                    "sentry_source.sessions_no_projects_skipped",
+                    organization_slug=organization_slug,
+                )
+                return
+            raise SentrySessionsRejectedError(SESSIONS_REJECTED_MESSAGE) from exc
+        raise
 
     intervals = payload.get("intervals") or []
     for group in payload.get("groups") or []:

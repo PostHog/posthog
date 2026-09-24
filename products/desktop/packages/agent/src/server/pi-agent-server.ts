@@ -25,6 +25,7 @@ import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-proper
 import type { TaskContext } from "@posthog/shared/task-context";
 import { Hono } from "hono";
 import { z } from "zod/v4";
+import packageJson from "../../package.json" with { type: "json" };
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -184,6 +185,10 @@ export class PiAgentServer {
     this.app = this.createApp();
   }
 
+  private get agentVersion(): string {
+    return this.config.version ?? packageJson.version;
+  }
+
   private createRunTelemetry(
     payload: JwtPayload,
   ): OtelRunTelemetry | undefined {
@@ -306,6 +311,7 @@ export class PiAgentServer {
       .updateTaskRun(this.config.taskId, this.config.runId, {
         status: "failed",
         error_message: `Pi agent server crashed: ${message}`,
+        state: { agent_version: this.agentVersion },
       })
       .catch((updateError) =>
         this.logger.error(
@@ -739,6 +745,7 @@ export class PiAgentServer {
     this.sessionInitMs = Date.now() - startedAt;
     await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
       status: "in_progress",
+      state: { agent_version: this.agentVersion },
     });
     this.broadcast({
       type: "pi_run_started",

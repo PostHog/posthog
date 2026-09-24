@@ -109,10 +109,8 @@ A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not ena
 
 Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
 Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
-The skills-first gate response directs agents to search, load an exact qualified name with `learn posthog:<skill>` or `learn project:<skill>`, then retry the original call.
-Searching alone does not open the gate, and `skill-get` and `skill-list` cannot satisfy it.
-Unknown learning topics and empty search queries return recovery instructions; a failed `learn` does not open the gate.
-If no skill applies, the existing `call --no-skills ...` acknowledgement remains available.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so stateless and session-holding clients behave the same.
+Unknown learning topics and empty search queries return recovery instructions.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
 
@@ -145,6 +143,12 @@ For proxy endpoints that can fail because of either user permissions or request 
 return distinct API-visible error details. Agents should stop on true authorization
 failures, but they can often recover from a bad project/team filter if the response says
 the requested scope is unavailable.
+
+The billing usage/spend proxy also returns recognized field-validation failures as
+standard DRF validation errors (`type`, `code`, `attr`, `detail`). It keeps known
+codes and public request fields, replaces upstream messages with controlled text,
+and masks unrecognized failures. The shared MCP client handles these errors without
+a billing-specific tool wrapper.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
@@ -441,6 +445,13 @@ See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/bl
 and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts) for the Zod validation source.
 
 ## Testing
+
+The `query-llm-trace` and `query-llm-traces-list` wrappers bound the complete response to 80,000 characters for full detail and 60,000 characters for summary detail.
+The limit includes the echoed query, warnings, and serialization of the MCP text content blocks, in either TOON or JSON output.
+Summary previews use a 600-character budget per value.
+These character budgets reduce response size but do not guarantee a token count; client limits and tokenization vary, so clients may still truncate responses or save them to a file.
+Both modes can omit events, and large echoed filters or warnings can also be shortened.
+Omission markers direct the agent to narrow the query or open the complete trace in PostHog.
 
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.

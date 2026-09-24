@@ -46,6 +46,9 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +234,18 @@ class SignupSerializer(serializers.Serializer):
                 turnstile_token=validated_data.get("turnstile_token", ""),
                 challenge_nonce=validated_data.get("challenge_nonce", ""),
             )
+
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=validated_data["email"],
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.SIGNUP,
+                call_site="signup",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="signup")
 
         is_instance_first_user: bool = not User.objects.exists()
 
@@ -578,6 +593,21 @@ class InviteSignupSerializer(serializers.Serializer):
                 "This organization only allows members with a verified email domain. Please use an email address on one of the organization's domains.",
                 code="verified_domain_required",
             )
+
+        # Runs for both branches below: an already signed-in user accepting an invite never hits
+        # the "not user" branch, so this must not live inside it.
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=(user.email if user else invite.target_email) or "",
+                    user_uuid=str(user.uuid) if user else None,
+                    ip=get_trusted_client_ip(getattr(self.context["request"], "_request", self.context["request"])),
+                ),
+                SecuritySurface.SIGNUP,
+                call_site="invite_signup",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="invite_signup")
 
         with transaction.atomic():
             if not user:

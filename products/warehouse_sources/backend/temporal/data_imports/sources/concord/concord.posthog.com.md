@@ -18,7 +18,8 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 e-signatures, contract storage, negotiation, and approvals. This source syncs your agreements,
 folders, clauses, tags, reports, organization members, and audit events into the PostHog data
 warehouse so you can join contract data with your product and revenue data. It also syncs
-per-agreement detail: smart fields, clauses, members, and the activity timeline.
+per-agreement detail: smart fields, clauses, members, metadata, approval and signature state,
+version history, and the activity timeline.
 
 ## Prerequisites
 
@@ -52,8 +53,9 @@ filter for them.
 
 ### Per-agreement tables
 
-The `agreement_activities`, `agreement_clauses`, `agreement_endclauses`, `agreement_fields`, and
-`agreement_members` tables describe one agreement at a time. Concord has no bulk endpoint for them,
+The `agreement_activities`, `agreement_approval`, `agreement_clauses`, `agreement_endclauses`,
+`agreement_fields`, `agreement_members`, `agreement_metadata`, `agreement_signature`, and
+`agreement_versions` tables describe one agreement at a time. Concord has no bulk endpoint for them,
 so syncing one makes a request per agreement on every sync. They are **deselected by default** —
 turn on the ones you need. If an agreement is deleted or your API key can't read it, that agreement
 is skipped and the rest of the table still syncs.

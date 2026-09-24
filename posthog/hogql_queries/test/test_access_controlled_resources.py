@@ -1,4 +1,7 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -19,12 +22,16 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.database import get_data_warehouse_table_name
+from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.system import SystemTables
 
 from posthog.hogql_queries.access_controlled_resources import (
+    _TRANSITIVE_SYSTEM_TABLE_SCOPES,
     _references_data_warehouse,
     queried_access_controlled_resources,
 )
 
+from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -80,6 +87,12 @@ class TestQueriedAccessControlledResources(BaseTest):
             # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
             # rows follow the caller's canvas grants as well as their activity-log access.
             ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
+            ("account_tagged_items", "select * from system._account_tagged_items", {"account"}),
+            ("account_resource_notebooks", "select * from system._account_resource_notebooks", {"account"}),
+            ("ticket_tagged_items", "select * from system._ticket_tagged_items", {"ticket"}),
+            ("ticket_assignments", "select * from system._ticket_assignments", {"ticket"}),
+            ("ticket_assignee_roles", "select * from system._ticket_assignee_roles", {"ticket"}),
+            ("task_public_channels", "select * from system._task_public_channels", {"task"}),
             ("customer_tasks", "select * from system.customer_tasks", {"customer_task", "account"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
@@ -257,12 +270,46 @@ class TestQueriedAccessControlledResources(BaseTest):
         # hit skips that resolution, so the user's table denials must partition the key.
         assert result == {"warehouse_view", "warehouse_table", "external_data_source"}
 
+    @parameterized.expand(
+        [
+            (
+                "system table behind two views",
+                {"notebook_view": "select * from system.notebooks", "outer_view": "select * from notebook_view"},
+                "select * from outer_view",
+                {"warehouse_view", "warehouse_table", "external_data_source", "notebook"},
+            ),
+            (
+                "views that reference each other",
+                {"view_a": "select * from view_b", "view_b": "select * from view_a"},
+                "select * from view_a",
+                {"warehouse_view", "warehouse_table", "external_data_source"},
+            ),
+        ]
+    )
+    def test_view_definitions_are_walked(self, _name, views, sql, expected):
+        for name, definition in views.items():
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
+            )
+        assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
+
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(
             HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks"), self.team
         )
         assert result == {"warehouse_table", "notebook", "external_data_source"}
+
+    def test_bypassed_scope_drops_only_its_own_fallback_parent(self):
+        # The map has a single entry, so a second one is patched in: a principal that bypasses one child's
+        # access control must still partition on the fallback parent of a child it does not bypass.
+        self._create_warehouse_table("my_warehouse_table")
+        query = HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks")
+        with patch.dict(RESOURCE_FALLBACK_MAP, {"notebook": "dashboard"}):
+            result = queried_access_controlled_resources(
+                query, self.team, bypassed_scopes=frozenset({"warehouse_table"})
+            )
+        assert result == {"warehouse_table", "notebook", "dashboard"}
 
     def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(
@@ -298,3 +345,20 @@ class TestQueriedAccessControlledResources(BaseTest):
         # A name that resolves to a warehouse table in a different team must not grant the scope here.
         result = queried_access_controlled_resources(HogQLQuery(query="select * from other_team_table"), self.team)
         assert result == set()
+
+
+class TestHiddenSystemTableCachePartitioning(SimpleTestCase):
+    def test_every_hidden_system_table_partitions_the_cache(self) -> None:
+        unpartitioned = sorted(
+            name
+            for name, node in SystemTables().children.items()
+            if node.hidden
+            and isinstance(node.table, PostgresTable)
+            and node.table.access_scope is None
+            and not _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(f"system.{name}")
+        )
+        assert not unpartitioned, (
+            f"Hidden system tables with no cache partitioning: {unpartitioned}. Declare the "
+            f"`access_scope` the table's rows sit under, or add the scopes its predicates depend "
+            f"on to _TRANSITIVE_SYSTEM_TABLE_SCOPES."
+        )

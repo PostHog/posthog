@@ -611,17 +611,17 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
     build:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py
+        cmd: python -m products.posthog_ai.scripts.build_skills
         description: Build agent skills from products/*/skills/ into dist/skills/ and
             dist/skills.zip
     init:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --init
+        cmd: python -m products.posthog_ai.scripts.build_skills --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
     sync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync
         description: Build a product skill and sync to .agents/skills/ for local testing
     unsync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync --clean
         description: Remove a previously synced skill from .agents/skills/
 docker:
     docker:services:up:
@@ -865,7 +865,7 @@ quality:
         cmd: ./bin/ruff.sh format
         description: Format Python files
     lint:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py --lint
+        cmd: python -m products.posthog_ai.scripts.build_skills --lint
         description: Validate agent skill sources (syntax, frontmatter, depth constraints)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
@@ -898,6 +898,9 @@ quality:
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
+    lint:api-ratchet:
+        click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
+        description: Block new frontend/src/lib/api.ts path methods that a generated client already covers
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
@@ -1037,6 +1040,10 @@ tools:
     tool:granian-metrics:
         bin_script: granian_metrics.py
         description: HTTP server that aggregates Prometheus metrics from Granian workers
+        hidden: true
+    tool:granian-shared-socket:
+        bin_script: granian_shared_socket.py
+        description: Granian launcher that keeps one listen socket shared by all workers
         hidden: true
     sync:storage:
         bin_script: sync-storage
@@ -1214,7 +1221,7 @@ environment:
         hidden: true
     flags:jumphost:
         bin_script: rust-jumphost
-        description: 'Shell into the flags-cache-jumphost pod (namespace follows the environment: flags-cache-jumphost on dev, posthog elsewhere; $KUBE_NAMESPACE overrides)'
+        description: 'Shell into the flags-cache-jumphost pod (namespace flags-cache-jumphost in every environment; $KUBE_NAMESPACE overrides)'
         hidden: true
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables

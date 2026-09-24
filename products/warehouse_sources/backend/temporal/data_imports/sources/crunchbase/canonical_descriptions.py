@@ -97,4 +97,58 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             name="Name of the fund.",
         ),
     },
+    "jobs": {
+        "description": "A role held by a person at an organization in Crunchbase, past or present.",
+        "docs_url": "https://data.crunchbase.com/docs/crunchbase-basic-getting-started",
+        "columns": _columns(
+            person_identifier="The person who holds or held the job.",
+            organization_identifier="The organization the job is at.",
+            title="Job title the person holds or held.",
+            job_type="Seniority category of the job (e.g. executive, board_member, advisor).",
+            is_current="Whether the person still holds the job.",
+            started_on="Date the person started the job.",
+            ended_on="Date the person left the job.",
+            short_description="Brief summary of the job.",
+        ),
+    },
+    "categories": {
+        "description": "An industry category that organizations are tagged with in Crunchbase.",
+        "docs_url": "https://data.crunchbase.com/docs/crunchbase-basic-getting-started",
+        "columns": _columns(
+            name="Name of the category.",
+            category_groups="Category groups the category rolls up into.",
+            naics_code="North American Industry Classification System code for the category.",
+        ),
+    },
+    "category_groups": {
+        "description": "A broad industry grouping that Crunchbase categories roll up into.",
+        "docs_url": "https://data.crunchbase.com/docs/crunchbase-basic-getting-started",
+        "columns": _columns(
+            name="Name of the category group.",
+            categories="Categories that belong to the group.",
+        ),
+    },
+    "locations": {
+        "description": "A place in the Crunchbase location hierarchy, such as a city, region, or country.",
+        "docs_url": "https://data.crunchbase.com/docs/crunchbase-basic-getting-started",
+        "columns": _columns(
+            name="Name of the location.",
+            permalink="Crunchbase permalink of the location.",
+            location_type="Level of the location in the hierarchy (e.g. city, region, country, continent).",
+            country_code="Three-letter country code of the location.",
+            region_code="Region code of the location.",
+            locations="Parent locations that contain this location.",
+        ),
+    },
+    "ownerships": {
+        "description": "A parent/subsidiary relationship between two organizations in Crunchbase.",
+        "docs_url": "https://data.crunchbase.com/docs/crunchbase-basic-getting-started",
+        "columns": _columns(
+            name="Name of the ownership relationship.",
+            owner_identifier="The parent organization in the relationship.",
+            ownee_identifier="The subsidiary organization in the relationship.",
+            ownership_type="Nature of the relationship (e.g. subsidiary, affiliated_company, division).",
+            rank="Crunchbase rank of the ownership relationship.",
+        ),
+    },
 }

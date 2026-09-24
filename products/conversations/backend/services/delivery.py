@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import random
+import hashlib
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, cast
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
-from django.db import transaction
-from django.db.models import Count, Q, QuerySet
+from django.db import IntegrityError, transaction
+from django.db.models import Case, CharField, Count, Q, QuerySet, Value, When
 from django.utils import timezone
 
 import structlog
@@ -26,7 +28,7 @@ from products.conversations.backend.models import (
     ConversationDeliveryPart,
     TeamConversationsSlackConfig,
 )
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from products.conversations.backend.models.delivery import (
     DELIVERY_ERROR_MAX_LENGTH,
     DeliverySnapshotTooLargeError,
@@ -37,6 +39,13 @@ from products.conversations.backend.models.ticket import Ticket
 logger = structlog.get_logger(__name__)
 
 DELIVERY_PART_KEY_BODY = "body"
+DELIVERY_PART_KEY_FALLBACK = "fallback"
+DELIVERY_PART_KEY_IMAGE_PREFIX = "image:"
+DELIVERY_METRIC_PART_KEY_IMAGE = "image"
+DELIVERY_METRIC_PART_KEY_OTHER = "other"
+IMAGE_UPLOAD_STEP_GET = "get_upload"
+IMAGE_UPLOAD_STEP_BYTES = "byte_upload"
+IMAGE_UPLOAD_STEP_COMPLETE = "complete_upload"
 # Covers a crashed worker for one Slack chat.postMessage. The claim transaction
 # releases before the HTTP call, so this is reclaim latency, not a handler wall-clock.
 DELIVERY_LEASE_SECONDS = 5 * 60
@@ -79,6 +88,14 @@ class DeliveryClaim:
 class CommentAuthor:
     name: str
     email: str
+
+
+@frozen
+class SlackFallbackSnapshot:
+    urls: list[str]
+    author_name: str
+    author_email: str
+    route: dict[str, Any]
 
 
 @frozen
@@ -134,6 +151,43 @@ def _image_refs(rich_content: dict[str, Any] | None) -> list[dict[str, str]]:
     return refs
 
 
+def is_slack_image_part_key(part_key: str) -> bool:
+    return part_key.startswith(DELIVERY_PART_KEY_IMAGE_PREFIX) and len(part_key) > len(DELIVERY_PART_KEY_IMAGE_PREFIX)
+
+
+def delivery_metric_part_key(part_key: str) -> str:
+    # Unique image keys must not become Prometheus labels.
+    if part_key == DELIVERY_PART_KEY_BODY or part_key == DELIVERY_PART_KEY_FALLBACK:
+        return part_key
+    if is_slack_image_part_key(part_key):
+        return DELIVERY_METRIC_PART_KEY_IMAGE
+    return DELIVERY_METRIC_PART_KEY_OTHER
+
+
+def _rolls_up_parent(part: ConversationDeliveryPart) -> bool:
+    return part.part_key == DELIVERY_PART_KEY_BODY
+
+
+def slack_image_identity(image_url: str) -> str:
+    parsed = urlparse(image_url)
+    raw_id = parsed.path
+    marker = "/uploaded_media/"
+    if marker in parsed.path:
+        raw_id = parsed.path.rsplit(marker, 1)[-1].strip("/")
+    try:
+        return str(UUID(raw_id))
+    except ValueError:
+        return hashlib.sha256(image_url.encode("utf-8")).hexdigest()[:32]
+
+
+def slack_image_part_key(image_url: str) -> str:
+    return f"{DELIVERY_PART_KEY_IMAGE_PREFIX}{slack_image_identity(image_url)}"
+
+
+def _increment_delivery_attempt(part_key: str, result: str) -> None:
+    DELIVERY_ATTEMPTS_TOTAL.labels(part_key=delivery_metric_part_key(part_key), result=result).inc()
+
+
 def _author_for_comment(comment: Comment, team: Team) -> CommentAuthor:
     created_by = comment.created_by
     if created_by:
@@ -141,7 +195,10 @@ def _author_for_comment(comment: Comment, team: Team) -> CommentAuthor:
         return CommentAuthor(name=name, email=created_by.email or "")
     settings_dict = team.conversations_settings or {}
     bot_name = settings_dict.get("slack_bot_display_name")
-    return CommentAuthor(name=bot_name if isinstance(bot_name, str) and bot_name else "AI assistant", email="")
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    # A workflow reply is not the assistant. Fall back to Support when the team has no bot name.
+    fallback = "Support" if context.get("author_type") == WORKFLOW_AUTHOR_TYPE else "AI assistant"
+    return CommentAuthor(name=bot_name if isinstance(bot_name, str) and bot_name else fallback, email="")
 
 
 def _ticket_belongs_to_comment_team(ticket: Ticket, comment: Comment) -> bool:
@@ -321,20 +378,23 @@ def _fail_part_without_claim(
             "updated_at",
         ]
     )
-    _delivery_row(team_id=row.team_id, delivery_id=row.delivery_id).update(
-        status=ConversationDelivery.Status.FAILED,
-        terminal_at=now,
-        lease_expires_at=None,
-        last_error_code=error_code,
-        last_error=error[:DELIVERY_ERROR_MAX_LENGTH],
-        updated_at=now,
-    )
-    transaction.on_commit(lambda: DELIVERY_ATTEMPTS_TOTAL.labels(part_key=row.part_key, result="failed").inc())
+    if _rolls_up_parent(row):
+        _delivery_row(team_id=row.team_id, delivery_id=row.delivery_id).update(
+            status=ConversationDelivery.Status.FAILED,
+            terminal_at=now,
+            lease_expires_at=None,
+            last_error_code=error_code,
+            last_error=error[:DELIVERY_ERROR_MAX_LENGTH],
+            updated_at=now,
+        )
+    transaction.on_commit(lambda: _increment_delivery_attempt(row.part_key, "failed"))
 
 
 def claim_delivery_part(delivery_part_id: str) -> DeliveryClaim | None:
     now = timezone.now()
     lease_until = now + timedelta(seconds=DELIVERY_LEASE_SECONDS)
+    failed_part: ConversationDeliveryPart | None = None
+    claim: DeliveryClaim | None = None
     with transaction.atomic():
         row = (
             # nosemgrep: idor-lookup-without-team (cross-team worker; ID comes from the committed part dispatch)
@@ -358,28 +418,38 @@ def claim_delivery_part(delivery_part_id: str) -> DeliveryClaim | None:
                 error_code="max_age",
                 error="Exceeded delivery processing age",
             )
-            return None
-        if row.attempts >= DELIVERY_MAX_ATTEMPTS:
+            failed_part = row
+        elif row.attempts >= DELIVERY_MAX_ATTEMPTS:
             _fail_part_without_claim(
                 row,
                 now=now,
                 error_code="max_attempts",
                 error=f"Exceeded {DELIVERY_MAX_ATTEMPTS} processing attempts",
             )
-            return None
-        expired_reclaim = row.status == ConversationDeliveryPart.Status.PROCESSING
-        row.status = ConversationDeliveryPart.Status.PROCESSING
-        row.lease_expires_at = lease_until
-        row.fencing_token += 1
-        row.attempts += 1
-        row.save(update_fields=["status", "lease_expires_at", "fencing_token", "attempts", "updated_at"])
-    DELIVERY_LEASES_TOTAL.labels(result="expired_reclaim" if expired_reclaim else "claimed").inc()
-    DELIVERY_ATTEMPTS_TOTAL.labels(part_key=row.part_key, result="claimed").inc()
-    return DeliveryClaim(
-        part=row,
-        allow_retry=row.attempts < DELIVERY_MAX_ATTEMPTS,
-        expired_reclaim=expired_reclaim,
-    )
+            failed_part = row
+        else:
+            expired_reclaim = row.status == ConversationDeliveryPart.Status.PROCESSING
+            row.status = ConversationDeliveryPart.Status.PROCESSING
+            row.lease_expires_at = lease_until
+            row.fencing_token += 1
+            row.attempts += 1
+            row.save(update_fields=["status", "lease_expires_at", "fencing_token", "attempts", "updated_at"])
+            claim = DeliveryClaim(
+                part=row,
+                allow_retry=row.attempts < DELIVERY_MAX_ATTEMPTS,
+                expired_reclaim=expired_reclaim,
+            )
+    if failed_part is not None:
+        # Enqueue fallback after this transaction releases the claimed row.
+        # maybe_enqueue_slack_fallback locks every image part in part_key order;
+        # doing that while this claim still holds one image row deadlocks a concurrent settler.
+        maybe_enqueue_slack_fallback(failed_part)
+        return None
+    if claim is None:
+        return None
+    DELIVERY_LEASES_TOTAL.labels(result="expired_reclaim" if claim.expired_reclaim else "claimed").inc()
+    _increment_delivery_attempt(claim.part.part_key, "claimed")
+    return claim
 
 
 def _fenced(claim: DeliveryClaim) -> QuerySet[ConversationDeliveryPart]:
@@ -415,24 +485,29 @@ def _roll_up_delivery(
     _delivery_row(team_id=claim.part.team_id, delivery_id=claim.part.delivery_id).update(**fields)
 
 
-def accept_delivery_part(claim: DeliveryClaim, *, provider_message_id: str = "") -> bool:
-    now = timezone.now()
+def _accept_delivery_part_locked(
+    claim: DeliveryClaim,
+    *,
+    now: datetime,
+    provider_message_id: str,
+) -> bool:
     message_id = provider_message_id[:255]
-    # Part and parent must commit together so a crash cannot leave an accepted
-    # body on a pending delivery.
-    with transaction.atomic():
-        updated = _fenced(claim).update(
-            status=ConversationDeliveryPart.Status.ACCEPTED,
-            terminal_at=now,
-            accepted_at=now,
-            lease_expires_at=None,
-            provider_message_id=message_id,
-            last_error_code="",
-            last_error="",
-            updated_at=now,
-        )
-        if not updated:
-            return False
+    updated = _fenced(claim).update(
+        status=ConversationDeliveryPart.Status.ACCEPTED,
+        terminal_at=now,
+        accepted_at=now,
+        lease_expires_at=None,
+        provider_message_id=message_id,
+        last_error_code="",
+        last_error="",
+        updated_at=now,
+    )
+    if not updated:
+        return False
+    if _rolls_up_parent(claim.part):
+        # Body accept and parent roll-up commit together so a crash cannot leave
+        # an accepted body on a pending delivery. Attachment accepts leave the
+        # parent's Slack ts alone.
         _roll_up_delivery(
             claim,
             now=now,
@@ -440,7 +515,16 @@ def accept_delivery_part(claim: DeliveryClaim, *, provider_message_id: str = "")
             provider_message_id=message_id,
             accepted_at=now,
         )
-    DELIVERY_ATTEMPTS_TOTAL.labels(part_key=claim.part.part_key, result="accepted").inc()
+    return True
+
+
+def accept_delivery_part(claim: DeliveryClaim, *, provider_message_id: str = "") -> bool:
+    now = timezone.now()
+    with transaction.atomic():
+        accepted = _accept_delivery_part_locked(claim, now=now, provider_message_id=provider_message_id)
+    if not accepted:
+        return False
+    _increment_delivery_attempt(claim.part.part_key, "accepted")
     return True
 
 
@@ -458,14 +542,15 @@ def fail_delivery_part(claim: DeliveryClaim, *, error_code: str, error: str) -> 
         )
         if not updated:
             return False
-        _roll_up_delivery(
-            claim,
-            now=now,
-            status=ConversationDelivery.Status.FAILED,
-            error_code=error_code,
-            error=bounded_error,
-        )
-    DELIVERY_ATTEMPTS_TOTAL.labels(part_key=claim.part.part_key, result="failed").inc()
+        if _rolls_up_parent(claim.part):
+            _roll_up_delivery(
+                claim,
+                now=now,
+                status=ConversationDelivery.Status.FAILED,
+                error_code=error_code,
+                error=bounded_error,
+            )
+    _increment_delivery_attempt(claim.part.part_key, "failed")
     return True
 
 
@@ -489,8 +574,269 @@ def schedule_delivery_retry(
     )
     if not updated:
         return None
-    DELIVERY_ATTEMPTS_TOTAL.labels(part_key=claim.part.part_key, result="retry").inc()
+    _increment_delivery_attempt(claim.part.part_key, "retry")
     return delay
+
+
+def defer_delivery_part(claim: DeliveryClaim, *, seconds: int, reason: str) -> bool:
+    """Re-arm a claimed part for a wait that is not a failed attempt.
+
+    The claim charged an attempt on the way in. Refund it, because a part that
+    waits on another part must not spend the retry budget that real Slack
+    failures need. DELIVERY_MAX_AGE still bounds the wait.
+    """
+    now = timezone.now()
+    updated = _fenced(claim).update(
+        status=ConversationDeliveryPart.Status.PENDING,
+        due_at=now + timedelta(seconds=seconds),
+        lease_expires_at=None,
+        attempts=max(claim.part.attempts - 1, 0),
+        last_error_code=reason,
+        last_error="",
+        updated_at=now,
+    )
+    if not updated:
+        return False
+    _increment_delivery_attempt(claim.part.part_key, "deferred")
+    return True
+
+
+def persist_delivery_part_payload(claim: DeliveryClaim, payload: dict[str, Any]) -> bool:
+    reject_oversized_delivery_snapshot(payload, field="payload")
+    now = timezone.now()
+    updated = _fenced(claim).update(payload=payload, updated_at=now)
+    if not updated:
+        return False
+    claim.part.payload = payload
+    return True
+
+
+def _enqueue_slack_attachment_parts(body_part: ConversationDeliveryPart) -> list[ConversationDeliveryPart]:
+    payload = body_part.payload if isinstance(body_part.payload, dict) else {}
+    images = payload.get("images")
+    if not isinstance(images, list) or not images:
+        return []
+    route = body_part.route if isinstance(body_part.route, dict) else None
+    if route is None:
+        return []
+    media_team_id = payload.get("media_team_id")
+    if not isinstance(media_team_id, int):
+        media_team_id = body_part.team_id
+    follow_ups: list[ConversationDeliveryPart] = []
+    seen_keys: set[str] = set()
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        url = image.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        part_key = slack_image_part_key(url)
+        if part_key in seen_keys:
+            continue
+        seen_keys.add(part_key)
+        alt = image.get("alt")
+        image_payload = {
+            "url": url,
+            "alt": alt if isinstance(alt, str) else "",
+            "media_team_id": media_team_id,
+            "author_name": str(payload.get("author_name") or ""),
+            "author_email": str(payload.get("author_email") or ""),
+            "step": IMAGE_UPLOAD_STEP_GET,
+        }
+        try:
+            reject_oversized_delivery_snapshot(image_payload, field="payload")
+        except DeliverySnapshotTooLargeError:
+            logger.warning(
+                "slack_delivery_image_snapshot_too_large",
+                delivery_id=str(body_part.delivery_id),
+                part_key=part_key,
+            )
+            continue
+        part, _created = ConversationDeliveryPart.objects.for_team(body_part.team_id, canonical=True).get_or_create(
+            delivery_id=body_part.delivery_id,
+            part_key=part_key,
+            defaults={
+                "team_id": body_part.team_id,
+                "route": route,
+                "payload": image_payload,
+            },
+        )
+        if part.status == ConversationDeliveryPart.Status.PENDING:
+            follow_ups.append(part)
+    return follow_ups
+
+
+def complete_slack_body_delivery(claim: DeliveryClaim, *, provider_message_id: str) -> list[ConversationDeliveryPart]:
+    # Enqueue image parts in the body-accept transaction so a crash after Slack
+    # accepts the body cannot drop the attachments.
+    now = timezone.now()
+    with transaction.atomic():
+        if not _accept_delivery_part_locked(claim, now=now, provider_message_id=provider_message_id):
+            return []
+        follow_ups = _enqueue_slack_attachment_parts(claim.part)
+    _increment_delivery_attempt(claim.part.part_key, "accepted")
+    return follow_ups
+
+
+def _image_parts_for_delivery(*, team_id: int, delivery_id: UUID) -> QuerySet[ConversationDeliveryPart]:
+    return (
+        ConversationDeliveryPart.objects.for_team(team_id, canonical=True)
+        .filter(
+            delivery_id=delivery_id,
+            part_key__startswith=DELIVERY_PART_KEY_IMAGE_PREFIX,
+        )
+        .order_by("part_key")
+    )
+
+
+def _slack_fallback_snapshot(image_parts: list[ConversationDeliveryPart]) -> SlackFallbackSnapshot | None:
+    if not image_parts:
+        return None
+    if any(part.status not in ConversationDeliveryPart.TERMINAL_STATUSES for part in image_parts):
+        return None
+    failed_urls: list[str] = []
+    author_name = ""
+    author_email = ""
+    route: dict[str, Any] | None = None
+    for part in image_parts:
+        payload = part.payload if isinstance(part.payload, dict) else {}
+        if not author_name:
+            author_name = str(payload.get("author_name") or "")
+            author_email = str(payload.get("author_email") or "")
+        if route is None and isinstance(part.route, dict):
+            route = part.route
+        if part.status != ConversationDeliveryPart.Status.FAILED:
+            continue
+        url = payload.get("url")
+        if isinstance(url, str) and url:
+            failed_urls.append(url)
+    return SlackFallbackSnapshot(
+        urls=list(dict.fromkeys(failed_urls)),
+        author_name=author_name,
+        author_email=author_email,
+        route=route or {},
+    )
+
+
+def slack_fallback_payload(snapshot: SlackFallbackSnapshot) -> dict[str, Any]:
+    return {
+        "text": "Images:\n" + "\n".join(snapshot.urls),
+        "urls": snapshot.urls,
+        "author_name": snapshot.author_name,
+        "author_email": snapshot.author_email,
+    }
+
+
+def pin_slack_fallback_payload(claim: DeliveryClaim) -> SlackFallbackSnapshot | None:
+    """Record the failed-image set on the claimed fallback part, or report a wait.
+
+    The image rows stay locked while the payload is written, so a redrive either
+    lands before the read and returns None for a wait, or lands after the set
+    this fallback posts is on the row.
+    """
+    with transaction.atomic():
+        snapshot = _slack_fallback_snapshot(
+            list(
+                _image_parts_for_delivery(
+                    team_id=claim.part.team_id, delivery_id=claim.part.delivery_id
+                ).select_for_update()
+            )
+        )
+        if snapshot is None:
+            return None
+        if not persist_delivery_part_payload(claim, slack_fallback_payload(snapshot)):
+            return None
+        return snapshot
+
+
+def _rearm_slack_fallback(
+    part: ConversationDeliveryPart,
+    *,
+    snapshot: SlackFallbackSnapshot,
+    now: datetime,
+) -> ConversationDeliveryPart | None:
+    if part.status != ConversationDeliveryPart.Status.PENDING:
+        # A claimed fallback is already posting, and a terminal one is an
+        # operator's to redrive.
+        return None
+    payload = slack_fallback_payload(snapshot)
+    try:
+        reject_oversized_delivery_snapshot(payload, field="payload")
+    except DeliverySnapshotTooLargeError:
+        logger.warning(
+            "slack_delivery_fallback_snapshot_too_large",
+            delivery_id=str(part.delivery_id),
+        )
+        return None
+    due_at = min(part.due_at, now)
+    ConversationDeliveryPart.objects.for_team(part.team_id, canonical=True).filter(id=part.id).update(
+        payload=payload,
+        due_at=due_at,
+        updated_at=now,
+    )
+    part.payload = payload
+    part.due_at = due_at
+    return part
+
+
+def maybe_enqueue_slack_fallback(settled_part: ConversationDeliveryPart) -> ConversationDeliveryPart | None:
+    """Return the fallback part to wake once every image part of the delivery has settled.
+
+    A redrive can move an image out of a terminal state after the fallback row
+    exists, so a fallback that is already waiting is re-armed with the current
+    failed URLs rather than left for the sweeper with a stale list.
+    """
+    if not is_slack_image_part_key(settled_part.part_key):
+        return None
+    now = timezone.now()
+    with transaction.atomic():
+        snapshot = _slack_fallback_snapshot(
+            list(
+                _image_parts_for_delivery(
+                    team_id=settled_part.team_id, delivery_id=settled_part.delivery_id
+                ).select_for_update()
+            )
+        )
+        if snapshot is None:
+            return None
+        existing = (
+            ConversationDeliveryPart.objects.for_team(settled_part.team_id, canonical=True)
+            .select_for_update()
+            .filter(delivery_id=settled_part.delivery_id, part_key=DELIVERY_PART_KEY_FALLBACK)
+            .first()
+        )
+        if existing is not None:
+            return _rearm_slack_fallback(existing, snapshot=snapshot, now=now)
+        if not snapshot.urls or not snapshot.route:
+            return None
+        fallback_payload = slack_fallback_payload(snapshot)
+        try:
+            reject_oversized_delivery_snapshot(fallback_payload, field="payload")
+            reject_oversized_delivery_snapshot(snapshot.route, field="route")
+        except DeliverySnapshotTooLargeError:
+            logger.warning(
+                "slack_delivery_fallback_snapshot_too_large",
+                delivery_id=str(settled_part.delivery_id),
+            )
+            return None
+        try:
+            part, created = ConversationDeliveryPart.objects.for_team(
+                settled_part.team_id, canonical=True
+            ).get_or_create(
+                delivery_id=settled_part.delivery_id,
+                part_key=DELIVERY_PART_KEY_FALLBACK,
+                defaults={
+                    "team_id": settled_part.team_id,
+                    "route": snapshot.route,
+                    "payload": fallback_payload,
+                    "client_msg_id": str(uuid4()),
+                },
+            )
+        except IntegrityError:
+            return None
+        if not created:
+            return None
+        return part
 
 
 def _pending_delivery_parts(*, now: datetime) -> QuerySet[ConversationDeliveryPart]:
@@ -598,15 +944,31 @@ def record_delivery_queue_metrics(now: datetime) -> DeliveryQueueMetrics:
     }
     backlog: list[tuple[str, str, int]] = []
     open_statuses = (ConversationDeliveryPart.Status.PENDING, ConversationDeliveryPart.Status.PROCESSING)
+    metric_key = Case(
+        When(part_key=DELIVERY_PART_KEY_BODY, then=Value(DELIVERY_PART_KEY_BODY)),
+        When(part_key=DELIVERY_PART_KEY_FALLBACK, then=Value(DELIVERY_PART_KEY_FALLBACK)),
+        When(part_key__startswith=DELIVERY_PART_KEY_IMAGE_PREFIX, then=Value(DELIVERY_METRIC_PART_KEY_IMAGE)),
+        default=Value(DELIVERY_METRIC_PART_KEY_OTHER),
+        output_field=CharField(),
+    )
     grouped = {
-        (row["part_key"], row["status"]): row["total"]
-        for row in ConversationDeliveryPart.objects.unscoped()
-        .filter(status__in=open_statuses)
-        .values("part_key", "status")
-        .annotate(total=Count("id"))
+        (str(row["metric_key"]), str(row["status"])): int(row["total"])
+        for row in (
+            ConversationDeliveryPart.objects.unscoped()
+            .filter(status__in=open_statuses)
+            .annotate(metric_key=metric_key)
+            .values("metric_key", "status")
+            .annotate(total=Count("id"))
+        )
     }
-    # Always report the body key so a drained queue still publishes a zero.
-    for part_key in sorted({part_key for part_key, _ in grouped} | {DELIVERY_PART_KEY_BODY}):
+    known_keys = {
+        DELIVERY_PART_KEY_BODY,
+        DELIVERY_METRIC_PART_KEY_IMAGE,
+        DELIVERY_PART_KEY_FALLBACK,
+        *(part_key for part_key, _ in grouped),
+    }
+    # Always report body/image/fallback so a drained queue still publishes zeros.
+    for part_key in sorted(known_keys):
         for status in open_statuses:
             count = grouped.get((part_key, status), 0)
             backlog.append((status, part_key, count))
@@ -669,16 +1031,17 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
             redriven_at=now,
             updated_at=now,
         )
-        _delivery_row(team_id=part.team_id, delivery_id=part.delivery_id).update(
-            status=ConversationDelivery.Status.PENDING,
-            terminal_at=None,
-            lease_expires_at=None,
-            accepted_at=None,
-            delivered_at=None,
-            due_at=now,
-            redriven_at=now,
-            updated_at=now,
-        )
+        if _rolls_up_parent(part):
+            _delivery_row(team_id=part.team_id, delivery_id=part.delivery_id).update(
+                status=ConversationDelivery.Status.PENDING,
+                terminal_at=None,
+                lease_expires_at=None,
+                accepted_at=None,
+                delivered_at=None,
+                due_at=now,
+                redriven_at=now,
+                updated_at=now,
+            )
         part.refresh_from_db()
         transaction.on_commit(lambda: _safe_wake(wake, part))
     return part

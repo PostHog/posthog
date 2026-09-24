@@ -19,6 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
+    DAILY_QUOTA_EXHAUSTED_ERROR,
+    DAILY_QUOTA_EXHAUSTED_MESSAGE,
+    RATE_LIMITED_ERROR,
+    RATE_LIMITED_MESSAGE,
     EtsyResumeConfig,
     etsy_source,
     validate_credentials as validate_etsy_credentials,
@@ -120,8 +124,18 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
         # blip — transient, not a PostHog bug — and Temporal retries the whole activity, so the
         # sync self-recovers. `raise_for_status` derives these prefixes from the status code alone,
         # not the vendor's reason text, so they're stable to match on (see mailchimp/impact sources
-        # for the same pattern).
-        return {"429 Client Error", "Server Error"}
+        # for the same pattern). The token exchange is a POST, which the adapter does not retry, so
+        # the bare status prefix stays here alongside the sentinels the reads raise.
+        return {"429 Client Error", "Server Error", DAILY_QUOTA_EXHAUSTED_ERROR, RATE_LIMITED_ERROR}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a rate limit that outlives the retry budget leaves the job holding raw 429
+        # text, which names neither whose limit was hit nor when it clears.
+        return {
+            DAILY_QUOTA_EXHAUSTED_ERROR: DAILY_QUOTA_EXHAUSTED_MESSAGE,
+            RATE_LIMITED_ERROR: RATE_LIMITED_MESSAGE,
+            "429 Client Error": RATE_LIMITED_MESSAGE,
+        }
 
     def get_schemas(
         self,

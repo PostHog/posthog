@@ -144,6 +144,13 @@ class ReusableWidgetPageSerializer(serializers.Serializer):
 
 
 class ReusableWidgetVersionDetailSerializer(serializers.Serializer):
+    generation_cost_usd = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=6,
+        allow_null=True,
+        required=False,
+        help_text="Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.",
+    )
     id = serializers.UUIDField(help_text="Immutable widget version identifier.")
     title = serializers.CharField(help_text="Title stored with this version.")
     version = serializers.IntegerField(help_text="One-based version number.")

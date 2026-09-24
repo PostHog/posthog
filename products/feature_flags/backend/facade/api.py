@@ -3,13 +3,14 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
-The read helpers (``user_can_edit_flag``, ``flag_disable_requires_approval``,
+The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
 ``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
 access-control, approval-policy, representation, and request-usage logic behind
 the same boundary.
 
 Writes do not enforce access control — that lives at the viewset layer. A caller
-acting on behalf of an end user must pre-check ``user_can_edit_flag`` first.
+acting on behalf of an end user must pre-check ``user_can_edit_flag`` before writing an
+existing flag, and ``user_can_create_flags`` before creating one.
 
 Approval-gate ordering constraint for callers: a gated write can raise ``ApprovalRequired``
 (surfacing as a 409 + change_request_id), which conflicts with ``transaction.atomic`` — the
@@ -311,6 +312,17 @@ def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:
     if not isinstance(user, User) or user.is_anonymous:
         return False
     return UserAccessControl(user=user, team=team).check_access_level_for_object(flag, "editor")
+
+
+def user_can_create_flags(*, team: Team, user: User) -> bool:
+    """Whether ``user`` may create a flag in this team — the resource-level counterpart of
+    ``user_can_edit_flag``, and the same check the feature flag API enforces on create.
+
+    A product that creates a flag as a side effect of its own write needs this, because the
+    write goes through ``create_flag``, which enforces no access control. Without it, editor
+    access to that product substitutes for flag access. Unlike ``user_can_edit_flag`` this takes
+    a real ``User``, so a caller holding an unknown principal narrows it before asking."""
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
 def flag_disable_requires_approval(team: Team) -> bool:

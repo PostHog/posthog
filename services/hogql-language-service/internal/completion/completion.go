@@ -146,7 +146,18 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	}
 	namespace, propertyPrefix, propertyOK := propertyContext(query[:position], bindings)
 	if propertyOK {
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
+		}
 		return indexedResult(slices.Values(schema.Properties(namespace).Prefix(propertyPrefix)), "property", offset, parseErr), nil
+	} else if target, fieldPrefix := traversalContext(query[:position], bindings); target.Explicit {
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
+		}
+		if !target.Valid || target.Fields == nil {
+			return Result{Suggestions: []Suggestion{}, ParseError: errorString(parseErr)}, nil
+		}
+		return indexedResult(slices.Values(target.Fields.Prefix(fieldPrefix)), "field", offset, parseErr), nil
 	} else if qualifier != "" {
 		entries := qualified.Prefix(lowerPrefix)
 		if document != nil && document.LimitError() != nil {
@@ -227,6 +238,13 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	return result, nil
 }
 
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 func laterJoinAtCursor(query string, position int) bool {
 	_, cursorDepth, _ := scanSQLTokens(query[:position])
 	return hasLaterJoinAtDepth(query[position:], cursorDepth)
@@ -276,6 +294,22 @@ func propertyContext(input string, bindings analysis.Bindings) (string, string, 
 	}
 	namespace, ok := bindings.PropertyNamespace(parts)
 	return namespace, parts[len(parts)-1], ok
+}
+
+func traversalContext(input string, bindings analysis.Bindings) (analysis.TraversalTarget, string) {
+	start := len(input)
+	for start > 0 {
+		character, size := utf8.DecodeLastRuneInString(input[:start])
+		if character != '.' && !isIdentifier(character) {
+			break
+		}
+		start -= size
+	}
+	parts := strings.Split(input[start:], ".")
+	if len(parts) < 2 {
+		return analysis.TraversalTarget{}, ""
+	}
+	return bindings.Traversal(parts[:len(parts)-1]), parts[len(parts)-1]
 }
 
 func decodeCursor(cursor string) (int, error) {

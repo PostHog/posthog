@@ -15,6 +15,7 @@ import type {
     PatchedPersonRecordApi,
     PersonBulkDeleteRequestApi,
     PersonBulkDeleteResponseApi,
+    PersonCohortsResponseApi,
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
     PersonRecordApi,
@@ -601,8 +602,8 @@ export const personsCohortsRetrieve = async (
     projectId: string,
     params: PersonsCohortsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsCohortsRetrieveUrl(projectId, params), {
+): Promise<PersonCohortsResponseApi> => {
+    return apiMutator<PersonCohortsResponseApi>(getPersonsCohortsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

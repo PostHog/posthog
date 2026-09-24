@@ -61,6 +61,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ruleExemptions": "Rule exemptions requested or granted for this entity on this scorecard.",
         },
     },
+    "initiatives": {
+        "description": "A Cortex Initiative: a time-boxed campaign to bring entities up to part of a scorecard, with the rules or ladder levels it emphasizes.",
+        "docs_url": "https://docs.cortex.io/api/readme/initiatives",
+        "columns": {
+            "cid": "18-character unique identifier for the Initiative.",
+            "name": "Name of the Initiative.",
+            "description": "Optional description of the Initiative.",
+            "scorecardTag": "Tag of the scorecard the Initiative drives entities against.",
+            "scorecardName": "Display name of that scorecard.",
+            "targetDate": "Date the Initiative is meant to be completed by.",
+            "isDraft": "Whether the Initiative is still a draft and not yet notifying anyone.",
+            "emphasizedRules": "Scorecard rules the Initiative asks entities to pass.",
+            "emphasizedLevels": "Scorecard ladder levels the Initiative asks entities to reach.",
+            "filter": "Entity types, groups, and CQL query limiting which entities are in scope.",
+            "notificationSchedule": "Reminder cadence and reply-to addresses for the Initiative.",
+            "dateCreated": "Timestamp the Initiative was created.",
+            "dateUpdated": "Timestamp the Initiative was last updated.",
+        },
+    },
     "entity_types": {
         "description": "A custom entity type (definition) available in the Cortex catalog, beyond the built-in service/domain/team types.",
         "docs_url": "https://docs.cortex.io/api/readme/entity-types",
@@ -87,6 +106,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "slackChannels": "Slack channels associated with the team.",
             "cortexTeam": "Member list, present for Cortex-managed teams.",
             "idpGroup": "Backing identity-provider group and its members, present for IDP-backed teams.",
+        },
+    },
+    "team_hierarchies": {
+        "description": "A parent/child edge between two teams, one row per edge in the team hierarchy.",
+        "docs_url": "https://docs.cortex.io/api/readme/team-hierarchies",
+        "columns": {
+            "parentTeamTag": "Tag of the parent team in the edge.",
+            "childTeamTag": "Tag of the child team in the edge.",
+            "provider": "Identity provider that supplied the edge, when it was imported rather than set in Cortex.",
         },
     },
     "relationship_types": {
@@ -179,6 +207,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "destination_entity_tag": "Tag of the destination entity in the relationship.",
             "destination_entity_id": "CID of the destination entity in the relationship.",
             "providerType": "Provider that supplied the relationship, when it was created via an integration.",
+        },
+    },
+    "entity_groups": {
+        "description": "One entity's membership of one group, the tagging dimension most scorecard and Initiative filters are written against.",
+        "docs_url": "https://docs.cortex.io/api/readme/groups",
+        "columns": {
+            "entity_id": "CID of the entity that belongs to the group.",
+            "entity_tag": "Tag of the entity that belongs to the group.",
+            "tag": "Tag of the group the entity belongs to.",
         },
     },
 }

@@ -6,9 +6,14 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.temporal.ai.slack_app.activities.classifiers import (
+    CLASSIFIER_PROPERTY,
     classify_message_is_agent_directed,
     classify_slack_app_model_override,
+    classify_slack_app_project_route,
     classify_task_needs_repo,
 )
 
@@ -31,6 +36,10 @@ PYTHON_GATEWAY = {**GO_GATEWAY, "AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}
 
 CHOICES = (ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high")),)
 NEEDS_REPO_TEXT = "ambiguous ask the heuristic does not catch"
+# Unsaved rows, which is all the project-route classifier reads.
+PROJECTS = [
+    Integration(id=410, kind="slack", team=Team(id=41, name="Staging", organization=Organization(name="Northwind")))
+]
 
 
 def _classify_needs_repo():
@@ -45,9 +54,14 @@ def _classify_model_override():
     return classify_slack_app_model_override("use fable for this", CHOICES)
 
 
+def _classify_project_route():
+    return classify_slack_app_project_route("check the error rate on staging", PROJECTS)
+
+
 OPENAI_CLASSIFIERS = [
     ("agent_directed", _classify_agent_directed, '{"agent_directed": true}'),
     ("model_override", _classify_model_override, '{"model": "claude-fable-5", "reasoning_effort": null}'),
+    ("project_route", _classify_project_route, '{"project_id": 41}'),
 ]
 
 
@@ -63,10 +77,14 @@ def _chat_reply(mock_openai: MagicMock, text: str) -> None:
     client.chat.completions.create.return_value.choices = [MagicMock(message=MagicMock(content=text))]
 
 
-def _assert_routing_product(headers: dict[str, str]) -> None:
+def _assert_routing_product(headers: dict[str, str], classifier: str) -> None:
     # `slack_app` bills the customer.
     assert headers["X-PostHog-Product"] == "slack_app_routing"
-    assert json.loads(headers["X-PostHog-Properties"])["ai_product"] == "slack_app_routing"
+    properties = json.loads(headers["X-PostHog-Properties"])
+    assert properties["ai_product"] == "slack_app_routing"
+    # All four classifiers share that product, so an online evaluation can only reach one
+    # of them through this label. A call that loses it is graded as the wrong classifier.
+    assert properties[CLASSIFIER_PROPERTY] == classifier
 
 
 class TestClassifierGatewayRouting:
@@ -80,7 +98,7 @@ class TestClassifierGatewayRouting:
         kwargs = mock_anthropic.call_args.kwargs
         assert kwargs["base_url"] == "https://ai-gateway.example"
         assert kwargs["api_key"] == AI_GATEWAY_KEY
-        _assert_routing_product(kwargs["default_headers"])
+        _assert_routing_product(kwargs["default_headers"], "task_needs_repo")
 
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
@@ -96,7 +114,7 @@ class TestClassifierGatewayRouting:
     @parameterized.expand(OPENAI_CLASSIFIERS)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.OpenAI")
-    def test_openai_classifier_uses_go_route_when_configured(self, _name, classify, reply, mock_openai, _mock_httpx):
+    def test_openai_classifier_uses_go_route_when_configured(self, name, classify, reply, mock_openai, _mock_httpx):
         _chat_reply(mock_openai, reply)
         with override_settings(**GO_GATEWAY):
             assert classify()
@@ -104,7 +122,7 @@ class TestClassifierGatewayRouting:
         kwargs = mock_openai.call_args.kwargs
         assert kwargs["base_url"] == AI_GATEWAY_URL
         assert kwargs["api_key"] == AI_GATEWAY_KEY
-        _assert_routing_product(kwargs["default_headers"])
+        _assert_routing_product(kwargs["default_headers"], name)
 
     @parameterized.expand(OPENAI_CLASSIFIERS)
     @patch("posthog.llm.gateway_client.httpx.Client")

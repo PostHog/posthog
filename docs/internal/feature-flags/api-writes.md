@@ -52,3 +52,26 @@ Empty-filter updates preserve the stored ciphertext without encrypting it again.
 A rollback restores ordinary HTTP routing to the previous serializer path.
 Keep any format rejection or reader capability required by configuration data that exists at rollback time.
 In particular, retain v1-to-v2 dependency protection once v2 targets can exist; rollback does not convert stored configurations to v1.
+
+## Config version 2 updates (closed)
+
+`facade.config_writes.V2_UPDATE_LIMITS` is the writer policy for config version 2 updates.
+It is `None` in every deployed configuration, so no entrypoint — HTTP, facade, system write, direct serializer, or approval replay — can accept a v2 write, and the behavior described above is the only behavior production has.
+Before any production v2 row can exist, including an inactive row, the common safety gate must establish that deployed readers and dependent write paths can handle it safely.
+The closed policy does not establish that safety; a trusted per-team admission policy must replace it before writes open.
+Admission also requires an agreed production byte limit for each rule's opaque `metadata` object and matching configuration-size limits in writers and readers.
+The metadata limit has no production value yet, so `V2_UPDATE_LIMITS` remains `None`.
+
+When the policy admits updates, a stored v2 row that is not remote-configured and carries no encrypted payloads takes a separate path:
+
+- A supplied `filters` object replaces the whole configuration. There is no top-level merge, no rule merge by index, no filling of omitted fields from the stored document, and no v1 normalization. `{}`, `null`, a list, and an incomplete object are invalid; a complete document with `rules: []` is valid.
+- A PATCH that omits `filters` updates `name`, `key`, and `tags` without rewriting the stored configuration. Every other field, including activation, archival, deletion, remote config, and payload fields, is rejected with `unsupported_config_version`.
+- Rule IDs and percentage-rollout seeds are server-owned and identify rules rather than list positions. An echoed ID keeps its seed through reordering and unrelated edits; a rule that omits its ID is new and receives fresh identity. An unknown ID, an ID used twice, a client-chosen seed, and a changed seed are all rejected.
+- `FeatureFlag.version` is required and must equal the locked row's value. Unlike v1 there is no `original_flag` merge: a stale token is a conflict even when no individual field clashes, because the document replaces everything. The token applies to metadata-only updates too.
+- Identity resolution and validation both run against the locked row inside the existing update transaction, so warnings describe the real before/proposed pair. A stored document with an unsupported shape or semantics is rejected rather than replaced. Configuration and metadata byte limits apply to the replacement, so an oversized stored document can be edited back under a lowered limit.
+- Request bytes that repeat a JSON key are rejected before normalization can hide the duplicate. Non-finite numbers and percentages with more than two decimal places are rejected by the validator itself.
+- An enabled flag-write approval policy denies the update, and an approved change cannot be applied to a v2 row: PH-WRITE-APPROVAL owns that path. Nothing here creates a pending v2 change request.
+  The final policy lookup and flag mutation share an organization-scoped transaction lock with policy creation and updates, so a policy cannot be enabled between that lookup and commit.
+  Flag writes take the lock in shared mode so different flags can update concurrently; policy writes take it in exclusive mode.
+
+Rollback closes the policy and reverts the update routing. Format guards and readers stay in place for whatever data exists at that point; there is no automatic v2-to-v1 conversion, and v1-to-v2 dependency protection is not removed.

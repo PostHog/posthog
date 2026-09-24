@@ -27,6 +27,7 @@ from products.posthog_ai.backend.context_wrapper import (
     ALLOWED_TYPES,
     MAX_ATTACHED_ITEMS,
     MAX_TEXT_LENGTH,
+    VALUE_TYPES,
     AttachedContext,
     ContextService,
 )
@@ -477,8 +478,8 @@ class SandboxSession(BaseSandboxService):
 
         Walks the Run's `state.attached_context` (the first message's full list) plus
         every prior `_posthog/user_message` log entry's `_meta.attached_context`
-        across the entire resume chain. One S3 read per chain run; `text` items are
-        never deduped so they're skipped.
+        across the entire resume chain. One S3 read per chain run; value-bearing items
+        are never deduped so they're skipped.
         """
         seen: list[tuple[str, str | int]] = []
 
@@ -490,7 +491,7 @@ class SandboxSession(BaseSandboxService):
                     continue
                 item_type = item.get("type")
                 item_id = item.get("id")
-                if item_type in ALLOWED_TYPES and item_type != "text" and item_id is not None:
+                if item_type in ALLOWED_TYPES and item_type not in VALUE_TYPES and item_id is not None:
                     seen.append((item_type, item_id))
 
         for chain_run in run.get_resume_chain():
@@ -557,13 +558,13 @@ class SandboxSession(BaseSandboxService):
             if item_type not in ALLOWED_TYPES:
                 raise exceptions.ValidationError(f"Unsupported attached_context type: {item_type!r}.")
 
-            if item_type == "text":
+            if item_type in VALUE_TYPES:
                 value = item.get("value")
                 if not isinstance(value, str):
-                    raise exceptions.ValidationError("`text` attachments require a string `value`.")
+                    raise exceptions.ValidationError(f"`{item_type}` attachments require a string `value`.")
                 if len(value) > MAX_TEXT_LENGTH:
-                    raise exceptions.ValidationError(f"`text` value cannot exceed {MAX_TEXT_LENGTH} characters.")
-                validated.append(cast(AttachedContext, {"type": "text", "value": value}))
+                    raise exceptions.ValidationError(f"`{item_type}` value cannot exceed {MAX_TEXT_LENGTH} characters.")
+                validated.append(cast(AttachedContext, {"type": item_type, "value": value}))
                 continue
 
             item_id = item.get("id")

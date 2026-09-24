@@ -75,7 +75,6 @@ export {
 } from "./cloud-prompt";
 export {
   adapterForModelId,
-  BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
   buildProviderModelGroups,
   type CloudTaskConfigOption,
@@ -93,7 +92,6 @@ export {
   isAnthropicModel,
   isAnthropicModelId,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
@@ -197,6 +195,7 @@ export {
   buildDiscussReportPrompt,
   buildLocalCodeSnapshotPrompt,
   CODE_CONTEXT_DISCLOSURE,
+  NO_CHECKOUT_DISCLOSURE,
 } from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
@@ -233,12 +232,17 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  isOfferedModel,
+  isRetiredModel,
+  supports1MContext,
+  supportsFastMode,
+} from "./model-catalog";
+export {
   customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
   isCustomModelOption,
   isDefaultSelectOption,
-  isHiddenPiModelId,
   isRestrictedModelOption,
   modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
@@ -301,13 +305,12 @@ export {
 } from "./pr-urls";
 export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
 export {
+  type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,
   getCapabilityLadder,
   getReasoningEffortOptions,
   isSupportedReasoningEffort,
   type SupportedReasoningEffort,
-  supports1MContext,
-  supportsFastMode,
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {

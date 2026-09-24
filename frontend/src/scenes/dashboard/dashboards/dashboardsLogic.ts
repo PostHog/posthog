@@ -226,23 +226,8 @@ export interface dashboardsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isFiltering: (filters: DashboardsFilters) => boolean
         dashboards: (
-            nameSortedDashboards: (
-                | DashboardBasicType
-                | import('~/types').DashboardType<
-                      import('~/types').QueryBasedInsightModel<
-                          import('~/queries/schema/schema-general').Node<Record<string, any>>
-                      >
-                  >
-            )[],
-            rawDashboards: Record<
-                string,
-                | DashboardBasicType
-                | import('~/types').DashboardType<
-                      import('~/types').QueryBasedInsightModel<
-                          import('~/queries/schema/schema-general').Node<Record<string, any>>
-                      >
-                  >
-            >,
+            nameSortedDashboards: (DashboardBasicType | import('~/types').DashboardType)[],
+            rawDashboards: Record<string, DashboardBasicType | import('~/types').DashboardType>,
             searchedDashboards: DashboardBasicType[] | null,
             filters: DashboardsFilters,
             currentTab: DashboardsTab,
@@ -379,7 +364,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         params.append('folder', folder)
                     }
                     const response: PaginatedResponse<DashboardBasicType> = await api.get(
-                        `api/environments/${teamId}/dashboards/?${params.toString()}`
+                        `api/projects/${teamId}/dashboards/?${params.toString()}`
                     )
                     breakpoint()
                     return response.results ?? []
@@ -441,10 +426,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             ],
             (
                 allDashboards: DashboardBasicType[],
-                rawDashboards: Record<
-                    string,
-                    DashboardBasicType | import('~/types').DashboardType<import('~/types').QueryBasedInsightModel>
-                >,
+                rawDashboards: Record<string, DashboardBasicType | import('~/types').DashboardType>,
                 searchedDashboards: DashboardBasicType[] | null,
                 filters: DashboardsFilters,
                 currentTab: DashboardsTab,

@@ -7,6 +7,9 @@ from unittest import mock
 import requests
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat import (
     FreshchatHostNotAllowedError,
     FreshchatResumeConfig,
@@ -31,6 +34,9 @@ FRESHCHAT_SESSION_PATCH = (
 
 BASE_HOST = "acme.freshchat.com"
 
+# What a Freshworks portal domain answers with on these paths: the web app, not the API.
+HTML_BODY = b"<!DOCTYPE html><html><head><title>Freshworks</title></head><body></body></html>"
+
 
 def _page(data_key: str, items: list[dict], current: int, total_pages: int) -> Response:
     body = {
@@ -38,6 +44,13 @@ def _page(data_key: str, items: list[dict], current: int, total_pages: int) -> R
         "pagination": {"current_page": current, "total_pages": total_pages, "total_items": 999},
     }
     return _resp(body)
+
+
+def _raw_resp(content: bytes, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = content
+    return resp
 
 
 def _resp(body: Any, status: int = 200, headers: Optional[dict] = None) -> Response:
@@ -271,6 +284,23 @@ class TestGetRows:
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_html_body_raises_the_mapped_non_retryable_error(self, MockSession) -> None:
+        # A domain that serves the web app answers 200 with HTML. That must fail the table once with
+        # the message the source maps, not retry a body that can never parse.
+        session = MockSession.return_value
+        _wire(session, [_raw_resp(HTML_BODY)])
+
+        with pytest.raises(RESTClientNonRetryableError) as exc:
+            _rows(
+                freshchat_source(
+                    "key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+                )
+            )
+
+        assert str(exc.value).startswith("Non-JSON response from")
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_disallowed_host_raises_before_any_request(self, MockSession) -> None:
         # A saved-then-edited domain must never receive the stored token at sync time (SSRF).
         session = MockSession.return_value
@@ -311,17 +341,31 @@ class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403])
     def test_returns_status_code(self, status_code: int) -> None:
         session = mock.MagicMock()
-        session.get.return_value = _resp(None, status=status_code)
+        session.get.return_value = _resp({"configuration": {"app_id": "a1"}}, status=status_code)
 
         with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session):
-            assert validate_credentials(BASE_HOST, "key") == status_code
+            assert validate_credentials(BASE_HOST, "key") == (status_code, True)
+
+    # A Freshworks portal domain answers the probe with its web app, not the API. An empty body and
+    # a truncated body stay acceptable, because the sync path reads an empty 2xx as an empty page
+    # and retries a truncated one, rather than calling either a broken host.
+    @pytest.mark.parametrize(
+        "body, returned_json",
+        [(HTML_BODY, False), (b"", True), (b'{"configuration": {"app_id"', True)],
+    )
+    def test_probe_reports_whether_the_body_is_json(self, body: bytes, returned_json: bool) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = _raw_resp(body)
+
+        with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session):
+            assert validate_credentials(BASE_HOST, "key") == (200, returned_json)
 
     def test_connection_error_returns_none(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("nope")
 
         with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session):
-            assert validate_credentials(BASE_HOST, "key") is None
+            assert validate_credentials(BASE_HOST, "key") == (None, False)
 
     def test_session_redacts_api_key_from_samples(self) -> None:
         session = mock.MagicMock()

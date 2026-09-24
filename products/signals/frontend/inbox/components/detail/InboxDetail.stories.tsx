@@ -26,6 +26,7 @@ import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
 import { ReportDetail } from './ReportDetail'
 import { ReportDetailLegacy } from './ReportDetailLegacy'
+import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
     checks: [
@@ -150,6 +151,57 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="bg-primary min-h-screen py-4">{children}</div>
 }
 
+export const StatusBlock: Story = {
+    render: () => {
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority: 'P1',
+            actionability: 'immediately_actionable',
+            implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
+            implementation_pr_state: 'open',
+            pull_requests: [
+                {
+                    id: '019e64b8-0000-7000-8000-000000000101',
+                    url: 'https://github.com/PostHog/posthog/pull/12002',
+                    state: 'open',
+                    merged: false,
+                    review_decision: 'approved',
+                    merged_at: null,
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+                {
+                    id: '019e64b8-0000-7000-8000-000000000102',
+                    url: 'https://github.com/PostHog/posthog-js/pull/12003',
+                    state: 'merged',
+                    merged: true,
+                    review_decision: 'approved',
+                    merged_at: '2026-06-11T10:00:00Z',
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+            ],
+            assignee: {
+                claim_id: '019e64b8-0000-7000-8000-000000000099',
+                kind: 'agent',
+                user: null,
+                task_id: null,
+                agent: 'Build agent',
+                claimed_at: '2026-06-11T10:00:00Z',
+            },
+        })
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection report={report} />
+                </div>
+            </Frame>
+        )
+    },
+}
+
 export const Report: Story = {
     render: () => (
         <Frame>
@@ -224,6 +276,8 @@ export const PullRequestStack: Story = {
                         url: `https://github.com/example/app/pull/${number}`,
                         state: number === 1 ? 'merged' : 'open',
                         merged: number === 1,
+                        review_decision: number === 1 ? 'approved' : 'review_required',
+                        merged_at: number === 1 ? '2026-06-11T10:00:00Z' : null,
                         claim_id: null,
                         attached_at: null,
                         attached_by: null,

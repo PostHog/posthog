@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 import collections.abc
+from string import Template
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -48,6 +49,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    native_events_export_query,
 )
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -162,6 +164,7 @@ def default_fields() -> list[BatchExportField]:
             alias="set_once",
         ),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -180,6 +183,7 @@ def events_model_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="properties", alias="properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -197,6 +201,67 @@ class TaskNotDoneError(Exception):
         super().__init__(f"Expected task '{task}' to be done by now")
 
 
+def select_events_query_template(
+    *,
+    team_id: int,
+    interval_start: str | None,
+    interval_end: str,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> Template:
+    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+    end_at = dt.datetime.fromisoformat(interval_end)
+
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
+    is_5_min_batch_export = start_at is not None and (end_at - start_at) == dt.timedelta(seconds=300)
+
+    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+    # may not be able to handle the load from all batch exports
+    if is_5_min_batch_export and not is_backfill:
+        return SELECT_FROM_EVENTS_VIEW_RECENT
+    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+    # which is a distributed table that sits in front of the `events_recent` table
+    if use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+    ):
+        return SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        return SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+    if is_backfill:
+        return SELECT_FROM_EVENTS_VIEW_BACKFILL
+    return SELECT_FROM_EVENTS_VIEW
+
+
+def reads_native_events_source(
+    *,
+    use_new_events_schema: bool,
+    team_id: int,
+    interval_start: str | None,
+    interval_end: str,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> bool:
+    """Whether a run reads the native events source instead of a legacy events table.
+
+    Only the native source projects the `$unset` and `$group_set` columns, so a caller that asks for
+    them on a run routed to a legacy table builds a query ClickHouse cannot resolve. The routing is
+    wider than `is_backfill`: a backfill over recent data still reads `distributed_events_recent`.
+    """
+    if not use_new_events_schema:
+        return False
+    return (
+        select_events_query_template(
+            team_id=team_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
+        )
+        is SELECT_FROM_EVENTS_VIEW_BACKFILL
+    )
+
+
 def iter_records(
     client: ClickHouseClient,
     team_id: int,
@@ -209,6 +274,8 @@ def iter_records(
     extra_query_parameters: dict[str, typing.Any] | None = None,
     is_backfill: bool = False,
     backfill_details: BackfillDetails | None = None,
+    *,
+    use_new_events_schema: bool,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -263,42 +330,27 @@ def iter_records(
         "include_events": events_to_include_array,
     }
 
-    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
-    end_at = dt.datetime.fromisoformat(interval_end)
-
-    # TODO: this can be simplified once all backfill inputs are migrated
-    is_backfill = (backfill_details is not None) or is_backfill
-
-    if start_at:
-        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-    else:
-        is_5_min_batch_export = False
-
-    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-    # may not be able to handle the load from all batch exports
-    if is_5_min_batch_export and not is_backfill:
-        query = SELECT_FROM_EVENTS_VIEW_RECENT
-    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-    # which is a distributed table that sits in front of the `events_recent` table
-    elif use_distributed_events_recent_table(
-        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
-    ):
-        query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-    elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
-    elif is_backfill:
-        query = SELECT_FROM_EVENTS_VIEW_BACKFILL
-    else:
-        query = SELECT_FROM_EVENTS_VIEW
-        lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
-        base_query_parameters["lookback_days"] = lookback_days
-
-    if filters_str:
-        filters_str = f"AND {filters_str}"
-
-    query_str = query.safe_substitute(
-        fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
+    query = select_events_query_template(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
     )
+
+    if query is SELECT_FROM_EVENTS_VIEW:
+        base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+            team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+        )
+
+    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
+        query_str = native_events_export_query(query_fields, filters_str or "", order="ORDER BY _inserted_at, event")
+    else:
+        if filters_str:
+            filters_str = f"AND {filters_str}"
+        query_str = query.safe_substitute(
+            fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
+        )
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters
@@ -763,7 +815,7 @@ def make_internal_events_payload(
     batch_export_run_id: str,
     batch_export_name: str,
     data_interval_start: dt.datetime | None,
-    data_interval_end: dt.datetime,
+    data_interval_end: dt.datetime | None,
     destination_type: str,
     rows_exported: int,
     error: str | None,
@@ -780,7 +832,7 @@ def make_internal_events_payload(
         "batch_export_run_id": batch_export_run_id,
         "batch_export_name": batch_export_name,
         "data_interval_start": data_interval_start.isoformat() if data_interval_start is not None else None,
-        "data_interval_end": data_interval_end.isoformat(),
+        "data_interval_end": data_interval_end.isoformat() if data_interval_end is not None else None,
         "destination_type": destination_type,
     }
 

@@ -149,9 +149,11 @@ _FANOUT_FLATTENERS = {
 
 
 def get_resource(config: CortexEndpointConfig) -> EndpointResource:
+    params: dict[str, Any] = {"pageSize": config.page_size} if config.paginated else {}
+    params.update(config.extra_params)
     endpoint_config: Endpoint = {
         "path": config.path,
-        "params": {"pageSize": config.page_size} if config.paginated else {},
+        "params": params,
         "data_selector": config.data_selector,
         "paginator": _list_paginator(config),
     }

@@ -92,7 +92,12 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
 
         verification = provider.verify(request)
         if verification.outcome is VerificationOutcome.NOT_CONFIGURED:
-            logger.error("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
+            # An incarnation that answers a 4xx may stay off until an operator configures it, and its
+            # URL is public meanwhile, so what reaches this line is probe traffic. A warning still
+            # reaches an operator, and at error level an anonymous prober would decide how much of
+            # the error budget this endpoint spends.
+            log = logger.warning if provider.unconfigured_status < 500 else logger.error
+            log("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
             if provider.reports_unconfigured:
                 capture_exception(
                     Exception(f"Inbound webhook {provider.provider}/{provider.app} has no secret configured")

@@ -158,12 +158,21 @@ def _select_rows(
 
 
 def _select_child_rows(
-    payload: Any, selector: str | None, logger: FilteringBoundLogger | None = None
+    payload: Any,
+    selector: str | None,
+    logger: FilteringBoundLogger | None = None,
+    single_object: bool = False,
 ) -> list[dict[str, Any]]:
     """Select the rows of a per-agreement child response.
 
-    `/members` answers with a bare JSON array; every other child endpoint wraps its rows in a key.
+    `/approval`, `/signature` and `/metadata` answer with one object describing the agreement, which
+    becomes a single row. `/members` and `/versions` answer with a bare JSON array; every other
+    child endpoint wraps its rows in a key.
     """
+    if single_object:
+        # An agreement with nothing configured answers `{}`, which would seed a row holding only the
+        # parent uid — drop it so the table carries a row only where Concord has something to say.
+        return [payload] if isinstance(payload, dict) and payload else []
     if selector is None:
         return payload if isinstance(payload, list) else []
     return _select_rows(payload, selector, logger)
@@ -386,7 +395,7 @@ def _fetch_child_rows(
         raise
     return [
         _normalize_child_row(config.name, row, agreement_uuid)
-        for row in _select_child_rows(payload, config.data_selector, logger)
+        for row in _select_child_rows(payload, config.data_selector, logger, config.single_object_child)
     ]
 
 

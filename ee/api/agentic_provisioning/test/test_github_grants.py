@@ -1,3 +1,5 @@
+import dataclasses
+
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -90,7 +92,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         with (
             patch(
                 "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
-                return_value=AUTHORIZATION,
+                return_value=dataclasses.replace(AUTHORIZATION, identity_verified_at=1_700_000_000),
             ) as mock_exchange,
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
         ):
@@ -114,6 +116,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert grant is not None
         assert grant.access_token == ACCESS_TOKEN
         assert grant.email == "octocat@example.com"
+        assert grant.to_authorization().identity_verified_at == 1_700_000_000
 
     @parameterized.expand(
         [

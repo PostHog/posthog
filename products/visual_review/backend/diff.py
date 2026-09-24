@@ -16,7 +16,7 @@ from pixelhog import ClustersResult, Comparison, RowAlignment
 from posthog.dataclasses import frozen
 
 from .diff_metadata import ClusterSummary, DiffCluster, RowShift, ShiftBand
-from .facade.contracts import SHIFT_ABSORB_MAX_ROWS
+from .facade.contracts import SHIFT_ABSORB_MAX_ROWS, SNAPSHOT_IMAGE_FORMATS
 
 # Aligned-bbox merge tunables passed through to pixelhog's clusters().
 # Catches the "list shifted vertically" pattern where every row of a
@@ -117,7 +117,7 @@ def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowA
             return False
         return row(image, start - 1) != band[0] and row(image, end) != band[-1]
 
-    baseline = Image.open(io.BytesIO(baseline_bytes)).convert("RGBA")
+    baseline = Image.open(io.BytesIO(baseline_bytes), formats=SNAPSHOT_IMAGE_FORMATS).convert("RGBA")
     # Row pixels -> whether that deleted band stood out where it was.
     deleted_rows: dict[bytes, bool] = {}
     for seg in deleted:
@@ -128,7 +128,7 @@ def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowA
             deleted_rows[pixels] = deleted_rows.get(pixels, False) or stood_out
     del baseline
 
-    current = Image.open(io.BytesIO(current_bytes)).convert("RGBA")
+    current = Image.open(io.BytesIO(current_bytes), formats=SNAPSHOT_IMAGE_FORMATS).convert("RGBA")
     relocated = 0
     for seg in inserted:
         start, end = seg.current_start, seg.current_start + seg.len

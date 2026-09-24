@@ -1,15 +1,16 @@
 import os
 import time
+import logging
 import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote_plus
 
 import pytest
-from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+from posthog.test.base import PostHogTestCase, _selective_flush, run_clickhouse_statement_in_parallel
 
 from _pytest.junitxml import ET, bin_xml_escape, mangle_test_address
 
@@ -23,12 +24,16 @@ except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpat
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
+from django.db import connections
+from django.test import TransactionTestCase
 
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
+
+logger = logging.getLogger(__name__)
 
 
 def create_clickhouse_tables():
@@ -464,6 +469,40 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 _original_flush_handle = FlushCommand.handle
 FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
+
+
+def _another_session_is_busy(db_name: str) -> bool:
+    with connections[db_name].cursor() as cursor:
+        cursor.execute(
+            "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database()"
+            " AND pid <> pg_backend_pid() AND backend_type = 'client backend' AND state <> 'idle')"
+        )
+        return cursor.fetchone() == (True,)
+
+
+def _patched_fixture_teardown(self: TransactionTestCase) -> None:
+    """
+    Use the selective flush of NonAtomicBaseTest instead of the stock flush, which truncates every
+    table and re-seeds content types and permissions after each ``django_db(transaction=True)`` test.
+
+    Keep the stock flush while another session is busy, such as a Temporal worker thread: TRUNCATE
+    waits for that session's transaction, but the selective probe and DELETE do not, so rows it
+    commits later would leak into the next test.
+    """
+    db_names = cast(Any, self)._databases_names(include_mirrors=False)
+    if self.available_apps is not None or self.serialized_rollback or any(map(_another_session_is_busy, db_names)):
+        _original_fixture_teardown(self)
+        return
+    try:
+        for db_name in db_names:
+            _selective_flush(db_name, reset_sequences=False)
+    except Exception:
+        logger.exception("Selective flush failed; falling back to the stock teardown")
+        _original_fixture_teardown(self)
+
+
+_original_fixture_teardown = TransactionTestCase._fixture_teardown  # type: ignore[attr-defined]
+TransactionTestCase._fixture_teardown = _patched_fixture_teardown  # type: ignore[attr-defined]
 
 
 @pytest.fixture

@@ -266,9 +266,6 @@ class TestSlackDelivery(BaseTest):
                 delivery = ConversationDelivery.objects.unscoped().get(id=part.delivery_id)
                 assert delivery.status == ConversationDelivery.Status.FAILED
 
-    @patch(
-        "products.conversations.backend.tasks.slack._upload_image_to_slack_thread", side_effect=RuntimeError("upload")
-    )
     @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload", return_value=b"img")
     @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
     @patch("products.conversations.backend.tasks.slack.get_slack_client")
@@ -277,24 +274,53 @@ class TestSlackDelivery(BaseTest):
         mock_get_client: MagicMock,
         _avatar: MagicMock,
         _read: MagicMock,
-        _upload: MagicMock,
     ) -> None:
-        self._create_reply()
-        part = self._part()
-        ConversationDeliveryPart.objects.unscoped().filter(id=part.id).update(
-            payload={
-                **(part.payload or {}),
-                "images": [{"url": "https://app.example.com/uploaded_media/abc", "alt": "img"}],
-            }
+        image_id = uuid4()
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Support reply",
+            rich_content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "image",
+                                "attrs": {
+                                    "src": f"https://app.posthog.com/uploaded_media/{image_id}",
+                                    "alt": "img",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": False},
         )
         client = MagicMock()
         client.chat_postMessage.return_value = {"ok": True, "ts": "1700.1"}
+        client.api_call.side_effect = TimeoutError("upload")
         mock_get_client.return_value = client
 
-        process_slack_delivery_part(str(part.id))
-        part.refresh_from_db()
-        assert part.status == ConversationDeliveryPart.Status.ACCEPTED
-        assert part.provider_message_id == "1700.1"
+        body = ConversationDeliveryPart.objects.unscoped().get(part_key="body")
+        process_slack_delivery_part(str(body.id))
+        body.refresh_from_db()
+        assert body.status == ConversationDeliveryPart.Status.ACCEPTED
+        assert body.provider_message_id == "1700.1"
+
+        image = ConversationDeliveryPart.objects.unscoped().exclude(part_key="body").get()
+        assert image.status == ConversationDeliveryPart.Status.PENDING
+        process_slack_delivery_part(str(image.id))
+        body.refresh_from_db()
+        image.refresh_from_db()
+        assert body.status == ConversationDeliveryPart.Status.ACCEPTED
+        assert body.provider_message_id == "1700.1"
+        assert image.status == ConversationDeliveryPart.Status.PENDING
+        assert client.chat_postMessage.call_count == 1
 
     def test_redrive_failed_part_keeps_client_msg_id(self) -> None:
         self._create_reply()

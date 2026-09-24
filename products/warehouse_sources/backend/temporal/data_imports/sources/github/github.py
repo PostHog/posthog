@@ -5,6 +5,7 @@ import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
 from itertools import batched
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode, urlsplit
@@ -862,14 +863,30 @@ def _repository_resolves(
 
 
 def _github_retry_wait(state: RetryCallState) -> float:
-    """Sleep until GitHub's advertised rate-limit reset when it gave us one
-    (capped, plus a little jitter so the sources sharing one installation's
-    budget don't all wake at the same reset instant); otherwise fall back to
-    exponential backoff."""
+    """Sleep until the limit that shed this call frees, whichever limit it was.
+
+    Both twins get a timed wait, capped, plus a little jitter so the sources sharing one
+    installation's budget don't all wake at the same instant:
+
+    - ``GitHubRateLimitError`` is GitHub's own limit, and it advertises the reset.
+    - ``GitHubEgressBudgetExhausted`` is *our* limit, and the limiter knows the pace — the
+      same question :func:`_pace_before_request` asks before every request.
+
+    Only the fall-through is blind exponential backoff, which is capped at 30 seconds and so
+    cannot outlast either window. Leaving our own budget on that path meant a shed page
+    retried five times inside ~2 minutes, failed the activity, and let Temporal restart the
+    whole extraction — the shape behind a burst of ~9,700 shed-call errors in one hour.
+    """
     if state.outcome is not None and state.outcome.failed:
         exc = state.outcome.exception()
         if isinstance(exc, GitHubRateLimitError) and exc.retry_after is not None:
             return min(float(exc.retry_after), GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+        if isinstance(exc, GitHubEgressBudgetExhausted) and exc.scope:
+            # Zero means the budget already refilled between the denial and now, so fall through
+            # rather than returning a no-wait retry that would just hammer the gate again.
+            pace = github_installation_pace_seconds(exc.scope, priority=Priority.BATCH)
+            if pace > 0:
+                return min(pace, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
     return _github_backoff_wait(state)
 
 
@@ -901,6 +918,20 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
         activity.wait_for_worker_shutdown_sync(timeout=pace)
     else:
         time.sleep(pace)
+
+
+def _is_unmapped_client_status(status_code: int) -> bool:
+    """A 4xx `HTTPStatus` doesn't recognize, like the nginx-style 499 ("client closed request")
+    GitHub's edge has been observed returning from `/graphql` on an upstream hiccup. It's not a
+    denial GitHub meant to send us, so group it with the 5xx path instead of crashing the sync on
+    an unclassified HTTPError. Mirrors the Hubspot source's `_is_retryable_status`."""
+    if not (400 <= status_code < 500):
+        return False
+    try:
+        HTTPStatus(status_code)
+    except ValueError:
+        return True
+    return False
 
 
 # Transient failures every GitHub call retries on, REST and GraphQL alike.
@@ -958,7 +989,7 @@ def _fetch_page(
     )
 
     # Transient server errors: retry with plain exponential backoff.
-    if response.status_code >= 500:
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
         raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
     # Rate limited (secondary 429, or primary 403 with a rate-limit body): raise
@@ -1463,7 +1494,7 @@ def _fetch_merge_commit_shas(
         },
     )
 
-    if response.status_code >= 500:
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
         raise GithubRetryableError(f"Github GraphQL error (retryable): status={response.status_code}")
     raise_if_github_rate_limited(response)
     if response.status_code in {401, 403, 404}:

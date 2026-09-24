@@ -9,6 +9,25 @@
  */
 import * as zod from 'zod'
 
+export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
+
+export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100
+
+export const HeatmapCaptureSettingsUpdateBody = /* @__PURE__ */ zod.object({
+    capture_mode: zod
+        .enum(['all', 'url_allowlist'])
+        .describe('\* `all` - All URLs\n\* `url_allowlist` - Only listed URLs')
+        .optional()
+        .describe(
+            "Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').\n\n\* `all` - All URLs\n\* `url_allowlist` - Only listed URLs"
+        ),
+    url_allowlist: zod
+        .array(zod.string().max(heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax))
+        .max(heatmapCaptureSettingsUpdateBodyUrlAllowlistMax)
+        .optional()
+        .describe('Full http(s) URLs that may send heatmap data. Use \* to match any characters.'),
+})
+
 export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesItemMax = 253
 
 export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesMax = 100
@@ -134,7 +153,7 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The optional data URL selects which pages supply the overlay data and defaults to the captured URL.
  */
 export const savedCaptureCreateBodyWidthMin = 100
 export const savedCaptureCreateBodyWidthMax = 3000
@@ -147,6 +166,10 @@ export const savedCaptureCreateBodyWidthsItemMax = 3000
 export const savedCaptureCreateBodyWidthsMax = 16
 
 export const savedCaptureCreateBodyUrlMax = 2000
+
+export const savedCaptureCreateBodyDataUrlOneMax = 2000
+
+export const savedCaptureCreateBodyDataUrlTwoMax = 0
 
 export const savedCaptureCreateBodyNameMax = 400
 
@@ -178,8 +201,15 @@ export const SavedCaptureCreateBody = /* @__PURE__ */ zod.object({
     url: zod
         .string()
         .max(savedCaptureCreateBodyUrlMax)
+        .describe('Exact page URL the screenshot was captured on. Wildcards are not allowed.'),
+    data_url: zod
+        .union([
+            zod.url().max(savedCaptureCreateBodyDataUrlOneMax),
+            zod.string().max(savedCaptureCreateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe(
-            'Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.'
+            'URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty.'
         ),
     name: zod
         .string()

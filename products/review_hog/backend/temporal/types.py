@@ -16,6 +16,7 @@ TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
+TRIGGER_AUTOMATIC = "automatic"
 
 
 @frozen
@@ -72,6 +73,7 @@ class ReviewPRWorkflowInputs:
     # a flash turn must not change what the PR's next normal review runs on. Defaulted so in-flight
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
+    requested_head_sha: str | None = None
 
     @property
     def repository(self) -> str:
@@ -87,6 +89,11 @@ class ReviewPRWorkflowInputs:
             "trigger_source": self.trigger_source,
             "review_mode": self.review_mode,
         }
+
+
+@frozen
+class ReviewPRQueueInputs:
+    requests: list[ReviewPRWorkflowInputs]
 
 
 @frozen
