@@ -55,6 +55,17 @@ function accountDetailUrl(props: CustomerAnalyticsAccountSceneLogicProps, tab?: 
         : urls.customerAnalyticsAccount(props.accountId ?? '', tab)
 }
 
+function parseAccountTabRoute(tab: string | undefined): string | undefined {
+    if (!tab) {
+        return undefined
+    }
+    try {
+        return decodeURIComponent(tab)
+    } catch {
+        return tab
+    }
+}
+
 function isAccountNotFound(error: unknown): boolean {
     return error instanceof ApiError && error.status === 404
 }
@@ -397,7 +408,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         }
         return {
             [`${accountDetailUrl(props)}/:tab`]: ({ tab }) => {
-                actions.restoreActiveTab(tab)
+                actions.restoreActiveTab(parseAccountTabRoute(tab))
             },
             [accountDetailUrl(props)]: () => {
                 actions.restoreActiveTab(undefined)
