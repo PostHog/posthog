@@ -1,6 +1,8 @@
 import { CSS_LOAD_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
 import { chunkIdentity, shortHash } from '@posthog/esbuilder/stableChunkNames.mjs'
 
+import { BOOT_ENTRIES, ENTRY } from './bootEntries.mjs'
+
 /**
  * Split stylesheets for the stable build.
  *
@@ -19,14 +21,7 @@ import { chunkIdentity, shortHash } from '@posthog/esbuilder/stableChunkNames.mj
 
 export const CSS_SPECIFIER_PREFIX = '@css/'
 
-// The same roots as the logged-out and authenticated boot in bin/check-eager-graph.mjs.
-const BOOT_ENTRIES = [
-    'src/index.tsx',
-    'src/scenes/App.tsx',
-    'src/scenes/bootApp.ts',
-    'src/scenes/AuthenticatedShell.tsx',
-]
-const isStylesheet = (file) => /\.(s?css|sass)$/.test(file)
+const isStylesheet = (file) => /\.(css|scss|sass)$/.test(file)
 
 function eagerLayer(file) {
     if (file.endsWith('tailwind/tailwind.css')) {
@@ -48,7 +43,7 @@ const EAGER_ORDER = ['eager-tailwind', 'eager-global', 'eager-app']
 export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
     const entryOutput = (entryPoint) =>
         Object.keys(outputs).find((file) => outputs[file].entryPoint === entryPoint && file.endsWith('.js'))
-    const linkedStylesheet = outputs[entryOutput('src/index.tsx')]?.cssBundle
+    const linkedStylesheet = outputs[entryOutput(ENTRY)]?.cssBundle
     if (!linkedStylesheet) {
         throw new Error('stable css: the entry has no stylesheet to split')
     }
