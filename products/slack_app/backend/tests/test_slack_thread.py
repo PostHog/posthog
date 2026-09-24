@@ -163,6 +163,24 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert actions[0]["text"]["text"] == "View PR"
         assert actions[1]["text"]["text"] == "Open in PostHog"
 
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_closed_replies_in_thread_and_keeps_progress(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context)
+
+        handler.post_pr_closed(
+            "https://github.com/org/repo/pull/1", "https://posthog.com/task/1", reply_target_slack_user_id="U456"
+        )
+
+        mock_client.chat_delete.assert_not_called()
+        mock_client.chat_postMessage.assert_called_once()
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["thread_ts"] == "1234.5678"
+        assert kwargs["text"] == "<@U456> *Pull request closed without merging*"
+        assert _button_texts(_action_blocks(kwargs)[0]) == ["View PR", "Open in PostHog"]
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_error_formats_upstream_provider_failure(self, mock_get_client, _mock_find_progress):

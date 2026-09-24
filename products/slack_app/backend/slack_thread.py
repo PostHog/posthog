@@ -145,6 +145,25 @@ class SlackThreadContext:
         )
 
 
+def _pr_buttons(pr_url: str, task_url: str | None) -> list[dict[str, Any]]:
+    buttons: list[dict[str, Any]] = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+            "url": pr_url,
+        },
+    ]
+    if task_url:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                "url": task_url,
+            }
+        )
+    return buttons
+
+
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
 
@@ -538,38 +557,37 @@ class SlackThreadHandler:
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
 
-        buttons: list[dict[str, Any]] = [
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "View PR",
-                    "emoji": True,
-                },
-                "url": pr_url,
-            },
-        ]
-        if task_url:
-            buttons.append(
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Open in PostHog",
-                        "emoji": True,
-                    },
-                    "url": task_url,
-                }
-            )
-
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {"type": "actions", "elements": buttons},
+            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
         ]
         if bot_authored:
             blocks.append(context_block(self._personal_github_hint()))
 
         self._delete_progress_and_post(header, blocks)
+
+    def post_pr_closed(
+        self,
+        pr_url: str,
+        task_url: str | None,
+        reply_target_slack_user_id: str | None = None,
+    ) -> None:
+        """Post that the pull request ``post_pr_opened`` announced was closed without merging.
+
+        Without this card the thread keeps reading as if the work still waits for review.
+        It leaves any progress message alone, because the run can still be working.
+        """
+        mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
+        header = f"{mention_prefix}*Pull request closed without merging*"
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
+            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
+            context_block("Reply in this thread to try a different approach."),
+        ]
+        try:
+            self._post_in_thread(text=header, blocks=blocks)
+        except Exception as e:
+            logger.exception("slack_pr_closed_post_failed", error=str(e))
 
     def _personal_github_hint(self) -> str:
         """One muted line telling the reader why the pull request isn't theirs.

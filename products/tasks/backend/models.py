@@ -318,6 +318,7 @@ def clear_channel_repositories_on_github_integration_delete(
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+SLACK_NOTIFIED_PR_CLOSED_URL_STATE_KEY = "slack_notified_pr_closed_url"
 PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
 PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
 PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
@@ -908,6 +909,26 @@ class Task(DeletedMetaFields, models.Model):
             task.state = state
             task.save(update_fields=["state", "updated_at"])
         self.state = state
+
+    def claim_slack_pr_closed_notification(self, pr_url: str) -> bool:
+        """Record that the task's Slack thread is told ``pr_url`` closed, and say whether to post.
+
+        Returns False when the thread never announced ``pr_url``, a newer PR replaced it, or the
+        close is already announced. Row-locked so a redelivered webhook cannot post twice.
+        """
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            if (
+                state.get(SLACK_NOTIFIED_PR_URL_STATE_KEY) != pr_url
+                or state.get(SLACK_NOTIFIED_PR_CLOSED_URL_STATE_KEY) == pr_url
+            ):
+                return False
+            state[SLACK_NOTIFIED_PR_CLOSED_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+        return True
 
     @property
     def pr_ready_email_sent_at(self) -> str | None:

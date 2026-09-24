@@ -5,6 +5,7 @@ from celery import shared_task
 
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
+from products.tasks.backend.logic.services.pr_closed_slack import post_pr_closed_slack_update
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run_id
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture, BudgetSteerProperties
 
@@ -56,3 +57,9 @@ def deliver_comment_slack_dms(
 @shared_task(ignore_result=True)
 def resume_workflow_step_for_run_deferred(run_id: str) -> None:
     resume_workflow_step_for_run_id(run_id)
+
+
+# No retries: the task records the close before the post, so a retry finds it and posts nothing.
+@shared_task(ignore_result=True)
+def notify_slack_thread_pr_closed(run_id: str, pr_url: str) -> None:
+    post_pr_closed_slack_update(run_id, pr_url)
