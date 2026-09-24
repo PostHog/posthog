@@ -11,6 +11,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://depot.dev/docs/api/ci/reference",
         "columns": {
             "run_id": "Unique identifier of the Depot CI run.",
+            "run_workflow_count": "Number of workflows the run started.",
             "repo": "GitHub repository of the run, as owner/name.",
             "ref": "Git ref the run was triggered for.",
             "sha": "Commit SHA of the run.",

@@ -5,6 +5,7 @@ from typing import Any
 from requests import Response, Session
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
@@ -51,8 +52,10 @@ def _call(session: Session, method: str, body: JSONObject) -> JSONObject:
 
 
 def _parse_timestamp(value: dt.datetime | str) -> dt.datetime:
-    parsed = value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(value)
-    return parsed.replace(tzinfo=dt.UTC) if parsed.tzinfo is None else parsed
+    parsed = parse_datetime_value(value)
+    if parsed is None:
+        raise ValueError(f"Depot returned an unparseable timestamp: {value!r}")
+    return parsed
 
 
 def _list_runs(session: Session, repository: str, statuses: list[str]) -> Iterator[JSONObject]:
@@ -81,21 +84,22 @@ def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> d
 def _runs_to_sync(
     session: Session, repository: str, created_after: dt.datetime | None, created_before: dt.datetime
 ) -> list[JSONObject]:
-    runs: list[tuple[dt.datetime, JSONObject]] = []
+    runs: list[JSONObject] = []
     # ListRuns has no time filter but returns terminal runs newest first, so the walk stops at the
-    # first run at or before the lower bound.
+    # first run at or before the lower bound, and reversing the walk yields the runs oldest first.
     for run in _list_runs(session, repository, TERMINAL_STATUSES):
         created_at = _parse_timestamp(run["createdAt"])
         if created_after is not None and created_at <= created_after:
             break
         if created_at < created_before:
-            runs.append((created_at, run))
-    return [run for _, run in sorted(runs, key=lambda created_run: created_run[0])]
+            runs.append(run)
+    return runs[::-1]
 
 
-def _attempt_rows(run: JSONObject, workflow: JSONObject) -> list[JSONObject]:
+def _attempt_rows(run: JSONObject, workflow: JSONObject, run_workflow_count: int) -> list[JSONObject]:
     shared_columns = {
         "run_id": run["runId"],
+        "run_workflow_count": run_workflow_count,
         "repo": workflow.get("repo"),
         "ref": workflow.get("ref"),
         "sha": workflow.get("sha"),
@@ -143,11 +147,13 @@ def _attempt_rows(run: JSONObject, workflow: JSONObject) -> list[JSONObject]:
 def _run_attempt_rows(session: Session, run: JSONObject) -> list[JSONObject]:
     # GetRunMetrics would answer in one call, but Depot refuses it with ResourceExhausted for a run
     # with many attempts. GetWorkflow answers for any workflow size, so the run is read per workflow.
-    run_status = _call(session, "GetRunStatus", {"runId": run["runId"]})
+    workflows = _call(session, "GetRunStatus", {"runId": run["runId"]}).get("workflows", [])
     return [
         row
-        for workflow in run_status.get("workflows", [])
-        for row in _attempt_rows(run, _call(session, "GetWorkflow", {"workflowId": workflow["workflowId"]}))
+        for workflow in workflows
+        for row in _attempt_rows(
+            run, _call(session, "GetWorkflow", {"workflowId": workflow["workflowId"]}), len(workflows)
+        )
     ]
 
 

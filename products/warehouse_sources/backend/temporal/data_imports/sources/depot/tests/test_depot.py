@@ -228,6 +228,7 @@ class TestDepotSource:
         ]
         assert rows[0] == {
             "run_id": "run-1",
+            "run_workflow_count": 2,
             "repo": REPOSITORY,
             "ref": "refs/pull/42/merge",
             "sha": "abc123",
