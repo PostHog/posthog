@@ -8,7 +8,7 @@ from pydantic.dataclasses import dataclass
 
 from .enums import DecisionQuestionType
 
-DEFAULT_DECISION_MODEL = "posthog/posthog/decision-4b"
+DEFAULT_DECISION_MODEL = "posthog/alibiserikbay/jevk5-0.2"
 
 
 class DecisionsDisabledError(Exception):
@@ -33,6 +33,8 @@ class DecisionGatewayError(Exception):
 
 
 MAX_QUESTIONS_PER_REQUEST = 32
+# JevK5 answers with one letter per option, A to P.
+MAX_OPTIONS_PER_QUESTION = 16
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,8 @@ class DecisionQuestion:
             raise ValueError("a choice question needs its options as criteria, keyed by name")
         if self.type == DecisionQuestionType.NOUL and isinstance(self.criteria, list):
             raise ValueError("a yes/no question takes criteria keyed by name, not a list")
+        if self.criteria is not None and len(self.criteria) > MAX_OPTIONS_PER_QUESTION:
+            raise ValueError(f"a question takes at most {MAX_OPTIONS_PER_QUESTION} options")
 
 
 @dataclass(frozen=True)
