@@ -402,6 +402,12 @@ impl Client for RedisClient {
         Ok(())
     }
 
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError> {
+        let mut conn = self.conn();
+        conn.zrem::<_, _, ()>(k, member).await?;
+        Ok(())
+    }
+
     async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.hincr::<_, _, _, ()>(k, v, count).await?;

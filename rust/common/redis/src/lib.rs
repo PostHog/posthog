@@ -219,6 +219,8 @@ pub trait Client: Send + Sync {
     /// the first score. `zadd` overwrites it.
     async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError>;
+
     async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError>;
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;

@@ -229,13 +229,13 @@ pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<Stri
         .unwrap_or_default()
 }
 
-/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
-/// test redis between runs, and team ids restart when the test database is recreated, so a
-/// stale member with a reused id would satisfy a poll on its first read.
-pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+pub async fn remove_flag_definitions_rebuild_request(redis_url: &str, team_id: i32) {
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
-        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .zrem(
+            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
+            team_id.to_string(),
+        )
         .await
         .unwrap();
 }

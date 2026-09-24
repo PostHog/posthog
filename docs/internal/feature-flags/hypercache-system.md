@@ -491,6 +491,16 @@ Reads on the dedicated instance go to its `-ro` reader endpoint. `NotFound` is u
 
 The flag-definitions self-heal queue follows the write side, not the read side. The Rust endpoint enqueues a rebuild request on the dedicated instance (`State::flags_namespace_redis_client`), and the Celery drain reads the queue from `flag_definitions_hypercache.redis_url` (`products/feature_flags/backend/rebuild_queue.py`). Both resolve from `FLAGS_REDIS_URL`, so the producer and the consumer move together on configuration. They can still split on connection state: a Rust process that cannot reach the dedicated cluster at startup falls back to the shared one and enqueues there for its whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly verifier. `server.rs` logs that startup failure at error level, and the same failure already sends the flags.json, team-metadata, and remote-config readers to the shared cluster, where Django writes nothing. Django and the Rust fleet deploy independently, so a deploy of one before the other leaves requests on the cluster the other side is not reading. Clean up on the **shared** cluster only, and never on the dedicated one, which holds the live queue once both sides are up. A Rust-first rollout puts the window's requests on the dedicated cluster, where the drain collects them as soon as Django deploys, so they need no cleanup. A Django-first rollout puts them on the shared cluster, where nothing reads them again. Either order also leaves the pre-move queue members and the open circuits on the shared cluster. Run `DEL flag_definitions:rebuild_requests flag_definitions:rebuild_circuit` there after both sides are deployed. The circuit-breaker set is included because only the drain prunes it and the key carries no TTL. The cooldown and failure-streak keys expire on their own.
 
+`FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED` defaults to `false`.
+Set it to `true` on the Rust definitions fleet to rebuild entries that S3 serves after a confirmed Redis miss.
+`FLAG_DEFINITIONS_SELF_HEAL_ENABLED` must also be `true`, and the Celery rebuild drain must run.
+The queue uses `ZADD NX` so repeated polls keep the first enqueue time.
+
+During rollout, watch `flags_flag_definitions_rebuild_requested_total` by `trigger` and `result`.
+Also watch `posthog_flag_definitions_rebuild_queue_depth` and `posthog_flag_definitions_rebuild_oldest_age_seconds`.
+Set the S3-hit variable to `false` to stop this trigger.
+Set self-heal to `false` to stop both S3-hit and cache-miss triggers.
+
 The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
 
 ## Scheduled tasks

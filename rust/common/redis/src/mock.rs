@@ -297,6 +297,11 @@ impl Client for MockRedisClient {
         Ok(())
     }
 
+    async fn zrem(&self, key: String, member: String) -> Result<(), CustomRedisError> {
+        self.record_call("zrem", key, MockRedisValue::String(member));
+        Ok(())
+    }
+
     async fn hincrby(
         &self,
         key: String,
