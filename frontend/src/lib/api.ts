@@ -13,6 +13,7 @@ import {
     NetworkError,
     type NetworkFailureReason,
     readableErrorMessage,
+    redactPathnameIds,
     ResponseBodyReadError,
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
@@ -7358,7 +7359,7 @@ async function handleFetch(
         // this one.
         const failure = new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
         failure.cause = error
-        failure.endpoint = { method, pathname: requestPathname(url) }
+        failure.endpoint = { method, pathname: redactPathnameIds(requestPathname(url)) }
         throw failure
     }
 
@@ -7397,7 +7398,7 @@ async function handleFetch(
         }
 
         const failure = await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
-        failure.endpoint = { method, pathname }
+        failure.endpoint = { method, pathname: redactPathnameIds(pathname) }
         throw failure
     }
 

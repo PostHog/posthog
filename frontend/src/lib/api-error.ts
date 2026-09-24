@@ -237,11 +237,29 @@ export function readableErrorMessage(error: unknown): string | undefined {
     )
 }
 
+/**
+ * A path segment that holds no identifier. Anything else is one: a team id, a uuid, a short id, or
+ * an encoded key. Query kinds are plain words, so the kind the query endpoint puts in the path
+ * survives the redaction.
+ */
+const PLAIN_PATH_SEGMENT = /^[A-Za-z_-]*$/
+
+/**
+ * The route a path describes, with its identifiers removed. A reported failure names the endpoint
+ * that failed, and the rows it touched are not ours to send.
+ */
+export function redactPathnameIds(pathname: string): string {
+    return pathname
+        .split('/')
+        .map((segment) => (PLAIN_PATH_SEGMENT.test(segment) ? segment : ':id'))
+        .join('/')
+}
+
 export class ApiError extends Error {
     /**
-     * The request that failed, set by the request path. Every `ApiError` is built in `lib/api.ts`,
-     * so a reported one carries that file's stack and nothing that names the endpoint. The path
-     * names the failing surface, because the query endpoint puts the query kind in it.
+     * The request that failed, set by the request path with the pathname already redacted. Every
+     * `ApiError` is built in `lib/api.ts`, so a reported one carries that file's stack and nothing
+     * that names the endpoint.
      */
     endpoint: { method: string; pathname: string } | null = null
     /** Django REST Framework `detail` - used in downstream error handling. */

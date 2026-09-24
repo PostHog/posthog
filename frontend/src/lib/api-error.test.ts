@@ -4,6 +4,7 @@ import {
     ResponseBodyReadError,
     isScopeNotFoundError,
     isTransientServerError,
+    redactPathnameIds,
     shouldReportApiFailure,
 } from './api-error'
 
@@ -162,6 +163,27 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
+        })
+    })
+
+    describe('redactPathnameIds', () => {
+        it.each([
+            ['a team id', '/api/environments/2/query/', '/api/environments/:id/query/'],
+            [
+                'a uuid',
+                '/api/projects/1/session_recordings/0198c7ef-1f3d-7c2a-9f11-2b7c0d4e5a6b',
+                '/api/projects/:id/session_recordings/:id',
+            ],
+            ['a short id', '/api/projects/1/insights/Ab3xY9Zq', '/api/projects/:id/insights/:id'],
+            ['an encoded key', '/api/projects/1/persons/user%40example.com', '/api/projects/:id/persons/:id'],
+        ])('redacts %s', (_, pathname, expected) => {
+            expect(redactPathnameIds(pathname)).toEqual(expected)
+        })
+
+        it('keeps the query kind, which is what names the failing surface', () => {
+            expect(redactPathnameIds('/api/environments/2/query/ErrorTrackingBreakdownsQuery/')).toEqual(
+                '/api/environments/:id/query/ErrorTrackingBreakdownsQuery/'
+            )
         })
     })
 

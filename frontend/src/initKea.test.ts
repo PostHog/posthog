@@ -48,7 +48,7 @@ describe('initKea', () => {
 
     it('reports a server error with the action and the endpoint that failed', async () => {
         const error = new ApiError('A server error occurred.', 500)
-        error.endpoint = { method: 'POST', pathname: '/api/environments/2/query/ErrorTrackingBreakdownsQuery' }
+        error.endpoint = { method: 'POST', pathname: '/api/environments/:id/query/ErrorTrackingBreakdownsQuery' }
 
         await failLoaderWith(error)
 
@@ -57,7 +57,7 @@ describe('initKea', () => {
             kea_reducer: 'thing',
             api_status: 500,
             api_method: 'POST',
-            api_endpoint: '/api/environments/2/query/ErrorTrackingBreakdownsQuery',
+            api_endpoint: '/api/environments/:id/query/ErrorTrackingBreakdownsQuery',
         })
     })
 

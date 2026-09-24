@@ -284,7 +284,7 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
-    it('names the request that failed on the error, since every ApiError shares one stack', async () => {
+    it('names the route that failed on the error, with the identifiers in it redacted', async () => {
         fakeFetch.mockResolvedValueOnce({
             ok: false,
             status: 500,
@@ -294,7 +294,7 @@ describe('API helper', () => {
         })
 
         await expect(api.create('/api/environments/2/query/ErrorTrackingBreakdownsQuery')).rejects.toMatchObject({
-            endpoint: { method: 'POST', pathname: '/api/environments/2/query/ErrorTrackingBreakdownsQuery/' },
+            endpoint: { method: 'POST', pathname: '/api/environments/:id/query/ErrorTrackingBreakdownsQuery/' },
         } satisfies Partial<ApiError>)
     })
 
