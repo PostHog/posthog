@@ -32,7 +32,7 @@ class TestGitHubTransport(SimpleTestCase):
         provider.add_span_processor(SimpleSpanProcessor(exporter))
 
         with (
-            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
             patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=True),
             patch("requests.request", return_value=_response(status_code)),
         ):
@@ -50,6 +50,12 @@ class TestGitHubTransport(SimpleTestCase):
         assert span.attributes == {
             "http.request.method": "GET",
             "server.address": "api.github.com",
+            "egress.domain": "github",
+            "egress.source": "integration",
+            "egress.priority": "critical",
+            "egress.endpoint": "/repos/{owner}/{repo}/branches",
+            "egress.scoped": True,
+            "egress.admission.granted": True,
             "github.endpoint": "/repos/{owner}/{repo}/branches",
             "github.resource": "core",
             "github.source": "integration",
@@ -89,7 +95,7 @@ class TestGitHubTransport(SimpleTestCase):
         provider.add_span_processor(SimpleSpanProcessor(exporter))
 
         with (
-            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
             patch("requests.request", return_value=_response()),
         ):
             github_request("GET", "https://raw.githubusercontent.com/PostHog/posthog/main/README.md", source="test")
@@ -106,7 +112,7 @@ class TestGitHubTransport(SimpleTestCase):
         response.url = "https://uploads.github.com/repos/example/repo/archive.zip"
 
         with (
-            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
             patch("requests.request", return_value=response),
         ):
             github_request("GET", "https://api.github.com/repos/example/repo/archive", source="test")
@@ -123,8 +129,8 @@ class TestGitHubTransport(SimpleTestCase):
         response.status_code = 200
 
         with (
-            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
-            patch("posthog.egress.github.transport._github_client.request", return_value=response),
+            patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
+            patch("requests.request", return_value=response),
         ):
             assert github_request("GET", "https://api.github.com/repos/example/repo", source="test") is response
 
@@ -138,7 +144,7 @@ class TestGitHubTransport(SimpleTestCase):
         provider.add_span_processor(SimpleSpanProcessor(exporter))
 
         with (
-            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
             patch("requests.request", return_value=_response()),
         ):
             github_request(
