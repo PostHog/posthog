@@ -1,5 +1,5 @@
 version: 1
 owners: []
 rules:
-    - match: ['/agent/', '/agent-shadow/']
+    - match: '/agent/'
       owners: team-agent-infrastructure

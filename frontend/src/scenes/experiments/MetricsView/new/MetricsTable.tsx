@@ -165,8 +165,7 @@ export function MetricsTable({
     }
 
     const hasColdMetric = isLaunched(experiment) && metrics.some((_, index) => !results[index] && !errors[index])
-    const sectionLoading =
-        sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric || exposuresLoading
+    const sectionLoading = sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric
 
     return (
         <DndContext

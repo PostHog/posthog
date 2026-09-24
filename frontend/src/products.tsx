@@ -1841,12 +1841,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
         staleAfterDays: 90,
     },
     { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
-    {
-        productKey: ProductKey.MCP_ANALYTICS,
-        hasDataEvents: ['$mcp_tool_call'],
-        waitingEvents: ['$mcp_initialize'],
-        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
-    },
+    { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
     { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
 ]
 
@@ -2498,7 +2493,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
         href: urls.mcpAnalytics(),
-        flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
         sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
