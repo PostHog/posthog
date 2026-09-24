@@ -24,6 +24,7 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemDestroyParams,
+    FileSystemHomeFolderApi,
     FileSystemListParams,
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
@@ -83,6 +84,7 @@ import type {
     SCIMTokenResponseApi,
     SharingConfigurationApi,
     ToolbarEntitlementsApi,
+    TwoFactorStatusApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -91,6 +93,8 @@ import type {
     UploadedMediaUploadStartedApi,
     UserApi,
     UserAuthSessionApi,
+    UserCodexConnectRequestApi,
+    UserCodexIntegrationApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
     UserGitHubPrepareCallbackRequestApi,
@@ -1733,6 +1737,20 @@ export const fileSystemCountByPathCreate = async (
     })
 }
 
+export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system/home_folder/`
+}
+
+export const fileSystemHomeFolderCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<FileSystemHomeFolderApi> => {
+    return apiMutator<FileSystemHomeFolderApi>(getFileSystemHomeFolderCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getFileSystemLogViewRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/log_view/`
 }
@@ -2751,6 +2769,60 @@ export const usersIntegrationsList = async (
     })
 }
 
+export const getUsersIntegrationsCodexRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/codex/`
+}
+
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary Show the ChatGPT account connected for Codex cloud tasks
+ */
+export const usersIntegrationsCodexRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<UserCodexIntegrationApi> => {
+    return apiMutator<UserCodexIntegrationApi>(getUsersIntegrationsCodexRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsCodexCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/codex/`
+}
+
+/**
+ * Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries a token.
+ * @summary Connect a ChatGPT account for Codex cloud tasks
+ */
+export const usersIntegrationsCodexCreate = async (
+    uuid: string,
+    userCodexConnectRequestApi: UserCodexConnectRequestApi,
+    options?: RequestInit
+): Promise<UserCodexIntegrationApi> => {
+    return apiMutator<UserCodexIntegrationApi>(getUsersIntegrationsCodexCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userCodexConnectRequestApi),
+    })
+}
+
+export const getUsersIntegrationsCodexDestroyUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/codex/`
+}
+
+/**
+ * Revokes the refresh token at OpenAI and deletes the stored tokens. Idempotent.
+ * @summary Disconnect the ChatGPT account used for Codex cloud tasks
+ */
+export const usersIntegrationsCodexDestroy = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsCodexDestroyUrl(uuid), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getUsersIntegrationsGithubDestroyUrl = (uuid: string, installationId: string) => {
     return `/api/users/${uuid}/integrations/github/${installationId}/`
 }
@@ -3301,10 +3373,13 @@ export const getUsersTwoFactorStatusRetrieveUrl = (uuid: string) => {
 }
 
 /**
- * Get current 2FA status including backup codes if enabled
+ * Get current 2FA status, including how many backup codes are left.
  */
-export const usersTwoFactorStatusRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
+export const usersTwoFactorStatusRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<TwoFactorStatusApi> => {
+    return apiMutator<TwoFactorStatusApi>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
         ...options,
         method: 'GET',
     })

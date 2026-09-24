@@ -1069,6 +1069,34 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        [insightsModel.actionTypes.insightSaved]: async ({ shortId }: { shortId: InsightShortId }, breakpoint) => {
+            if ((props.dashboardId && !isInsightSceneInstance(props)) || values.insight.short_id !== shortId) {
+                return
+            }
+            const hasDraft = (): boolean =>
+                values.insightChanged || !!insightDataLogic.findMounted(props)?.values.queryChanged
+            if (hasDraft()) {
+                lemonToast.info('The saved insight changed. Your unsaved edits have been kept.')
+                return
+            }
+            try {
+                const insight = await insightsApi.getByShortId(
+                    shortId,
+                    undefined,
+                    values.hasOverrides ? 'async_except_on_cache_miss' : 'async',
+                    props.filtersOverride,
+                    props.variablesOverride,
+                    props.tileFiltersOverride
+                )
+                breakpoint()
+                if (insight && !hasDraft()) {
+                    actions.setInsight(insight, { overrideQuery: true, fromPersistentApi: true })
+                }
+            } catch {
+                breakpoint()
+                lemonToast.error('Could not refresh the insight. Reload it to see the saved changes.')
+            }
+        },
         saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)

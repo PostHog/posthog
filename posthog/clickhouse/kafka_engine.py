@@ -36,6 +36,7 @@ CONSUMER_GROUP_FLAG_EVALUATIONS = "clickhouse_flag_evaluations"
 
 # WarpStream consumer groups (separate from MSK so both can coexist)
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
+CONSUMER_GROUP_LOG_ENTRIES_AUX = "clickhouse_log_entries_aux"
 CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
 CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"

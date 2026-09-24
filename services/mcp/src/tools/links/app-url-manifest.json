@@ -255,17 +255,17 @@
         "scope": "project"
     },
     "broadcast": {
-        "template": "/workflows/broadcasts/{id}",
+        "template": "/broadcasts/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "broadcastNew": {
-        "template": "/workflows/broadcasts/new",
+        "template": "/broadcasts/new",
         "params": [],
         "scope": "project"
     },
     "broadcasts": {
-        "template": "/workflows/broadcasts",
+        "template": "/broadcasts",
         "params": [],
         "scope": "project"
     },
@@ -604,8 +604,8 @@
         "params": ["handle"],
         "scope": "project"
     },
-    "engineeringAnalyticsHealth": {
-        "template": "/engineering-analytics/health",
+    "engineeringAnalyticsDeploys": {
+        "template": "/engineering-analytics/deploys",
         "params": [],
         "scope": "project"
     },
@@ -629,8 +629,8 @@
         "params": [],
         "scope": "project"
     },
-    "engineeringAnalyticsTestHealth": {
-        "template": "/engineering-analytics/test-health",
+    "engineeringAnalyticsTests": {
+        "template": "/engineering-analytics/tests",
         "params": [],
         "scope": "project"
     },
@@ -1294,6 +1294,11 @@
         "params": [],
         "scope": "global"
     },
+    "projectFiles": {
+        "template": "/files",
+        "params": [],
+        "scope": "project"
+    },
     "projectHomepage": {
         "template": "/home",
         "params": [],
@@ -1629,6 +1634,11 @@
         "params": [],
         "scope": "project"
     },
+    "terminal": {
+        "template": "/terminal",
+        "params": [],
+        "scope": "project"
+    },
     "toolbarLaunch": {
         "template": "/toolbar",
         "params": [],
@@ -1636,6 +1646,16 @@
     },
     "tracing": {
         "template": "/tracing",
+        "params": [],
+        "scope": "project"
+    },
+    "tracingRetentionDetail": {
+        "template": "/tracing/retention-rules/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "tracingRetentionNew": {
+        "template": "/tracing/retention-rules/new",
         "params": [],
         "scope": "project"
     },

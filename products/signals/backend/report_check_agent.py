@@ -78,8 +78,37 @@ class CheckDispatchRefusal:
     retryable: bool
 
 
-def resolve_check_skill_name(config: AgentCheckConfig) -> str:
-    return config.skill_name or FALLBACK_CHECK_SKILL_NAME
+def resolve_check_skill_name(config: AgentCheckConfig, canonical_team_id: int | None = None) -> str:
+    """Which scout answers this check: the lane its author named, or the fleet's fallback scout.
+
+    Pass `canonical_team_id` to also fall back when the named lane cannot run on that project at
+    all — the scout was retired, held back, or has no live skill row. Without it the check is
+    dispatched at a lane that no longer exists, refused as `skill_withheld` or `scout_missing`, and
+    lands on the report as an errored check result: a reader is told their follow-up failed when
+    what actually happened is that PostHog stopped shipping the scout. The fallback scout re-
+    measures resolved reports for a living, so it is the right lane for a question whose original
+    one is gone.
+
+    A pause is deliberately not one of those reasons. Somebody switched that scout off on purpose,
+    and reporting the refusal is more honest than quietly running the question somewhere else.
+    """
+    skill_name = config.skill_name or FALLBACK_CHECK_SKILL_NAME
+    if canonical_team_id is None or skill_name == FALLBACK_CHECK_SKILL_NAME:
+        return skill_name
+    return skill_name if _lane_still_exists(canonical_team_id, skill_name) else FALLBACK_CHECK_SKILL_NAME
+
+
+def _lane_still_exists(canonical_team_id: int, skill_name: str) -> bool:
+    """Whether this project still has a scout of this name that PostHog has not retired."""
+    if skill_name in withheld_skills_for_team(canonical_team_id):
+        return False
+    if not LLMSkill.objects.filter(team_id=canonical_team_id, name=skill_name, is_latest=True, deleted=False).exists():
+        return False
+    return not SignalScoutConfig.all_teams.filter(
+        team_id=canonical_team_id,
+        skill_name=skill_name,
+        pause_reason=SignalScoutConfig.PauseReason.RETIRED,
+    ).exists()
 
 
 def _latest_resolution_note(report: SignalReport) -> str | None:
@@ -276,11 +305,11 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         )
         return "errored"
 
-    skill_name = resolve_check_skill_name(config)
     # The scout fleet is bound to the canonical project, while the check sits on its report's own
     # environment team, so every gate and the dispatch itself resolve the parent.
     report_team = check.report.team
     canonical_team_id = report_team.parent_team_id or report_team.id
+    skill_name = resolve_check_skill_name(config, canonical_team_id)
 
     try:
         refusal = _refuse_dispatch(skill_name, canonical_team_id)

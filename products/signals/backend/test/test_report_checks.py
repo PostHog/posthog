@@ -917,6 +917,50 @@ class TestAgentCheckDispatch(APIBaseTest):
         check.refresh_from_db()
         assert check.consecutive_errors == 1
 
+    def test_a_check_on_a_retired_scout_runs_on_the_follow_up_scout(self) -> None:
+        # Retiring a scout must not turn every open check bound to it into an errored result on a
+        # report. The fallback scout re-measures resolved reports for a living, so it answers them.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-health-checks", is_latest=True, deleted=False)
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-health-checks",
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.RETIRED,
+            enabled=False,
+        )
+        self._check(
+            config={
+                "instructions": "Re-read the issue and say whether it still fires.",
+                "skill_name": "signals-scout-health-checks",
+            }
+        )
+
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            summary = run_due_report_checks()
+
+        assert summary.dispatched == 1
+        assert dispatch.call_args.kwargs["skill_name"] == FALLBACK_CHECK_SKILL_NAME
+        assert self._results() == []
+
+    def test_a_check_on_a_scout_a_person_paused_still_reports_the_refusal(self) -> None:
+        # A pause is somebody's decision, so saying the check could not run is more honest than
+        # quietly answering the question on another scout.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-health-checks", is_latest=True, deleted=False)
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-health-checks", enabled=False)
+        self._check(
+            config={
+                "instructions": "Re-read the issue and say whether it still fires.",
+                "skill_name": "signals-scout-health-checks",
+            }
+        )
+
+        with patch(_CONNECT), patch(_DISPATCH) as dispatch:
+            summary = run_due_report_checks()
+
+        assert summary.errored == 1
+        dispatch.assert_not_called()
+        assert "is paused" in self._results()[0].content
+
     def test_an_unenrolled_project_records_an_errored_result(self) -> None:
         self._enrol({"guaranteed_team_ids": []})
         self._check()
@@ -1003,6 +1047,9 @@ class TestCheckResultTool(APIBaseTest):
             skill_name=FALLBACK_CHECK_SKILL_NAME,
             skill_version=1,
         )
+        # A live lane for the other scout, so a check naming it is one another scout really
+        # owns rather than one the dispatch would have resolved onto the fallback anyway.
+        LLMSkill.objects.create(team=self.team, name=_OTHER_SKILL, is_latest=True, deleted=False)
 
     def _check(self, **overrides) -> SignalReportCheck:
         now = timezone.now()

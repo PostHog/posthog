@@ -267,7 +267,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 }
 
                 const response = await api.get(
-                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
 
                 breakpoint()
@@ -282,7 +282,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             __default: { count: 0 },
             loadUserInsights: async () => {
                 const response = await api.get(
-                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
                         user: true,
                         saved: true,
                         basic: true,

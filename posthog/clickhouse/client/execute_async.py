@@ -280,6 +280,7 @@ def execute_process_query(
             query_json=query_json,
             limit_context=limit_context,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_id=query_id,
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
             user=user,

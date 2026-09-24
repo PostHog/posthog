@@ -7,7 +7,7 @@ from dataclasses import field
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 import pyarrow as pa
@@ -72,6 +72,22 @@ class AppliedSourceValues:
     written: int
     hashes: dict[str, str]
     failed: bool
+
+
+class _SnapshotS3Client(Protocol):
+    async def _ls(self, path: str, *, detail: bool) -> dict[str, dict[str, Any]] | list[dict[str, Any]]: ...
+
+    async def _cat_file(self, path: str) -> bytes: ...
+
+    async def _pipe_file(self, path: str, data: bytes) -> None: ...
+
+    async def _rm(self, paths: str | list[str], *, recursive: bool = False) -> None: ...
+
+
+@frozen
+class _SnapshotMerge:
+    hashes: dict[str, str]
+    complete: bool
 
 
 @frozen(frozen=False)
@@ -160,31 +176,58 @@ async def _iter_parquet_row_batches(
         entries = listing.values() if isinstance(listing, dict) else listing
         file_paths = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
         for file_path in file_paths:
-            uri = file_path if file_path.startswith("s3://") else f"s3://{file_path}"
-            data = await s3_client._cat_file(uri)
+            data = await s3_client._cat_file(_s3_uri(file_path))
             batches = await asyncio.to_thread(_parquet_batches, data)
             while (batch := await asyncio.to_thread(next, batches, None)) is not None:
                 yield await asyncio.to_thread(batch.to_pylist)
+
+
+def _s3_uri(key: str) -> str:
+    return key if key.startswith("s3://") else f"s3://{key}"
+
+
+def _s3_key(key: str) -> str:
+    return key.removeprefix("s3://").lstrip("/")
+
+
+async def _list_snapshot_files(s3_client: _SnapshotS3Client, prefix: str) -> list[str]:
+    try:
+        listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
+    except FileNotFoundError:
+        return []
+    entries = listing.values() if isinstance(listing, dict) else listing
+    entries_by_key = sorted(
+        (entry for entry in entries if entry.get("type") != "directory"), key=lambda entry: entry["Key"]
+    )
+    entries_without_timestamp = [entry for entry in entries_by_key if entry.get("LastModified") is None]
+    entries_with_timestamp = sorted(
+        (entry for entry in entries_by_key if entry.get("LastModified") is not None),
+        key=lambda entry: entry["LastModified"],
+    )
+    return [entry["Key"] for entry in [*entries_without_timestamp, *entries_with_timestamp]]
+
+
+async def _merge_snapshot_files(s3_client: _SnapshotS3Client, file_keys: list[str]) -> _SnapshotMerge:
+    hashes: dict[str, str] = {}
+    complete = True
+    for key in file_keys:
+        try:
+            data = await s3_client._cat_file(_s3_uri(key))
+        except FileNotFoundError:
+            complete = False
+            continue
+        for row in await asyncio.to_thread(_decode_parquet_rows, data):
+            hashes[str(row["external_id"])] = str(row["value_hash"])
+    return _SnapshotMerge(hashes=hashes, complete=complete)
 
 
 async def _read_snapshot_hashes(
     team_id: int, binding: WarehouseBinding, source_id: str, segment: AccountPropertySyncSegment
 ) -> dict[str, str]:
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
-    hashes: dict[str, str] = {}
     async with aget_s3_client() as s3_client:
-        try:
-            listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
-        except FileNotFoundError:
-            return hashes
-        entries = listing.values() if isinstance(listing, dict) else listing
-        files = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
-        for file_path in files:
-            uri = file_path if file_path.startswith("s3://") else f"s3://{file_path}"
-            data = await s3_client._cat_file(uri)
-            for row in await asyncio.to_thread(_decode_parquet_rows, data):
-                hashes[str(row["external_id"])] = str(row["value_hash"])
-    return hashes
+        merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+        return merge.hashes if merge.complete else {}
 
 
 async def _write_snapshot_hashes(
@@ -201,26 +244,24 @@ async def _write_snapshot_hashes(
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     path = f"{prefix}/{job_id}.parquet"
     async with aget_s3_client() as s3_client:
-        try:
-            listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
-        except FileNotFoundError:
-            listing = []
-        entries = listing.values() if isinstance(listing, dict) else listing
-        existing_files = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
-        merged: dict[str, str] = {}
-        for file_path in existing_files:
-            uri = file_path if file_path.startswith("s3://") else f"s3://{file_path}"
-            data = await s3_client._cat_file(uri)
-            for row in await asyncio.to_thread(_decode_parquet_rows, data):
-                merged[str(row["external_id"])] = str(row["value_hash"])
-        merged.update(hashes)
+        existing_files = await _list_snapshot_files(s3_client, prefix)
+        merge = await _merge_snapshot_files(s3_client, existing_files)
+        merged = {**merge.hashes, **hashes} if merge.complete else hashes
         snapshot = await asyncio.to_thread(_encode_snapshot, merged)
-        await s3_client._pipe_file(f"s3://{path}", snapshot)
-        stale = [file_path for file_path in existing_files if not file_path.endswith(f"/{job_id}.parquet")]
+        await s3_client._pipe_file(_s3_uri(path), snapshot)
+        if not merge.complete:
+            return
+        stale = [file_path for file_path in existing_files if _s3_key(file_path) != _s3_key(path)]
         if stale:
-            await s3_client._rm(
-                [file_path if file_path.startswith("s3://") else f"s3://{file_path}" for file_path in stale]
-            )
+            stale_uris = [_s3_uri(file_path) for file_path in stale]
+            try:
+                await s3_client._rm(stale_uris)
+            except FileNotFoundError:
+                for stale_uri in stale_uris:
+                    try:
+                        await s3_client._rm(stale_uri)
+                    except FileNotFoundError:
+                        continue
 
 
 def _matching_account_ids(

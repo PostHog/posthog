@@ -254,7 +254,7 @@ batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
         ),
         "data_interval_end": DateTimeDatabaseField(
             name="data_interval_end",
-            nullable=False,
+            nullable=True,
             description="End of the time range covered by the run",
         ),
         "status": StringDatabaseField(

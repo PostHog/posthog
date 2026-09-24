@@ -29,13 +29,13 @@ tools:
             queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing on
             the default branch and that job's latest run is still red, so trunk is broken now), blocking_merge_queue
             (failing only on merge-queue gate branches, so it stopped a merge on a commit that had already passed the
-            PR's own CI — the conflict-with-trunk class the queue exists to catch), novel_burst (first seen within a day
+            PR's own CI: the conflict-with-trunk class the queue exists to catch), novel_burst (first seen within a day
             and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is
             green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one
-            branch — one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run
+            branch: one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run
             is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines. Caveats:
             fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
-            breaking/resolved distinction needs the job-level source synced — without it those failures fall through to
+            breaking/resolved distinction needs the job-level source synced: without it those failures fall through to
             flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
             data).
         feature_flag: engineering-analytics
@@ -53,7 +53,7 @@ tools:
             idempotent: true
         title: CI failure logs for a PR
         description: >
-            The thinned CI failure logs for a pull request, grouped by failed job — reach for this to answer "why did
+            The thinned CI failure logs for a pull request, grouped by failed job: reach for this to answer "why did
             this PR's CI fail". Each failed job returns its failure region (the error lines plus surrounding context,
             with "... N lines omitted ..." markers) as ordered lines, and every line carries its original 1-based line
             number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL
@@ -91,22 +91,23 @@ tools:
             DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each headline
             with its previous-window twin: deployment frequency (deploys whose first success status landed in the
             window, per-day normalized, with a bucketed series), and lead time across three stages over the same
-            deployed-PR population and buckets — open_to_merge_series (PR open to merge), merge_to_deploy_series (median
-            seconds from a PR's merge to the first successful deployment at or after it, bots/drafts excluded), and
-            open_to_deploy_series (the full open-to-deploy span the other two compose into) — each a per-bucket
-            min/p5/p25/p50/mean/p75/p95/max box-plot series, bucketed by series_granularity (pass granularity to pin
-            hour/day/week, otherwise it's chosen to fit the window), and two honest proxies: failed_deployment_share
-            (deployments with a failure/error status over deployments that reached an outcome — NOT true change failure
-            rate, since no incident data is linked) and median_failed_deploy_to_next_success_seconds (first failure
-            status to the next successful deploy in the same environment — NOT true time-to-restore, since recovery by
-            anything other than a deploy is invisible). Environments default to all persistent production-marked or
-            production-named environments (including regional suffixes), falling back to the busiest persistent one when
-            none match; ephemeral per-PR preview environments never join a default scope. selected_environments lists
-            the exact names used. Repeat environment to scope to exact names; the API trims and deduplicates them, keeps
-            real transient names, and rejects blank or unknown names with a 400 response. Pass github_team (a slug from
-            github_teams) to narrow the PR-scoped lead-time figures to that team's authors — deploy counts stay
-            repo-wide. deploy_data_available is false when the deployments endpoints aren't synced on the GitHub source;
-            the fix is enabling them, not re-querying.
+            deployed-PR population and buckets: open_to_merge_series (PR open to merge), merge_to_deploy_series
+            (per-bucket distribution of seconds from a PR's merge to the first successful deployment that contains it,
+            bots and drafts excluded), and open_to_deploy_series (the full open-to-deploy span the other two compose
+            into): each a per-bucket min/p5/p25/p50/mean/p75/p95/max box-plot series, bucketed by series_granularity
+            (pass granularity to pin hour/day/week, otherwise it's chosen to fit the window), and two honest proxies:
+            failed_deployment_share (deployments with a failure/error status over deployments that reached an outcome:
+            NOT true change failure rate, since no incident data is linked) and
+            median_failed_deploy_to_next_success_seconds (first failure status to the next successful deploy in the same
+            environment: NOT true time-to-restore, since recovery by anything other than a deploy is invisible).
+            Environments default to all persistent production-marked or production-named environments (including
+            regional suffixes), falling back to the busiest persistent one when none match; ephemeral per-PR preview
+            environments never join a default scope. selected_environments lists the exact names used. Repeat
+            environment to scope to exact names; the API trims and deduplicates them, keeps real transient names, and
+            rejects blank or unknown names with a 400 response. Pass github_team (a slug from github_teams) to narrow
+            the PR-scoped lead-time figures to that team's authors: deploy counts stay repo-wide. deploy_data_available
+            is false when the deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not
+            re-querying.
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
@@ -157,7 +158,7 @@ tools:
             per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand:
             the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the
             per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the
-            job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00.
+            job-level source isn't synced yet: every figure is then zero/null, so check it before trusting a $0.00.
             estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs
             still running that are left out of the estimate.
         feature_flag: engineering-analytics
@@ -193,7 +194,7 @@ tools:
             idempotent: true
         title: CI failure logs for a run
         description: >
-            The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of
+            The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of
             ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests
             panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus
             surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
@@ -213,19 +214,19 @@ tools:
         list: true
         title: List connected GitHub sources
         description: >
-            The team's selectable GitHub repositories, oldest source first — one entry per repository a source syncs,
+            The team's selectable GitHub repositories, oldest source first: one entry per repository a source syncs,
             each with its source id, repo (owner/name), table prefix, and a synced flag. A source can sync several
             repositories, so entries can share an id and differ only by repo. Call this first when a team may have more
             than one source or repo, then pass a chosen entry's id as source_id AND its repo as repo to the
-            pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo — omitting repo
-            on a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo
-            you can skip it — the other tools default to the oldest connected source. The prefix also names the
-            underlying warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions
-            when the named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests /
-            github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified —
-            the name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__',
+            pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo: omitting repo on
+            a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo you
+            can skip it: the other tools default to the oldest connected source. The prefix also names the underlying
+            warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions when the
+            named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests /
+            github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified: the
+            name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__',
             lower-cased), e.g. posthog/posthog.com's pull_requests is prefix +
-            github_posthog_posthog__com__pull_requests — so pick the table for the repo you mean (timestamps land as
+            github_posthog_posthog__com__pull_requests: so pick the table for the repo you mean (timestamps land as
             strings; parse with parseDateTimeBestEffort).
         feature_flag: engineering-analytics
     engineering-analytics-team-ci-activity:
@@ -326,11 +327,11 @@ tools:
         title: PR lifecycle timeline
         description: >
             The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus
-            ordered events — opened, ready for review, converted to draft, CI started, CI finished, and merged or
-            closed. Use this to answer "where is this PR stuck and what happened to it". Draft/ready transitions appear
-            only when the issue-events table is synced and cover a bounded recent window. metric_quality is "partial" —
-            review and comment events are not yet available. For aggregate questions use the pull-requests and
-            workflow-health tools.
+            ordered events: opened, ready for review, converted to draft, CI started, CI finished, and merged or closed.
+            Use this to answer "where is this PR stuck and what happened to it". Draft/ready transitions appear only
+            when the issue-events table is synced and cover a bounded recent window. metric_quality is "partial": review
+            and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health
+            tools.
         feature_flag: engineering-analytics
     pull-requests:
         operation: engineering_analytics_pull_requests
@@ -346,7 +347,7 @@ tools:
         description: >
             Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI
             rollup (runs / passing / failing / pending). Use this for "which PRs are stuck", "which open PRs have
-            failing or pending CI", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is
+            failing or pending CI", and per-author or per-repo PR triage. open_to_merge_seconds is coarse: it is
             merged_at minus created_at and fuses draft and ready-for-review time, so report it as "open to merge", never
             "cycle time". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed
             ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR
@@ -357,7 +358,7 @@ tools:
         param_overrides:
             date_from:
                 description: >
-                    Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always
+                    Recency floor for merged/closed PRs: relative ('-30d', '-8w') or ISO8601. Open PRs are always
                     included regardless of age. Defaults to -30d.
         feature_flag: engineering-analytics
     workflow-health:
@@ -376,14 +377,15 @@ tools:
             this for "is CI getting faster or slower", "which GitHub Actions workflow is the slow or flaky long pole",
             and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup
             failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over
-            successful runs only, so superseded cancels and failed runs never bias the duration percentile. Pass
-            run_scope to report on one group of runs: default_branch, pull_request (PR branches only, same-repo PRs —
-            fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows
-            and compare.
+            successful runs only, so superseded cancels and failed runs never bias the duration percentile. Runs under
+            10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every
+            successful run. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches
+            only, same-repo PRs: fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over
+            two adjacent windows and compare.
         param_overrides:
             date_from:
-                description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
+                description: "Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
             date_to:
-                description: Window end — relative or ISO8601. Defaults to now.
+                description: 'Window end: relative or ISO8601. Defaults to now.'
         feature_flag: engineering-analytics
         url_prefix: /engineering-analytics/workflows

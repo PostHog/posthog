@@ -22,7 +22,7 @@ from django.core.signing import BadSignature
 from django.db import transaction
 from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
@@ -204,6 +204,24 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
         logger.warning("SSO login failed, redirecting to login page", exc_info=e)
         return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
+
+
+SSO_REAUTH_CHANNEL = "posthog-sso-reauth"
+
+
+@require_http_methods(["GET"])
+def sso_reauth_complete(request: HttpRequest) -> HttpResponse:
+    return render(
+        request,
+        "sso_reauth_complete.html",
+        {
+            "result": {
+                "channel": SSO_REAUTH_CHANNEL,
+                "attempt": request.GET.get("attempt") or None,
+                "error_code": request.GET.get("error_code") or None,
+            }
+        },
+    )
 
 
 class TwoFactorRequired(APIException):

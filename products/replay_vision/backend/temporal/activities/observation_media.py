@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import F
 from django.utils.timezone import now
 
 import structlog
@@ -32,8 +31,8 @@ from products.replay_vision.backend.temporal.video_clock import VideoClock, vide
 logger = structlog.get_logger(__name__)
 
 _MEDIA_EXPIRY = timedelta(days=90)
-# ffmpeg writes no frame when the seek lands past the end of the video.
-_END_MARGIN_S = 0.5
+# The first and last seconds of an analysis video show the page before its CSS applies or while it unloads.
+_EDGE_MARGIN_S = 3.0
 
 
 def _media_key_prefix(team_id: int, observation_id: Any) -> str:
@@ -64,7 +63,9 @@ def _pick_video_time_s(
         picked = (start + end) / 2
     if picked is None:
         picked = duration_s * FALLBACK_THUMBNAIL_FRACTION
-    return max(0.0, min(picked, max(0.0, duration_s - _END_MARGIN_S)))
+    if duration_s <= 2 * _EDGE_MARGIN_S:
+        return duration_s / 2
+    return min(max(picked, _EDGE_MARGIN_S), duration_s - _EDGE_MARGIN_S)
 
 
 @activity.defn
@@ -72,7 +73,12 @@ def _pick_video_time_s(
 async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs) -> PrepareObservationThumbnailOutput:
     """Pick the frame to cut and create the `is_system` PNG asset the Node activity uploads into."""
     media_inputs = inputs
-    asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
+    try:
+        asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
+    except ExportedAsset.DoesNotExist as error:
+        raise ApplicationError(
+            f"Analysis asset {media_inputs.analysis_asset_id} is gone", non_retryable=True
+        ) from error
     if not asset.content_location:
         # The analysis render is long finished by now, so an empty location is a lost object, not a race.
         raise ApplicationError(f"Analysis asset {asset.id} has no rendered object", non_retryable=True)
@@ -90,12 +96,6 @@ async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs)
     )
     if observation is None:
         raise ApplicationError(f"Observation {media_inputs.observation_id} is gone", non_retryable=True)
-    # Stamped once per render, live or backfilled, so the sweep can back off a failing one. A retry of
-    # this activity is the same render, and counting it would spend the sweep's budget of three on one.
-    if (activity.info().attempt if activity.in_activity() else 1) == 1:
-        await ReplayObservation.objects.filter(pk=media_inputs.observation_id, team_id=media_inputs.team_id).aupdate(
-            media_render_attempts=F("media_render_attempts") + 1, media_render_attempted_at=now()
-        )
     scanner_result = observation or {}
     clock = video_clock_from_export_context(context)
     video_time_s = _pick_video_time_s(media_inputs, scanner_result.get("model_output"), clock, duration_s)

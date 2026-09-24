@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
 
 describe('replayScannerSceneLogic', () => {
     beforeEach(() => {
@@ -32,4 +32,17 @@ describe('replayScannerSceneLogic', () => {
             logic.unmount()
         }
     )
+
+    it.each([
+        ['on-demand', ReplayScannerTab.Run],
+        ['backfills', ReplayScannerTab.Run],
+        ['configuration', ReplayScannerTab.Overview],
+    ])('an old %s tab link opens the tab it was merged into', (oldTab, expected) => {
+        const logic = replayScannerSceneLogic()
+        logic.mount()
+        router.actions.push(urls.replayVision('scanner-9'), { tab: oldTab })
+
+        expect(logic.values.activeTab).toBe(expected)
+        logic.unmount()
+    })
 })

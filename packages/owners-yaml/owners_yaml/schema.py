@@ -24,8 +24,8 @@ OWNERS_FILENAME = "owners.yaml"
 ROOT_ONLY_KEYS = {"teams", "github_org", "producers", "reserved_dirs", "codeowners", "alias_files"}
 # Top-level keys allowed in owners.yaml. Rules allow the same set minus `version`
 # and `rules`, plus the required `match`.
-TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules"} | ROOT_ONLY_KEYS
-_RULE_KEYS = {"match", "owners", "status", "inherit"}
+TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules", "additions"} | ROOT_ONLY_KEYS
+_RULE_KEYS = {"match", "owners", "status", "inherit", "additions"}
 # Every alias name is one more file to read per directory, and a hosted resolver reads a root file
 # it does not control, so the list has a ceiling.
 MAX_ALIAS_FILES = 8
@@ -117,12 +117,15 @@ class RepoSettings:
 
 @dataclass
 class OwnersRule:
-    """A per-path override inside a file, evaluated last-match-wins within the file."""
+    """A per-path override inside a file. Every matching rule applies in file order, and each
+    replaces only the fields it sets. ``additions`` is the exception: it adds to the file's
+    list instead of replacing it, so it needs no UNSET form."""
 
     match: str
     owners: list[str] | None | _Unset = UNSET
     status: str | _Unset = UNSET
     inherit: bool | _Unset = UNSET
+    additions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -137,6 +140,10 @@ class OwnersFile:
     inherit: bool = True
     rules: list[OwnersRule] = field(default_factory=list)
     is_alias: bool = False
+    # The owners of additions below this directory, separate from the owners of its files.
+    # Names people only; what counts as an addition, and what a consumer does with them, is the
+    # consumer's policy.
+    additions: list[str] = field(default_factory=list)
     # Root-only Slack registry: team slug -> TeamEntry. Empty everywhere but the repo-root
     # file; lets a team declare its channels once instead of per file.
     teams: dict[str, TeamEntry] = field(default_factory=dict)
@@ -150,17 +157,37 @@ def normalize_owners(owners: list[str]) -> list[str]:
     return [o for o in owners if o != CHANGEME_SLUG]
 
 
+def _as_owner_list(value: object) -> list[str] | None:
+    """A non-empty string or a list of non-empty strings, as a normalized list; None otherwise.
+
+    Empty-string entries are rejected, not filtered: `owners: ['']` would count as covered while
+    the assigner drops the falsy owner and requests nobody.
+    """
+    if isinstance(value, str) and value:
+        value = [value]
+    if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
+        return None
+    return normalize_owners([str(x) for x in value])
+
+
 def _validate_owners_value(value: object, where: str, errors: list[str]) -> list[str] | None | _Unset:
     if value is None:
         return None
-    if isinstance(value, str) and value:
-        value = [value]
-    # Empty-string entries are rejected, not filtered: `owners: ['']` would count
-    # as covered while the assigner drops the falsy owner and requests nobody.
-    if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
+    owners = _as_owner_list(value)
+    if owners is None:
         errors.append(f"{where}: 'owners' must be a non-empty string, a list of non-empty strings, or null")
         return UNSET
-    return normalize_owners([str(x) for x in value])
+    return owners
+
+
+def _validate_additions(value: object, where: str, errors: list[str]) -> list[str]:
+    """``additions`` takes one slug or a list of them. It has no null form: leaving the key out,
+    or an empty list, already means that the file names no owners of additions."""
+    additions = _as_owner_list(value)
+    if additions is None:
+        errors.append(f"{where}: 'additions' must be a non-empty string or a list of non-empty strings")
+        return []
+    return additions
 
 
 def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
@@ -392,7 +419,11 @@ def _parse_rule(raw: object, index: int, errors: list[str]) -> list[OwnersRule]:
     owners = _validate_owners_value(raw["owners"], where, errors) if "owners" in raw else UNSET
     status = _validate_status(raw["status"], where, errors) if "status" in raw else UNSET
     inherit = _validate_inherit(raw["inherit"], where, errors) if "inherit" in raw else UNSET
-    return [OwnersRule(match=pattern, owners=owners, status=status, inherit=inherit) for pattern in patterns]
+    additions = _validate_additions(raw["additions"], where, errors) if "additions" in raw else []
+    return [
+        OwnersRule(match=pattern, owners=owners, status=status, inherit=inherit, additions=additions)
+        for pattern in patterns
+    ]
 
 
 def _is_version_one(value: object) -> bool:
@@ -436,6 +467,8 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
     if "inherit" in data:
         inherit = _validate_inherit(data["inherit"], "inherit", errors)
         file.inherit = True if isinstance(inherit, _Unset) else inherit
+    if "additions" in data:
+        file.additions = _validate_additions(data["additions"], "additions", errors)
 
     # Repo-wide settings and the team registry are single lookups, so they only make sense at
     # the root; a nested file carrying them would silently do nothing.
@@ -486,11 +519,11 @@ def match_is_glob(match: str) -> bool:
 def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bool = False) -> bool:
     """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
 
-    Both callers agree that status/``inherit: false`` (and being an
+    Both callers agree that status/``inherit: false``/``additions`` (and being an
     alias file) disqualify a file. So does a ``teams:`` registry:
     it is root-only content relocation would strand. So does any rule carrying
     more than match+owners: relocation only preserves owners, so rule-level
-    ``status``/``inherit`` must pin the file. They differ on rules:
+    ``status``/``inherit``/``additions`` must pin the file. They differ on rules:
 
     - lint's consolidation suggestions (``allow_anchored_rules=False``) only fold
       files whose entire content is one non-empty ``owners:`` list;
@@ -499,9 +532,9 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     """
     if parsed is None or parsed.is_alias:
         return False
-    if parsed.inherit is False or parsed.status is not UNSET or parsed.teams:
+    if parsed.inherit is False or parsed.status is not UNSET or parsed.teams or parsed.additions:
         return False
-    if any(r.status is not UNSET or r.inherit is not UNSET for r in parsed.rules):
+    if any(r.status is not UNSET or r.inherit is not UNSET or r.additions for r in parsed.rules):
         return False
     if allow_anchored_rules:
         return not any(match_is_glob(r.match) for r in parsed.rules)

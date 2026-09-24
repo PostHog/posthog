@@ -25,6 +25,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
+    ErrorTrackingSimilarIssuesQuery,
     EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
@@ -60,6 +61,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner i
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
+    SimilarFingerprint,
 )
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     MAX_RECENT_ISSUE_STATES,
@@ -1429,6 +1431,47 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ),
         )
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
+
+    def test_similar_issues_rejects_malformed_issue_id(self):
+        with self.assertRaises(ValidationError):
+            ErrorTrackingSimilarIssuesQueryRunner(
+                team=self.team,
+                query=ErrorTrackingSimilarIssuesQuery(
+                    kind="ErrorTrackingSimilarIssuesQuery",
+                    issueId="not-a-uuid",
+                ),
+            )
+
+    def test_similar_issues_ignores_another_teams_fingerprint_row(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(description="Own team issue")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team, description="Other team issue")
+        # A higher version, so an unscoped DISTINCT ON would pick this row over the team's own.
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=other_team,
+            issue=other_issue,
+            fingerprint=self.issue_one_fingerprint,
+            version=99,
+        )
+        runner = ErrorTrackingSimilarIssuesQueryRunner(
+            team=self.team,
+            query=ErrorTrackingSimilarIssuesQuery(
+                kind="ErrorTrackingSimilarIssuesQuery",
+                issueId=self.issue_id_two,
+            ),
+        )
+
+        similar_issues = runner.get_similar_issues(
+            [
+                SimilarFingerprint(
+                    fingerprint=self.issue_one_fingerprint,
+                    timestamp=now(),
+                    distance=0.1,
+                )
+            ]
+        )
+
+        self.assertEqual([issue.id for issue in similar_issues], [self.issue_id_one])
 
     def test_requires_error_tracking_viewer_access(self):
         for runner_class in (

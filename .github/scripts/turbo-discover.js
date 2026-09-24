@@ -174,7 +174,9 @@ const DJANGO_MIN_SHARDS = 3
 const DJANGO_MAX_SHARDS = 50
 
 const TURBO_EXEC_OPTS = { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 }
-const TURBO_BIN = './node_modules/.bin/turbo'
+// CI puts turbo on PATH without installing the workspace. A local checkout has it installed.
+const LOCAL_TURBO_BIN = './node_modules/.bin/turbo'
+const TURBO_BIN = fs.existsSync(LOCAL_TURBO_BIN) ? LOCAL_TURBO_BIN : 'turbo'
 
 function runTurbo(args) {
     return execFileSync(TURBO_BIN, args, TURBO_EXEC_OPTS)
@@ -1310,11 +1312,13 @@ function buildMatrix(products, durations, productsScaled = false) {
             // optimally. The greedy rule in duration_based_chunks lets every shard
             // overrun the per-shard average, which on skewed suites starves trailing
             // shards down to zero tests (pytest exit 5, "no tests collected").
+            // File granularity keeps that balance but skips the other shards' test files
+            // before pytest imports them, so a shard collects only its own share.
             const shardCost = work / shards + maxTest
             for (let i = 1; i <= shards; i++) {
                 const leg = {
                     filters,
-                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
+                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks --split-granularity file`,
                 }
                 // work/shards + maxTest bounds every shard, whichever one
                 // optimal_chunks leaves lightest, so one shard can be offered to the

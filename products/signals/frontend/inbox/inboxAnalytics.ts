@@ -3,6 +3,9 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
+import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
+import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import {
     InboxReportSectionKey,
     SignalReport,
@@ -45,6 +48,7 @@ export const INBOX_EVENTS = {
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
+    SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -61,6 +65,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
     RUN_OPENED: 'Inbox run opened',
+    RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
@@ -588,6 +593,23 @@ export function captureSignalSourceSteeringChanged(params: {
     })
 }
 
+export function captureSignalSourceFiltersChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    filter: string
+    selectedCount: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTERS_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        filter: params.filter,
+        selected_count: params.selectedCount,
+        reads_everything: params.selectedCount === 0,
+        success: params.success,
+    })
+}
+
 /**
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
@@ -822,6 +844,25 @@ export function captureInboxRunOpened(params: {
         run_kind: params.kind,
         run_status: params.status,
         has_report: params.hasReport,
+    })
+}
+
+/**
+ * A run's own summary was read on a Runs row. The summary is the cheapest account of what a run did,
+ * and it is only reachable on hover, so this is the one signal for whether readers find it.
+ *
+ * The summary text stays out of the event, like the report title: an agent writes it about a
+ * customer's own code and data. `summary_length` is the readable stand-in.
+ */
+export function captureInboxRunSummaryViewed(params: {
+    purpose: ReportTaskPurpose
+    status: TaskRunStatus | null
+    summaryLength: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RUN_SUMMARY_VIEWED, {
+        run_purpose: params.purpose,
+        run_status: params.status,
+        summary_length: params.summaryLength,
     })
 }
 

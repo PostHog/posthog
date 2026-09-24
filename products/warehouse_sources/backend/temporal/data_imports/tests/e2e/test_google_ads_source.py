@@ -381,6 +381,7 @@ class TestGoogleAdsSourceResumableBinding:
         ):
             original = GoogleAdsResumeConfig(page_token="TEST_TOKEN")
             manager.save_state(original)
+            manager.commit()
             loaded = manager.load_state()
 
         assert isinstance(loaded, GoogleAdsResumeConfig)

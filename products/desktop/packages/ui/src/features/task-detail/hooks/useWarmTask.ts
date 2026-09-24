@@ -1,5 +1,6 @@
 import {
   type AgentRuntime,
+  type ExecutionMode,
   TASKS_PREWARM_SANDBOX_FLAG,
   type WorkspaceMode,
 } from "@posthog/shared";
@@ -20,6 +21,7 @@ const WARM_DEBOUNCE_MS = 600;
 export interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
   claudeModelAccess?: string;
+  codexModelAccess?: string;
   selectedRepository?: string | null;
   repositories?: string[];
   githubIntegrationId?: number;
@@ -30,6 +32,7 @@ export interface UseWarmTaskOptions {
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
+  permissionMode?: ExecutionMode | null;
   sandboxEnvironmentId?: string | null;
   customImageId?: string | null;
 }
@@ -37,6 +40,7 @@ export interface UseWarmTaskOptions {
 export function useWarmTask({
   workspaceMode,
   claudeModelAccess,
+  codexModelAccess,
   selectedRepository,
   repositories,
   githubIntegrationId,
@@ -47,6 +51,7 @@ export function useWarmTask({
   runtimeAdapter,
   model,
   reasoningEffort,
+  permissionMode,
   sandboxEnvironmentId,
   customImageId,
 }: UseWarmTaskOptions): void {
@@ -63,6 +68,9 @@ export function useWarmTask({
   const normalizedRuntimeAdapter = runtimeAdapter ?? null;
   const normalizedModel = model ?? null;
   const normalizedReasoningEffort = reasoningEffort ?? null;
+  const normalizedPermissionMode = runtimeAdapter
+    ? (permissionMode ?? null)
+    : null;
   const normalizedSandboxEnvironmentId = sandboxEnvironmentId ?? null;
   const normalizedCustomImageId = customImageId ?? null;
   // Repo-less channel tasks deliberately discard any persisted/stale picker
@@ -81,7 +89,9 @@ export function useWarmTask({
     ? (githubIntegrationId ?? null)
     : null;
   const heldLeaseIsUnusable =
-    agentRuntime === "pi" || claudeModelAccess === "own-subscription";
+    agentRuntime === "pi" ||
+    claudeModelAccess === "own-subscription" ||
+    codexModelAccess === "own-subscription";
   const eligible =
     enabled &&
     !heldLeaseIsUnusable &&
@@ -99,6 +109,7 @@ export function useWarmTask({
           runtimeAdapter: normalizedRuntimeAdapter,
           model: normalizedModel,
           reasoningEffort: normalizedReasoningEffort,
+          permissionMode: normalizedPermissionMode,
           sandboxEnvironmentId: normalizedSandboxEnvironmentId,
           customImageId: normalizedCustomImageId,
         })}`
@@ -136,6 +147,7 @@ export function useWarmTask({
     const warmRuntimeAdapter = normalizedRuntimeAdapter;
     const warmModel = normalizedModel;
     const warmReasoningEffort = normalizedReasoningEffort;
+    const warmPermissionMode = normalizedPermissionMode;
     const warmSandboxEnvironmentId = normalizedSandboxEnvironmentId;
     const warmCustomImageId = normalizedCustomImageId;
     debounceRef.current = setTimeout(() => {
@@ -153,6 +165,7 @@ export function useWarmTask({
           runtime_adapter: warmRuntimeAdapter,
           model: warmModel,
           reasoning_effort: warmReasoningEffort,
+          initial_permission_mode: warmPermissionMode,
           ...(warmSandboxEnvironmentId
             ? { sandbox_environment_id: warmSandboxEnvironmentId }
             : {}),
@@ -181,6 +194,7 @@ export function useWarmTask({
                 runtimeAdapter: warmRuntimeAdapter,
                 model: warmModel,
                 reasoningEffort: warmReasoningEffort,
+                permissionMode: warmPermissionMode,
                 sandboxEnvironmentId: warmSandboxEnvironmentId,
                 customImageId: warmCustomImageId,
               }),
@@ -210,6 +224,7 @@ export function useWarmTask({
     normalizedRuntimeAdapter,
     normalizedModel,
     normalizedReasoningEffort,
+    normalizedPermissionMode,
     normalizedSandboxEnvironmentId,
     normalizedCustomImageId,
   ]);

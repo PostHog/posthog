@@ -11,6 +11,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
+import { HeatmapEmptyState } from './HeatmapEmptyState'
 import { HeatmapFilterControls } from './HeatmapFilterControls'
 
 /**
@@ -99,9 +100,7 @@ export function FilterPanel({
                 }
             />
             {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
-                <p className="text-sm text-muted mt-2 mb-0">
-                    No interactions found. Try a different date range or adjust your filters.
-                </p>
+                <HeatmapEmptyState lockedWidth={lockedWidth} />
             ) : null}
         </div>
     )

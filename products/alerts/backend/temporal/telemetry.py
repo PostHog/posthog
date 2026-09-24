@@ -44,20 +44,20 @@ async def _log_activity_event(
         pass
 
 
-class AlertsProductTelemetryInterceptor(Interceptor):
-    task_queue = (settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE)
+class AlertsPlatformTelemetryInterceptor(Interceptor):
+    task_queue = (settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE, settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE)
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
-        return _AlertsProductActivityInterceptor(next)
+        return _AlertsPlatformActivityInterceptor(next)
 
 
-class _AlertsProductActivityInterceptor(ActivityInboundInterceptor):
+class _AlertsPlatformActivityInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> object:
         started_at = _monotonic_time()
         outcome = "success"
         exception_type = None
         try:
-            await _log_activity_event("alerts_product_activity_started")
+            await _log_activity_event("alerts_platform_activity_started")
             return await super().execute_activity(input)
         except (asyncio.CancelledError, CancelledError):
             outcome = "cancellation"
@@ -69,7 +69,7 @@ class _AlertsProductActivityInterceptor(ActivityInboundInterceptor):
         finally:
             try:
                 await _log_activity_event(
-                    "alerts_product_activity_finished",
+                    "alerts_platform_activity_finished",
                     started_at=started_at,
                     outcome=outcome,
                     exception_type=exception_type,

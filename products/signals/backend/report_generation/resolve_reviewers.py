@@ -38,6 +38,11 @@ from products.signals.backend.report_generation.repo_activity import (
     get_area_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.report_generation.team_membership import (
+    MembershipRoster,
+    MemberTeam,
+    resolve_membership_roster,
+)
 
 from ..models import SignalReportArtefact, SignalScoutConfig
 
@@ -872,7 +877,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
 MAX_PROJECT_MEMBERS = 200
 
 
-@dataclass
+@frozen
 class ProjectMemberIdentity:
     """One project member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
 
@@ -881,12 +886,27 @@ class ProjectMemberIdentity:
     first_name: str
     last_name: str
     github_login: str | None
+    teams: tuple[MemberTeam, ...] = ()
+
+
+@frozen
+class ProjectMemberRoster:
+    """The members a roster call resolved, plus what the membership snapshot could say about them."""
+
+    members: tuple[ProjectMemberIdentity, ...]
+    # False when nothing is synced, so every member's `teams` is empty and a filter cannot resolve.
+    membership_synced: bool
+    # True when the roster read failed, which is a retry rather than a sync to turn on.
+    membership_read_failed: bool
+    # False when the snapshot holds no rows under the asked-for slug. Distinct from an empty
+    # ``members``, which means the team is synced but nobody on it can review here.
+    team_is_covered: bool
 
 
 def list_project_members(
-    team: Team, *, search: str | None = None, limit: int = MAX_PROJECT_MEMBERS
-) -> list[ProjectMemberIdentity]:
-    """Members with access to ``team`` — their UUID/email/name and resolved GitHub login.
+    team: Team, *, search: str | None = None, team_slug: str | None = None, limit: int = MAX_PROJECT_MEMBERS
+) -> ProjectMemberRoster:
+    """Members with access to ``team`` — their UUID/email/name, resolved GitHub login, and teams.
 
     Backs the `scout-members-list` tool: the cold-start reviewer-routing path for a scout
     that can't read an owner off a fetched entity's ``created_by`` and has no cached
@@ -897,7 +917,13 @@ def list_project_members(
     with no linked GitHub identity gets a null login rather than dropping out. ``search``
     (case-insensitive, over email + name) narrows the roster; the result is capped at ``limit`` so a
     large org can't push its whole directory into the scout's context in one call.
+
+    ``team_slug`` narrows to the people on one team and puts its maintainers first, so a caller that
+    takes the first few entries takes the people most likely to own the work. Teams are matched on
+    the GitHub login, so a member with no linked GitHub identity carries no teams and never matches
+    a filter. Search and the filter compose, and the cap applies after both.
     """
+    roster = resolve_membership_roster(team)
     users = team.all_users_with_access()
     if search:
         # Match the search against email, each name part, AND the concatenated full name, so a
@@ -909,17 +935,62 @@ def list_project_members(
             | Q(last_name__icontains=search)
             | Q(_full_name__icontains=search)
         )
-    users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")[:limit]
-    return [
-        ProjectMemberIdentity(
-            user_uuid=str(user.uuid),
-            email=user.email,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            github_login=(login.lower() if (login := user.get_github_login()) else None),
+    users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")
+    if team_slug is None:
+        users = users[:limit]
+    else:
+        # Narrowed in SQL, so a team filter never pulls a whole org's roster into memory to keep a
+        # handful of rows. The cap waits for the maintainer ordering, which needs the whole team.
+        users = _users_holding_logins(users, team, _logins_on_team(roster, team_slug))
+    members: list[ProjectMemberIdentity] = []
+    for user in users:
+        login = raw.lower() if (raw := user.get_github_login()) else None
+        members.append(
+            ProjectMemberIdentity(
+                user_uuid=str(user.uuid),
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                github_login=login,
+                teams=roster.teams_for(login),
+            )
         )
-        for user in users
-    ]
+    if team_slug is not None:
+        members = [member for member in members if _team_membership(member, team_slug) is not None]
+        # Stable, so members keep their id order inside each group and only the maintainer split moves.
+        members.sort(key=lambda member: not _is_maintainer_of(member, team_slug))
+    return ProjectMemberRoster(
+        members=tuple(members[:limit]),
+        membership_synced=roster.synced,
+        membership_read_failed=roster.read_failed,
+        team_is_covered=team_slug is None or team_slug in roster.covered_slugs,
+    )
+
+
+def _logins_on_team(roster: MembershipRoster, team_slug: str) -> frozenset[str]:
+    return frozenset(
+        login for login, teams in roster.teams_by_login.items() if any(team.slug == team_slug for team in teams)
+    )
+
+
+def _users_holding_logins(users: QuerySet, team: Team, logins: frozenset[str]) -> QuerySet:
+    """``users`` narrowed to those whose stored GitHub identity could be one of ``logins``.
+
+    A superset match on the same three identity sources ``User.get_github_login()`` reads, so the
+    caller still confirms each resolved login before it keeps the member.
+    """
+    if not logins:
+        return users.none()
+    return users.filter(id__in=_candidate_user_ids_for_org_and_logins(str(team.organization_id), logins))
+
+
+def _team_membership(member: ProjectMemberIdentity, team_slug: str) -> MemberTeam | None:
+    return next((team for team in member.teams if team.slug == team_slug), None)
+
+
+def _is_maintainer_of(member: ProjectMemberIdentity, team_slug: str) -> bool:
+    membership = _team_membership(member, team_slug)
+    return membership is not None and membership.is_maintainer
 
 
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:

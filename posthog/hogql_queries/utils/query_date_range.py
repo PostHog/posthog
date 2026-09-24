@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Literal, Optional, cast
@@ -13,6 +14,9 @@ from posthog.dataclasses import frozen
 from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLiteral, get_trunc_func, interval_spec
 from posthog.models.team import Team, WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+
+# The date-only forms `relative_date_parse_with_delta_mapping` accepts: extended, then basic ISO.
+CALENDAR_DAY_RE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{8}")
 
 
 @frozen
@@ -46,6 +50,12 @@ class QueryDateRange:
     _interval_count: int
     _now_without_timezone: datetime
     _earliest_timestamp_fallback: Optional[datetime]
+
+    # Below an hour interval a `date_to` naming a calendar day ends the range at midnight, so a
+    # range asking for a single day returns nothing. Subclasses whose callers name calendar days opt
+    # in. The default stays False because the app date picker writes a bare day for every custom
+    # range, so a wider rule would move every existing hour-granularity chart.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = False
 
     def __init__(
         self,
@@ -113,7 +123,9 @@ class QueryDateRange:
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR):
+            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR) or (
+                self.CALENDAR_DAY_DATE_TO_IS_INCLUSIVE and self._date_to_is_calendar_day
+            ):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
                 if self.interval_type == IntervalType.HOUR:
@@ -124,6 +136,12 @@ class QueryDateRange:
                     date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
 
         return self._clip_incomplete_period(date_to)
+
+    @cached_property
+    def _date_to_is_calendar_day(self) -> bool:
+        """Whether `date_to` names a calendar day with no time of day, such as `2026-09-01`."""
+        date_to = self._date_range.date_to if self._date_range else None
+        return bool(date_to and CALENDAR_DAY_RE.fullmatch(date_to.strip()))
 
     def _clip_incomplete_period(self, date_to: datetime) -> datetime:
         """Clip date_to to the end of the last complete interval when the range reaches into the
