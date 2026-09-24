@@ -26,7 +26,7 @@ import {
   activeArtifactId,
   createFileTabId,
 } from "@posthog/core/panels/panelStoreHelpers";
-import { findTabInTree } from "@posthog/core/panels/panelTree";
+import { collectLeafPanels } from "@posthog/core/panels/panelTree";
 import {
   ANALYTICS_EVENTS,
   getFileExtension,
@@ -420,10 +420,16 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         const layout = get().taskLayouts[taskId];
         if (!layout) return;
 
-        const tabId = createFileTabId(filePath);
-        const tabLocation = findTabInTree(layout.panelTree, tabId);
-        if (tabLocation) {
-          get().closeTab(taskId, tabLocation.panelId, tabId);
+        // Match on the path, because copied file tabs have their own ids.
+        for (const leaf of collectLeafPanels(layout.panelTree)) {
+          for (const tab of leaf.content.tabs) {
+            if (
+              tab.data.type === "file" &&
+              tab.data.relativePath === filePath
+            ) {
+              get().closeTab(taskId, leaf.id, tab.id);
+            }
+          }
         }
       },
 

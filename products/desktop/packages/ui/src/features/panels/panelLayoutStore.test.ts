@@ -324,6 +324,22 @@ describe("panelLayoutStore", () => {
 
       assertActiveTab(getPanelTree("task-1"), "main-panel", "shell");
     });
+
+    it("closes every tab of a deleted file, copies included", () => {
+      const state = usePanelLayoutStore.getState();
+      state.splitPanelWithCopy("task-1", "main-panel", "right", "shortcut");
+      state.closeTabsForFile("task-1", "src/Other.tsx");
+
+      const fileTabs = leafPanels(getPanelTree("task-1")).flatMap((leaf) =>
+        leaf.content.tabs.filter(
+          (tab) =>
+            tab.data.type === "file" &&
+            tab.data.relativePath === "src/Other.tsx",
+        ),
+      );
+      expect(fileTabs).toEqual([]);
+      expect(getLayout("task-1").openFiles).toEqual(["src/App.tsx"]);
+    });
   });
 
   describe("setActiveTab", () => {
