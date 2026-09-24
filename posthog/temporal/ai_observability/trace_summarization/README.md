@@ -148,6 +148,13 @@ The rule is applied in two places:
 
 Discovery fails closed: if the consent query itself fails, it returns no teams rather than a possibly non-consenting set.
 Summarization then stops for every team, so look for the `AI data processing consent filter failed` log line before you look for a discovery fault.
+If discovery exhausts its activity retries or times out, new summarization and clustering coordinator runs fail before they dispatch any team workflows.
+The old hardcoded fallback is retained only for replaying existing workflow histories.
+
+Discovery reads consent for all candidate teams in one query that returns only team IDs.
+Each per-team summarization run checks consent once more before sampling, including manual runs and queued work.
+These queries run in the database thread pool with connection cleanup; they do not block the workflow event loop or run once per trace.
+Once a team run passes its entry check, it finishes without further consent checks between processing steps.
 
 ## Configuration
 

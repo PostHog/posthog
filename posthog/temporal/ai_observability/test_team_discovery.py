@@ -1,5 +1,7 @@
 import math
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from functools import partial
 
 import pytest
 from unittest.mock import patch
@@ -7,6 +9,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_clustering.coordinator import (
+    AIObservabilityEvaluationClusteringCoordinatorWorkflow,
+    AIObservabilityEvaluationSamplerCoordinatorWorkflow,
+    ClusteringCoordinatorInputs,
+    SamplerCoordinatorInputs,
+)
 from posthog.temporal.ai_observability.team_discovery import (
     DEFAULT_DISCOVERY_LOOKBACK_DAYS,
     DEFAULT_GUARANTEED_TEAM_IDS,
@@ -15,6 +23,14 @@ from posthog.temporal.ai_observability.team_discovery import (
     _get_ai_observability_workflow_config,
     get_min_traces_override,
     get_team_ids_for_ai_observability,
+)
+from posthog.temporal.ai_observability.trace_clustering.coordinator import (
+    TraceClusteringCoordinatorInputs,
+    TraceClusteringCoordinatorWorkflow,
+)
+from posthog.temporal.ai_observability.trace_summarization.coordinator import (
+    BatchTraceSummarizationCoordinatorInputs,
+    BatchTraceSummarizationCoordinatorWorkflow,
 )
 
 
@@ -382,3 +398,38 @@ class TestAIDataProcessingConsentGate:
         mock_get_teams.return_value = [9999]
 
         assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == []
+
+
+class TestCoordinatorConsentGate:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "run",
+        [
+            pytest.param(
+                partial(BatchTraceSummarizationCoordinatorWorkflow().run, BatchTraceSummarizationCoordinatorInputs()),
+                id="summarization",
+            ),
+            pytest.param(
+                partial(TraceClusteringCoordinatorWorkflow().run, TraceClusteringCoordinatorInputs()),
+                id="trace_clustering",
+            ),
+            pytest.param(
+                partial(AIObservabilityEvaluationSamplerCoordinatorWorkflow().run, SamplerCoordinatorInputs()),
+                id="evaluation_sampling",
+            ),
+            pytest.param(
+                partial(AIObservabilityEvaluationClusteringCoordinatorWorkflow().run, ClusteringCoordinatorInputs()),
+                id="evaluation_clustering",
+            ),
+        ],
+    )
+    async def test_discovery_failure_does_not_start_team_workflows(self, run: Callable[[], Awaitable[object]]) -> None:
+        with (
+            patch("temporalio.workflow.patched", return_value=True),
+            patch("temporalio.workflow.execute_activity", side_effect=RuntimeError("Discovery unavailable")),
+            patch("temporalio.workflow.start_child_workflow") as start_child,
+        ):
+            with pytest.raises(RuntimeError, match="Discovery unavailable"):
+                await run()
+
+        start_child.assert_not_called()

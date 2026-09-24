@@ -20,6 +20,7 @@ import posthoganalytics
 import temporalio.activity
 from temporalio.common import RetryPolicy
 
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.ai_observability.shared_activities import consented_team_ids
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -139,6 +140,7 @@ def get_min_traces_override(team_id: int) -> int | None:
 # overhead so the activity doesn't get killed before the fallback path runs.
 DISCOVERY_ACTIVITY_TIMEOUT = timedelta(minutes=5)
 DISCOVERY_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
+DISCOVERY_FAIL_CLOSED_PATCH_ID = "ai-observability-discovery-fail-closed-2026-09"
 
 
 @dataclasses.dataclass
@@ -212,7 +214,7 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
             discovery_context = {}
 
         try:
-            consented = await asyncio.to_thread(consented_team_ids, discovered)
+            consented = await database_sync_to_async_pool(consented_team_ids)(discovered)
         except Exception:
             # Fail closed: an unreadable consent flag must not let trace content reach a
             # third-party model.

@@ -7,6 +7,7 @@ from typing import Any, Literal, cast
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.sync import database_sync_to_async_pool
 
 AnalysisLevel = Literal["trace", "generation", "evaluation"]
 
@@ -58,7 +59,7 @@ class TeamAIConsentInput:
 @activity.defn
 async def check_ai_data_processing_consent_activity(inputs: TeamAIConsentInput) -> bool:
     """Report whether the team's organization approved third-party AI data processing."""
-    consented = await asyncio.to_thread(consented_team_ids, [inputs.team_id])
+    consented = await database_sync_to_async_pool(consented_team_ids)([inputs.team_id])
     return inputs.team_id in consented
 
 
