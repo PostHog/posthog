@@ -24,6 +24,7 @@ from posthog.schema import (
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
@@ -32,6 +33,7 @@ from posthog.schema import (
     NodeKind,
     PinterestAdsDefaultSources,
     RedditAdsDefaultSources,
+    RoktAdsDefaultSources,
     SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources,
@@ -508,6 +510,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
 ]
 
 
@@ -537,6 +540,7 @@ def _get_enum_values(enum_class) -> list[str]:
 
 # Mapping from NativeMarketingSource to generated enum types
 _DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.ROKT_ADS: RoktAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
     NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
     NativeMarketingSource.META_ADS: MetaAdsDefaultSources,
@@ -549,17 +553,21 @@ _DEFAULT_SOURCES_ENUMS = {
 
 # Derived constants from generated types
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
-    source: [
-        _get_field_default(config, "campaignTableName"),
-        _get_field_default(config, "statsTableName"),
-    ]
+    source: list(
+        dict.fromkeys(
+            [
+                _get_field_default(config, "campaignTableName"),
+                _get_field_default(config, "statsTableName"),
+            ]
+        )
+    )
     for source, config in _CONFIG_MODELS.items()
 }
 
 TABLE_PATTERNS = {
     source: {
-        "stats_table_keywords": [_get_field_default(config, "statsTableName")],
-        "campaign_table_name": _get_field_default(config, "campaignTableName"),
+        "stats_table_keywords": [_get_field_default(config, "statsTableName").lower()],
+        "campaign_table_name": _get_field_default(config, "campaignTableName").lower(),
     }
     for source, config in _CONFIG_MODELS.items()
 }

@@ -58,7 +58,12 @@ export const MAX_ITEMS_TO_SHOW = 3
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [
         source,
-        [MARKETING_INTEGRATION_CONFIGS[source].campaignTableName, MARKETING_INTEGRATION_CONFIGS[source].statsTableName],
+        [
+            ...new Set([
+                MARKETING_INTEGRATION_CONFIGS[source].campaignTableName,
+                MARKETING_INTEGRATION_CONFIGS[source].statsTableName,
+            ]),
+        ],
     ])
 ) as Record<NativeMarketingSource, string[]>
 
@@ -71,6 +76,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     BingAds: 'Bing Ads',
     SnapchatAds: 'Snapchat Ads',
     PinterestAds: 'Pinterest Ads',
+    RoktAds: 'Rokt Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
@@ -318,6 +324,7 @@ interface SourceColumnMappings {
     reportedConversion: string
     reportedConversionValue: string
     costNeedsDivision?: boolean
+    currencyTimestampColumn?: string
     currencyColumn?: string
     fallbackCurrency?: string
 }
@@ -359,6 +366,28 @@ function buildConversionExpr(
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
+    RoktAds: {
+        idField: 'campaign_id',
+        timestampField: 'datetime',
+        columnMappings: {
+            cost: 'gross_cost',
+            impressions: 'impressions',
+            clicks: 'referrals',
+            reportedConversion: 'conversions',
+            reportedConversionValue: 'conversion_value',
+            fallbackCurrency: 'USD',
+            currencyTimestampColumn: 'datetime',
+        },
+        specialConversionLogic: (table, column) => {
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('conversions', table)
+            }
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr('conversion_value', table)
+            }
+            return null
+        },
+    },
     GoogleAds: {
         // idField is a column on the stats table, which flattens `campaign.id` to
         // `campaign_id` and has no bare `id`.
@@ -650,6 +679,9 @@ function wrapWithCurrencyConversion(
         return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
     }
     if (fallbackCurrency) {
+        if (mappings.currencyTimestampColumn) {
+            return `SUM(toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', ${valueExpr}, coalesce(toDate(${mappings.currencyTimestampColumn}), today()))))`
+        }
         return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
     }
     return `SUM(${valueExpr})`
@@ -693,14 +725,23 @@ export function createMarketingTile(
     baseCurrency: string
 ): DataWarehouseNode | null {
     const sourceType = source.source.source_type as NativeMarketingSource
-    const tileConfig = sourceTileConfigs[sourceType]
+    let tileConfig = sourceTileConfigs[sourceType]
+    if (sourceType === 'RoktAds') {
+        const currency = source.source.job_inputs?.currency_code || 'USD'
+        if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
+            return null
+        }
+        tileConfig = { ...tileConfig, columnMappings: { ...tileConfig.columnMappings, fallbackCurrency: currency } }
+    }
     const integrationConfig = MARKETING_INTEGRATION_CONFIGS[sourceType]
 
     if (!tileConfig || !integrationConfig) {
         return null
     }
 
-    const table = source.tables.find((t) => t.name.split('.').pop() === integrationConfig.statsTableName)
+    const table = source.tables.find(
+        (t) => extractSchemaName(t.name, sourceType) === integrationConfig.statsTableName.toLowerCase()
+    )
     if (!table) {
         return null
     }
@@ -714,7 +755,16 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             tileConfig.columnMappings.reportedConversionValue
         )
-        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
+        let totalValueExpr = conversionValueExpr
+        let totalCostExpr = `SUM(${costExpr})`
+        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+            const perRowValue =
+                tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
+                    ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
+            totalValueExpr = wrapWithCurrencyConversion(perRowValue, tileConfig.columnMappings, table, baseCurrency)
+            totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+        }
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${totalValueExpr} / nullIf(${totalCostExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
@@ -727,7 +777,10 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
             tileConfig.columnMappings.reportedConversion
         )
-        const mathHogql = conversionExpr === '0' ? '0' : `SUM(${costExpr}) / nullIf(${conversionExpr}, 0)`
+        const totalCostExpr = tileConfig.columnMappings.currencyTimestampColumn
+            ? wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+            : `SUM(${costExpr})`
+        const mathHogql = conversionExpr === '0' ? '0' : `${totalCostExpr} / nullIf(${conversionExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 

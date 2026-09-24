@@ -271,6 +271,7 @@ describe('marketing analytics utils', () => {
 
         // All fields each source could reference, so the mock table has them all
         const sourceFields: Record<NativeMarketingSource, string[]> = {
+            RoktAds: ['gross_cost', 'impressions', 'referrals', 'conversions', 'conversion_value'],
             GoogleAds: [
                 'metrics_cost_micros',
                 'metrics_impressions',
@@ -322,6 +323,7 @@ describe('marketing analytics utils', () => {
 
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
         const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
+            RoktAds: ['gross_cost', 'impressions', 'referrals'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
             RedditAds: ['spend', 'impressions', 'clicks', 'currency'],
             LinkedinAds: ['cost_in_usd', 'impressions', 'clicks'],
@@ -362,6 +364,26 @@ describe('marketing analytics utils', () => {
                 ],
             }
         }
+
+        it.each(['GBP', "GBP'); SELECT 1; --"])('uses only a valid Rokt report currency: %s', (currency) => {
+            const source = makeMockSource('RoktAds', sourceFields.RoktAds)
+            source.source.job_inputs = { currency_code: currency }
+            source.tables[0].name = 'example_roktads_campaignperformance'
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            if (currency === 'GBP') {
+                expect(result?.math_hogql).toContain("convertCurrency('GBP', 'EUR'")
+                expect(result?.math_hogql).toContain('toDate(datetime)')
+            } else {
+                expect(result).toBeNull()
+            }
+        })
+
+        it.each(['', 'custom_', 'warehouse.custom_'])('resolves RoktAds tables with prefix %s', (prefix) => {
+            const source = makeMockSource('RoktAds', sourceFields.RoktAds)
+            source.tables[0].name = `${prefix}roktads_${MARKETING_INTEGRATION_CONFIGS.RoktAds.statsTableName.toLowerCase()}`
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.table_name).toBe(source.tables[0].name)
+        })
 
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(

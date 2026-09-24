@@ -547,3 +547,14 @@ class TestNativeCampaignTableResolution(FactoryTestMixin, BaseTest):
         assert config is not None
         assert config.campaign_table is campaign
         assert config.stats_table is stats
+
+    @parameterized.expand([("plain", ""), ("prefixed", "example_")])
+    def test_rokt_report_supplies_both_campaign_and_stats(self, _name: str, prefix: str) -> None:
+        source = Mock(id="rokt-source", source_type="RoktAds")
+        table = DataWarehouseTable(name=f"{prefix}roktads_campaignperformance")
+        config = self._make_factory()._create_native_config(
+            source, [table], NativeMarketingSource.ROKT_ADS, HierarchicalNativeAdsConfig
+        )
+        assert config is not None
+        assert config.campaign_table is table
+        assert config.stats_table is table

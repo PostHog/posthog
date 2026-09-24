@@ -12,6 +12,16 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
+### Rokt Ads in Marketing analytics
+
+Sync `CampaignPerformance` to include Rokt Ads in Marketing analytics.
+The report provides campaign identity and daily metrics in one table, so the integration aggregates it without joining the report to itself.
+Spend uses `gross_cost`, clicks use `referrals`, and reported conversions and revenue use `conversions` and `conversion_value`.
+Missing optional conversion metrics show zero.
+Currency comes from the source's report currency setting, or USD when that setting is blank, and conversion uses each report date.
+Changing the source currency requires a full resync so historical rows use the same currency as new rows.
+Creative, audience, demographic, and publisher reports are excluded to avoid counting overlapping breakdowns twice.
+
 ## Importing your local Postgres instance
 
 1. Head to the [new source flow](http://localhost:8010/project/pipeline/new/source) in your local app, hit the link button next to Postgres

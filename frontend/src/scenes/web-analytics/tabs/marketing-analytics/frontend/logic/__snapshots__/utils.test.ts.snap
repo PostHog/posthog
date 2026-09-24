@@ -810,6 +810,141 @@ exports[`marketing analytics utils createMarketingTile snapshots RedditAds - roa
 }
 `;
 
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - clicks 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(referrals), 0))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - cost 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance cost",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency('USD', 'USD', toFloat(gross_cost), coalesce(toDate(datetime), today()))))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - impressions 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(conversions), 0))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency('USD', 'USD', ifNull(toFloat(conversion_value), 0), coalesce(toDate(datetime), today()))))",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance roas",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots RoktAds - roas 1`] = `
+{
+  "custom_name": "prefix.CampaignPerformance roas",
+  "distinct_id_field": "campaign_id",
+  "id": "RoktAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency('USD', 'USD', ifNull(toFloat(conversion_value), 0), coalesce(toDate(datetime), today())))) / nullIf(SUM(toFloat(convertCurrency('USD', 'USD', toFloat(gross_cost), coalesce(toDate(datetime), today())))), 0)",
+  "name": "rokt",
+  "table_name": "prefix.CampaignPerformance",
+  "timestamp_field": "datetime",
+}
+`;
+
 exports[`marketing analytics utils createMarketingTile snapshots SnapchatAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_stats_daily clicks",

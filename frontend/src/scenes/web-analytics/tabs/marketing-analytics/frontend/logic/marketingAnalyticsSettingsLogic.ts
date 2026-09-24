@@ -145,6 +145,7 @@ export interface marketingAnalyticsSettingsLogicActions {
             | 'MetaAds'
             | 'PinterestAds'
             | 'RedditAds'
+            | 'RoktAds'
             | 'SnapchatAds'
             | 'TikTokAds'
     }

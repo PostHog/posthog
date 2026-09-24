@@ -36390,6 +36390,60 @@
                         "adStatsTableName"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "CampaignPerformance",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "rokt",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "rokt_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "campaign_name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "rokt",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "RoktAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "CampaignPerformance",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38297,7 +38351,8 @@
                 "RedditAds",
                 "BingAds",
                 "SnapchatAds",
-                "PinterestAds"
+                "PinterestAds",
+                "RoktAds"
             ],
             "type": "string"
         },
@@ -50346,6 +50401,10 @@
                 }
             },
             "type": "object"
+        },
+        "RoktAdsDefaultSources": {
+            "enum": ["rokt", "rokt_ads"],
+            "type": "string"
         },
         "RootAssistantMessage": {
             "anyOf": [

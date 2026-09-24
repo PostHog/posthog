@@ -3,13 +3,23 @@ import { Meta, StoryObj } from '@storybook/react'
 import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay, LemonMenuOverlayProps } from 'lib/lemon-ui/LemonMenu'
 
 import { mswDecorator } from '~/mocks/browser'
-import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { NativeMarketingSource, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { MappingTypes } from './mappingUtils'
 import { buildCampaignMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
 
 // Mock icons for marketing sources - these are the paths returned by the backend
-const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; fields: never[]; caption: string }> = {
+const MARKETING_SOURCE_ICONS: Record<
+    NativeMarketingSource,
+    { name: string; iconPath: string; fields: never[]; caption: string }
+> = {
+    PinterestAds: {
+        name: 'PinterestAds',
+        iconPath: '/static/services/pinterest_ads.png',
+        fields: [],
+        caption: 'Pinterest Ads',
+    },
+    RoktAds: { name: 'RoktAds', iconPath: '/static/services/rokt_ads.png', fields: [], caption: 'Rokt Ads' },
     GoogleAds: {
         name: 'GoogleAds',
         iconPath: '/static/services/google-ads.png',

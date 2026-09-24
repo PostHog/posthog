@@ -248,6 +248,7 @@ from posthog.schema_enums import (
     RetentionPeriod as RetentionPeriod,
     RetentionReference as RetentionReference,
     RetentionType as RetentionType,
+    RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
@@ -2105,6 +2106,19 @@ class MarketingIntegrationConfig8(BaseModel):
     statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
 
 
+class MarketingIntegrationConfig9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["CampaignPerformance"] = "CampaignPerformance"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["campaign_name"] = "campaign_name"
+    primarySource: Literal["rokt"] = "rokt"
+    sourceType: Literal["RoktAds"] = "RoktAds"
+    statsTableName: Literal["CampaignPerformance"] = "CampaignPerformance"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2115,6 +2129,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
     ]
 ):
     root: (
@@ -2126,6 +2141,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
     )
 
 
