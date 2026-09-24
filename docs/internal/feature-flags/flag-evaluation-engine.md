@@ -38,7 +38,7 @@ Parser fixtures from harness release 1.6.0 are pinned under contract version 2.1
 The Rust suite checks parser field sets, limits, and literals against the released schema and registry.
 Definitions-feed artifacts belong to the future definitions route and are not part of this parser pin.
 
-The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag whose document the v2 parser did not accept gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+The evaluator classifies eligible non-v1 flags once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag whose document the v2 parser did not accept gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
 Detailed responses mark them failed.
 The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
 Healthy siblings still evaluate, and request eligibility remains unchanged.
@@ -80,10 +80,10 @@ The comparison is inclusive, including hash zero at 0%.
 An empty subject always misses; a nonempty subject at 100% bypasses hashing.
 Repeated seeds reuse their hash within one evaluation.
 The evaluator has no database access, writes, events, identity allocation, or gate decisions.
-Public response projection and mixed-format service-cache/fallback integration require separate consumers.
+`get_match` is its response consumer; the cache builders and the PostgreSQL fallback carry supported v2 rows beside v1.
 Evaluator fixtures from harness release 1.8.0 are pinned under contract version 2.2.0.
 `SOURCE.json` lists the vendored subset; its README, manifest, and checksum index keep the upstream bytes, and the integrity test checks each vendored file against that index.
-Rollback can remove this dormant consumer while retaining the format-aware readers and rejection required by stored data.
+To roll back evaluation, remove the `get_match` dispatch first; supported v2 rows then follow the per-request rejection path, and the format-aware readers required by stored data stay.
 
 The production `v1_bucketing` functions accept prescribed hashes for contract tests.
 Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.

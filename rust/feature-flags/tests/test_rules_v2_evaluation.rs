@@ -480,6 +480,14 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
             "{id}"
         );
         assert_eq!(response.errors_while_computing_flags, failed, "{id}");
+        if failed {
+            let expected_code = if case["family"] == "parser" {
+                "flag_data_parsing_error"
+            } else {
+                "flag_evaluation_error"
+            };
+            assert_eq!(details.reason.code, expected_code, "{id}");
+        }
         let mut wire = serde_json::to_value(&response).unwrap();
         // `failed` is omitted on the wire when false and has no serde default.
         wire["flags"][&key]

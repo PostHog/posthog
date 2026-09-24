@@ -56,7 +56,10 @@ pub enum EvaluationError {
 
 impl From<EvaluationError> for FlagError {
     fn from(error: EvaluationError) -> Self {
-        FlagError::internal(anyhow::anyhow!("flag evaluation failed: {error:?}"))
+        FlagError::InternalError {
+            code: "flag_evaluation_error",
+            cause: anyhow::anyhow!("Flag evaluation failed: {error:?}"),
+        }
     }
 }
 
