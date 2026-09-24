@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any
 
 from django.utils import timezone
 
@@ -14,18 +14,13 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 SCANNER_NAME = "Checkout friction"
 FAILED_SESSION_ID = "0192f0e1-eval-4a5b-8c7d-checkoutfail01"
-FAILED_ERROR_REASON = "provider_transient:The model provider timed out."
 
 
-class _SeedContext(Protocol):
-    @property
-    def team_id(self) -> int: ...
-
-
-def seed_replay_vision_scanner(context: _SeedContext) -> dict[str, Any]:
+def seed_replay_vision_scanner(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """One paused monitor scanner with a transiently failed observation, and AI consent on."""
     team = Team.objects.select_related("organization").get(id=context.team_id)
     # The scanner, alert, backfill, and retry tools all refuse to run without AI consent.
@@ -46,7 +41,7 @@ def seed_replay_vision_scanner(context: _SeedContext) -> dict[str, Any]:
         scanner=scanner,
         session_id=FAILED_SESSION_ID,
         status=ObservationStatus.FAILED,
-        error_reason=FAILED_ERROR_REASON,
+        error_reason="provider_transient:The model provider timed out.",
         triggered_by=ObservationTrigger.SCHEDULE,
         completed_at=timezone.now(),
     )

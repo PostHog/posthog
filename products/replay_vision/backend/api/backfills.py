@@ -318,10 +318,11 @@ class ReplayScannerBackfillViewSet(
         total = self._unobserved_count(scanner, window_start, window_end)
         credits_per_observation = observation_credits_for_model(snapshot.model)
         max_total_credits = window.validated_data["max_total_credits"]
-        if total * credits_per_observation > max_total_credits:
+        cost = total * credits_per_observation
+        if cost > max_total_credits:
             raise ValidationError(
                 {
-                    "max_total_credits": f"This backfill now costs up to {total * credits_per_observation} credits, "
+                    "max_total_credits": f"This backfill now costs up to {cost} credits, "
                     f"more than the {max_total_credits} agreed. Estimate it again."
                 }
             )

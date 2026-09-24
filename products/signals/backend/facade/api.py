@@ -943,7 +943,7 @@ def create_scout_for_source(
     *,
     team: "Team",
     user: Any,
-    name: str | None,
+    name: str | None = None,
     display_name: str = "",
     description: str,
     body: str,
@@ -971,20 +971,35 @@ def create_scout_for_source(
         create_scout_with_generated_slug,
     )
 
-    definition: dict[str, Any] = {
-        "team": team,
-        "user": user,
-        "display_name": display_name,
-        "description": description,
-        "body": body,
-        "files": files,
-        "config_options": config_options,
-        "request": request,
-        "serializer_context": serializer_context,
-        "source_product": source_product,
-        "source_id": source_id,
-    }
-    outcome = _create(name=name, **definition) if name else create_scout_with_generated_slug(**definition)
+    if name:
+        outcome = _create(
+            team=team,
+            user=user,
+            name=name,
+            display_name=display_name,
+            description=description,
+            body=body,
+            files=files,
+            config_options=config_options,
+            request=request,
+            serializer_context=serializer_context,
+            source_product=source_product,
+            source_id=source_id,
+        )
+    else:
+        outcome = create_scout_with_generated_slug(
+            team=team,
+            user=user,
+            display_name=display_name,
+            description=description,
+            body=body,
+            files=files,
+            config_options=config_options,
+            request=request,
+            serializer_context=serializer_context,
+            source_product=source_product,
+            source_id=source_id,
+        )
     return ScoutCreated(skill=outcome.skill, config=outcome.config, created=outcome.created)
 
 

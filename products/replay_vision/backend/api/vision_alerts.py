@@ -489,11 +489,7 @@ class VisionAlertDestinationResponseSerializer(serializers.Serializer):
     )
 
 
-class VisionAlertDestinationConfigSerializer(serializers.Serializer):
-    hog_function_ids = serializers.ListField(
-        child=serializers.UUIDField(),
-        help_text="HogFunctions backing this destination. Pass them all to delete the destination.",
-    )
+class VisionAlertDestinationConfigSerializer(VisionAlertDestinationResponseSerializer):
     type = serializers.ChoiceField(choices=VISION_DESTINATION_TYPES, help_text="Notification destination type.")
     enabled = serializers.BooleanField(
         help_text="Whether every HogFunction in the group is enabled, so the destination notifies on every event kind."
@@ -624,13 +620,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: VisionAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind atomically.",
     )
-    # Method-level required_scopes wins over dangerously_get_required_scopes, so repeat the recording scope here.
-    @action(
-        detail=True,
-        methods=["POST"],
-        url_path="destinations",
-        required_scopes=["vision_alert:write", "session_recording:read"],
-    )
+    @action(detail=True, methods=["POST"], url_path="destinations")
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = VisionAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

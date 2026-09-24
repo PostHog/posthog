@@ -4,73 +4,61 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
+from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 
-def _calls(output: dict | None) -> list[ToolCall] | None:
-    if not output or not output.get("raw_log"):
-        return None
-    return LogParser.cached(output["raw_log"], initial_prompt=output.get("prompt", "") or "").get_tool_calls()
+class _McpToolScorer(Scorer):
+    """Skips cases that don't expect this scorer and fails runs with no log, then defers to `_score`."""
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
+        if not expected or self._name() not in expected:
+            return Score(name=self._name(), score=None, metadata={"reason": "Not expected for this case"})
+        if not output or not output.get("raw_log"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+        parser = LogParser.cached(output["raw_log"], initial_prompt=output.get("prompt", "") or "")
+        return self._score(parser, output.get("seed") or {}, expected[self._name()])
+
+    def _score(self, parser: LogParser, seed: dict[str, Any], expected: dict[str, Any]) -> Score:
+        raise NotImplementedError
 
 
-def _seed(output: dict | None) -> dict[str, Any]:
-    return (output or {}).get("seed") or {}
-
-
-class CreatedMatchAlertWithWebhook(Scorer):
+class CreatedMatchAlertWithWebhook(_McpToolScorer):
     """A match alert on the seeded scanner for verdict yes, then a webhook destination on that alert."""
 
     def _name(self) -> str:
         return "created_match_alert_with_webhook"
 
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
-        if not expected or self._name() not in expected:
-            return Score(name=self._name(), score=None, metadata={"reason": "Not expected for this case"})
-        calls = _calls(output)
-        if calls is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        scanner_id = _seed(output).get("scanner_id")
-        webhook_url = expected[self._name()]["webhook_url"]
-
+    def _score(self, parser: LogParser, seed: dict[str, Any], expected: dict[str, Any]) -> Score:
         alert_created = any(
-            c.name == "vision-alerts-create"
-            and not c.is_error
-            and c.input.get("scanner_id") == scanner_id
+            not c.is_error
+            and c.input.get("scanner_id") == seed.get("scanner_id")
             and c.input.get("kind") == "match"
             and "yes" in ((c.input.get("selection") or {}).get("verdict") or [])
-            for c in calls
+            for c in parser.get_tool_calls("vision-alerts-create")
         )
         destination_added = any(
-            c.name == "vision-alerts-destinations-create"
-            and not c.is_error
+            not c.is_error
             and c.input.get("type") == "webhook"
-            and c.input.get("webhook_url") == webhook_url
-            for c in calls
+            and c.input.get("webhook_url") == expected["webhook_url"]
+            for c in parser.get_tool_calls("vision-alerts-destinations-create")
         )
-        score = (int(alert_created) + int(destination_added)) / 2
         return Score(
             name=self._name(),
-            score=score,
+            score=(int(alert_created) + int(destination_added)) / 2,
             metadata={"alert_created": alert_created, "destination_added": destination_added},
         )
 
 
-class EstimatedBeforeBackfill(Scorer):
+class EstimatedBeforeBackfill(_McpToolScorer):
     """An estimate, and no backfill create unless an estimate came first and its cap was passed."""
 
     def _name(self) -> str:
         return "estimated_before_backfill"
 
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
-        if not expected or self._name() not in expected:
-            return Score(name=self._name(), score=None, metadata={"reason": "Not expected for this case"})
-        calls = _calls(output)
-        if calls is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-
-        estimates = [c for c in calls if c.name == "vision-scanners-backfills-estimate"]
-        creates = [c for c in calls if c.name == "vision-scanners-backfills-create"]
+    def _score(self, parser: LogParser, seed: dict[str, Any], expected: dict[str, Any]) -> Score:
+        estimates = parser.get_tool_calls("vision-scanners-backfills-estimate")
+        creates = parser.get_tool_calls("vision-scanners-backfills-create")
         if not estimates:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Never estimated"})
         first_estimate = min(c.position for c in estimates)
@@ -82,21 +70,15 @@ class EstimatedBeforeBackfill(Scorer):
         )
 
 
-class RetriedFailedObservation(Scorer):
+class RetriedFailedObservation(_McpToolScorer):
     """The seeded failed observation was retried by its own id, not the session or scanner id."""
 
     def _name(self) -> str:
         return "retried_failed_observation"
 
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
-        if not expected or self._name() not in expected:
-            return Score(name=self._name(), score=None, metadata={"reason": "Not expected for this case"})
-        calls = _calls(output)
-        if calls is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        target = _seed(output).get("failed_observation_id")
-        retries = [c for c in calls if c.name == "vision-observations-retry"]
-        hit = [c for c in retries if str(c.input.get("id")) == target]
+    def _score(self, parser: LogParser, seed: dict[str, Any], expected: dict[str, Any]) -> Score:
+        retries = parser.get_tool_calls("vision-observations-retry")
+        hit = [c for c in retries if str(c.input.get("id")) == seed.get("failed_observation_id")]
         return Score(
             name=self._name(),
             score=1.0 if hit else 0.0,

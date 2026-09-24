@@ -276,7 +276,7 @@ export const VisionAlertDestinationTypeEnumApi = {
 } as const
 
 export interface VisionAlertDestinationConfigApi {
-    /** HogFunctions backing this destination. Pass them all to delete the destination. */
+    /** HogFunctions backing the created destination, one per event kind. */
     hog_function_ids: string[]
     /** Notification destination type.
      *

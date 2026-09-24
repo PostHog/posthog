@@ -1076,7 +1076,7 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: true
+            idempotent: false
         title: Create scout for scanner
         description: >
             Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily
