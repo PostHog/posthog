@@ -71,6 +71,8 @@ runs:
                       for file in $(git apply --numstat "$patch" | cut -f3); do
                         if git apply --check --include="$file" "$patch" 2>/dev/null; then
                           git apply --index --include="$file" "$patch"
+                        elif git apply --reverse --check --include="$file" "$patch" 2>/dev/null; then
+                          echo "Skipping $file from $patch (already applied)"
                         elif [[ "$file" == *.ambr ]] && [ -f "$file" ] \
                           && grep -F -A1 -- "diff --git a/$file b/$file" "$patch" | grep -q '^new file mode'; then
                           extract_dir=$(mktemp -d)
