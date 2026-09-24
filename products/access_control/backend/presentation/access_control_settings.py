@@ -874,6 +874,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             raise exceptions.ValidationError("resource_id is required for a property rule.")
         if not team.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
             raise exceptions.PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
+        # The same gate AccessControlSerializer applies to role rules on every other scope
+        if role is not None and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            raise exceptions.PermissionDenied("Role-based access controls require the Role-based access feature.")
         if not user_access_control.check_can_modify_access_levels_for_object(team):
             raise exceptions.PermissionDenied()
         levels = [level.value for level in PropertyAccessLevel]

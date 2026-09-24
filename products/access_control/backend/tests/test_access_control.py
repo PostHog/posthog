@@ -2966,6 +2966,15 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         res = self._put("default", {**base, "resource_id": str(uuid.uuid4()), "access_level": "read"})
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
+        # Property access without role-based access: role rules stay gated like every other scope
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        res = self._put("role", {**base, "access_level": "read", **self._subject("role")})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
