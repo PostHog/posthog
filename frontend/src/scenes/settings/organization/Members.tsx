@@ -19,6 +19,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
+    getMemberRemovalOption,
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     organizationMembershipLevelIntegers,
@@ -81,6 +82,7 @@ function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { members } = useValues(membersLogic)
     const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
     const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
 
@@ -88,16 +90,14 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
         return null
     }
 
-    const currentMembershipLevel = currentOrganization?.membership_level ?? -1
-
-    const allowDeletion =
-        // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
-        ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
-            member.user.uuid === user.uuid) &&
-        // unless that user is the organization's owner, in which case they can't leave
-        member.level !== OrganizationMembershipLevel.Owner
-
     const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
+    const { shown: allowDeletion, disabledReason: deletionDisabledReason } = getMemberRemovalOption(
+        myMembershipLevel,
+        user,
+        member,
+        members
+    )
 
     const allowedLevels = organizationMembershipLevelIntegers.filter(
         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
@@ -160,6 +160,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                             <LemonButton
                                 status="danger"
                                 data-attr="delete-org-membership"
+                                disabledReason={deletionDisabledReason}
                                 onClick={() => {
                                     if (!user) {
                                         throw Error

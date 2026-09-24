@@ -614,9 +614,18 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
-        if membership.level == OrganizationMembership.Level.OWNER:
-            raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
+            if membership.level == OrganizationMembership.Level.OWNER:
+                # Lock every owner row, so two concurrent removals cannot leave the organization with no owner.
+                owner_ids = set(
+                    OrganizationMembership.objects.select_for_update()
+                    .filter(organization=organization, level=OrganizationMembership.Level.OWNER)
+                    .values_list("id", flat=True)
+                )
+                if not owner_ids - {membership.id}:
+                    raise ValidationError(
+                        "An organization must always have at least one owner. Make someone else an owner first."
+                    )
             membership.delete()
             if self.current_organization == organization:
                 self.current_organization = self.organizations.first()

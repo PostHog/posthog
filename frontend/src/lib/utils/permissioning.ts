@@ -42,6 +42,36 @@ export function getReasonForAccessLevelChangeProhibition(
     return null
 }
 
+/** Whether the "remove from organization" action is offered for a member, and why it is disabled if it is. */
+export function getMemberRemovalOption(
+    currentMembershipLevel: OrganizationMembershipLevel | null,
+    currentUser: UserType,
+    memberToBeRemoved: OrganizationMemberType,
+    allMembers: OrganizationMemberType[] | null
+): { shown: boolean; disabledReason?: string } {
+    const isSelf = memberToBeRemoved.user.uuid === currentUser.uuid
+    const level = currentMembershipLevel ?? -1
+    // Higher-ranked members cannot be removed, but anyone can leave on their own.
+    const shown = (level >= OrganizationMembershipLevel.Admin && memberToBeRemoved.level <= level) || isSelf
+    if (!shown) {
+        return { shown: false }
+    }
+    // An owner row only offers removal to another owner, so removing someone else always leaves an owner behind.
+    // Leaving yourself is the case that needs a second owner, which the API refuses without.
+    if (isSelf && memberToBeRemoved.level === OrganizationMembershipLevel.Owner) {
+        const anotherOwnerExists = !!allMembers?.some(
+            (other) => other.level === OrganizationMembershipLevel.Owner && other.user.uuid !== currentUser.uuid
+        )
+        if (!anotherOwnerExists) {
+            return {
+                shown: true,
+                disabledReason: "You can't leave the organization as its only owner. Make someone else an owner first.",
+            }
+        }
+    }
+    return { shown: true }
+}
+
 export const membershipLevelToName = new Map<EitherMembershipLevel, string>([
     [OrganizationMembershipLevel.Member, 'member'],
     [OrganizationMembershipLevel.Admin, 'admin'],

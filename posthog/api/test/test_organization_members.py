@@ -513,6 +513,30 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             2,
         )
 
+    def test_owner_can_be_removed_when_another_owner_remains(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        other_owner = User.objects.create_and_join(
+            self.organization, "owner2@x.com", None, "X", level=OrganizationMembership.Level.OWNER
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/organizations/@current/members/{other_owner.uuid}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(
+            OrganizationMembership.objects.filter(user=other_owner, organization=self.organization).exists()
+        )
+
+    def test_only_owner_cannot_be_removed(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists())
+
     def test_add_owner_only_if_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
