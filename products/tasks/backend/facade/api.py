@@ -509,6 +509,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "slack_chart_delivery",
         "slack_thread_url",
         "token_spend",
+        "token_spend_incomplete",
         "compute_spend",
         "unprocessed_request_ids",
     }
@@ -2473,6 +2474,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "pr_base_branch",
         "github_credential_source",
         "token_spend",
+        "token_spend_incomplete",
         "compute_spend",
         "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,

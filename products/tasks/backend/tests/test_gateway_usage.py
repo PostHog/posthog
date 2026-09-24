@@ -12,8 +12,8 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.billing import TaskRunSpend, get_task_run_spend, get_task_spend
 from products.tasks.backend.logic.services.gateway_usage import (
-    enable_gateway_usage,
     process_pending_gateway_usage,
+    record_gateway_routing,
     record_generation_request,
     refresh_task_run_spend,
 )
@@ -26,7 +26,7 @@ class TestGatewayUsage(BaseTest):
     def _run(self, *, task: Task | None = None, status: str = TaskRun.Status.IN_PROGRESS) -> TaskRun:
         task = task or Task.objects.create(team=self.team, title="Spend test", description="")
         run = TaskRun.objects.create(team=self.team, task=task, status=status, environment=TaskRun.Environment.CLOUD)
-        enable_gateway_usage(run_id=run.id, team_id=self.team.id)
+        record_gateway_routing(run_id=run.id, team_id=self.team.id, uses_gateway=True)
         return run
 
     def _report(self, run: TaskRun, ids: list[str]) -> None:
@@ -160,23 +160,29 @@ class TestGatewayUsage(BaseTest):
         assert run.state["unprocessed_request_ids"] == ["request-1"]
         assert run.state["token_spend"] == {}
 
+    @parameterized.expand([(True,), (False,)])
     @patch("aiohttp.ClientSession._request")
-    def test_resume_preserves_pending_ids_and_processed_spend(self, get: Mock) -> None:
+    def test_resume_preserves_pending_ids_and_processed_spend(self, fully_tracked: bool, get: Mock) -> None:
         run = self._run(status=TaskRun.Status.COMPLETED)
         self._report(run, ["old-request", "pending"])
         get.return_value = self._response("old-request", "0.015")
         self._process(run, limit=1)
-        enable_gateway_usage(run_id=run.id, team_id=self.team.id)
+        if not fully_tracked:
+            record_gateway_routing(run_id=run.id, team_id=self.team.id, uses_gateway=False)
+        record_gateway_routing(run_id=run.id, team_id=self.team.id, uses_gateway=True)
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["pending"]
-        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 2
+        expected_spend = 2 if fully_tracked else None
+        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == expected_spend
+        assert get_task_spend(team_id=self.team.id, task_id=run.task_id).token_spend == expected_spend
         run.status = TaskRun.Status.IN_PROGRESS
         run.save(update_fields=["status"])
         self._report(run, ["old-request", "pending"])
         get.side_effect = [self._response("old-request", "0.015"), self._response("pending", "0.005")]
-        assert self._process(run).token_spend == 2
+        assert self._process(run).token_spend == expected_spend
         run.refresh_from_db()
         assert run.state["token_spend"]["model-a"]["provider-a"]["request_ids"] == ["old-request", "pending"]
+        assert run.state["token_spend"]["model-a"]["provider-a"]["spend_microusd"] == 20_000
 
     @patch("aiohttp.ClientSession._request")
     def test_getters_use_recorded_spend_and_round_across_runs(self, get: Mock) -> None:
@@ -240,7 +246,7 @@ class TestGatewayUsage(BaseTest):
         get.return_value = self._response("late-request", "0.02")
 
         with patch.object(TaskRun, "track_structured_result") as track_result:
-            enable_gateway_usage(run_id=run.id, team_id=run.team_id)
+            record_gateway_routing(run_id=run.id, team_id=run.team_id, uses_gateway=True)
             record_generation_request(run_id=run.id, team_id=run.team_id, request_id="late-request")
             assert self._process(run).token_spend == 2
             assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 2

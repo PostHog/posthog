@@ -6,7 +6,6 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional
-from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -38,7 +37,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, PRODUCT_ALLOWED_MODELS
-from products.tasks.backend.logic.services.gateway_usage import enable_gateway_usage
+from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
@@ -1355,6 +1354,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
     if ctx.claude_model_access == "own-subscription":
+        record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
     try:
         env_vars = ai_gateway_env_vars(
@@ -1372,8 +1372,6 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
             env_vars.pop("AI_GATEWAY_TOKEN", None)
             env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
-        if env_vars.get("AI_GATEWAY_TOKEN") and ctx.task_runtime != "pi":
-            enable_gateway_usage(run_id=UUID(ctx.run_id), team_id=ctx.team_id)
     except Exception:
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
@@ -1382,7 +1380,13 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             extra={"run_id": ctx.run_id},
             exc_info=True,
         )
-        return {}
+        env_vars = {}
+    # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
+    record_gateway_routing(
+        run_id=ctx.run_id,
+        team_id=ctx.team_id,
+        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")) and ctx.task_runtime != "pi",
+    )
     return env_vars
 
 

@@ -46,7 +46,7 @@ class _SpendSources:
         )
 
 
-def _locked_run(run_id: UUID, team_id: int) -> TaskRun:
+def _locked_run(run_id: UUID | str, team_id: int) -> TaskRun:
     return TaskRun.objects.select_for_update().get(id=run_id, team_id=team_id)
 
 
@@ -65,14 +65,17 @@ def _save_accounting_state(run: TaskRun) -> None:
     TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state)
 
 
-def enable_gateway_usage(*, run_id: UUID, team_id: int) -> None:
+def record_gateway_routing(*, run_id: UUID | str, team_id: int, uses_gateway: bool) -> None:
     with transaction.atomic():
         run = _locked_run(run_id, team_id)
         if run.environment != TaskRun.Environment.CLOUD:
             raise ValueError("Gateway spend requires a cloud run")
         state = dict(run.state or {})
-        state.setdefault("unprocessed_request_ids", [])
-        state.setdefault("token_spend", {})
+        if uses_gateway:
+            state.setdefault("unprocessed_request_ids", [])
+            state.setdefault("token_spend", {})
+        else:
+            state["token_spend_incomplete"] = True
         if state == run.state:
             return
         run.state = state
@@ -237,7 +240,7 @@ async def _fetch_gateway_spend(request_id: str) -> GatewayRequestSpend | None:
 def _spend_sources(run: TaskRun) -> _SpendSources:
     return _SpendSources(
         token_spend_microusd=sum(bucket.get("spend_microusd", 0) for bucket in _spend_buckets(run.state or {}))
-        if gateway_usage_enabled(run)
+        if gateway_usage_enabled(run) and not (run.state or {}).get("token_spend_incomplete")
         else None,
         compute_spend_usd=_compute_spend_source(run),
     )

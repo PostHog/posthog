@@ -1328,6 +1328,10 @@ _CTX, _TASK = _gateway_ctx_task()
     return_value="https://us.posthog.com",
 )
 class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+
     def _build(self):
         ctx, task = _gateway_ctx_task()
         return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
@@ -1357,6 +1361,10 @@ class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
 
 
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
         return_value="pub",

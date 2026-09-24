@@ -15,7 +15,7 @@ from pytest_mock import MockerFixture
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade.billing import get_task_run_spend
-from products.tasks.backend.logic.services.gateway_usage import enable_gateway_usage
+from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import SandboxSession, TaskRun
@@ -91,7 +91,7 @@ def test_cleanup_sandbox_requests_agent_server_shutdown_when_completing_stream(a
 
 @pytest.fixture
 def accounting_session(test_task_run):
-    enable_gateway_usage(run_id=test_task_run.id, team_id=test_task_run.team_id)
+    record_gateway_routing(run_id=test_task_run.id, team_id=test_task_run.team_id, uses_gateway=True)
     now = timezone.now()
     return SandboxSession.objects.for_team(test_task_run.team_id).create(
         team_id=test_task_run.team_id,

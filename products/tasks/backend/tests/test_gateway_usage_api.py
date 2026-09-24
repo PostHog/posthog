@@ -211,6 +211,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         run.state = {
             "unprocessed_request_ids": ["existing"],
             "token_spend": {"model": {"provider": {"spend_microusd": 4, "request_ids": ["existing"]}}},
+            "token_spend_incomplete": True,
             "compute_spend": 2,
         }
         run.save(update_fields=["state"])
@@ -218,18 +219,30 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/tasks/{run.task_id}/runs/{run.id}/",
             {
-                "state": {"unprocessed_request_ids": ["forged"], "token_spend": {}, "compute_spend": 999},
+                "state": {
+                    "unprocessed_request_ids": ["forged"],
+                    "token_spend": {},
+                    "token_spend_incomplete": False,
+                    "compute_spend": 999,
+                },
                 "state_append": {"unprocessed_request_ids": "forged"},
-                "state_remove_keys": ["unprocessed_request_ids", "token_spend", "compute_spend"],
+                "state_remove_keys": [
+                    "unprocessed_request_ids",
+                    "token_spend",
+                    "token_spend_incomplete",
+                    "compute_spend",
+                ],
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"]["token_spend_incomplete"] is True
         run.refresh_from_db()
         assert run.state == {
             "unprocessed_request_ids": ["existing"],
             "token_spend": {"model": {"provider": {"spend_microusd": 4, "request_ids": ["existing"]}}},
+            "token_spend_incomplete": True,
             "compute_spend": 2,
         }
 
