@@ -193,7 +193,14 @@ export const InsightsCreateBody = () => zod
     .object({
         name: zod.string().max(insightsCreateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsCreateBodyDerivedNameMax).nullish(),
-        order: zod.number().min(insightsCreateBodyOrderMin).max(insightsCreateBodyOrderMax).nullish(),
+        order: zod
+            .number()
+            .min(insightsCreateBodyOrderMin)
+            .max(insightsCreateBodyOrderMax)
+            .nullish()
+            .describe(
+                'DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.'
+            ),
         deleted: zod.boolean().optional(),
         dashboards: zod
             .array(zod.number())
@@ -297,7 +304,14 @@ export const InsightsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(insightsPartialUpdateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsPartialUpdateBodyDerivedNameMax).nullish(),
-        order: zod.number().min(insightsPartialUpdateBodyOrderMin).max(insightsPartialUpdateBodyOrderMax).nullish(),
+        order: zod
+            .number()
+            .min(insightsPartialUpdateBodyOrderMin)
+            .max(insightsPartialUpdateBodyOrderMax)
+            .nullish()
+            .describe(
+                'DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order.'
+            ),
         deleted: zod.boolean().optional(),
         dashboards: zod
             .array(zod.number())
