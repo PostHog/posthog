@@ -1013,7 +1013,7 @@ class _Renderer:
         name = stored_name if isinstance(stored_name, str) else ""
         stored_key = definition.get("key")
         has_stored_key = isinstance(stored_key, str) and bool(stored_key)
-        key = stored_key if has_stored_key else _kebab(name)
+        key = stored_key if isinstance(stored_key, str) and stored_key else _kebab(name)
         if not has_stored_key and key.startswith("replace-me-"):
             key = f"copied-{key.removeprefix('replace-me-')}"
         if not has_stored_key:
