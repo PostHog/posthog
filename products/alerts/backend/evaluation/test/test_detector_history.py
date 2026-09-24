@@ -308,6 +308,21 @@ class TestDetectorHistory(BaseTest):
         assert late in warehouse.last_scan_buckets
         assert (late, 77.0) in [(bucket, value) for bucket, value in rows[0]]
 
+    def test_probed_buckets_outside_the_window_are_ignored(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        too_old = CURRENT_HOUR - timedelta(hours=60)
+        in_progress = CURRENT_HOUR
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            rows = self._check(warehouse, probe=[too_old, in_progress])
+
+        # A late insert for a bucket the window no longer covers, or for the still-open hour
+        # the query excludes, must not widen the rescan.
+        assert rows is not None
+        assert too_old not in warehouse.last_scan_buckets
+        assert in_progress not in warehouse.last_scan_buckets
+        assert len(warehouse.last_scan_buckets) == 3
+
     def test_a_failed_probe_still_serves_the_margin_scan_and_keeps_the_watermark(self) -> None:
         warehouse = _Warehouse(self._dense(10))
         with time_machine.travel(NOW, tick=False):
