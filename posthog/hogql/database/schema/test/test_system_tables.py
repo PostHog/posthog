@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
@@ -80,6 +81,9 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration, VisionAlertKind
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.warehouse_sources.backend.facade.models import (
@@ -581,6 +585,37 @@ def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
     )
 
 
+def _create_replay_scanner(team: Team, label: str) -> ReplayScanner:
+    return ReplayScanner.objects.create(
+        team=team,
+        name=f"replay_scanner_{label}",
+        scanner_type=ScannerType.MONITOR,
+        scanner_config={"prompt": "p"},
+        model=ScannerModel.GEMINI_3_8_FLASH,
+    )
+
+
+def _create_replay_scanner_backfill(team: Team, label: str) -> ReplayScannerBackfill:
+    now = timezone.now()
+    return ReplayScannerBackfill.objects.for_team(team.id).create(
+        team=team,
+        scanner=_create_replay_scanner(team, f"backfill_{label}"),
+        window_start=now - timedelta(days=2),
+        window_end=now - timedelta(days=1),
+        scanner_snapshot={},
+        credits_per_observation=1,
+    )
+
+
+def _create_vision_alert(team: Team, label: str) -> VisionAlertConfiguration:
+    return VisionAlertConfiguration.objects.for_team(team.id).create(
+        team=team,
+        scanner=_create_replay_scanner(team, f"alert_{label}"),
+        name=f"vision_alert_{label}",
+        kind=VisionAlertKind.MATCH,
+    )
+
+
 def _create_evaluation_directory(team: Team, label: str) -> EvaluationDirectory:
     user = _get_or_create_user_for_team(team, label)
     return EvaluationDirectory.objects.for_team(team.id).create(
@@ -943,6 +978,9 @@ SYSTEM_TABLE_FACTORIES = [
     ("integrations", _create_integration),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
+    ("replay_scanners", _create_replay_scanner),
+    ("replay_scanner_backfills", _create_replay_scanner_backfill),
+    ("vision_alerts", _create_vision_alert),
     ("logs_views", _create_logs_view),
     ("message_categories", _create_message_category),
     ("message_recipient_preferences", _create_message_recipient_preference),

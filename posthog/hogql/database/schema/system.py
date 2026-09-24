@@ -1256,6 +1256,165 @@ session_recordings: PostgresTable = PostgresTable(
     },
 )
 
+replay_scanners: PostgresTable = PostgresTable(
+    name="replay_scanners",
+    postgres_table_name="replay_vision_replayscanner",
+    access_scope="replay_scanner",
+    access_control_creator_id_field="created_by_id",
+    # Inline scanners are throwaway rows behind one-off scans; REST never lists them either.
+    predicates=[parse_expr("origin = 'configured'")],
+    description="Replay Vision scanners: standing LLM probes over session recordings; one row per saved scanner.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Scanner UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "origin": StringDatabaseField(name="origin", hidden=True),
+        "name": StringDatabaseField(name="name", description="Scanner name, unique within the project."),
+        "description": StringDatabaseField(name="description", description="Free-text description; blank when unset."),
+        "scanner_type": StringDatabaseField(
+            name="scanner_type", description="One of monitor, classifier, scorer, summarizer."
+        ),
+        "scanner_config": StringJSONDatabaseField(
+            name="scanner_config", description="Type-specific JSON config; always includes the prompt."
+        ),
+        "query": StringJSONDatabaseField(
+            name="query", description="JSON RecordingsQuery selecting the sessions the scanner watches."
+        ),
+        "sampling_rate": FloatDatabaseField(
+            name="sampling_rate", description="Random share of matching sessions scanned, 0 to 1."
+        ),
+        "sampling_mode": StringDatabaseField(
+            name="sampling_mode", description="Quality pre-filter: focused, balanced or comprehensive."
+        ),
+        "model": StringDatabaseField(name="model", description="LLM model that scans each session; sets the price."),
+        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
+        "enabled": ExpressionField(
+            name="enabled",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
+            description="1 when the scanner sweeps new recordings on schedule, 0 otherwise.",
+        ),
+        "_emits_signals": BooleanDatabaseField(name="emits_signals", hidden=True),
+        "emits_signals": ExpressionField(
+            name="emits_signals",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_emits_signals"])]),
+            description="1 when findings are also pushed into the Signals inbox, 0 otherwise.",
+        ),
+        "scanner_version": IntegerDatabaseField(
+            name="scanner_version", description="Config version, bumped on every config edit."
+        ),
+        "credit_limit": IntegerDatabaseField(
+            name="credit_limit",
+            nullable=True,
+            description="Per-period credit cap for this scanner (NULL when uncapped).",
+        ),
+        "estimated_monthly_observations": IntegerDatabaseField(
+            name="estimated_monthly_observations",
+            nullable=True,
+            description="Last projection of observations per month (NULL before the first estimate).",
+        ),
+        "last_swept_at": DateTimeDatabaseField(
+            name="last_swept_at", nullable=True, description="When the scheduled sweep last ran (NULL before it has)."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the scanner (NULL when deleted)."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the scanner was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the scanner was last modified."),
+    },
+)
+
+replay_scanner_backfills: PostgresTable = PostgresTable(
+    name="replay_scanner_backfills",
+    postgres_table_name="replay_vision_replayscannerbackfill",
+    access_scope="replay_scanner",
+    # Child of a scanner: object-level access control applies to the parent scanner.
+    access_control_id_field="scanner_id",
+    description="Replay Vision backfills: one row per run of a scanner over a past window of recordings.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Backfill UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "scanner_id": StringDatabaseField(name="scanner_id", description="Scanner being backfilled."),
+        "window_start": DateTimeDatabaseField(name="window_start", description="Inclusive start of the window."),
+        "window_end": DateTimeDatabaseField(name="window_end", description="Exclusive end of the window."),
+        "status": StringDatabaseField(
+            name="status", description="One of running, paused_quota, completed, cancelled, failed."
+        ),
+        "credits_per_observation": IntegerDatabaseField(
+            name="credits_per_observation", description="Credit price per session, frozen at creation."
+        ),
+        "total_count": IntegerDatabaseField(
+            name="total_count", description="Sessions the backfill set out to scan, counted at creation."
+        ),
+        "dispatched_count": IntegerDatabaseField(name="dispatched_count", description="Sessions dispatched so far."),
+        "skipped_count": IntegerDatabaseField(
+            name="skipped_count", description="Sessions walked over without a scan (already observed or excluded)."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who started the backfill."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the backfill was created."),
+        "finished_at": DateTimeDatabaseField(
+            name="finished_at", nullable=True, description="When it reached a terminal status (NULL while active)."
+        ),
+    },
+)
+
+vision_alerts: PostgresTable = PostgresTable(
+    name="vision_alerts",
+    postgres_table_name="replay_vision_visionalertconfiguration",
+    access_scope="replay_scanner",
+    # Alerts inherit access from their scanner, as the REST endpoint does.
+    access_control_id_field="scanner_id",
+    description="Replay Vision alerts on a scanner's observations; one row per alert.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Alert UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "scanner_id": StringDatabaseField(
+            name="scanner_id", description="Scanner whose observations the alert watches."
+        ),
+        "name": StringDatabaseField(name="name", description="Alert name."),
+        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
+        "enabled": ExpressionField(
+            name="enabled",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
+            description="1 when the alert is active, 0 otherwise.",
+        ),
+        "kind": StringDatabaseField(
+            name="kind", description="match fires on each matching observation; metric fires on a threshold."
+        ),
+        "selection": StringJSONDatabaseField(
+            name="selection", description="JSON filter picking which observations count (verdict, tags, score)."
+        ),
+        "metric": StringDatabaseField(name="metric", description="Metric alerts: count or avg_score."),
+        "direction": StringDatabaseField(name="direction", description="Metric alerts: above or below."),
+        "threshold": FloatDatabaseField(
+            name="threshold", nullable=True, description="Metric alerts: threshold value (NULL for match alerts)."
+        ),
+        "window_days": IntegerDatabaseField(name="window_days", description="Metric alerts: rolling window in days."),
+        "check_interval_minutes": IntegerDatabaseField(
+            name="check_interval_minutes", description="Metric alerts: evaluation cadence in minutes."
+        ),
+        "state": StringDatabaseField(
+            name="state",
+            description="One of not_firing, firing, pending_resolve, errored, snoozed, broken.",
+        ),
+        "consecutive_failures": IntegerDatabaseField(
+            name="consecutive_failures", description="Evaluation failures in a row; resets on success."
+        ),
+        "snooze_until": DateTimeDatabaseField(
+            name="snooze_until", nullable=True, description="Alert is snoozed until this time (NULL when not)."
+        ),
+        "last_checked_at": DateTimeDatabaseField(
+            name="last_checked_at", nullable=True, description="When the alert was last evaluated."
+        ),
+        "last_notified_at": DateTimeDatabaseField(
+            name="last_notified_at", nullable=True, description="When the alert last sent a notification."
+        ),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True, description="User who created it."),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the alert was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the alert was last modified."),
+    },
+)
+
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
@@ -3023,6 +3182,8 @@ class SystemTables(TableNode):
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "replay_scanner_backfills": TableNode(name="replay_scanner_backfills", table=replay_scanner_backfills),
+        "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
@@ -3041,6 +3202,7 @@ class SystemTables(TableNode):
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
         "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
+        "vision_alerts": TableNode(name="vision_alerts", table=vision_alerts),
     }
 
 

@@ -1,0 +1,42 @@
+# Replay Vision
+
+Replay Vision runs LLM scanners over session recordings.
+A scanner watches a slice of recordings and records one observation per session it scans.
+Observations land as `$recording_observed` events, so query findings from `events`, and query configuration from the tables below.
+
+## ReplayScanner (`system.replay_scanners`)
+
+One row per saved scanner.
+One-off inline scans are not listed.
+
+### Columns
+
+{{ schema_columns('system.replay_scanners') }}
+
+## VisionAlertConfiguration (`system.vision_alerts`)
+
+One row per alert on a scanner's observations.
+
+### Columns
+
+{{ schema_columns('system.vision_alerts') }}
+
+## ReplayScannerBackfill (`system.replay_scanner_backfills`)
+
+One row per run of a scanner over a past window of recordings.
+
+### Columns
+
+{{ schema_columns('system.replay_scanner_backfills') }}
+
+### Key Relationships
+
+- Alerts and backfills belong to a **scanner** (`scanner_id` → `system.replay_scanners.id`)
+- `$recording_observed` events carry the scanner as `properties.scanner_id` and the recording as `$session_id`
+- All three belong to a **Team** (`team_id`)
+
+### Important Notes
+
+- Access follows the scanner: a scanner you cannot read also hides its alerts and backfills.
+- A backfill's progress is `dispatched_count + skipped_count` out of `total_count`. Per-outcome counts come from `vision-scanners-backfills-get`.
+- Alert notification destinations are not a system table. Read them with `vision-alerts-get`.
