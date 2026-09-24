@@ -1727,11 +1727,58 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_wait_for_task_external_event", AsyncMock(side_effect=never))
         monkeypatch.setattr(process_task_workflow_module, "_run_lifecycle_bounds_enabled", Mock(return_value=False))
         monkeypatch.setattr(process_task_workflow_module.workflow, "wait", asyncio.wait)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         monkeypatch.setattr(process_task_workflow_module.workflow, "set_current_details", Mock())
 
         assert await workflow._wait_for_event() == process_task_workflow_module.TaskEvent.TIMEOUT_REACHED
         assert inactivity_mock.await_args is not None
         assert inactivity_mock.await_args.args[0] == timedelta(seconds=expected_seconds)
+
+    @pytest.mark.parametrize(
+        "patched, minutes_since_active, expected_sleep_seconds",
+        [(True, 25, 300), (True, 35, None), (True, None, 1800), (False, 25, 1800)],
+    )
+    async def test_a_non_activity_wake_does_not_restart_the_inactivity_timer(
+        self, monkeypatch, patched, minutes_since_active, expected_sleep_seconds
+    ):
+        now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        workflow = ProcessTaskWorkflow()
+        if minutes_since_active is not None:
+            workflow._last_active_time = now - timedelta(minutes=minutes_since_active)
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=now))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", sleep_mock)
+
+        result = await workflow._wait_for_inactivity(timedelta(minutes=30))
+
+        assert result == process_task_workflow_module.TaskEvent.TIMEOUT_REACHED
+        if expected_sleep_seconds is None:
+            sleep_mock.assert_not_awaited()
+        else:
+            sleep_mock.assert_awaited_once_with(expected_sleep_seconds)
+        if patched:
+            assert workflow._last_active_time is not None
+
+    async def test_an_overdue_inactivity_timeout_yields_to_a_queued_signal(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, create_pr=False)
+        monkeypatch.setattr(
+            workflow,
+            "_wait_for_inactivity",
+            AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_wait_for_task_external_event",
+            AsyncMock(return_value=process_task_workflow_module.TaskEvent.SIGNAL_RECEIVED),
+        )
+        monkeypatch.setattr(process_task_workflow_module, "_run_lifecycle_bounds_enabled", Mock(return_value=False))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait", asyncio.wait)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "set_current_details", Mock())
+
+        assert await workflow._wait_for_event() == process_task_workflow_module.TaskEvent.SIGNAL_RECEIVED
 
     @pytest.mark.parametrize("patched", [True, False])
     async def test_turn_end_wakes_the_wait_only_once_the_patch_is_recorded(self, monkeypatch, patched):

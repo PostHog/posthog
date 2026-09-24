@@ -1,5 +1,6 @@
 import json
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -437,6 +438,7 @@ _PATCH_ID_PROGRESS_EMIT_NONBLOCKING = "progress-emit-nonblocking-2026-09"
 # A new activity worker can record the merge queue flag as true while an old workflow worker
 # ignores it and dispatches, so replay takes the skip only where the marker was recorded.
 _PATCH_ID_MERGE_QUEUE_SKIP = "tasks-merge-queue-skip-2026-09"
+_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY = "tasks-inactivity-anchored-on-last-activity"
 
 _PENDING_PROGRESS_FLUSH_SECONDS = 15.0
 
@@ -709,7 +711,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._dispatch_followup(followup)
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
-        await workflow.sleep(timeout.total_seconds())
+        if workflow.patched(_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY):
+            if self._last_active_time is None:
+                self._last_active_time = workflow.now()
+            remaining = timeout - (workflow.now() - self._last_active_time)
+            if remaining.total_seconds() > 0:
+                await workflow.sleep(remaining.total_seconds())
+        else:
+            await workflow.sleep(timeout.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
     async def _wait_for_max_run_duration(self, cap: timedelta):
@@ -917,7 +926,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         pending_tasks_results = await asyncio.gather(
             *pending, return_exceptions=True
         )  # Ensure all pending tasks are cancelled
-        for task in done:
+        completed_events = (
+            self._completed_events_in_priority_order(done)
+            if workflow.patched(_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY)
+            else done
+        )
+        for task in completed_events:
             if task.exception():
                 workflow.logger.warning(
                     "Event wait task failed",
@@ -947,6 +961,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 return task_result
         raise RuntimeError("No event was completed successfully")
+
+    @staticmethod
+    def _completed_events_in_priority_order(done: Iterable[asyncio.Task[TaskEvent]]) -> list[asyncio.Task[TaskEvent]]:
+        return sorted(
+            done,
+            key=lambda task: task.exception() is None and task.result() == TaskEvent.TIMEOUT_REACHED,
+        )
 
     async def _should_run_ci_follow_up(self) -> CIFollowUpDecision:
         """Check whether a CI follow-up message should be sent to the agent.
