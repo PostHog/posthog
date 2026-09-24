@@ -4,6 +4,10 @@ use anyhow::{Context, Result};
 
 use crate::safe_println;
 
+// Written by the "Publish artifacts to the release bucket" step in
+// release-cli.yml on every stable release: the manifest and both installers are
+// republished at these stable keys with a short TTL and a CloudFront
+// invalidation, while the versioned artifacts beside them are immutable.
 const MANIFEST_URL: &str = "https://releases.posthog.com/posthog-cli/stable/dist-manifest.json";
 const INSTALL_SH_URL: &str = "https://releases.posthog.com/posthog-cli/install.sh";
 const INSTALL_PS1_URL: &str = "https://releases.posthog.com/posthog-cli/install.ps1";
@@ -15,8 +19,13 @@ const INSTALL_PS1_URL: &str = "https://releases.posthog.com/posthog-cli/install.
 /// update, so those print the command that manager expects instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallMethod {
-    /// Installed by install.sh or install.ps1, which leaves an install receipt.
+    /// Installed by install.sh, which leaves an install receipt. Ours to
+    /// replace in place.
     Script,
+    /// Installed by install.ps1. Also ours by ownership, but Windows will not
+    /// let the installer overwrite the executable that is running it, so the
+    /// user has to run the installer themselves.
+    ScriptWindows,
     Homebrew,
     /// Anything under a node_modules: a global install, a project dependency,
     /// one pulled in by a plugin or SDK, or an npx cache. npm owns the file in
@@ -40,6 +49,13 @@ impl InstallMethod {
     pub fn guidance(&self) -> Option<Guidance> {
         match self {
             InstallMethod::Script => None,
+            // install.ps1 places binaries with `Copy-Item` straight over the
+            // destination, and Windows refuses that while the file is mapped
+            // into a running process. Running it from a shell works, because
+            // posthog-cli is not running then.
+            InstallMethod::ScriptWindows => Some(Guidance::Command(
+                "irm https://releases.posthog.com/posthog-cli/install.ps1 | iex".into(),
+            )),
             InstallMethod::Homebrew => Some(Guidance::Command("brew upgrade posthog-cli".into())),
             InstallMethod::Cargo => Some(Guidance::Command(
                 "cargo install posthog-cli --force".into(),
@@ -73,13 +89,18 @@ fn receipt_install_prefix() -> Option<PathBuf> {
 /// Where the install receipt lives, following the same search order the
 /// generated installer writes it in.
 fn receipt_path() -> Option<PathBuf> {
-    let home = if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
-    } else {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-    }?;
+    // Both generated installers try XDG_CONFIG_HOME first. install.ps1 falls
+    // back to LOCALAPPDATA, install.sh to ~/.config. Checking only LOCALAPPDATA
+    // on Windows would miss a script install made with XDG_CONFIG_HOME set.
+    let home = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            if cfg!(windows) {
+                std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+            } else {
+                dirs::home_dir().map(|h| h.join(".config"))
+            }
+        })?;
     Some(home.join("posthog-cli").join("posthog-cli-receipt.json"))
 }
 
@@ -138,7 +159,11 @@ fn classify_path(resolved: &Path, owned_by_script: bool) -> InstallMethod {
         return InstallMethod::Cargo;
     }
     if owned_by_script {
-        return InstallMethod::Script;
+        return if cfg!(windows) {
+            InstallMethod::ScriptWindows
+        } else {
+            InstallMethod::Script
+        };
     }
     InstallMethod::Unknown
 }
@@ -161,11 +186,7 @@ fn latest_version() -> Result<String> {
 
 fn run_installer(prefix: &Path) -> Result<()> {
     let body = reqwest::blocking::Client::new()
-        .get(if cfg!(windows) {
-            INSTALL_PS1_URL
-        } else {
-            INSTALL_SH_URL
-        })
+        .get(INSTALL_SH_URL)
         .send()
         .context("Failed to download the installer")?
         .error_for_status()
@@ -174,26 +195,14 @@ fn run_installer(prefix: &Path) -> Result<()> {
         .context("The installer could not be read")?;
 
     let dir = tempfile::tempdir().context("Failed to create a temporary directory")?;
-    let script = dir.path().join(if cfg!(windows) {
-        "install.ps1"
-    } else {
-        "install.sh"
-    });
+    let script = dir.path().join("install.sh");
     std::fs::write(&script, body).context("Failed to write the installer")?;
 
     // Without this the installer writes to its own default, so an install in a
     // custom directory would be left untouched while a second copy appeared in
     // ~/.posthog and the command reported success.
-    let mut command = if cfg!(windows) {
-        let mut c = std::process::Command::new("powershell");
-        c.args(["-ExecutionPolicy", "Bypass", "-File"]).arg(&script);
-        c
-    } else {
-        let mut c = std::process::Command::new("sh");
-        c.arg(&script);
-        c
-    };
-    let status = command
+    let status = std::process::Command::new("sh")
+        .arg(&script)
         .env("POSTHOG_CLI_INSTALL_DIR", prefix)
         .status()
         .context("Failed to run the installer")?;
@@ -211,11 +220,7 @@ fn run_installer(prefix: &Path) -> Result<()> {
 /// Bounded deliberately: one exact filename, only inside the prefix the receipt
 /// says we own, and a failure to remove is not worth failing the update over.
 fn remove_stale_standalone_updater(prefix: &Path) {
-    let name = if cfg!(windows) {
-        "posthog-cli-update.exe"
-    } else {
-        "posthog-cli-update"
-    };
+    let name = "posthog-cli-update";
     let path = prefix.join(name);
     if path.is_file() && std::fs::remove_file(&path).is_ok() {
         safe_println!("Removed the old {name}, which no longer works.");
@@ -330,6 +335,9 @@ mod tests {
     fn only_a_script_install_updates_itself() {
         assert!(InstallMethod::Script.guidance().is_none());
         for method in [
+            // Owned by us, but Windows cannot replace a running executable, so
+            // it still has to hand the user a command.
+            InstallMethod::ScriptWindows,
             InstallMethod::Homebrew,
             InstallMethod::Npm(PathBuf::from("/w/app/node_modules/x")),
             InstallMethod::Cargo,
