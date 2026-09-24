@@ -36,7 +36,8 @@
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the existing doc under `docs/` **in the same PR** — a stale doc is part of the breakage. **Never add a new doc unless a person asks**; PR context goes in the PR description.
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update a relevant existing doc under `docs/` **in the same PR**. If none exists, make no docs change.
+- A new `docs/**` file requires a person to request that specific document in the current conversation. Existing related docs, PR checklists, and general docs requirements do not authorize one. Put PR-specific context in the PR description.
 
 ### Commit types
 
@@ -103,7 +104,7 @@ Never run `gh pr merge` or click the GitHub merge button — both are blocked by
 
 **Agents must not enqueue, merge, re-enqueue, or otherwise cause a PR to land without explicit user approval in the current conversation for the identified PR or stack.**
 Do not infer that approval from requests to prepare a PR, move it toward merge, make it ready, monitor it, or resolve its blockers.
-Agents may inspect status, fix code and CI, apply the `stamphog` label when a required approval is missing, and report that a PR is ready — then wait for a direct instruction.
+Agents may inspect status, fix code and CI, request a stamphog review when a required approval is missing (MCP first, label fallback, see `/merging-prs`), and report that a PR is ready — then wait for a direct instruction.
 
 Once approved, follow `/merging-prs` for the enqueue, watch and failure loop. It also covers why the PR's own checks never show queue progress.
 
@@ -136,6 +137,8 @@ Examples:
 - CI uploads test results to Trunk Flaky Tests; the `trunk` MCP server in `.mcp.json` queries per-test flakiness on a PR or `master` (authenticate via `/mcp`, or a `TRUNK_API_TOKEN` bearer header when headless) — see `/debugging-ci-failures` and `/fixing-flaky-tests`
 - **A workflow edit reaches every open PR before those branches rebase.** It runs against the PR merged with master, but a companion change — a new dependency, file, or config — only arrives when the branch rebases. A workflow that starts requiring something unrebased branches lack fails every in-flight PR before its tests run. Make the new behavior degrade gracefully, or gate it. This has broken CI repeatedly.
 - Mechanical workflow rules (`timeout-minutes`, concurrency, dispatch budget, path filters, gate hygiene) are enforced by `hogli lint:workflows` and actionlint, which are the source of truth. `/authoring-ci-workflows` explains the reasoning behind each.
+- **Agents must classify every PR for native-JSON event-table coverage before opening it.** Add `test-new-events-schema` when a diff changes event ingestion or cleaning, event or property reads, generated SQL over events, or schema-specific snapshots. Add the label while the PR is a draft so `ready_for_review` starts the run. If the PR must open ready, label it immediately and push another commit because label events do not start Backend CI. Leave unrelated PRs unlabeled because the label doubles the backend test matrices.
+- **A pull request never publishes a package or release.** `[lint: github-actions-publish-on-pull-request]` A published version is public forever, and a pull request run executes code its author controls. Publish only from a `push` to `master`, a release tag, or a `workflow_dispatch` on `master`. A pull request run only builds and validates, for example with `--dry-run`. The semgrep rule cannot see a publisher inside a reusable workflow, so gate that job in the called workflow too. Never run a publish command by hand from a pull request branch. [`build-hogql-parser-npm.yml`](.github/workflows/build-hogql-parser-npm.yml) is the reference shape.
 
 ## Security
 

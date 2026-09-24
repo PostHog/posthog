@@ -1568,7 +1568,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         )
         response = search_observations(
             self.team,
-            cast(User, request.user),
             self.user_access_control,
             scanner_ids,
             query_vector,

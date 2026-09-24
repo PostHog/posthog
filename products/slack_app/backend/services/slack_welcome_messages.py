@@ -18,8 +18,8 @@ from typing import Any
 
 from django.conf import settings
 
-from posthog.helpers.slack_subscription_explore import BOT_SETUP_DOCS_URL
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.formatting import channel_id_from_target
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled
@@ -27,9 +27,9 @@ from products.slack_app.backend.inbox_channel import (
     INBOX_CHANNEL_REQUIRED_SCOPES,
     _channel_exists,
     _get_team_channel,
-    channel_id_from_target,
     channel_name_from_target,
 )
+from products.slack_app.backend.services.followup_invite import BOT_SETUP_DOCS_URL
 from products.slack_app.backend.services.slack_messages import app_home_url, context_block, section_block
 
 # Block Kit action ids for the onboarding DM, kept in sync with the interactivity router.

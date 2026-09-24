@@ -197,7 +197,8 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        self.enterContext(patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False))
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -995,6 +996,39 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_asyncio_run.assert_not_called()
         mock_proxy.assert_not_called()
 
+    @parameterized.expand(
+        [("local", "eu.posthog.com", True, "handled_locally"), ("remote", "us.posthog.com", False, "proxied")]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    @patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=True)
+    def test_report_reply_routes_to_owning_region(self, _name, host, local, expected, probe, proxy, start):
+        from products.signals.backend.models import SignalReport, SignalReportSlackThread
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        if local:
+            report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary")
+            SignalReportSlackThread.objects.for_team(self.team.id).create(
+                team=self.team,
+                report=report,
+                integration=self.posthog_code_integration,
+                slack_workspace_id="T12345",
+                channel="C001",
+                thread_ts="1234.1",
+            )
+        event = {**self.event, "thread_ts": "1234.1"}
+        result = route_posthog_code_event_to_relevant_region(
+            self.factory.post("/slack/event-callback/", HTTP_HOST=host), event, "T12345"
+        )
+        assert result == expected
+        assert start.call_count == int(local)
+        assert proxy.call_count == int(not local)
+        if local:
+            probe.assert_not_called()
+        else:
+            assert probe.call_args.kwargs["thread_ts"] == "1234.1"
+
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -1263,7 +1297,7 @@ class TestChannelApprovalGate(TestCase):
     def setUp(self):
         from django.utils import timezone
 
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1418,7 +1452,7 @@ class TestChannelApprovalGate(TestCase):
 
 class TestAssistantEvents(TestCase):
     def setUp(self):
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1537,9 +1571,10 @@ class TestAssistantEvents(TestCase):
 
 class TestQueueWorkflowDispatch(TestCase):
     def setUp(self):
+        self.enterContext(patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False))
         from django.utils import timezone
 
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1606,6 +1641,31 @@ class TestQueueWorkflowDispatch(TestCase):
         # Dispatch adds no reaction — the queue workflow reacts only on
         # messages that actually wait behind another one.
         mock_slack.return_value.client.reactions_add.assert_not_called()
+
+
+class TestUntaggedFollowupPrompt(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("linked", {"app_id": "A123"}, "<slack://app?team=T12345&id=A123&tab=home|PostHog app Home tab>"),
+            ("no_app_id", {}, "PostHog app Home tab"),
+        ]
+    )
+    def test_prompt_shows_where_to_change_the_setting(self, _name, config, expected_label):
+        from products.slack_app.backend.api import _post_untagged_followup_prompt
+
+        slack = MagicMock()
+        integration = MagicMock(id=1, integration_id="T12345", config=config)
+        event = {"channel": "C001", "user": "U123", "thread_ts": "1234.5678"}
+
+        assert _post_untagged_followup_prompt(slack, integration, event, is_ext_shared_channel=False)
+
+        blocks = slack.client.chat_postEphemeral.call_args.kwargs["blocks"]
+        assert blocks[-1] == {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {expected_label} you can set what happens in threads you start."}
+            ],
+        }
 
 
 class TestPostSlackUserEphemeral(SimpleTestCase):
