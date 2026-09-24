@@ -126,11 +126,12 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # malformed regexes, values that don't cast to the property's type - fail deterministically
     # on every request, so they're the caller's input, not a server fault: surface them as a 400
     # instead of an opaque 500. HogQL writes its messages for a person to read, so those are
-    # echoed. ClickHouse does not, so _caller_facing_ch_message decides what a ClickHouse failure
-    # may say. Only deliberately-exposed error types are converted across query build and execution -
-    # plus ObjectDoesNotExist from cohort lookups, PropertyValidationError from Property
-    # construction during query build (its message already names the offending property), and the
-    # ClickHouse cannot-parse-value codes above.
+    # echoed. ClickHouse writes its messages for the engine, so none of them reaches the caller:
+    # an exposed error says only what _caller_facing_ch_message allows, and a cannot-parse-value
+    # code says the actionable line. Only deliberately-exposed error types are converted across
+    # query build and execution - plus ObjectDoesNotExist from cohort lookups and
+    # PropertyValidationError from Property construction during query build, whose message
+    # already names the offending property.
     # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
     # during build/execution still surfaces as a server fault, as does any other
@@ -149,11 +150,7 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     except InternalCHQueryError as e:
         if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
-        # Unlike ExposedCHQueryError, InternalCHQueryError's str() keeps the raw server message.
-        # Rewrap so ExposedCHQueryError.__str__ strips the DB::Exception framing and any stack
-        # trace tail before the message is echoed back to the caller.
-        sanitized = str(ExposedCHQueryError(e.message, code=e.code, code_name=e.code_name))
-        raise ValidationError({"filters": sanitized or UNEVALUABLE_FILTERS_MESSAGE}) from e
+        raise ValidationError({"filters": UNEVALUABLE_FILTERS_MESSAGE}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:

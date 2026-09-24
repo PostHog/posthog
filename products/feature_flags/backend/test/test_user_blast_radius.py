@@ -27,16 +27,16 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
     def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(self, _name, code):
         # A numeric operator against a null/non-numeric filter value fails the Float64 cast at
         # execution; these codes wrap to InternalCHQueryError (not Exposed), so they used to 500.
-        # The 400 body must carry only the useful message: the DB::Exception framing and any
-        # server stack trace tail are stripped, matching what ExposedCHQueryError exposes.
+        # The 400 is what the caller needs, but the ClickHouse message is not: it names a column
+        # type and a Python repr, so the body must carry the actionable line instead.
         raw = "DB::Exception: Cannot parse NaN: converting 'None' to Float64. Stack trace:\n0. DB::Exception::Exception"
         err = wrap_clickhouse_query_error(ServerException(raw, code=code))
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
         message = str(ctx.exception)
-        self.assertIn("Cannot parse NaN", message)
-        self.assertNotIn("Stack trace", message)
-        self.assertNotIn("DB::Exception", message)
+        self.assertNotIn("Cannot parse NaN", message)
+        self.assertNotIn("Float64", message)
+        self.assertIn("Check the property values", message)
 
     def test_other_internal_clickhouse_errors_stay_server_faults(self):
         # Only the deterministic cannot-parse-value codes are the caller's input; anything else
