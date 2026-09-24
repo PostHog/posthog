@@ -8,6 +8,108 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `object` - object
+ * * `parent_object` - parent_object
+ * * `resource` - resource
+ * * `parent_resource` - parent_resource
+ * * `system_default` - system_default
+ * * `org_admin` - org_admin
+ * * `creator` - creator
+ * * `org_membership` - org_membership
+ */
+export type ResolvedAccessSourceEnumApi = (typeof ResolvedAccessSourceEnumApi)[keyof typeof ResolvedAccessSourceEnumApi]
+
+export const ResolvedAccessSourceEnumApi = {
+    Object: 'object',
+    ParentObject: 'parent_object',
+    Resource: 'resource',
+    ParentResource: 'parent_resource',
+    SystemDefault: 'system_default',
+    OrgAdmin: 'org_admin',
+    Creator: 'creator',
+    OrgMembership: 'org_membership',
+} as const
+
+/**
+ * * `member` - member
+ * * `role` - role
+ * * `default` - default
+ */
+export type ResolvedAccessSourceSubjectEnumApi =
+    (typeof ResolvedAccessSourceSubjectEnumApi)[keyof typeof ResolvedAccessSourceSubjectEnumApi]
+
+export const ResolvedAccessSourceSubjectEnumApi = {
+    Member: 'member',
+    Role: 'role',
+    Default: 'default',
+} as const
+
+/**
+ * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+ */
+export interface ProjectAccessSourceApi {
+    /** The access level that applies. */
+    access_level: string
+    /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+     *
+     * * `object` - object
+     * * `parent_object` - parent_object
+     * * `resource` - resource
+     * * `parent_resource` - parent_resource
+     * * `system_default` - system_default
+     * * `org_admin` - org_admin
+     * * `creator` - creator
+     * * `org_membership` - org_membership */
+    source: ResolvedAccessSourceEnumApi
+    /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+     *
+     * * `member` - member
+     * * `role` - role
+     * * `default` - default */
+    source_subject: ResolvedAccessSourceSubjectEnumApi | null
+    /** The resource the deciding rule belongs to. */
+    source_resource: string
+    /**
+     * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+     * @nullable
+     */
+    source_resource_id: string | null
+    /**
+     * The name of the role or member whose rule decided. Null when the default or a bypass decided.
+     * @nullable
+     */
+    subject_name: string | null
+}
+
+export interface MemberProjectAccessEntryApi {
+    /** The project's id. */
+    team_id: number
+    /** The project's name. */
+    team_name: string
+    /** The member's enforced access to the project: none, member or admin. */
+    access_level: string
+    /** The rule that supplies the level. Read `source` and `source_subject` to tell an organization admin's bypass from a member rule, a role rule or the project default. */
+    resolved: ProjectAccessSourceApi | null
+    /**
+     * The id of the role or organization membership whose rule decided. Null when the default or a bypass decided.
+     * @nullable
+     */
+    subject_id: string | null
+}
+
+export interface MemberProjectAccessApi {
+    /** The organization membership id. */
+    organization_membership_id: string
+    /** One entry per project the caller can access, including projects the member cannot. */
+    projects: MemberProjectAccessEntryApi[]
+}
+
+export interface MemberProjectAccessResponseApi {
+    /** One entry per visible organization member. */
+    results: MemberProjectAccessApi[]
+}
+
+/**
  * A stored rule on one object, as configured for a subject.
  */
 export interface AccessControlObjectRuleApi {
@@ -117,43 +219,6 @@ export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
-} as const
-
-/**
- * * `object` - object
- * * `parent_object` - parent_object
- * * `resource` - resource
- * * `parent_resource` - parent_resource
- * * `system_default` - system_default
- * * `org_admin` - org_admin
- * * `creator` - creator
- * * `org_membership` - org_membership
- */
-export type ResolvedAccessSourceEnumApi = (typeof ResolvedAccessSourceEnumApi)[keyof typeof ResolvedAccessSourceEnumApi]
-
-export const ResolvedAccessSourceEnumApi = {
-    Object: 'object',
-    ParentObject: 'parent_object',
-    Resource: 'resource',
-    ParentResource: 'parent_resource',
-    SystemDefault: 'system_default',
-    OrgAdmin: 'org_admin',
-    Creator: 'creator',
-    OrgMembership: 'org_membership',
-} as const
-
-/**
- * * `member` - member
- * * `role` - role
- * * `default` - default
- */
-export type ResolvedAccessSourceSubjectEnumApi =
-    (typeof ResolvedAccessSourceSubjectEnumApi)[keyof typeof ResolvedAccessSourceSubjectEnumApi]
-
-export const ResolvedAccessSourceSubjectEnumApi = {
-    Member: 'member',
-    Role: 'role',
-    Default: 'default',
 } as const
 
 /**
@@ -356,6 +421,13 @@ export interface PropertyAccessControlUpdateApi {
      * @nullable
      */
     role?: string | null
+}
+
+export type MembersProjectAccessRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string
 }
 
 export type OrganizationsProjectsAccessControlMemberObjectsRetrieveParams = {
