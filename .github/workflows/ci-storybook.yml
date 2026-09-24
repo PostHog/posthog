@@ -715,17 +715,18 @@ jobs:
                   fi
                   node "$VR_CLI" run upload "$@"
 
-            # Without this step a fork PR's gate reads the skipped Visual Review jobs as a pass,
-            # and the merge queue is the first run to compare its screenshots. verify compares
-            # exact pixel hashes with no API call. It does not know the tolerated alternate hashes
-            # or the quarantine that Visual Review applies, so a flaky story can fail a fork PR
-            # that changes nothing visible. --partial because a shard renders only part of the
-            # baseline, so a baseline missing from the shard is not a removal.
+            # Fork PRs get no Visual Review run, so this lists snapshots that differ from the
+            # baseline for a reviewer. verify compares exact pixel hashes with no API call.
+            # A mismatch only warns: Visual Review absorbs sub-threshold diffs as tolerated
+            # hashes and never writes them back to snapshots.yml, so many exact hashes drift
+            # from what CI renders and an exact match would fail every fork PR. The merge queue
+            # runs Visual Review and stays the blocking check. --partial because a shard renders
+            # only part of the baseline, so a baseline missing from the shard is not a removal.
             # The PR controls frontend/snapshots.yml and verify cannot check the HMAC offline, so
             # this catches honest drift, not a forged baseline. Visual Review drops entries with a
             # bad signature, so the merge queue still catches a forged one.
-            # !cancelled() keeps the check after a test-runner failure. A failed CLI build
-            # fails this step too, so a fork PR never passes unverified.
+            # !cancelled() keeps the check after a test-runner failure. A failed CLI build or
+            # any other verify error still fails the step.
             - name: Verify snapshots against the baseline offline
               if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
               shell: bash
@@ -741,14 +742,15 @@ jobs:
                       echo "### Offline snapshot check (${{ matrix.browser }} ${{ matrix.shard }}/${{ matrix.shard_count }})"
                       echo
                       echo "Fork PRs get no Visual Review run, so this shard compares its screenshots with \`frontend/snapshots.yml\` offline."
-                      echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so a flaky story can also fail it."
+                      echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so it lists many snapshots with no visible change. A difference is a warning. The merge queue runs Visual Review and blocks a real change."
                       echo
                       echo '```'
                       cat /tmp/vr-verify.log
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
                   if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
-                      echo "::error title=Snapshots differ from the baseline::This shard's screenshots do not match frontend/snapshots.yml. Fork PRs get no Visual Review run, so this offline fallback accepts only an exact pixel match, without the tolerated hashes or the quarantine of Visual Review. A maintainer must review the change and update the baseline before this PR can merge. The job log lists the snapshots that differ."
+                      echo "::warning title=Snapshots differ from the baseline::Some screenshots in this shard do not match frontend/snapshots.yml exactly. Most of these are pixel noise that Visual Review tolerates. The merge queue runs Visual Review and blocks a real change. The job log lists the snapshots that differ."
+                      exit 0
                   elif [ "$status" -ne 0 ]; then
                       echo "::error title=Offline snapshot check failed::The offline snapshot check could not compare this shard's screenshots. The job log shows the error."
                   fi
