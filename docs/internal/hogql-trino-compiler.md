@@ -82,7 +82,8 @@ The connection uses HTTPS with certificate verification and a 60-second HTTP tim
 Its session bypasses environment proxies only for verified hosted Trino domains on port 443, using the same host check as direct Trino connections.
 The session checks and renews the same grant before sending POST, polling GET, or cancellation DELETE requests when less than two minutes remain.
 Mint and renewal calls have a ten-second timeout.
-HTTP sends on that session are serialized so polling and cancellation share one renewal decision.
+Credential renewal is serialized so polling and cancellation share one renewal decision.
+HTTP sends run outside the renewal lock so cancellation can proceed while a poll is blocked.
 Renewal uses `rotate_secret=false` on the existing refresh endpoint and retains both the grant ID and secret.
 The gateway binds query ownership to the full credential, so rotating its secret during an active query would break polling and cancellation.
 Existing Duckgres refresh calls retain their default secret-rotation behavior.

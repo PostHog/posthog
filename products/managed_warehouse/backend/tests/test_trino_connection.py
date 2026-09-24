@@ -1,6 +1,8 @@
 import os
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Event
 
 import pytest
 from unittest import mock
@@ -243,7 +245,8 @@ def test_service_secret_is_never_sent_to_a_redirect_or_foreign_poll_target(respo
     assert sent[0].url == "https://tenant.dw.us.postwh.com:443/v1/statement"
 
 
-def test_a_prepared_request_renews_expiry_at_send_time() -> None:
+@pytest.mark.parametrize("verify", [True, "example-ca.pem"])
+def test_a_prepared_request_renews_expiry_at_send_time(verify: bool | str) -> None:
     from products.managed_warehouse.backend.trino_connection import _TrinoServiceSession
 
     minted = _mint_response()
@@ -253,22 +256,70 @@ def test_a_prepared_request_renews_expiry_at_send_time() -> None:
     refreshed.data["secret_rotated"] = False
     refreshed.data["expires_at"] = (issued_at + timedelta(minutes=29)).isoformat()
     with (
+        mock.patch.dict(os.environ, {"HTTPS_PROXY": "http://proxy.example.com:4750", "NO_PROXY": ""}, clear=True),
         mock.patch(
             "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
         ) as cp,
         mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
-        mock.patch("requests.adapters.HTTPAdapter.send", side_effect=lambda request, **kwargs: _http_response(request)),
+        mock.patch(
+            "requests.adapters.HTTPAdapter.send", side_effect=lambda request, **kwargs: _http_response(request)
+        ) as send,
     ):
         config = resolve_managed_warehouse_trino_connection("org-1")
         with _TrinoServiceSession("org-1", config) as session:
+            session.verify = verify
+            session.cert = ("client.crt", "client.key")
+            session.stream = True
             prepared = session.prepare_request(
                 requests.Request("GET", "https://tenant.dw.us.postwh.com/v1/statement/query-1")
             )
             now.return_value = issued_at + timedelta(minutes=14)
             session.send(prepared)
             session.send(prepared)
+    assert send.call_args.kwargs["verify"] == verify
+    assert send.call_args.kwargs["cert"] == ("client.crt", "client.key")
+    assert send.call_args.kwargs["stream"] is True
+    assert send.call_args.kwargs["proxies"]["https"] == "http://proxy.example.com:4750"
     assert cp.call_count == 2
     assert (
         prepared.headers["Authorization"]
         == "Basic " + base64.b64encode(f"{CREDENTIAL_ID}:example-secret".encode()).decode()
     )
+
+
+def test_cancellation_does_not_wait_for_a_blocked_poll() -> None:
+    from products.managed_warehouse.backend.trino_connection import _TrinoServiceSession
+
+    poll_started, release_poll = Event(), Event()
+    minted, refreshed = _mint_response(), _mint_response()
+    issued_at = datetime.now(UTC)
+    refreshed.data.pop("credential_secret")
+    refreshed.data["secret_rotated"] = False
+    refreshed.data["expires_at"] = (issued_at + timedelta(minutes=29)).isoformat()
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        if request.method == "GET":
+            poll_started.set()
+            assert release_poll.wait(10)
+        return _http_response(request)
+
+    with (
+        mock.patch(
+            "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
+        ) as cp,
+        mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
+        mock.patch("requests.adapters.HTTPAdapter.send", side_effect=send),
+    ):
+        config = resolve_managed_warehouse_trino_connection("org-1")
+        with _TrinoServiceSession("org-1", config) as session, ThreadPoolExecutor(max_workers=2) as executor:
+            now.return_value = issued_at + timedelta(minutes=14)
+            poll = executor.submit(session.get, "https://tenant.dw.us.postwh.com/v1/statement/query-1")
+            try:
+                assert poll_started.wait(5)
+                cancel = executor.submit(session.delete, "https://tenant.dw.us.postwh.com/v1/statement/query-1")
+                assert cancel.result(timeout=5).status_code == 200
+                assert not poll.done()
+            finally:
+                release_poll.set()
+            assert poll.result(timeout=5).status_code == 200
+    assert cp.call_count == 2

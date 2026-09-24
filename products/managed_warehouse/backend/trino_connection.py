@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 import requests
 from requests.auth import HTTPBasicAuth
+from requests.utils import resolve_proxies
 
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
@@ -96,7 +97,7 @@ class _TrinoServiceSession(requests.Session):
     ) -> requests.Response:
         if kwargs:
             raise TypeError("Unsupported Trino HTTP transport options")
-        # Polling and cancellation share one grant; serialize renewal with their HTTP sends.
+        # Serialize renewal so polling and cancellation share one grant expiry.
         with self._lock:
             connection = self._connection
             destination = urlsplit(request.url or "")
@@ -134,20 +135,20 @@ class _TrinoServiceSession(requests.Session):
                         "Trino service credential target changed during the query"
                     )
                 connection = self._connection = refreshed
-            HTTPBasicAuth(connection.username, connection.password)(request)
-            response = super().send(
-                request,
-                stream=stream,
-                verify=verify,
-                proxies=proxies,
-                cert=cert,
-                timeout=timeout,
-                allow_redirects=False,
-            )
-            if 300 <= response.status_code < 400:
-                response.close()
-                raise ManagedWarehouseTrinoConnectionUnavailable("Trino redirected a service-authenticated request")
-            return response
+        HTTPBasicAuth(connection.username, connection.password)(request)
+        response = super().send(
+            request,
+            stream=self.stream if stream is None else stream,
+            verify=self.verify if verify is None else verify,
+            proxies=resolve_proxies(request, self.proxies, self.trust_env) if proxies is None else proxies,
+            cert=self.cert if cert is None else cert,
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        if 300 <= response.status_code < 400:
+            response.close()
+            raise ManagedWarehouseTrinoConnectionUnavailable("Trino redirected a service-authenticated request")
+        return response
 
 
 @contextmanager
