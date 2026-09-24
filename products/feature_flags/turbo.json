@@ -1,0 +1,12 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        // No script backs this task. It exists so a product whose tests read tools.yaml can
+        // depend on it, and Turbo then marks that product's backend:test affected on a change.
+        "backend:mcp-surface": {
+            "inputs": ["mcp/tools.yaml"],
+            "outputs": [],
+            "cache": true
+        }
+    }
+}
