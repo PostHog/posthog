@@ -743,11 +743,11 @@ class TestShippedStructuredOutputSchemas:
             "mcp_tool": "execute-sql",
             "mcp_source": "self_driving",
             "mcp_category": "SQL",
-            "mcp_sessions_with_call": 111774,
-            "mcp_sessions_total": 225647,
-            "mcp_session_share_pct": 49.5,
-            "mcp_calls_per_session": 2.94,
-            "mcp_share_pct_prior_window": 45.1,
+            "mcp_sessions_with_call": 1200,
+            "mcp_sessions_total": 4000,
+            "mcp_session_share_pct": 30.0,
+            "mcp_calls_per_session": 1.5,
+            "mcp_share_pct_prior_window": 12.0,
         }
         _validate_records([StructuredOutputRecord(payload=rollup), StructuredOutputRecord(payload=share)], schema)
         # Closed on both branches: a stray field is a typo nobody would otherwise see, and a

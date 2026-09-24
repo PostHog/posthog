@@ -13,6 +13,7 @@ goes through the write-scoped config `create` endpoint.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from django.db import transaction
@@ -380,7 +381,7 @@ def reconcile_canonical_structured_output_schemas(team_id: int, canonical_names:
 
 
 def _backfill_unset_column(
-    team_id: int, values: dict[str, object], *, column: str, unset_filter: dict[str, object]
+    team_id: int, values: Mapping[str, object], *, column: str, unset_filter: Mapping[str, object]
 ) -> None:
     """Write a canonical default onto the rows of `values` whose `column` is still unset.
 

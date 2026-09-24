@@ -415,8 +415,9 @@ WITH per_session AS (
     SELECT
         coalesce(nullIf(nullIf(toString(properties.source), ''), 'None'), 'unknown') AS source_bucket,
         $session_id AS session,
+        any(distinct_id) AS user,
         coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
-        any(properties.$mcp_tool_category) AS category,
+        coalesce(nullIf(nullIf(toString(any(properties.$mcp_tool_category)), ''), 'None'), 'Uncategorized') AS category,
         timestamp >= now() - INTERVAL 7 DAY AS is_current,
         count() AS calls
     FROM events
@@ -439,6 +440,7 @@ SELECT
     t.tool AS tool,
     any(t.category) AS category,
     uniqIf(t.session, t.is_current) AS sessions_with_call,
+    uniqIf(t.user, t.is_current) AS users_with_call,
     any(d.sessions_total) AS sessions_total,
     round(uniqIf(t.session, t.is_current) * 100.0 / nullIf(any(d.sessions_total), 0), 1) AS session_share_pct,
     round(avgIf(t.calls, t.is_current), 2) AS calls_per_session,
@@ -464,6 +466,10 @@ Read it:
   chance, so a surface a team is only starting to use would look like a jump on every tool. A null
   prior share is no baseline, so the row is not a step-change candidate. `prior_sessions_total` is
   the prior denominator to cite as evidence.
+- `users_with_call` is the reach check. Twenty sessions from one `distinct_id` pass the session
+  floor and are still one developer, so the single-user disqualifier applies here as everywhere.
+  The category falls back to `Uncategorized` the same way query 9 does, because the record schema
+  requires a string and one null category would reject the whole batch.
 - Keep the source split. A tool called in most sessions of one surface and almost none of another
   localizes the cause to that surface's prompt.
 - `calls_per_session` separates "reached for once, everywhere" from "hammered" — the latter is

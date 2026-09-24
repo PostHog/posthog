@@ -101,7 +101,9 @@ The schema's presence is what switches the structured-output channel on, so a me
 It is a path rather than inline YAML because a JSON Schema is a document, and it must name a file in the skill bundle (`references/` or `scripts/`) so the schema is read once, under the same caps as every other bundled file, and rides the canonical content hash.
 The harness validates it at discovery with the same `validate_structured_output_schema` the config API uses, so a broken schema fails the sync once instead of failing every run.
 Like the display name, it is reconciled onto rows seeded earlier but only where the column is still null, so a team that edited its schema owns it from then on.
-That cuts both ways: the config column is what the record endpoint enforces, and nothing overwrites it, so editing a shipped schema updates each team's copy of the *file* but leaves every already-seeded config on the schema it was given.
+Because null is what the reconcile reads as "never seeded", the config API refuses to clear a shipped schema to null on a canonical scout and points at the two switches that do stick: the dry-run setting (`emit`) withholds the channel, and disabling the scout stops the runs.
+The reconcile runs on the coordinator's per-tick path for explicitly enrolled teams; a wildcard-enrolled team picks the schema up when its configs are next created or synced, the same as the display name.
+That cuts both ways: the config column is what the record endpoint enforces, and nothing overwrites it, so editing a shipped schema updates each team's copy of the _file_ but leaves every already-seeded config on the schema it was given.
 Changing a schema teams already run needs a migration, not a frontmatter edit.
 `signals-scout-mcp-tool-calls` is the one that ships with it.
 
