@@ -3,8 +3,9 @@
 import time
 import datetime as dt
 from collections import defaultdict
+from dataclasses import replace
 from itertools import batched
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -12,6 +13,7 @@ from django.db.models import Q
 import temporalio.activity
 from dateutil.rrule import rrulestr
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 
@@ -51,6 +53,8 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.ai_observability.backend.models.evaluation_configs import evaluation_supports_reports
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -604,9 +608,24 @@ async def prepare_report_context_activity(
     def prepare() -> PrepareReportContextOutput:
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-        report = EvaluationReport.objects.select_related("evaluation").get(id=inputs.report_id)
+        report = EvaluationReport.objects.select_related("evaluation").filter(id=inputs.report_id).first()
+        if report is None:
+            raise ApplicationError(
+                "This evaluation report no longer exists.", type="ReportNotFound", non_retryable=True
+            )
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
+        if not evaluation_supports_reports(evaluation.output_type, evaluation.target, evaluation.output_config):
+            if not inputs.manual:
+                report.last_attempted_at = now
+                report.set_next_delivery_date()
+                report.save(update_fields=["last_attempted_at", "next_delivery_date"])
+            # Activity failures remain readable by workflow workers from an older release.
+            raise ApplicationError(
+                "This evaluation no longer supports reports. For numeric evaluations, set a passing rule and generate the report again.",
+                type="ReportNotEligible",
+                non_retryable=True,
+            )
 
         period_end = now
 
@@ -654,6 +673,7 @@ async def prepare_report_context_activity(
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
             true_is_failure=bool(evaluation.output_config.get("true_is_failure")),
+            output_config=evaluation.output_config,
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
@@ -681,11 +701,22 @@ async def run_eval_report_agent_activity(
             from posthog.temporal.ai_observability.eval_reports.report_agent import run_eval_report_agent
 
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
+            numeric_output_configs = _load_numeric_output_configs(inputs.team_id)
+            agent_inputs = inputs
+            if inputs.output_type == "numeric" and not inputs.output_config:
+                # Older workflow payloads omit the rule snapshot.
+                output_config = numeric_output_configs.get(inputs.evaluation_id, {})
+                if not evaluation_supports_reports("numeric", evaluation_target, output_config):
+                    raise ApplicationError(
+                        "This evaluation no longer supports reports.", type="ReportNotEligible", non_retryable=True
+                    )
+                agent_inputs = replace(inputs, output_config=output_config)
             return (
                 run_eval_report_agent(
-                    inputs,
+                    agent_inputs,
                     evaluation_target=evaluation_target,
                     detector_evaluation_ids=_load_detector_evaluation_ids(inputs.team_id),
+                    numeric_output_configs=numeric_output_configs,
                 ),
                 evaluation_target,
             )
@@ -703,20 +734,27 @@ async def run_eval_report_agent_activity(
 
 
 def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
-    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
-        Evaluation,
-    )
+    from products.ai_observability.backend.models.evaluations import Evaluation
 
     return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
+
+
+def _load_numeric_output_configs(team_id: int) -> dict[str, dict[str, Any]]:
+    from products.ai_observability.backend.models.evaluations import Evaluation
+
+    return {
+        str(evaluation_id): config
+        for evaluation_id, config in Evaluation.objects.filter(team_id=team_id, output_type="numeric").values_list(
+            "id", "output_config"
+        )
+    }
 
 
 def _load_detector_evaluation_ids(team_id: int) -> list[str]:
     """The generation detail tool lists every evaluation on a generation, not just this report's,
     so it needs each one's polarity to label it. Read here rather than in the context activity,
     which would carry the whole team's list through two Temporal payloads to reach this one."""
-    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
-        Evaluation,
-    )
+    from products.ai_observability.backend.models.evaluations import Evaluation
 
     return [
         str(evaluation_id)
@@ -799,7 +837,7 @@ async def store_report_run_activity(
                     "$ai_report_previous_total_runs": parsed_metrics.previous_total_runs,
                 }
             )
-        if parsed_metrics is not None and parsed_metrics.output_type == "boolean":
+        if parsed_metrics is not None and parsed_metrics.output_type in ("boolean", "numeric"):
             # Preserve the original flat properties for existing boolean-report consumers.
             properties.update(
                 {

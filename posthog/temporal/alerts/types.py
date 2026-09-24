@@ -79,6 +79,9 @@ class RecordFailedEvaluationActivityInputs:
     error_message: str
     evaluation_fingerprint: str | None = None
     team_id: int | None = None
+    # Class name of the failure, so the activity can pick a reason written for the alert's
+    # owner. None on a workflow that started before this field existed.
+    error_type: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

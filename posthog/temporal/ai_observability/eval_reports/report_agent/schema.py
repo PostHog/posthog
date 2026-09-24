@@ -58,18 +58,18 @@ def calculate_result_rates(
 
 
 @overload
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[False] = False) -> float: ...
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[False] = False) -> float: ...
 
 
 @overload
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[True]) -> float | None: ...
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[True]) -> float | None: ...
 
 
 @overload
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool) -> float | None: ...
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: bool) -> float | None: ...
 
 
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool = False) -> float | None:
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: bool = False) -> float | None:
     pass_count = counts.get("pass", 0)
     applicable_count = pass_count + counts.get("fail", 0)
     if applicable_count == 0:
@@ -120,6 +120,15 @@ class Citation:
         )
 
 
+def citation_wrappers(cited_id: str) -> tuple[str, ...]:
+    """Every inline wrapper the delivery renderer turns into a citation link.
+
+    The renderer and the dead-identifier guard must agree on this list. A guard that
+    accepts fewer wrappers rejects prose the renderer would have linked correctly.
+    """
+    return (f"`` `{cited_id}` ``", f"`{cited_id}`", f"<{cited_id}>")
+
+
 @dataclass
 class ReportSection:
     """A titled markdown section of the narrative. Title is agent-chosen."""
@@ -138,7 +147,7 @@ class ReportSection:
         )
 
 
-@dataclass
+@dataclass(frozen=False)
 class EvalReportMetrics:
     """Structured metrics computed mechanically from ClickHouse.
 
@@ -148,6 +157,7 @@ class EvalReportMetrics:
     """
 
     output_type: str = "boolean"
+    output_config: dict = field(default_factory=dict)
     total_runs: int = 0
     result_counts: dict[str, int] = field(default_factory=dict)
     result_rates: dict[str, float] = field(default_factory=dict)
@@ -156,7 +166,7 @@ class EvalReportMetrics:
     previous_total_runs: int | None = None
     previous_result_counts: dict[str, int] | None = None
     previous_result_rates: dict[str, float] | None = None
-    pass_rate: float = field(init=False, default=0.0)
+    pass_rate: float | None = field(init=False, default=0.0)
     previous_pass_rate: float | None = None
 
     def __post_init__(self) -> None:
@@ -192,10 +202,10 @@ class EvalReportMetrics:
                 if outcome in definition.outcomes
             }
 
-        if self.output_type == "boolean":
-            self.pass_rate = calculate_boolean_pass_rate(self.result_counts)
+        if self.output_type in ("boolean", "numeric"):
+            self.pass_rate = calculate_pass_rate(self.result_counts, empty_as_none=self.output_type == "numeric")
             if self.previous_result_counts is not None:
-                self.previous_pass_rate = calculate_boolean_pass_rate(self.previous_result_counts, empty_as_none=True)
+                self.previous_pass_rate = calculate_pass_rate(self.previous_result_counts, empty_as_none=True)
         else:
             self.previous_pass_rate = None
 
@@ -211,13 +221,15 @@ class EvalReportMetrics:
             "previous_result_counts": self.previous_result_counts,
             "previous_result_rates": self.previous_result_rates,
         }
-        if self.output_type == "boolean":
+        if self.output_type in ("boolean", "numeric"):
             metrics.update(
                 {
                     "pass_rate": self.pass_rate,
                     "previous_pass_rate": self.previous_pass_rate,
                 }
             )
+        if self.output_type == "numeric":
+            metrics["output_config"] = self.output_config
         return metrics
 
     @staticmethod
@@ -233,6 +245,7 @@ class EvalReportMetrics:
 
         metrics = EvalReportMetrics(
             output_type=output_type,
+            output_config=dict(data.get("output_config") or {}),
             total_runs=data.get("total_runs", 0),
             result_counts=result_counts,
             result_rates=dict(data.get("result_rates") or {}),
@@ -247,9 +260,9 @@ class EvalReportMetrics:
             ),
             previous_pass_rate=data.get("previous_pass_rate"),
         )
-        if metrics.output_type == "boolean" and data.get("pass_rate") is not None:
+        if metrics.output_type in ("boolean", "numeric") and data.get("pass_rate") is not None:
             metrics.pass_rate = float(data["pass_rate"])
-        if metrics.output_type == "boolean" and data.get("previous_pass_rate") is not None:
+        if metrics.output_type in ("boolean", "numeric") and data.get("previous_pass_rate") is not None:
             metrics.previous_pass_rate = float(data["previous_pass_rate"])
         return metrics
 
@@ -258,6 +271,7 @@ _LEGACY_BOOLEAN_COUNT_FIELDS = frozenset({"pass_count", "fail_count", "na_count"
 
 
 _KNOWN_METRIC_FIELDS = {
+    "output_config",
     "output_type",
     "total_runs",
     "result_counts",

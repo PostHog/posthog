@@ -98,8 +98,8 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   from the Go ai-gateway (`POST /v1/tokens`) with the worker's `phs_` (`AI_GATEWAY_API_KEY`), pinned
   to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
   acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
-  the run (no shared-key fallback); the worker revokes the token once the sandbox is destroyed. Do
-  not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  the run (no shared-key fallback); the worker revokes the token once the reviewer returns,
+  without waiting for the sandbox teardown. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
   spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
@@ -182,17 +182,29 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
 
 ## Trust boundaries
 
-- The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
-  `manager` level on the `stamphog` resource, because they decide whether a pull request is reviewed
-  at all. Naming one of those fields on a create takes `manager` too. Connecting a repository
-  without them, and the digest toggle, stay at `editor`.
+- Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,
+  `trigger_label`) need the `manager` level on the `stamphog` resource, on an update or a create alike. Turning reviews
+  **on** (`enabled=True`, or `add_repository`) needs `editor`, so an editor can re-enable a repository
+  a manager paused; that is the requested self-serve direction. A supplied value counts even when it
+  matches the stored one, because the view's snapshot of the row is stale by the time the facade
+  saves. The digest toggle stays at `editor`. Service credentials are refused at both levels.
+- A sync records what the member's own GitHub token lists in the team's `StamphogInstallation`
+  snapshot and creates no repo config. `add_repository` binds only a repository in that snapshot,
+  taking the installation id and the connecting user from the record, never from the request.
+  Never list an installation's repositories with the installation token for this: an outside
+  collaborator on one repository can reach the installation, and that token shows every private
+  repository in it. The snapshot is a union across members' syncs, and only the removal and
+  uninstall webhooks shrink it. A `repositories_added` webhook never grows it: the webhook carries
+  no user, so nobody on the team proved access to that repository. It becomes addable when a member
+  syncs again.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
   and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
   fields were set by someone who never proved GitHub access, so a pre-selected label mode would
-  otherwise go live the moment a manager enables the row. Reinstall rebinds keep settings — those
+  otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
   one placeholder silence the whole team's digest.
@@ -232,8 +244,18 @@ changes both, and divergence here has produced real approve-when-should-wait fin
 Inputs `review_pr.py` fetches over the network reach the sandbox through the context JSON instead, and
 dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
 `author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
-tells the reviewer that every author owns the code they touched. `pr_provenance` needs no token and
-is computed in the sandbox from the checkout.
+tells the reviewer that every author owns the code they touched.
+
+The sandbox checkout is shallow and holds no PR history, so a hosted context always carries `merge_base_sha` (the engine diffs `merge_base..head`) and `commit_messages` (the provenance trailers).
+Without those keys (a manual `review_pr.py` run) the engine reads git history instead.
+The engine's git has no credential, so every object it reads must arrive in `_clone_pr` or `_prefetch_review_blobs`: an on-demand promisor fetch is anonymous and a private repository refuses it.
+Test clone changes with `GIT_NO_LAZY_FETCH=1`, because a public repository hides that failure.
+
+The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy.
+It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.
+Its fast refusal may only cover what the sandbox review would also refuse, because nothing re-reviews it.
+`pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
+Anything in doubt, and any error, falls through to the full review.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a

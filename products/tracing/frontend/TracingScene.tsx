@@ -22,6 +22,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
+import { TracingSqlEditor } from './components/TracingSqlEditor/TracingSqlEditor'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
 import { tracingEmptyState } from './emptyState/tracingEmptyState'
@@ -327,6 +328,7 @@ function TracingSceneContents(): JSX.Element {
                     </div>
                 </div>
             </div>
+            {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
             <TraceDrawer
                 isOpen={isTraceOpen}
                 traceId={selectedTraceId}

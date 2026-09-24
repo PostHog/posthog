@@ -504,6 +504,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_full_run(self) -> datetime | None:
+        """Parsed `last_full_run_at`, or None when it does not parse or has no zone.
+
+        Picking a zone for a naive stamp would invent freshness the schema may not have.
+        """
+        raw = self.last_full_run_at
+        if raw is None:
+            return None
+        try:
+            stamped = datetime.fromisoformat(raw)
+        except (TypeError, ValueError):
+            return None
+        return stamped if stamped.tzinfo is not None else None
+
+    @property
+    def last_run_at(self) -> datetime | None:
+        """When a sync last ran, whether or not it moved any rows.
+
+        A run that extracts nothing advances only `last_full_run_at`, because `last_synced_at` is
+        also the signals watermark. A fast return does the reverse, so neither stamp is enough alone.
+        """
+        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        return max(stamps) if stamps else None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)
@@ -1556,6 +1581,24 @@ def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime)
     schema.latest_error = fresh.latest_error
     schema.last_synced_at = fresh.last_synced_at
     return repainted
+
+
+def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
+    """Paint a schema Running at the start of a run, unless a CDC halt marker holds.
+
+    A halted schema absorbs every later status update, so Running painted over it would hide its
+    FAILED status and error until the marker clears. One conditional UPDATE: a marker written
+    under the row lock either commits first and blocks this, or commits after and repaints FAILED.
+    """
+    updated = (
+        ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)
+        .exclude(sync_type_config__has_key="cdc_broken")
+        .exclude(sync_type_config__has_key="cdc_extraction_paused")
+        .update(status=ExternalDataSchema.Status.RUNNING, updated_at=timezone.now())
+    )
+    if updated:
+        schema.status = ExternalDataSchema.Status.RUNNING
+    return bool(updated)
 
 
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:

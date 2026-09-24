@@ -19,10 +19,11 @@ def _load_generator() -> ModuleType:
 
 
 def _retarget(module: ModuleType, monkeypatch: pytest.MonkeyPatch, target: Path) -> None:
-    # REPO_ROOT moves with OUTPUT because the drift branch prints
-    # OUTPUT.relative_to(REPO_ROOT), which raises for a path outside the repo.
+    # REPO_ROOT moves with the outputs because the drift branch prints
+    # path.relative_to(REPO_ROOT), which raises for a path outside the repo.
     monkeypatch.setattr(module, "REPO_ROOT", target.parent)
     monkeypatch.setattr(module, "OUTPUT", target)
+    monkeypatch.setattr(module, "MCP_ALLOWLIST_OUTPUT", target.parent / "trace-property-allowlist.generated.ts")
 
 
 class TestTaxonomyDriftDetection:
@@ -39,7 +40,18 @@ class TestTaxonomyDriftDetection:
     def test_check_accepts_the_rendered_bytes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         module = _load_generator()
         target = tmp_path / "core-filter-definitions-by-group.json"
-        target.write_bytes(module.render().encode())
         _retarget(module, monkeypatch, target)
+        for path, contents in module.outputs():
+            path.write_bytes(contents.encode())
 
         assert module.check() == 0
+
+    def test_check_reports_drift_in_the_mcp_allowlist_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        module = _load_generator()
+        target = tmp_path / "core-filter-definitions-by-group.json"
+        _retarget(module, monkeypatch, target)
+        target.write_bytes(module.render().encode())
+
+        assert module.check() == 1

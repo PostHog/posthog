@@ -16,8 +16,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
-from products.access_control.backend.models.role import Role
-from products.cohorts.backend.models.cohort import Cohort
+from products.access_control.backend.facade.api import role_belongs_to_organization
+from products.cohorts.backend.facade.api import cohort_exists_for_team
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
@@ -246,12 +246,11 @@ def split_issue(
 
 def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
     issue = _get_issue(team_id, issue_id)
-    cohort = Cohort.objects.filter(team_id=team_id, id=cohort_id).first()
-    if cohort is None:
+    if not cohort_exists_for_team(team_id=team_id, cohort_id=cohort_id):
         raise CohortNotFoundError
     # Upsert cohort_id as a cohort might have been soft deleted.
     # nosemgrep: idor-lookup-without-team (cohort scoped to team before use)
-    ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort.id})
+    ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort_id})
 
 
 def assign_issue(
@@ -373,7 +372,7 @@ def _assign_one(
             if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
                 raise AssigneeValidationError("Assignee user does not belong to this organization.")
         elif assignee["type"] == "role":
-            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+            if not role_belongs_to_organization(role_id=assignee["id"], organization_id=organization.id):
                 raise AssigneeValidationError("Assignee role does not belong to this organization.")
 
         serialized_assignment_after = {

@@ -247,6 +247,17 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
     The body is read defensively for the same reason. A non-JSON error, from billing or from a
     proxy in front of it, must not turn a mapped refusal into a 500.
     """
+    from ee.api.billing import (  # noqa: PLC0415 - circular import
+        BILLING_GUIDANCE_ERRORS,
+        BillingQueryRejected,
+        BillingServiceError,
+    )
+
+    if res.status_code >= 500:
+        # A billing failure, including a response billing could not build. It is not the caller's
+        # to fix, so it never maps to a refusal that tells them to change the request.
+        logger.warning("billing_organization_error", upstream_status=res.status_code)
+        raise BillingServiceError()
     if res.status_code not in (400, 403, 404):
         return
     try:
@@ -262,8 +273,6 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
         if not map_not_found:
             return
         raise NotFound("Not found.")
-    from ee.api.billing import BILLING_GUIDANCE_ERRORS, BillingQueryRejected  # noqa: PLC0415 - circular import
-
     if code in BILLING_GUIDANCE_ERRORS:
         raise BILLING_GUIDANCE_ERRORS[code]()
     raise BillingQueryRejected()
@@ -826,6 +835,12 @@ class BillingManager:
     ) -> dict[str, Any]:
         path = f"products/{product_key}/" if product_key else "products/"
         return self._organization_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
+
+    def get_organization_products_summary(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        # Billing serves this as products/catalog/, the name it shipped with.
+        return self._organization_get(organization, grants, "products/catalog/")
 
     def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "usage/")

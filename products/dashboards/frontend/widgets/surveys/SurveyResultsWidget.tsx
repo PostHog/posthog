@@ -1,9 +1,10 @@
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
+import * as trenchcoatPng from '@posthog/brand/hoggies/png/trenchcoat'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { WavingHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -21,6 +22,8 @@ import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/Widge
 import type { DashboardWidgetComponentProps } from '../registry'
 import { SurveyPickerSelect } from './SurveyPickerSelect'
 import { patchSurveyResultsWidgetConfig } from './surveysWidgetConfigValidation'
+
+const HedgehogTrenchcoat = pngHoggie(trenchcoatPng)
 
 // Reuse the survey responses API types (SurveyResponseRowApi / SurveyResponseAnswerApi) rather than
 // redeclaring them. The widget payload is a strict subset: it drops question_index and the extra
@@ -106,7 +109,7 @@ function SurveyResultsWidgetMessage({
                     className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                     data-attr="survey-results-widget-message"
                 >
-                    <WavingHog className="size-24 shrink-0" />
+                    <HedgehogTrenchcoat className="size-24 shrink-0" />
                     <p className="m-0 text-base font-semibold text-primary">{title}</p>
                     <p className="m-0 text-sm text-muted">{message}</p>
                     {cta}

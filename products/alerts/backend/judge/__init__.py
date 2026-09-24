@@ -6,6 +6,8 @@ implementation is ``products.alerts.backend.judge.llm.LLMSeriesJudge``.
 
 from products.alerts.backend.judge.contract import (
     DEFAULT_CONFIDENCE_THRESHOLD,
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
     AnomalyKind,
@@ -20,6 +22,8 @@ from products.alerts.backend.judge.contract import (
 
 __all__ = [
     "DEFAULT_CONFIDENCE_THRESHOLD",
+    "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
+    "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
     "MAX_CONCURRENT_MODEL_CALLS",
     "MAX_PROMPT_POINTS",
     "AnomalyKind",

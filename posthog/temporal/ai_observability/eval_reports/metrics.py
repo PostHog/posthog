@@ -106,6 +106,15 @@ def increment_report_generated(outcome: str) -> None:
     ).add(1)
 
 
+def increment_dead_ids_unwrapped(count: int) -> None:
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    get_metric_meter().create_counter(
+        "llma_eval_reports_dead_ids_unwrapped",
+        "Dead identifiers unwrapped before delivery",
+    ).add(count)
+
+
 def increment_delivery(delivery_type: str, status: str) -> None:
     if not activity.in_activity() and not workflow.in_workflow():
         return
