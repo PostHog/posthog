@@ -261,10 +261,12 @@ export interface maxThreadLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean | undefined,
-        uiContext?: Partial<MaxUIContext> | undefined
+        uiContext?: Partial<MaxUIContext> | undefined,
+        skipQueue?: boolean | undefined
     ) => {
         addToThread: boolean
         prompt: string | null
+        skipQueue: boolean
         uiContext: Partial<MaxUIContext> | undefined
     } // maxLogic
     decrActiveStreamingThreads: () => {
@@ -1868,6 +1870,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (error: any) {
                 posthog.captureException(error)
                 actions.setQueuedMessages(values.queuedMessages)
+                if (error?.data?.error === 'not_running') {
+                    // The run ended while this message was in flight, so the server refused to
+                    // queue it. Send it as a new turn, bypassing the queue the stale local
+                    // `threadLoading` would otherwise route it back into.
+                    actions.askMax(content, true, undefined, true)
+                    return
+                }
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error('You can only queue two messages at a time.')
                     return
@@ -1963,7 +1972,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
+        askMax: async ({ prompt, addToThread = true, uiContext, skipQueue = false }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
@@ -2062,6 +2071,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             if (
                 values.queueingEnabled &&
+                !skipQueue &&
                 values.threadLoading &&
                 addToThread &&
                 typeof prompt === 'string' &&

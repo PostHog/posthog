@@ -2,6 +2,7 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from asgiref.sync import async_to_sync
 from rest_framework import status
 
 from posthog.models import Team
@@ -49,6 +50,18 @@ class TestConversationQueue(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.json()["error"], "queue_full")
+
+    def test_queue_enqueue_raises_conflict_when_the_run_already_ended(self):
+        store = ConversationQueueStore(str(self.conversation.id))
+        # The last drain of the run found the queue empty, so nothing is left to consume a
+        # message sent after it.
+        async_to_sync(store.pop_next_or_close_async)()
+
+        response = self.client.post(self.queue_url, {"content": "hello"})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "not_running")
+        self.assertEqual(store.list(), [])
 
     def test_queue_update_modifies_content(self):
         response = self.client.post(self.queue_url, {"content": "hello"})

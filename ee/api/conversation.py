@@ -63,7 +63,13 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
-from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
+from ee.hogai.queue import (
+    ConversationQueueMessage,
+    ConversationQueueStore,
+    QueueFullError,
+    QueueNotDrainableError,
+    build_queue_message,
+)
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
@@ -671,6 +677,16 @@ class ConversationViewSet(
                 {
                     "error": "queue_full",
                     "detail": "Only two messages can be queued at a time.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except QueueNotDrainableError:
+            # The run ended before this message arrived, so nothing would ever consume it.
+            # The client sends it as a new turn instead.
+            return Response(
+                {
+                    "error": "not_running",
+                    "detail": "The conversation is not generating, so the message was not queued.",
                 },
                 status=status.HTTP_409_CONFLICT,
             )

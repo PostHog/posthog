@@ -792,6 +792,24 @@ describe('maxThreadLogic', () => {
             )
         })
 
+        it('sends the message as a new turn when the run ended before it was queued', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            jest.spyOn(api.conversations.queue, 'enqueue').mockRejectedValue({
+                status: 409,
+                data: { error: 'not_running', detail: 'The conversation is not generating.' },
+            })
+            const streamSpy = mockStream()
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('Follow-up prompt')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSpy).toHaveBeenCalled()
+            expect(toastSpy).not.toHaveBeenCalled()
+        })
+
         it('shows an error toast when the queue is full', async () => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
             const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')

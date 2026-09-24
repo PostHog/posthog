@@ -200,6 +200,8 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAg
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
     queue_store = ConversationQueueStore(str(inputs.conversation_id))
+    # This run drains the queue when it ends, so follow-ups sent mid-turn are accepted again.
+    await queue_store.open_drain_async()
     should_stop_queue = False
 
     def has_pending_approvals(current_conversation: Conversation) -> bool:
@@ -242,10 +244,11 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAg
         conversation = await Conversation.objects.aget(id=inputs.conversation_id)
         if has_pending_approvals(conversation):
             await queue_store.clear_async()
+            await queue_store.close_drain_async()
             return None
 
         while True:
-            queued_message = await queue_store.pop_next_async()
+            queued_message = await queue_store.pop_next_or_close_async()
             if not queued_message:
                 return None
 
@@ -329,6 +332,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAg
 
     if should_stop_queue:
         await queue_store.clear_async()
+        await queue_store.close_drain_async()
         await redis_stream.mark_complete()
         return result
 

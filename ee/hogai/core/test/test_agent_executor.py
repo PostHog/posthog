@@ -291,6 +291,7 @@ class TestAgentExecutor(BaseTest):
             # Setup queue store mock
             mock_queue_store = Mock()
             mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.close_drain_async = AsyncMock()
             mock_queue_store_cls.return_value = mock_queue_store
 
             # Call the method - should not raise exception
@@ -347,6 +348,7 @@ class TestAgentExecutor(BaseTest):
 
             mock_queue_store = Mock()
             mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.close_drain_async = AsyncMock()
             mock_queue_store_cls.return_value = mock_queue_store
 
             # Should NOT raise — cancellation continues despite main workflow failure
@@ -388,6 +390,7 @@ class TestAgentExecutor(BaseTest):
 
             mock_queue_store = Mock()
             mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.close_drain_async = AsyncMock()
             mock_queue_store_cls.return_value = mock_queue_store
 
             # Should raise exception from delete_stream
@@ -614,6 +617,7 @@ class TestAgentExecutor(BaseTest):
 
             mock_queue_store = Mock()
             mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.close_drain_async = AsyncMock()
             mock_queue_store_cls.return_value = mock_queue_store
 
             await self.manager.cancel_workflow()

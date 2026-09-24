@@ -249,10 +249,12 @@ export interface maxLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean,
-        uiContext?: Partial<MaxUIContext>
+        uiContext?: Partial<MaxUIContext>,
+        skipQueue?: boolean
     ) => {
         addToThread: boolean
         prompt: string | null
+        skipQueue: boolean
         uiContext: Partial<MaxUIContext> | undefined
     }
     cancelSuggestionTyping: () => {
@@ -420,10 +422,16 @@ export const maxLogic = kea<maxLogicType>([
         runSuggestion: (suggestion: TopicSuggestion) => ({ suggestion }),
         cancelSuggestionTyping: true,
         setTypingSuggestion: (content: string | null) => ({ content }),
-        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+        askMax: (
+            prompt: string | null,
+            addToThread: boolean = true,
+            uiContext?: Partial<MaxUIContext>,
+            skipQueue: boolean = false
+        ) => ({
             prompt,
             addToThread,
             uiContext,
+            skipQueue,
         }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),
