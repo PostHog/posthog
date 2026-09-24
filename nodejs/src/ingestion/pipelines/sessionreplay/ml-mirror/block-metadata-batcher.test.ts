@@ -5,7 +5,7 @@ import { Message } from 'node-rdkafka'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
+import { BlockMetadataBatcher, KeyedRecordReader, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlDataKey } from './keys/crypto'
@@ -144,12 +144,12 @@ describe('BlockMetadataBatcher', () => {
         const asLegacyRows = (messages: Message[]): MlDecodedMessage[] =>
             messages.map((message) => ({ message, original: message }))
         const firstKeyRead = Promise.withResolvers<MlDecodedMessage[]>()
-        const keyManager = {
+        const keyManager: KeyedRecordReader = {
             read: jest
                 .fn()
                 .mockReturnValueOnce(firstKeyRead.promise)
                 .mockImplementation((messages: Message[]) => Promise.resolve(asLegacyRows(messages))),
-        } as unknown as MlKafkaTransport
+        }
         const batcher = new BlockMetadataBatcher(
             store,
             offsets,

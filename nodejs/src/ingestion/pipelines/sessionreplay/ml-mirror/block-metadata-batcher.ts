@@ -18,6 +18,9 @@ export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
 }
 
+/** The subset of the ML Kafka transport the batcher needs: reading each record with its session key. */
+export type KeyedRecordReader = Pick<MlKafkaTransport, 'read'>
+
 export interface BlockMetadataBatcherOptions {
     flushIntervalMs: number
     maxRows: number
@@ -47,7 +50,7 @@ export class BlockMetadataBatcher {
         private readonly offsetStore: OffsetStore,
         private readonly options: BlockMetadataBatcherOptions,
         nowMs: number,
-        private readonly keyManager?: MlKafkaTransport
+        private readonly keyManager?: KeyedRecordReader
     ) {
         this.lastFlushMs = nowMs
     }
