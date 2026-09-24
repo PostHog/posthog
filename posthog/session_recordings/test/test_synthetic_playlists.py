@@ -171,13 +171,17 @@ class TestSyntheticPlaylists(APIBaseTest):
     def test_exported_playlist_caches_and_shares_one_scan(self) -> None:
         cache.clear()
 
-        for index in range(2):
-            ExportedAsset.objects.create(
+        # "old" is exported twice, most recently of all, so it must sort ahead of "new"
+        exports = [("exported-session-old", 30), ("exported-session-new", 20), ("exported-session-old", 10)]
+        for session_id, minutes_ago in exports:
+            asset = ExportedAsset.objects.create(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.GIF,
-                export_context={"session_recording_id": f"exported-session-{index}"},
+                export_context={"session_recording_id": session_id},
                 created_by=self.user,
             )
+            # created_at is auto_now_add, and consecutive writes are not ordered in time
+            ExportedAsset.objects.filter(pk=asset.pk).update(created_at=now() - timedelta(minutes=minutes_ago))
 
         source = ExportedPlaylistSource()
 
@@ -189,7 +193,7 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert count == 2
         assert recount == 2
-        assert sorted(session_ids) == ["exported-session-0", "exported-session-1"]
+        assert session_ids == ["exported-session-old", "exported-session-new"]
 
     def test_synthetic_playlist_exported_content(self) -> None:
         ExportedAsset.objects.create(

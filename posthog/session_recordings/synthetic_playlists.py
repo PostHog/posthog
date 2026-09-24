@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from django.core.cache import cache
+from django.db.models import Max
 
 from posthog.schema import RecordingOrder, RecordingsQuery
 
@@ -182,15 +183,18 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
         if cached_data is not None:
             return cached_data
 
-        qs = (
+        # Group in the database so only the distinct ids reach Python, and order each
+        # id by its most recent export to keep the newest-first order.
+        rows = (
             ExportedAsset.objects.filter(team=team)
             .filter(export_context__has_key="session_recording_id")
             .exclude(export_context__session_recording_id__isnull=True)
             .exclude(export_context__session_recording_id="")
-            .order_by("-created_at")
-            .values_list("export_context__session_recording_id", flat=True)
+            .values("export_context__session_recording_id")
+            .annotate(last_exported_at=Max("created_at"))
+            .order_by("-last_exported_at")
         )
-        session_ids = list(dict.fromkeys(qs))
+        session_ids = [row["export_context__session_recording_id"] for row in rows]
         cache.set(cache_key, session_ids, ExportedPlaylistSource.CACHE_TTL)
         return session_ids
 
