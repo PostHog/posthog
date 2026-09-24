@@ -42,6 +42,8 @@ export interface DashboardsFilters {
     folder?: string | null
 }
 
+const FILTER_SEARCH_PARAMS = ['created_by', 'pinned', 'shared', 'tags', 'folder'] as const
+
 export const DEFAULT_FILTERS: DashboardsFilters = {
     search: '',
     createdBy: 'All users',
@@ -303,8 +305,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                             ...filters,
                         }),
                     setSearch: (state, { search }) => ({ ...state, search }),
-                    setCurrentTab: (state, { tab }) =>
-                        tab === DashboardsTab.Yours ? { ...state, createdBy: DEFAULT_FILTERS.createdBy } : state,
+                    // Picking a tab clears the filter chips. Without this, clicking the already
+                    // active tab on a filtered list leaves the list unchanged, with no way back.
+                    setCurrentTab: (state) => ({ ...DEFAULT_FILTERS, search: state.search }),
                 },
             ],
             tagSearch: [
@@ -499,10 +502,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
     trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => {
-            const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
-            const searchParams: Record<string, any> = { ...router.values.searchParams, tab }
-            if (values.currentTab === DashboardsTab.Yours) {
-                delete searchParams['created_by']
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            // Mirror the filter reset the tab change made, so urlToAction cannot put the filters back.
+            for (const key of FILTER_SEARCH_PARAMS) {
+                delete searchParams[key]
+            }
+            if (values.currentTab === DashboardsTab.All) {
+                delete searchParams['tab']
+            } else {
+                searchParams['tab'] = values.currentTab
             }
             if (objectsEqual(searchParams, router.values.searchParams)) {
                 return
@@ -585,7 +593,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             const hasFilterParams =
                 requestedTab === DashboardsTab.Pinned ||
-                ['created_by', 'pinned', 'shared', 'tags', 'folder', 'search'].some((key) => key in searchParams)
+                [...FILTER_SEARCH_PARAMS, 'search'].some((key) => key in searchParams)
             if (tab === DashboardsTab.Yours && values.filters.createdBy !== DEFAULT_FILTERS.createdBy) {
                 actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
             }

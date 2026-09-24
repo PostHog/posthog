@@ -26,8 +26,9 @@ export function DashboardsMenuItems({
     MenuGroup = DropdownMenuGroup,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { pinnedDashboards, dashboardsLoading, loadDashboardsFailed } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
+    const pinnedDashboardsUrl = `${urls.dashboards()}?pinned=true`
 
     return (
         <>
@@ -39,15 +40,28 @@ export function DashboardsMenuItems({
                 }}
             >
                 <MenuSubTrigger asChild>
-                    <ButtonPrimitive menuItem>
+                    <Link
+                        buttonProps={{
+                            menuItem: true,
+                        }}
+                        to={pinnedDashboardsUrl}
+                        onClick={() => onLinkClick?.(false)}
+                    >
                         Pinned dashboards
                         <IconChevronRight className="ml-auto size-3" />
-                    </ButtonPrimitive>
+                    </Link>
                 </MenuSubTrigger>
 
                 <MenuSubContent>
                     <MenuGroup>
-                        {dashboardsLoading ? (
+                        {/* A failed load leaves dashboardsLoading true for good, so it has to be read first */}
+                        {loadDashboardsFailed ? (
+                            <MenuItem disabled>
+                                <ButtonPrimitive menuItem>
+                                    Couldn't load dashboards. Reopen this menu to retry.
+                                </ButtonPrimitive>
+                            </MenuItem>
+                        ) : dashboardsLoading ? (
                             <MenuItem disabled>
                                 <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
                             </MenuItem>

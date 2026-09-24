@@ -162,6 +162,23 @@ describe('dashboardsLogic', () => {
         expect(router.values.searchParams.created_by).toBeUndefined()
     })
 
+    it('clears the filter chips and their URL params when the active tab is picked again', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ pinned: true, shared: true, createdBy: [OTHER_USER.id] })
+        }).toFinishAllListeners()
+        expect(router.values.searchParams.pinned).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTab(DashboardsTab.All)
+        }).toFinishAllListeners()
+
+        expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
+        expect(router.values.searchParams.pinned).toBeUndefined()
+        expect(router.values.searchParams.shared).toBeUndefined()
+        expect(router.values.searchParams.created_by).toBeUndefined()
+        expect(logic.values.dashboards).toHaveLength(allDashboards.length)
+    })
+
     it('replaces tag results for a new search and appends the next page', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadTagResultsSuccess(
