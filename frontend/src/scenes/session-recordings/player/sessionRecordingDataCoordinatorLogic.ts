@@ -1043,12 +1043,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
-        // How long the recording is according to its metadata, which the server derives from the
-        // session's own bounds. `start` and `end` take the outermost of the metadata times and the
-        // snapshot timestamps, so one snapshot with a skewed client clock stretches the span between
-        // them without bound. This is what bounds it, and it lands with the metadata rather than
-        // waiting for every source to load. `recording_duration` measures the same span in whole
-        // seconds, so it is only the fallback.
+        // The server's own measure of the recording's length, which lands with the metadata.
+        // `recording_duration` measures the same span in whole seconds, so it is only the fallback.
         metadataDurationMs: [
             (s) => [s.sessionPlayerMetaData],
             (meta: SessionRecordingType | null): number | null => {
@@ -1065,6 +1061,10 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 if (!start || !end) {
                     return 0
                 }
+                // `start` and `end` take the outermost of the metadata times and the snapshot
+                // timestamps, so one snapshot with a skewed client clock stretches the span between
+                // them without bound. The metadata bound does not move with the skew, and waiting for
+                // every source to load before applying it leaves the timeline unbounded until then.
                 const snapshotDuration = end.diff(start)
                 return metadataDurationMs == null ? snapshotDuration : Math.min(snapshotDuration, metadataDurationMs)
             },
