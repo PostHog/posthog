@@ -1233,6 +1233,7 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
+        RANKING_SCORE = "ranking_score"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1255,6 +1256,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
+            ArtefactType.RANKING_SCORE,
         }
     )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real

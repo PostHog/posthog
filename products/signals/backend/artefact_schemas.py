@@ -274,6 +274,152 @@ class ChannelAssignment(BaseModel):
     channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
 
 
+# A scoring pass runs several models over one report (one served, the rest challengers), and every
+# one of them lands in a single row. The cap bounds that row, so a manifest that grew past what a
+# reader could order cannot make every report read expensive.
+MAX_RANKING_MODEL_RESULTS = 5
+# The only role with meaning to a reader of these rows: the model whose scores the inbox would
+# order on. Every other role in a manifest names a challenger, and the manifest owns that
+# vocabulary, so the roles list stays free text.
+RANKING_SERVED_ROLE = "served"
+
+
+class RankingModelResult(BaseModel):
+    """One model's part of a scoring pass: which model it was, and either its head probabilities or
+    why it produced none.
+
+    The identity fields mirror the training dag's own columns and its `metadata.json`, so a stored
+    score joins to the model that wrote it without a lookup. `model_kind` names the learner the
+    loader dispatches on, which keeps a family with its own predict from needing a new artefact
+    type. A skipped result is kept rather than dropped, because "this model could not score this
+    report" is the coverage read the serving work is measured on.
+    """
+
+    # Pydantic reserves the `model_` prefix for its own API, so the guard is lifted here. Renaming
+    # the fields would break the join to the dag, which is the reason they carry these names.
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_name: str = Field(description="Feature family the model belongs to, e.g. `report_embeddings`.")
+    model_version: str = Field(description="Training partition the model was fit on, as `YYYY-MM-DD`.")
+    model_kind: str = Field(description="Learner the model store loads the booster with, e.g. `xgboost`.")
+    roles: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Roles the serving manifest gave this model in the pass. Exactly one result in a pass "
+            "carries `served`; the rest are challengers."
+        ),
+    )
+    feature_schema_version: int = Field(
+        description="Feature contract version the scores were computed under, from the serving feature set."
+    )
+    status: Literal["scored", "skipped"] = Field(description="Whether this model produced probabilities.")
+    skip_reason: str | None = Field(
+        default=None, description="Why a skipped model produced no scores, e.g. a missing report vector."
+    )
+    scores: dict[str, float] = Field(
+        default_factory=dict,
+        description="Outcome head name to its calibrated probability, in [0, 1]. Empty on a skipped model.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Copied from the model's metadata.json: training partition, feature set, per-head "
+            "readability and holdout summary. Carried so a reader can judge a score without the model store."
+        ),
+    )
+
+    @property
+    def key(self) -> str:
+        return f"{self.model_name}@{self.model_version}"
+
+    @field_validator("model_name", "model_version", "model_kind")
+    @classmethod
+    def identity_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+    @field_validator("scores")
+    @classmethod
+    def scores_must_be_probabilities(cls, v: dict[str, float]) -> dict[str, float]:
+        # A head's score is consumed as a probability: a threshold and the composite score over the
+        # heads both read it as one, so a raw margin stored here would be silently wrong rather
+        # than unusable. The bound also rejects NaN, which no comparison satisfies.
+        for head, score in v.items():
+            if not 0.0 <= score <= 1.0:
+                raise ValueError(f"score for head {head!r} must be a probability in [0, 1], got {score!r}")
+        return v
+
+    @model_validator(mode="after")
+    def skipped_model_carries_no_scores(self) -> RankingModelResult:
+        if self.status == "skipped" and self.scores:
+            raise ValueError("a skipped model must carry no scores")
+        return self
+
+
+class RankingScore(BaseModel):
+    """Content schema for a `ranking_score` artefact: one scoring pass over one report.
+
+    A pass writes one artefact carrying every model it ran, so latest-row-wins gives a reader the
+    report's whole current score in one row. Splitting a pass over one row per model would make
+    "the current served score" a question about several rows, and a pass that scored a different
+    set of models than the last one would leave stale rows looking current.
+    """
+
+    scored_at: datetime = Field(description="When the sweep scored the report.")
+    embedding_inserted_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Landing time of the report vector the pass scored, which is the sweep's idempotency "
+            "key: a report whose text did not change since this moment needs no new pass. Absent "
+            "when no model in the pass read a vector."
+        ),
+    )
+    manifest_version: str = Field(description="Version of the serving manifest that chose the models for the pass.")
+    served_key: str = Field(
+        description="Key in `results` of the model whose scores the inbox would order on, as `<model_name>@<model_version>`."
+    )
+    results: dict[str, RankingModelResult] = Field(
+        description="Every model the pass ran, keyed by `<model_name>@<model_version>`."
+    )
+
+    @field_validator("manifest_version", "served_key")
+    @classmethod
+    def must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+    @model_validator(mode="after")
+    def results_are_keyed_by_their_model(self) -> RankingScore:
+        if not self.results:
+            raise ValueError("results must carry at least one model")
+        if len(self.results) > MAX_RANKING_MODEL_RESULTS:
+            raise ValueError(f"results must carry at most {MAX_RANKING_MODEL_RESULTS} models")
+        for key, result in self.results.items():
+            if key != result.key:
+                raise ValueError(f"result key {key!r} does not match its model {result.key!r}")
+        return self
+
+    @model_validator(mode="after")
+    def served_key_names_a_scored_served_model(self) -> RankingScore:
+        served = self.results.get(self.served_key)
+        if served is None:
+            raise ValueError(f"served_key {self.served_key!r} is not a key of results")
+        if RANKING_SERVED_ROLE not in served.roles:
+            raise ValueError(f"served_key {self.served_key!r} does not carry the {RANKING_SERVED_ROLE!r} role")
+        if served.status != "scored":
+            raise ValueError(f"served_key {self.served_key!r} is {served.status}, so the pass has no served score")
+        # More than one served entry makes "the score the inbox would order on" ambiguous, which is
+        # the one question this artefact exists to answer.
+        served_keys = [key for key, result in self.results.items() if RANKING_SERVED_ROLE in result.roles]
+        if len(served_keys) > 1:
+            raise ValueError(
+                f"exactly one result may carry the {RANKING_SERVED_ROLE!r} role, got {sorted(served_keys)}"
+            )
+        return self
+
+
 # Reason code shared by the dismissal writer (the state API) and the corrections reader
 # (`repo_corrections`), defined here so the two cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
@@ -859,6 +1005,7 @@ StatusArtefactContent = (
     | ChannelAssignment
     | ImplementationDecision
     | ImplementationDispatch
+    | RankingScore
 )
 LogArtefactContent = (
     CodeReference
@@ -893,6 +1040,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "channel_assignment": ChannelAssignment,
+    "ranking_score": RankingScore,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
     "commit": Commit,
@@ -935,6 +1083,9 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 # Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
 # may write them; API writes would let callers fabricate automation provenance or completion.
+# `ranking_score` is model output: the scoring sweep is its only writer, so accepting it through the
+# API would let a caller fabricate a probability the model never produced, and the score is read
+# back as evidence about the model rather than about the report.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "task_run",
@@ -954,6 +1105,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_dispatch",
         "implementation_replacement",
         "implementation_handover",
+        "ranking_score",
     }
 )
 
