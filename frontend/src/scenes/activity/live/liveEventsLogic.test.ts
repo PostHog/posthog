@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -54,13 +55,6 @@ describe('liveEventsLogic', () => {
             enabled ? [FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS] : [],
             enabled ? { [FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]: true } : {}
         )
-    }
-
-    async function waitForStreamCalls(count: number): Promise<void> {
-        for (let attempt = 0; attempt < 50 && streamSpy.mock.calls.length < count; attempt++) {
-            await new Promise((resolve) => setTimeout(resolve, 0))
-        }
-        expect(streamSpy.mock.calls).toHaveLength(count)
     }
 
     function lastStreamUrl(): URL {
@@ -168,14 +162,12 @@ describe('liveEventsLogic', () => {
                     '/api/projects/@current/': () => [200, { ...MOCK_DEFAULT_TEAM, live_events_token: 'fresh-token' }],
                 },
             })
-            const firstCall = streamSpy.mock.calls[0][1] as { onError: (error: unknown) => void }
-            expect(streamSpy.mock.calls[0][1].headers.Authorization).toEqual(
-                `Bearer ${MOCK_DEFAULT_TEAM.live_events_token}`
-            )
+            const firstCall = streamSpy.mock.calls[0][1]
+            expect(firstCall.headers.Authorization).toEqual(`Bearer ${MOCK_DEFAULT_TEAM.live_events_token}`)
 
             firstCall.onError(new ApiError('Unauthorized', 401))
-            await waitForStreamCalls(2)
 
+            await waitFor(() => expect(streamSpy).toHaveBeenCalledTimes(2))
             expect(streamSpy.mock.calls[1][1].headers.Authorization).toEqual('Bearer fresh-token')
         })
     })

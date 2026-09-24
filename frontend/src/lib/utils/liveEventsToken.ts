@@ -2,11 +2,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 let refreshInFlight: Promise<string | null> | null = null
 
-/** A livestream stream was refused because its bearer token was rejected. */
-export function isLivestreamUnauthorized(error: unknown): boolean {
-    return typeof error === 'object' && error !== null && (error as { status?: number }).status === 401
-}
-
 /**
  * Refetch the team to replace a rejected `live_events_token`.
  *
@@ -14,22 +9,27 @@ export function isLivestreamUnauthorized(error: unknown): boolean {
  * that keeps sending an expired bearer to the livestream. The server caches each token for 24h,
  * so a refetch always answers with one that has at least 6 days left.
  *
- * Concurrent callers share one refetch, because several streams hold the same token and all of
- * them see the 401 at the same time.
+ * Pass the token that was rejected. Every stream on the page holds the same one, so a caller
+ * whose token has already moved on reads the new one instead of asking again, and concurrent
+ * callers share one refetch.
  */
-export function refreshLiveEventsToken(): Promise<string | null> {
-    if (!refreshInFlight) {
-        const logic = teamLogic.findMounted()
-        if (!logic) {
-            return Promise.resolve(null)
-        }
-        refreshInFlight = logic.asyncActions
-            .loadCurrentTeam()
-            .then(() => logic.values.currentTeam?.live_events_token ?? null)
-            .catch(() => null)
-            .finally(() => {
-                refreshInFlight = null
-            })
+export function refreshLiveEventsToken(staleToken: string | undefined): Promise<string | null> {
+    const logic = teamLogic.findMounted()
+    if (!logic) {
+        return Promise.resolve(null)
     }
+    const readToken = (): string | null => logic.values.currentTeam?.live_events_token ?? null
+    if (staleToken && readToken() !== staleToken) {
+        return Promise.resolve(readToken())
+    }
+    // `refreshCurrentTeam` rather than `loadCurrentTeam`: it drops a response for a team the user
+    // has since switched away from, and it does not fire the team-load action that other logics
+    // use to reload themselves.
+    refreshInFlight ??= logic.asyncActions
+        .refreshCurrentTeam()
+        .then(readToken)
+        .finally(() => {
+            refreshInFlight = null
+        })
     return refreshInFlight
 }

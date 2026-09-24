@@ -6956,12 +6956,11 @@ const api = {
                     }
                 } else if (!response.ok) {
                     const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
-                    const errorData = error.data
                     if (isLivestreamUrl && response.status !== 401) {
                         posthog.capture('livestream_sse_non_ok_non_401', {
                             url,
                             status: response.status,
-                            server_message: errorData?.message || errorData?.error,
+                            server_message: error.data?.message || error.data?.error,
                         })
                     }
                     onError(error)

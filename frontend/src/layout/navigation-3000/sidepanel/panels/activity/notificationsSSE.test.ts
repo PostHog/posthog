@@ -87,12 +87,10 @@ describe('connectToNotificationsSSE', () => {
     })
 
     it('rethrows a rejected token with its status, so the caller can refresh it', async () => {
-        mockStream.mockImplementation(async (_url, opts) => {
-            expect(() => opts.onError(new ApiError('Unauthorized', 401))).toThrow(
-                expect.objectContaining({ status: 401 })
-            )
-        })
+        mockStream.mockImplementation(async (_url, opts) => opts.onError(new ApiError('Unauthorized', 401)))
 
-        await connectToNotificationsSSE(url, token, abortController.signal, jest.fn())
+        await expect(connectToNotificationsSSE(url, token, abortController.signal, jest.fn())).rejects.toMatchObject({
+            status: 401,
+        })
     })
 })

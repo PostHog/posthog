@@ -3,11 +3,12 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, props, r
 import { Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isUnauthorizedError } from 'lib/api-error'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
-import { isLivestreamUnauthorized, refreshLiveEventsToken } from 'lib/utils/liveEventsToken'
+import { refreshLiveEventsToken } from 'lib/utils/liveEventsToken'
 import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -256,60 +257,50 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             // background tab accumulates off-heap in Blink's partition_alloc/buffer.
             cache.disposables.add(() => {
                 cache.batch = []
+                const token = values.currentTeam?.live_events_token
                 const controller = new AbortController()
-                let tokenRefreshed = false
-
-                const openStream = (token: string | undefined): void => {
-                    void api.stream(url.toString(), {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                        signal: controller.signal,
-                        onMessage: (event) => {
-                            lemonToast.dismiss(ERROR_TOAST_ID)
-                            let eventData: LiveEvent
-                            try {
-                                eventData = JSON.parse(event.data)
-                            } catch {
-                                // Drop malformed stream payloads rather than throwing inside the listener
-                                return
-                            }
-                            cache.batch.push(eventData)
-                            if (
-                                cache.batch.length >= 10 ||
-                                performance.now() - (values.lastBatchTimestamp || 0) > 300
-                            ) {
-                                actions.addEvents(cache.batch)
-                                cache.batch.length = 0
-                            }
-                        },
-                        onError: (error) => {
-                            // The token is a 7-day JWT that arrives with the team, so a tab open longer
-                            // than that sends a dead bearer. api.stream drops the stream on a 401, so
-                            // refetch the team once and open it again with a usable token.
-                            if (isLivestreamUnauthorized(error) && !tokenRefreshed) {
-                                tokenRefreshed = true
-                                void refreshLiveEventsToken().then((freshToken) => {
-                                    if (freshToken && !controller.signal.aborted) {
-                                        openStream(freshToken)
-                                    }
-                                })
-                                return
-                            }
-                            if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
-                                console.error('Failed to poll events. You likely have no events coming in.', error)
-                                lemonToast.error(`No live events found. Continuing to retry in the background…`, {
-                                    icon: <Spinner />,
-                                    toastId: ERROR_TOAST_ID,
-                                    autoClose: false,
-                                })
-                                cache.hasShownLiveStreamErrorToast = true
-                            }
-                        },
-                    })
-                }
-
-                openStream(values.currentTeam?.live_events_token)
+                void api.stream(url.toString(), {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                    signal: controller.signal,
+                    onMessage: (event) => {
+                        lemonToast.dismiss(ERROR_TOAST_ID)
+                        let eventData: LiveEvent
+                        try {
+                            eventData = JSON.parse(event.data)
+                        } catch {
+                            // Drop malformed stream payloads rather than throwing inside the listener
+                            return
+                        }
+                        cache.batch.push(eventData)
+                        if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
+                            actions.addEvents(cache.batch)
+                            cache.batch.length = 0
+                        }
+                    },
+                    onError: (error) => {
+                        // A rejected token is stale rather than wrong, so reopen the stream with a
+                        // fresh one. An unchanged token means the refetch cannot help, and reopening
+                        // would loop.
+                        if (isUnauthorizedError(error)) {
+                            void refreshLiveEventsToken(token).then((freshToken) => {
+                                if (freshToken && freshToken !== token) {
+                                    actions.updateEventsConnection()
+                                }
+                            })
+                        }
+                        if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
+                            console.error('Failed to poll events. You likely have no events coming in.', error)
+                            lemonToast.error(`No live events found. Continuing to retry in the background…`, {
+                                icon: <Spinner />,
+                                toastId: ERROR_TOAST_ID,
+                                autoClose: false,
+                            })
+                            cache.hasShownLiveStreamErrorToast = true
+                        }
+                    },
+                })
                 return () => controller.abort()
             }, 'eventsConnection')
         },
