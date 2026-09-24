@@ -190,7 +190,19 @@ export function classifyLearnCommand(
         return { exec_learn_kind: 'list' }
     }
     if (first !== undefined && QUALIFIED_IDENTIFIER.test(first)) {
-        return { exec_learn_kind: 'load', exec_learn_target: first.slice(0, MAX_SEARCH_PATTERN_LENGTH) }
+        const searchIndex = args.indexOf('-s')
+        return {
+            exec_learn_kind: 'load',
+            exec_learn_target: first.slice(0, MAX_SEARCH_PATTERN_LENGTH),
+            ...(searchIndex === -1
+                ? {}
+                : {
+                      exec_search_query: args
+                          .slice(searchIndex + 1)
+                          .join(' ')
+                          .slice(0, MAX_SEARCH_PATTERN_LENGTH),
+                  }),
+        }
     }
     return { exec_learn_kind: 'guide' }
 }

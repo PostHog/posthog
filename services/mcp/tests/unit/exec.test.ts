@@ -99,6 +99,14 @@ describe('exec tool', () => {
                 'learn posthog:building-a-dashboard README.md',
                 { exec_learn_kind: 'load', exec_learn_target: 'posthog:building-a-dashboard' },
             ],
+            [
+                'learn posthog:building-a-dashboard README.md -s "date range"',
+                {
+                    exec_learn_kind: 'load',
+                    exec_learn_target: 'posthog:building-a-dashboard',
+                    exec_search_query: 'date range',
+                },
+            ],
             ['learn skills', { exec_learn_kind: 'list' }],
             ['learn -d posthog:building-a-dashboard', { exec_learn_kind: 'describe' }],
             ['learn analytics', { exec_learn_kind: 'guide' }],
