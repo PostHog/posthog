@@ -129,18 +129,22 @@ export function TagSelect({
             closeOnClickInside={false}
             visible={showPopover}
             matchWidth={false}
+            padded={false}
             actionable
             onVisibilityChange={setShowPopover}
             overlay={
-                <div className="w-64 max-w-[min(25rem,80vw)] deprecated-space-y-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search tags"
-                        autoFocus
-                        value={search}
-                        onChange={setSearch}
-                        fullWidth
-                    />
+                <div className="w-64 max-w-[min(25rem,80vw)]">
+                    <div className="border-b border-primary focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search tags"
+                            autoFocus
+                            value={search}
+                            onChange={setSearch}
+                            fullWidth
+                            className="!rounded-none !border-0 !bg-transparent !shadow-none"
+                        />
+                    </div>
                     <span role="status" className="sr-only">
                         {tagPageError
                             ? "Couldn't load tags. Try again."
@@ -155,7 +159,7 @@ export function TagSelect({
                                   : ''}
                     </span>
                     <div ref={scrollRef} className="max-h-80 overflow-y-auto" data-attr={listDataAttr}>
-                        <ul className="deprecated-space-y-px">
+                        <ul className="deprecated-space-y-px p-1">
                             {displayedTags.map(({ tag, count }) => (
                                 <li key={tag}>
                                     <LemonButton
@@ -197,32 +201,43 @@ export function TagSelect({
                             )}
                         </ul>
                     </div>
-                    {tagPageError && (
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            type="secondary"
-                            loading={tagPageLoading}
-                            onClick={() =>
-                                loadTagPage({ search, offset: tagResults.length, loadTags: source, requestEpoch })
-                            }
-                        >
-                            Couldn't load tags. Try again.
-                        </LemonButton>
-                    )}
-                    {selectedCount > 0 && (
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            type="secondary"
-                            onClick={() => {
-                                onChange([])
-                                setShowPopover(false)
-                                triggerRef.current?.focus()
-                            }}
-                        >
-                            Clear selection
-                        </LemonButton>
+                    {(tagPageError || selectedCount > 0) && (
+                        <div className="border-t border-primary">
+                            {tagPageError && (
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    type="tertiary"
+                                    className="!rounded-none"
+                                    loading={tagPageLoading}
+                                    onClick={() =>
+                                        loadTagPage({
+                                            search,
+                                            offset: tagResults.length,
+                                            loadTags: source,
+                                            requestEpoch,
+                                        })
+                                    }
+                                >
+                                    Couldn't load tags. Try again.
+                                </LemonButton>
+                            )}
+                            {selectedCount > 0 && (
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    type="tertiary"
+                                    className="!rounded-none"
+                                    onClick={() => {
+                                        onChange([])
+                                        setShowPopover(false)
+                                        triggerRef.current?.focus()
+                                    }}
+                                >
+                                    Clear selection
+                                </LemonButton>
+                            )}
+                        </div>
                     )}
                 </div>
             }
