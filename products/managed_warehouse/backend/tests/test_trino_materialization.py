@@ -65,7 +65,7 @@ class TestTrinoShadowMaterialization(BaseTest):
             trino_values=self.translation.trino_values,
         )
         if fail_write:
-            self.cursor.fetchall.side_effect = [[], [], RuntimeError("Trino write failed")]
+            self.cursor.fetchall.side_effect = [[], RuntimeError("Trino write failed")]
         with patch(
             "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
         ) as connect:
@@ -80,15 +80,14 @@ class TestTrinoShadowMaterialization(BaseTest):
                 assert result.table_name == f"model_{self.saved_query_id.hex}"
 
         connect.assert_called_once_with(str(self.organization.pk))
-        assert self.cursor.execute.call_args_list[1].args == (
+        assert self.cursor.execute.call_args_list[0].args == (
             f'CREATE SCHEMA IF NOT EXISTS "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"',
         )
-        assert self.cursor.execute.call_args_list[2].args == (
+        assert self.cursor.execute.call_args_list[1].args == (
             f'CREATE OR REPLACE TABLE "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}" '
             'AS SELECT name FROM "org_catalog"."imports"."orders" WHERE name = ? LIMIT 12',
             ["example' OR 1=1 --"],
         )
-        assert self.cursor.execute.call_args_list[0].args == ("SET SESSION query_max_run_time = '15m'",)
         self.cursor.close.assert_called_once()
         connect.return_value.__exit__.assert_called_once()
 

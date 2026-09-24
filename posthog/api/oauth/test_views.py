@@ -282,6 +282,13 @@ class TestOAuthAPI(APIBaseTest):
             ("truncated", TRUNCATED_SCOPE_REQUEST, ["canvas:read", "insight:read", "notebook:read"], True),
             ("complete", "insight:read canvas:read", ["canvas:read", "insight:read"], False),
             ("short_request_with_a_fragment_tail", "insight:read can", ["insight:read"], False),
+            (
+                "every_resource_token_unknown",
+                "...(full scope list)...",
+                ["canvas:read", "insight:read", "notebook:read"],
+                True,
+            ),
+            ("identity_scope_only", "openid", ["openid"], False),
         ]
     )
     @patch("posthog.api.oauth.views.render_template")
@@ -532,6 +539,58 @@ class TestOAuthAPI(APIBaseTest):
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
+
+    @parameterized.expand(
+        [
+            ("organization_without_a_selection", OAuthApplicationAccessLevel.ORGANIZATION.value),
+            ("team_without_a_selection", OAuthApplicationAccessLevel.TEAM.value),
+        ]
+    )
+    def test_authorize_post_denial_ignores_the_scoping_controls(self, _name, access_level):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "allow": False,
+                "access_level": access_level,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_denial_accepts_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "allow": False, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_grant_still_rejects_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scope", response.json())
+
+    def test_authorize_post_grant_still_requires_a_scoped_organization(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+                "scoped_organizations": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scoped_organizations", response.json())
 
     def test_authorize_post_denied_authorization(self):
         response = self.client.post(
