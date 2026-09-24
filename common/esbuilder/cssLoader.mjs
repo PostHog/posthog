@@ -197,15 +197,7 @@ export function stableCssLoaderScript(eagerFiles, fullCssFile, fullCssFileFallba
             }
 
             var requested = {};
-            window.${CSS_LOAD_GLOBAL} = function (entries) {
-                // The full stylesheet holds every rule. A split stylesheet inserted after it would
-                // override its later rules, so once it applies nothing else is loaded.
-                if (fullStylesheetApplied) {
-                    return Promise.resolve(true);
-                }
-                if (entries === null) {
-                    return loadFullStylesheet();
-                }
+            function loadEntries(entries) {
                 return Promise.all(entries.map(function (entry) {
                     var url = Array.isArray(entry) ? entry[0] : entry;
                     var rank = Array.isArray(entry) ? entry[1] : null;
@@ -223,6 +215,23 @@ export function stableCssLoaderScript(eagerFiles, fullCssFile, fullCssFileFallba
                 })).then(function (results) {
                     return results.every(Boolean);
                 });
+            }
+            window.${CSS_LOAD_GLOBAL} = function (entries) {
+                // The full stylesheet holds every rule. A split stylesheet inserted after it would
+                // override its later rules, so once it applies nothing else is loaded.
+                if (fullStylesheetApplied) {
+                    return Promise.resolve(true);
+                }
+                if (entries === null) {
+                    return loadFullStylesheet();
+                }
+                if (fullStylesheet) {
+                    // A full load from an earlier fallback is still in flight: wait for it, since a split link inserted now could land after it and reorder the cascade.
+                    return fullStylesheet.then(function (applied) {
+                        return applied ? true : loadEntries(entries);
+                    });
+                }
+                return loadEntries(entries);
             };
 
             var eager = ${JSON.stringify(eagerFiles)}.map(function (file) {

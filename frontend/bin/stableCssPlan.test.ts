@@ -1,4 +1,6 @@
-import { planCssGroups } from './stableCssPlan.mjs'
+import { CSS_LOAD_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
+
+import { cssPrelude, planCssGroups } from './stableCssPlan.mjs'
 
 const imports = (...paths: string[]): { imports: { path: string; kind: string }[] } => ({
     imports: paths.map((path) => ({ path, kind: 'import-statement' })),
@@ -133,12 +135,93 @@ describe('planCssGroups', () => {
                 },
             },
         }
-        const { groups, lazyGroupsByEntry } = planCssGroups(interleaved)
+        const { groups, lazyGroupsByEntry, rankOfGroup } = planCssGroups(interleaved)
 
         expect(lazyGroupsByEntry.get('dist/Scene-C.js').map((name: string) => groups.get(name))).toEqual([
             ['src/scenes/Scene.scss'],
             ['src/lib/Shared.scss'],
             ['src/scenes/SceneExtra.scss'],
         ])
+        // Ranks follow the entry stylesheet's order, so the loader can place a lazy group among others
+        // whatever order scenes load them in, even though the groups it belongs to are non-adjacent.
+        const [sceneGroup, sharedGroup, extraGroup] = lazyGroupsByEntry.get('dist/Scene-C.js')
+        expect([rankOfGroup.get(sceneGroup), rankOfGroup.get(sharedGroup), rankOfGroup.get(extraGroup)]).toEqual([
+            3, 4, 5,
+        ])
+    })
+})
+
+describe('cssPrelude', () => {
+    // A prelude that resolved a wrong URL, dropped a rank, or swapped the ternary branches would
+    // still pass planCssGroups' own tests, since those never evaluate the generated string.
+    async function runPrelude(
+        groupNames: string[],
+        rankOfGroup: Map<string, number>,
+        {
+            hasImportMetaResolve = true,
+            loadCss,
+        }: { hasImportMetaResolve?: boolean; loadCss: (entries: unknown) => Promise<boolean> }
+    ): Promise<{ error?: Error }> {
+        const win: Record<string, unknown> = { [CSS_LOAD_GLOBAL]: loadCss }
+        const importMeta = hasImportMetaResolve ? { resolve: (specifier: string) => `resolved:${specifier}` } : {}
+        // `import.meta` is only valid inside a module, so a plain Function body can't reference it
+        // directly: stub it in as a parameter instead, the way this loader runs as a classic script.
+        const body = cssPrelude(groupNames, rankOfGroup).replace(/import\.meta/g, 'importMeta')
+        try {
+            await new Function('window', 'importMeta', `return (async () => { ${body} })()`)(win, importMeta)
+            return {}
+        } catch (error) {
+            return { error: error as Error }
+        }
+    }
+
+    it('resolves each group to its import-map URL and rank, in the order given', async () => {
+        const rankOfGroup = new Map([
+            ['lazy-a', 3],
+            ['lazy-b', 1],
+        ])
+        let seenEntries: unknown
+        await runPrelude(['lazy-a', 'lazy-b'], rankOfGroup, {
+            loadCss: (entries) => {
+                seenEntries = entries
+                return Promise.resolve(true)
+            },
+        })
+
+        expect(seenEntries).toEqual([
+            ['resolved:@css/lazy-a', 3],
+            ['resolved:@css/lazy-b', 1],
+        ])
+    })
+
+    it('throws a ChunkLoadError when the stylesheets do not load', async () => {
+        const { error } = await runPrelude(['lazy-a'], new Map([['lazy-a', 0]]), {
+            loadCss: () => Promise.resolve(false),
+        })
+
+        expect(error?.name).toBe('ChunkLoadError')
+    })
+
+    it('does not throw when the stylesheets load', async () => {
+        const { error } = await runPrelude(['lazy-a'], new Map([['lazy-a', 0]]), {
+            loadCss: () => Promise.resolve(true),
+        })
+
+        expect(error).toBeUndefined()
+    })
+
+    // A browser without import.meta.resolve cannot look up group URLs, so the prelude asks for the
+    // full stylesheet instead of resolving anything.
+    it('requests the full stylesheet instead when import.meta.resolve is unavailable', async () => {
+        let seenEntries: unknown = 'not called'
+        await runPrelude(['lazy-a'], new Map([['lazy-a', 0]]), {
+            hasImportMetaResolve: false,
+            loadCss: (entries) => {
+                seenEntries = entries
+                return Promise.resolve(true)
+            },
+        })
+
+        expect(seenEntries).toBeNull()
     })
 })

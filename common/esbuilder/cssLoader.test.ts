@@ -232,5 +232,53 @@ describe('css loader script', () => {
             void lazyLoad(win, [[`${STATIC}scene.css`, 5]])
             expect(links.length).toBeGreaterThan(linksBefore)
         })
+
+        // A second group requested while the full stylesheet is still loading must not insert its own
+        // link, because that link would land after the full one already in <head> and could override it.
+        it('does not insert a new link while the full-stylesheet fallback is in flight, and resolves once it applies', async () => {
+            const { links, win } = stable()
+            const firstRequest = lazyLoad(win, [[`${STATIC}scene.css`, 5]])
+            links[1].dispatch('error')
+            await Promise.resolve()
+            const fullLink = links[links.length - 1]
+            expect(fullLink.href).toBe(`${STATIC}${CSS_FILE}`)
+
+            const linksBefore = links.length
+            const secondRequest = lazyLoad(win, [[`${STATIC}other.css`, 99]])
+            expect(links).toHaveLength(linksBefore)
+
+            applyStylesheet(fullLink)
+            await expect(firstRequest).resolves.toBe(true)
+            await expect(secondRequest).resolves.toBe(true)
+            expect(links).toHaveLength(linksBefore)
+        })
+
+        // Once every fallback fails, a request that was waiting on it must still get its own stylesheet.
+        it('inserts its own stylesheet once every full-stylesheet fallback fails, and resolves to that result', async () => {
+            const { links, win } = stable()
+            const firstRequest = lazyLoad(win, [[`${STATIC}scene.css`, 5]])
+            links[1].dispatch('error')
+            await Promise.resolve()
+
+            const linksBefore = links.length
+            const secondRequest = lazyLoad(win, [[`${STATIC}other.css`, 99]])
+            // The full stylesheet's own retry ladder still runs, but no link for "other.css" yet.
+            expect(links.some((link) => link.href === `${STATIC}other.css`)).toBe(false)
+
+            for (let attempt = 2; attempt < links.length || attempt < 5; attempt++) {
+                links[attempt]?.dispatch('error')
+                await Promise.resolve()
+            }
+            await expect(firstRequest).resolves.toBe(false)
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(links.length).toBeGreaterThan(linksBefore)
+            const otherLink = links[links.length - 1]
+            expect(otherLink.href).toBe(`${STATIC}other.css`)
+
+            applyStylesheet(otherLink)
+            await expect(secondRequest).resolves.toBe(true)
+        })
     })
 })
