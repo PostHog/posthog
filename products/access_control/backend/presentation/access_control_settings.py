@@ -912,7 +912,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             )
             rule = api.upsert_property_access_control(
                 team_id=team.id,
-                created_by_id=self.request.user.pk if self.request.user.is_authenticated else None,  # type: ignore[attr-defined]
+                created_by_id=self.request.user.pk if self.request.user.is_authenticated else None,
                 input=UpsertPropertyAccessControlInput(
                     property_definition_id=property_definition_id,
                     access_level=PropertyAccessLevel(access_level),
