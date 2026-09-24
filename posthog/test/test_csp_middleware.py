@@ -1,4 +1,4 @@
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import MagicMock, patch
@@ -275,13 +275,19 @@ class TestCSPMiddleware(APIBaseTest):
         policy = response["Content-Security-Policy-Report-Only"]
         directives = {name: sources for name, *sources in (part.split() for part in policy.split("; "))}
         script_src, connect_src = directives["script-src"], directives["connect-src"]
+        (report_uri,) = directives["report-uri"]
+        report_version = parse_qs(urlsplit(report_uri).query)["v"]
         wildcards = {"https://*.posthog.com", "https://*.i.posthog.com"}
         if not regions:
             assert wildcards <= set(script_src)
+            # An operator's endpoint keeps the version they configured.
+            assert report_version == ["2"]
             return
 
         region, other_region = regions
         assert not wildcards & {*script_src, *connect_src}
+        # Under the wildcard policy's version, reports from the two policies mix in one query.
+        assert report_version == ["4"]
         # The app cannot start without its bundle host.
         assert overrides["JS_URL"] in script_src
         assert "https://internal-cf.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in script_src

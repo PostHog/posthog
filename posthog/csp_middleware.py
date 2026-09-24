@@ -142,6 +142,9 @@ def app_csp_header_name(request: HttpRequest) -> str:
 
 
 _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
+# The wildcard app policy and the admin policy report as v=2, through the default endpoint above. Reports
+# tagged v=3 came from a report-only shadow of the narrowed policy, so reusing 3 would mix the two in one query.
+NARROWED_APP_POLICY_REPORT_VERSION = "4"
 
 
 def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
@@ -373,7 +376,8 @@ class CSPMiddleware:
             # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
             # runs and the dev environment keep the wildcards. A load from a PostHog host that is not
             # listed here therefore fails only in production.
-            if is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
+            narrowed = is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING
+            if narrowed:
                 bundle = [bundle_origin] if bundle_origin else []
                 agent_proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
                 agent_proxy = (
@@ -424,14 +428,17 @@ class CSPMiddleware:
             # silently take the whole fleet to unsampled reporting; staff stays bounded.
             sample_rate = "1" if is_staff else "0.1"
 
-            report_uri = csp_report_endpoint(sample_rate=sample_rate)
+            report_params = {"sample_rate": sample_rate}
+            if narrowed:
+                report_params["v"] = NARROWED_APP_POLICY_REPORT_VERSION
+            report_uri = csp_report_endpoint(**report_params)
             if report_uri:
                 report_endpoint = report_uri
                 if distinct_id:
                     # A report body never names the person, and a crash report arrives after the tab
                     # already died, so only the URL can carry the distinct_id. Without it, the report
                     # endpoint mints a random id for every report.
-                    report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
+                    report_endpoint = csp_report_endpoint(**report_params, distinct_id=distinct_id)
                 # The policy has no `report-to` directive, even though CSP3 marks `report-uri` as
                 # deprecated. While a policy names `report-to`, browsers ignore its `report-uri` and
                 # send reports only through the Reporting API. That API drops violations raised in
