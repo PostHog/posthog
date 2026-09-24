@@ -60,5 +60,9 @@ const k = await api.dashboards.list()
 // ok: prefer-codegen-api
 const l = await legalDocumentsList(orgId)
 
-// nosemgrep: prefer-codegen-api
+// nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
 const m = await api.get(`api/foo`)
+
+// ruleid: prefer-codegen-api-reason
+// nosemgrep: prefer-codegen-api
+const n = await api.get(`api/foo`)

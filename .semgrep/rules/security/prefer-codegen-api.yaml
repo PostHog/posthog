@@ -56,3 +56,32 @@ rules:
               # and a test is not where the frontend's API contract lives.
               - '**/*.test.ts'
               - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
+
+    - id: prefer-codegen-api-reason
+      message: >-
+          A `prefer-codegen-api` suppression needs a reason. Write it after ` -- ` on the
+          same line, for example
+          `// nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.`
+          The reason tells the next reader whether the raw call is a real exception or
+          debt to migrate.
+      severity: ERROR
+      languages: [typescript, javascript]
+      # Semgrep matches a nosemgrep id exactly, so the bare marker that silences
+      # prefer-codegen-api on this line does not silence this rule.
+      pattern-regex: '//\s*nosemgrep:[^\n]*prefer-codegen-api(?![\w-])(?![^\n]*\s--\s*\S)'
+      # Same scope as prefer-codegen-api.
+      paths:
+          include:
+              - '/frontend/src/'
+              - '/products/*/frontend/'
+          exclude:
+              - '**/generated/**'
+              - '/frontend/src/lib/api.ts'
+              - '/frontend/src/lib/api-orval-mutator.ts'
+              - '/frontend/src/lib/api-stream.ts'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
