@@ -11,8 +11,14 @@ const PLACEHOLDER_CATEGORY_COUNT = 8
 export function SourceCatalogSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex flex-row sm:flex-col gap-1 sm:w-56 sm:shrink-0">
-                <LemonSkeleton className="h-8" repeat={PLACEHOLDER_CATEGORY_COUNT} />
+            <div className="flex flex-row sm:flex-col gap-1 overflow-x-auto sm:w-56 sm:shrink-0">
+                {Array.from({ length: PLACEHOLDER_CATEGORY_COUNT }, (_, index) => (
+                    // `repeat` wraps each skeleton in a bare div, which a flex row collapses to
+                    // nothing, so each placeholder carries its own width.
+                    <div key={index} className="w-32 shrink-0 sm:w-full">
+                        <LemonSkeleton className="h-8" />
+                    </div>
+                ))}
             </div>
             <div className="flex flex-col gap-4 flex-1">
                 <LemonSkeleton className="h-10" />
