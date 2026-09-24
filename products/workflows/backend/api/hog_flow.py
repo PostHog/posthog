@@ -76,6 +76,7 @@ from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
+    MASKED_SECRET_VALUE,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -453,6 +454,120 @@ def mask_secret_action_inputs(
             if action_secrets.get(key) or inputs.get(key):
                 inputs[key] = {"secret": True}
     return actions
+
+
+# Entry names whose value is a credential. A template marks its own inputs secret, but a
+# dictionary-typed input is never one of them: a webhook's `headers` holds arbitrary keys, so a
+# bearer token typed into it stays in clear text. A superset of CREDENTIAL_HEADER_NAMES in
+# nodejs/src/cdp/utils.ts, which masks the same names out of what the worker logs; a name added
+# there belongs here too.
+_CREDENTIAL_ENTRY_NAMES = frozenset(
+    {
+        "access-token",
+        "accesstoken",
+        "api-key",
+        "apikey",
+        "auth-token",
+        "authtoken",
+        "authorization",
+        "cookie",
+        "authentication",
+        "credential",
+        "passcode",
+        "password",
+        "private-key",
+        "privatekey",
+        "proxy-authorization",
+        "secret",
+        "secret-key",
+        "secretkey",
+        "signing-key",
+        "signingkey",
+        "token",
+        "x-access-token",
+        "x-api-key",
+        "x-auth",
+        "x-auth-token",
+        "x-goog-api-key",
+        "x-secret",
+        "x-secret-key",
+    }
+)
+
+
+def _is_credential_entry_name(name: object) -> bool:
+    return isinstance(name, str) and name.strip().lower().replace("_", "-") in _CREDENTIAL_ENTRY_NAMES
+
+
+def redact_credential_entries(config: Any) -> None:
+    # Replace every credential entry inside a dictionary input with the read-back mask. Mutates the
+    # given config (callers must pass a copy). The entry key stays, so a reader can still tell that
+    # authentication is configured without seeing the credential.
+    inputs = config.get("inputs") if isinstance(config, dict) else None
+    if not isinstance(inputs, dict):
+        return
+    for entry in inputs.values():
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if not isinstance(value, dict):
+            continue
+        redacted = False
+        for name, stored in value.items():
+            if stored and _is_credential_entry_name(name):
+                value[name] = MASKED_SECRET_VALUE
+                redacted = True
+        if redacted:
+            # The compiled forms of an input embed its literals, so they carry the credential too.
+            # Drop them; a write recompiles them from the recovered value.
+            entry.pop("bytecode", None)
+            entry.pop("transpiled", None)
+
+
+def redact_credential_content(content: dict) -> None:
+    # Redact every action of a content snapshot, plus its separately-serialized `trigger` (the
+    # summary serializer returns `trigger` without `actions`, so it cannot be re-derived there).
+    for flow_action in content.get("actions") or []:
+        if isinstance(flow_action, dict):
+            redact_credential_entries(flow_action.get("config"))
+    trigger = content.get("trigger")
+    if isinstance(trigger, dict):
+        redact_credential_entries(trigger)
+
+
+def stored_action_inputs(instance: "HogFlow") -> dict[str, dict]:
+    # Each action's stored config.inputs, keyed by action id, draft winning over live because that is
+    # the content the client last read back. The recovery base for a resent credential mask.
+    result: dict[str, dict] = {}
+    for actions in (instance.actions, (instance.draft or {}).get("actions")):
+        if not isinstance(actions, list):
+            continue
+        for flow_action in actions:
+            if not isinstance(flow_action, dict):
+                continue
+            action_id = flow_action.get("id")
+            inputs = (flow_action.get("config") or {}).get("inputs")
+            if isinstance(action_id, str) and isinstance(inputs, dict):
+                result[action_id] = inputs
+    return result
+
+
+def restore_redacted_credential_entries(inputs: Any, existing_inputs: Any) -> None:
+    # A mask resent inside a dictionary input means "keep the stored value". Persisting it would put
+    # the literal mask on the wire as the credential, so every request the action makes would be
+    # rejected. Swap the stored value back in, or drop the entry when there is none.
+    if not isinstance(inputs, dict):
+        return
+    for key, entry in inputs.items():
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if not isinstance(value, dict):
+            continue
+        existing_entry = existing_inputs.get(key) if isinstance(existing_inputs, dict) else None
+        existing_value = existing_entry.get("value") if isinstance(existing_entry, dict) else None
+        for name in [name for name, stored in value.items() if stored == MASKED_SECRET_VALUE]:
+            recovered = existing_value.get(name) if isinstance(existing_value, dict) else None
+            if recovered:
+                value[name] = recovered
+            else:
+                value.pop(name, None)
 
 
 def _mask_derived_trigger(content: dict, template_cache: Optional[TemplateCache] = None) -> None:
@@ -1641,6 +1756,12 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         if "function" in data.get("type", "") or trigger_is_function:
             config = data.setdefault("config", {})
+            # Recover before validation and before the template lookup, so a caller that read the
+            # step back over MCP and resent it keeps its credentials even when the template is
+            # unknown. Runs for every caller: only the writer knows whether the mask is a resend.
+            restore_redacted_credential_entries(
+                config.get("inputs"), (self.context.get("existing_action_inputs") or {}).get(data.get("id"))
+            )
             template_id = config.get("template_id", "")
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
@@ -2855,6 +2976,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
         # presence marker in the live actions and, when present, the staged draft's actions. Values
         # come from the encrypted columns (or legacy plaintext); see mask_secret_action_inputs.
+        redact_credentials = bool(self.context.get("redact_credential_entries"))
         live_secrets = instance.encrypted_inputs or {} if isinstance(instance, HogFlow) else {}
         draft_secrets = instance.draft_encrypted_inputs or {} if isinstance(instance, HogFlow) else {}
         data = super().to_representation(instance)
@@ -2872,13 +2994,24 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         if "trigger" in data and isinstance(instance, HogFlow):
             data["trigger"] = mask_trigger_config(instance, live_secrets, template_cache)
         draft = data.get("draft")
-        if isinstance(draft, dict) and isinstance(draft.get("actions"), list):
+        # Redaction mutates the draft too, so it needs the copy even when there is nothing to mask.
+        if isinstance(draft, dict) and (isinstance(draft.get("actions"), list) or redact_credentials):
             draft = deepcopy(draft)
-            draft["actions"] = mask_secret_action_inputs(
-                draft["actions"], merge_secret_maps(live_secrets, draft_secrets), template_cache
-            )
-            _mask_derived_trigger(draft, template_cache)
+            if isinstance(draft.get("actions"), list):
+                draft["actions"] = mask_secret_action_inputs(
+                    draft["actions"], merge_secret_maps(live_secrets, draft_secrets), template_cache
+                )
+                _mask_derived_trigger(draft, template_cache)
             data["draft"] = draft
+
+        if redact_credentials and isinstance(instance, HogFlow):
+            # An MCP caller reads a workflow to inspect it, so a credential inside a non-secret
+            # dictionary input (a webhook's Authorization header) is masked as well. The web app and
+            # the raw API keep the real value, which the builder needs to render and edit the step.
+            # A resent mask recovers on write; see restore_redacted_credential_entries.
+            redact_credential_content(data)
+            if isinstance(draft, dict):
+                redact_credential_content(draft)
 
         return data
 
@@ -3138,6 +3271,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
             self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
+            # Stored plaintext inputs, keyed by action id, so child action validation can recover a
+            # resent credential mask from inside a dictionary input (e.g. an Authorization header).
+            self.context["existing_action_inputs"] = stored_action_inputs(instance)
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
@@ -4096,6 +4232,9 @@ class HogFlowViewSet(
         # command). See _should_validate_strictly.
         context = super().get_serializer_context()
         context["event_source"] = get_event_source(self.request)
+        # MCP reads mask credentials that sit inside non-secret dictionary inputs. The web builder
+        # renders and edits those inputs, so it keeps the real values. See to_representation.
+        context["redact_credential_entries"] = self.request is not None and self._is_mcp_request(self.request)
         return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
