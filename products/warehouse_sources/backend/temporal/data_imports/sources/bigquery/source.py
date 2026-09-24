@@ -417,6 +417,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         # user did not pick must not block the save. That makes this the only check that stops a
         # source being created with no credentials at all.
         auth_type = job_inputs.get("auth_type")
+        selection: str | None
+        credentials: dict
         if isinstance(auth_type, str):
             # A select container also arrives as the bare string naming the chosen option, and
             # then its fields sit at the top level of the payload rather than under it.
