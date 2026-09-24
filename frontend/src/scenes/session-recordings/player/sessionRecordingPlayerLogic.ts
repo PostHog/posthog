@@ -89,6 +89,7 @@ import { makeLogger, makeNoOpLogger } from './utils/player-logging'
 import { deleteRecording } from './utils/playerUtils'
 import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
 import { shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
+import { continuesStallBurst, resolveStallRecovery } from './utils/stall-recovery'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -672,6 +673,10 @@ export interface sessionRecordingPlayerLogicValues {
     showPlayerChrome: boolean
     showingClipParams: boolean
     skipToFirstMatchingEvent: boolean
+    stallRecovery: {
+        attempts: number
+        lastAttemptAt: number | null
+    }
     timestampChangeTracking: {
         timestamp: number | null
         timestampMatchesPrevious: number
@@ -1014,12 +1019,12 @@ export interface sessionRecordingPlayerLogicActions {
         direction: 'backward' | 'forward'
         seconds: number
     }
-    skipPlayerForward: (
+    recoverStalledPlayer: (
         rrWebPlayerTime: number,
-        skip: number
+        at: number
     ) => {
         rrWebPlayerTime: number
-        skip: number
+        at: number
     }
     startBuffer: () => {
         value: true
@@ -1318,7 +1323,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
-        skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
+        recoverStalledPlayer: (rrWebPlayerTime: number, at: number) => ({ rrWebPlayerTime, at }),
         incrementClickCount: true,
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
@@ -1463,12 +1468,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                 : 0,
                     }
                 },
-                skipPlayerForward: () => {
+                recoverStalledPlayer: () => {
                     return {
                         timestamp: null,
                         timestampMatchesPrevious: 0,
                     }
                 },
+            },
+        ],
+        stallRecovery: [
+            { attempts: 0, lastAttemptAt: null } as { attempts: number; lastAttemptAt: number | null },
+            {
+                recoverStalledPlayer: (state, { at }) => ({
+                    attempts: continuesStallBurst(state.lastAttemptAt, at) ? state.attempts + 1 : 1,
+                    lastAttemptAt: at,
+                }),
             },
         ],
         currentSegment: [
@@ -2395,15 +2409,38 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             actions.fingerprintReported(fingerprint)
         },
-        skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
-            // if the player has got stuck on the same timestamp for several animation frames
-            // then we skip ahead a little to get past the blockage
-            // this is a KLUDGE to get around what might be a bug in rrweb
-            values.player?.replayer?.play(rrWebPlayerTime + skip)
-            posthog.capture('stuck session player skipped forward', {
-                sessionId: values.sessionRecordingId,
-                rrWebTime: rrWebPlayerTime,
-            })
+        recoverStalledPlayer: ({ rrWebPlayerTime }) => {
+            // The player has stayed on the same timestamp for several animation frames, so it is
+            // blocked. Each attempt of a burst skips further than the last, and once the attempts
+            // run out the player jumps to the next segment or reports the failure.
+            // This is a KLUDGE to get around what might be a bug in rrweb.
+            const attempt = values.stallRecovery.attempts - 1
+            const recovery = resolveStallRecovery(
+                attempt,
+                values.roughAnimationFPS,
+                values.currentTimestamp,
+                values.sessionPlayerData.segments
+            )
+
+            if (recovery.kind === 'skip') {
+                values.player?.replayer?.play(rrWebPlayerTime + recovery.skipMs)
+            } else if (recovery.kind === 'seekToSegment') {
+                actions.seekToTimestamp(recovery.timestamp, true)
+            } else {
+                actions.setPlayerError('playbackStalled')
+            }
+
+            // One blockage is one event. Without this an unrecoverable stall reports hundreds of
+            // times for a single view and buries how often rrweb actually blocks.
+            if (attempt === 0 || recovery.kind !== 'skip') {
+                posthog.capture('stuck session player skipped forward', {
+                    sessionId: values.sessionRecordingId,
+                    rrWebTime: rrWebPlayerTime,
+                    attempt,
+                    recovery: recovery.kind,
+                    skipMs: recovery.kind === 'skip' ? recovery.skipMs : undefined,
+                })
+            }
         },
         setRootFrame: () => {
             actions.tryInitReplayer()
@@ -3636,7 +3673,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.currentPlayerState === SessionPlayerState.PLAY ||
                 values.currentPlayerState === SessionPlayerState.SKIP
             if (rrwebPlayerTime !== undefined && canRecover) {
-                actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
+                actions.recoverStalledPlayer(rrwebPlayerTime, performance.now())
             }
         },
         playerError: (value) => {

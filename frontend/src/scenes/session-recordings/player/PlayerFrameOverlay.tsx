@@ -134,6 +134,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         // A player frame that never loaded leaves nothing to draw into, so its message outranks any snapshot error.
         const isMissingFullSnapshot = !playerFrameDocumentFailed && playerError === 'noPlayableFullSnapshot'
         const isUnauthorized = !playerFrameDocumentFailed && playerError === 'snapshotUnauthorized'
+        const isStalled = !playerFrameDocumentFailed && playerError === 'playbackStalled'
         const isRecoverable =
             !playerFrameDocumentFailed && !!playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)
         content = (
@@ -153,9 +154,11 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                           ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
                           : isUnauthorized
                             ? 'Your session has expired. Sign in again to keep watching this recording.'
-                            : isRecoverable
-                              ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
-                              : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                            : isStalled
+                              ? 'Playback stopped responding at this point and we could not get it going again. Reload the page, or skip ahead to a later part of the recording.'
+                              : isRecoverable
+                                ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
+                                : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {isUnauthorized && (
                     <LemonButton to={urls.login()} type="primary" fullWidth center>
