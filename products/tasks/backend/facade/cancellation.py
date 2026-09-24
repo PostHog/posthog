@@ -88,7 +88,7 @@ def _publish_cancel_fallback_completion(run: TaskRun) -> bool:
         publish_run_stream_completion(str(run.id))
         TaskRun.update_state_atomic(run.id, updates={"cancel_fallback_cleanup_complete": False})
     except Exception:
-        logger.warning("Failed to complete stream for workflow-gone run %s", run.id, exc_info=True)
+        logger.warning("Failed to complete stream for cancelled run %s", run.id, exc_info=True)
         return False
     return True
 
@@ -176,11 +176,16 @@ def cancel_task_run(
         )
         if dto is not None:
             capture_cancel_request(run, "not_needed")
+            run.refresh_from_db(fields=["state"])
+            if not _publish_cancel_fallback_completion(run):
+                return "unavailable", dto
             return "accepted", dto
         run = tasks_api._get_visible_run(run_id, task_id, team_id)
         if run is None:
             return "not_found", None
         if run.is_terminal:
+            if not _publish_cancel_fallback_completion(run):
+                return "unavailable", tasks_api._task_run_detail_to_dto(run)
             return "already_terminal", tasks_api._task_run_detail_to_dto(run)
 
     _interrupt_agent_turn(run, requested_by_user_id, requested_by_distinct_id)

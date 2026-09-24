@@ -1655,6 +1655,8 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         cache_task_staged_artifact(task, artifact)
         head.return_value = {"LastModified": datetime(2026, 9, 18, tzinfo=UTC)} if exists else None
+        transaction_depth = len(connection.atomic_blocks)
+        tag.side_effect = lambda *_args: self.assertEqual(len(connection.atomic_blocks), transaction_depth)
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
@@ -1668,6 +1670,7 @@ class TestTaskAPI(BaseTaskAPITest):
             run = TaskRun.objects.get(task=task)
             assert run.status == TaskRun.Status.NOT_STARTED
             assert run.artifacts == [artifact]
+            tag.assert_called_once_with(artifact["storage_path"], {"ttl_days": "30", "team_id": str(self.team.id)})
             assert get_task_staged_artifacts(task, ["artifact-123"]) == ([], ["artifact-123"])
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -1677,7 +1680,7 @@ class TestTaskAPI(BaseTaskAPITest):
             tag.assert_not_called()
         assert not TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run__task=task).exists()
 
-    @parameterized.expand([("retention",), ("manifest",), ("cache",)])
+    @parameterized.expand([("retention",), ("partial_retention",), ("manifest",), ("cache",)])
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.head_object_strict")
@@ -1694,7 +1697,12 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         cache_task_staged_artifact(task, artifact)
         head.return_value = {"LastModified": django_timezone.now()}
-        payload = {"scheduled_at": "2026-09-19T12:00:00Z", "pending_user_artifact_ids": ["artifact-123"]}
+        artifact_ids = ["artifact-123"]
+        if failure == "partial_retention":
+            second_artifact = {**artifact, "id": "artifact-456", "storage_path": artifact["storage_path"] + "-second"}
+            cache_task_staged_artifact(task, second_artifact)
+            artifact_ids.append("artifact-456")
+        payload = {"scheduled_at": "2026-09-19T12:00:00Z", "pending_user_artifact_ids": artifact_ids}
         url = f"/api/projects/{self.team.id}/tasks/{task.id}/run/"
 
         if failure == "cache":
@@ -1708,11 +1716,16 @@ class TestTaskAPI(BaseTaskAPITest):
         else:
             failure_path = (
                 "posthog.storage.object_storage.tag"
-                if failure == "retention"
+                if failure in ("retention", "partial_retention")
                 else "products.tasks.backend.facade.api._save_artifact_manifest"
             )
             with (
-                patch(failure_path, side_effect=RuntimeError("Attachment setup failed")),
+                patch(
+                    failure_path,
+                    side_effect=[None, RuntimeError("Attachment setup failed")]
+                    if failure == "partial_retention"
+                    else RuntimeError("Attachment setup failed"),
+                ),
                 self.captureOnCommitCallbacks(execute=True),
             ):
                 response = self.client.post(url, payload, format="json")
@@ -9643,14 +9656,24 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         kwargs.setdefault("environment", TaskRun.Environment.CLOUD)
         return TaskRun.objects.create(task=task, team=self.team, **kwargs)
 
+    @parameterized.expand([("success", False), ("retry", True)])
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
     @patch("posthog.temporal.common.client.sync_connect")
     @patch("products.tasks.backend.facade.cancellation._signal_complete_task")
     @patch("products.tasks.backend.facade.api.send_cancel")
     def test_cancel_scheduled_run_before_dispatch(
-        self, mock_send_cancel, mock_signal, mock_connect, mock_notify, mock_capture
+        self,
+        _name,
+        fail_completion,
+        mock_send_cancel,
+        mock_signal,
+        mock_connect,
+        mock_notify,
+        mock_capture,
+        mock_complete,
     ):
         task = self.create_task()
         transaction_depth = len(connection.atomic_blocks)
@@ -9660,12 +9683,24 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             extra_state={"pending_dispatch": {"user_id": self.user.id, "posthog_mcp_scopes": "read_only"}},
         )
 
-        for expected_status in (status.HTTP_202_ACCEPTED, status.HTTP_200_OK):
+        def complete_stream(run_id: str, use_dedicated: bool) -> bool:
+            self.assertEqual(len(connection.atomic_blocks), transaction_depth)
+            cancelled_run = TaskRun.objects.get(id=run_id)
+            assert cancelled_run.status == TaskRun.Status.CANCELLED
+            assert cancelled_run.state["cancel_fallback_cleanup_complete"] is True
+            return not (fail_completion and mock_complete.call_count == 1)
+
+        mock_complete.side_effect = complete_stream
+        first_status = status.HTTP_503_SERVICE_UNAVAILABLE if fail_completion else status.HTTP_202_ACCEPTED
+        for expected_status in (first_status, status.HTTP_200_OK, status.HTTP_200_OK):
             response = self.client.post(self._cancel_url(task, run), {}, format="json")
             assert response.status_code == expected_status
         run.refresh_from_db()
         assert run.status == TaskRun.Status.CANCELLED
         assert run.completed_at is not None
+        assert run.state["cancel_fallback_cleanup_complete"] is False
+        assert mock_complete.call_count == (2 if fail_completion else 1)
+        assert mock_complete.call_args.args[0] == str(run.id)
         mock_send_cancel.assert_not_called()
         mock_signal.assert_not_called()
         mock_connect.assert_not_called()
@@ -9680,7 +9715,10 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
     @patch("products.tasks.backend.facade.api.send_cancel")
     @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled")
-    def test_cancel_scheduled_run_signals_workflow_if_dispatch_wins(self, mock_signal, _mock_send_cancel, _mock_token):
+    @patch("products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete")
+    def test_cancel_scheduled_run_signals_workflow_if_dispatch_wins(
+        self, mock_complete, mock_signal, _mock_send_cancel, _mock_token
+    ):
         task = self.create_task()
         run = task.create_run(scheduled_at=django_timezone.now() + timedelta(days=1))
         update_run = tasks_facade.update_task_run
@@ -9697,6 +9735,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_202_ACCEPTED
         run.refresh_from_db()
         assert run.status == TaskRun.Status.QUEUED
+        assert not run.state.get("cancel_fallback_cleanup_complete")
+        mock_complete.assert_not_called()
         mock_signal.assert_called_once()
         assert mock_signal.call_args.args[0].status == TaskRun.Status.QUEUED
 

@@ -71,7 +71,7 @@ So do `tasks-create-and-run` and `tasks-run-create` in MCP.
 Use a future ISO 8601 time within 30 days; missing offsets mean UTC. Omit or send null to start immediately. Attached files must remain valid until the scheduled time.
 Scheduled runs require background ACP execution, server-managed credentials, and the PostHog gateway. Dispatch rechecks task access and usage limits.
 Model settings use saved defaults or the previous run on resume. Use `tasks-models-retrieve` for explicit model and effort choices.
-The existing run cancellation endpoint also supports scheduled runs.
+The existing run cancellation endpoint also supports scheduled runs and closes their event streams. Retry a `503` response to complete stream cleanup.
 
 - `TaskCreateSerializer` accepts a channel UUID from the same project. The requester must have access to the channel.
 - An ordinary user task without a channel goes into the user's `#me` space.
