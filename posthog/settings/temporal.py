@@ -31,8 +31,12 @@ MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES"
 # pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
 # pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
 ASYNCIFY_MAX_WORKERS: int = get_from_env("ASYNCIFY_MAX_WORKERS", 32, type_cast=int)
-TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
-TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
+TEMPORAL_TARGET_MEMORY_USAGE: float | None = get_from_env(
+    "TEMPORAL_TARGET_MEMORY_USAGE", None, optional=True, type_cast=float
+)
+TEMPORAL_TARGET_CPU_USAGE: float | None = get_from_env(
+    "TEMPORAL_TARGET_CPU_USAGE", None, optional=True, type_cast=float
+)
 
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(

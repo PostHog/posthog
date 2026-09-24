@@ -1,8 +1,11 @@
 import os
 import re
 import sys
+import weakref
 import subprocess
 from pathlib import Path
+
+from django.db.models.signals import post_save
 
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
 # deliberately pulled off the startup path (lazy API router, deferred AI-core imports,
@@ -293,6 +296,25 @@ def test_setup_receivers_match_baseline() -> None:
         "If the new wiring is deliberate (receiver in an import-light module, imported from the owning "
         "AppConfig.ready() — see docs/internal/django-startup-time.md), record it: "
         "UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match"
+    )
+
+
+# The baseline above resolves a weak receiver and skips a dead one, so it cannot see a receiver that
+# stays alive only by accident. The weak=False comment in register_team_extension_signal explains why
+# a weakly connected receiver survives under DEBUG and dies in production.
+def test_team_extension_receivers_are_connected_strongly() -> None:
+    extension_receivers = [entry for entry in post_save.receivers if str(entry[0][0]).startswith("create_")]
+    assert extension_receivers, (
+        "Found no create_* receivers on post_save. Did the dispatch_uid in register_team_extension_signal "
+        "change, or does no extension register the hook any more?"
+    )
+    weakly_held = sorted(
+        str(entry[0][0]) for entry in extension_receivers if isinstance(entry[1], weakref.ReferenceType)
+    )
+    assert not weakly_held, (
+        f"These team-extension receivers are connected weakly: {weakly_held}. "
+        "Pass weak=False in register_team_extension_signal, or the receiver is collected right after "
+        "registration and no extension row is written when a team is created."
     )
 
 

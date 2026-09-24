@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from modal import Probe
@@ -76,6 +77,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _get_sandbox_image_reference,
     _image_ref_cache,
     _merge_runtime_dependency_specs,
+    _pep723_script_header,
     _resource_create_kwargs,
     _session_init_probe_hosts,
 )
@@ -310,6 +312,16 @@ class TestGetSandboxImageReferenceIntegration:
         digest_part = result.split("@")[1]
         assert digest_part.startswith("sha256:")
         assert len(digest_part) == 71  # "sha256:" + 64 hex chars
+
+
+class TestStamphogReviewImageDeps:
+    def test_reads_the_dependency_header_of_the_real_engine_script(self) -> None:
+        header = _pep723_script_header(Path(settings.STAMPHOG_REVIEW_ENGINE_SCRIPT))
+
+        lines = header.splitlines()
+        assert lines[0] == "# /// script"
+        assert lines[-1] == "# ///"
+        assert any(line.startswith("# dependencies = [") for line in lines)
 
 
 class TestGetModalRegion:
@@ -932,7 +944,13 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.supports_combined_agent_server_start_and_health() is True
 
     @pytest.mark.parametrize(
-        "exit_code, stdout, expected", [(0, "ok:3", True), (1, "", False), (1, "claude_credential_unavailable", None)]
+        "exit_code, stdout, expected",
+        [
+            (0, "ok:3", True),
+            (1, "", False),
+            (1, "claude_credential_unavailable", None),
+            (1, "codex_credential_unavailable", None),
+        ],
     )
     def test_wait_for_health_check(self, mock_sandbox: Any, exit_code, stdout, expected):
         from products.tasks.backend.exceptions import ProcessTaskFatalError

@@ -5,10 +5,12 @@ import hashlib
 import threading
 import traceback
 import contextlib
+import contextvars
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from typing import TypeVar
+from functools import partial
+from typing import ParamSpec, TypeVar
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
@@ -79,7 +81,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import get_metric_meter
 
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -105,6 +107,19 @@ from products.product_analytics.backend.facade.api import lock_insight_for_evalu
 logger = structlog.get_logger(__name__)
 
 _T = TypeVar("_T")
+_P = ParamSpec("_P")
+
+# Slow evaluations must not occupy the threads that renew their leases or cancel their queries.
+_ADMISSION_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="insight-alert-admission")
+_CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-cancel")
+
+
+async def _run_control(
+    executor: ThreadPoolExecutor, function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+) -> _T:
+    context = contextvars.copy_context()
+    return await asyncio.get_running_loop().run_in_executor(executor, partial(context.run, function, *args, **kwargs))
+
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
@@ -230,8 +245,12 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
 
 @temporalio.activity.defn
 async def admit_alert_evaluations(inputs: AdmitEvaluationsInputs) -> AdmittedEvaluations:
-    admitted = await asyncio.to_thread(
-        admit_evaluation_slots, inputs.alert_ids, limit=max_inflight_evaluations(), expires_at=inputs.expires_at
+    admitted = await _run_control(
+        _ADMISSION_EXECUTOR,
+        admit_evaluation_slots,
+        inputs.alert_ids,
+        limit=max_inflight_evaluations(),
+        expires_at=inputs.expires_at,
     )
     try:
         get_metric_meter().create_counter(
@@ -244,7 +263,7 @@ async def admit_alert_evaluations(inputs: AdmitEvaluationsInputs) -> AdmittedEva
 
 @temporalio.activity.defn
 async def release_alert_evaluation_slots(inputs: ReleaseEvaluationSlotsInputs) -> None:
-    await asyncio.to_thread(release_evaluation_slots, inputs.alert_ids, held_until=inputs.held_until)
+    await _run_control(_ADMISSION_EXECUTOR, release_evaluation_slots, inputs.alert_ids, held_until=inputs.held_until)
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
@@ -279,8 +298,12 @@ async def _hold_evaluation_slot_before_running(alert_id: str, *, lease_seconds: 
     waited_since: float | None = None
     while True:
         try:
-            held_until = await asyncio.to_thread(
-                hold_evaluation_slot, alert_id, limit=max_inflight_evaluations(), lease_seconds=lease_seconds
+            held_until = await _run_control(
+                _ADMISSION_EXECUTOR,
+                hold_evaluation_slot,
+                alert_id,
+                limit=max_inflight_evaluations(),
+                lease_seconds=lease_seconds,
             )
         except Exception:
             if waited_since is None:
@@ -353,8 +376,12 @@ class _SlotHolder:
                 pass
             expires_at = time.time() + lease.lease.total_seconds()
             try:
-                owned = await asyncio.to_thread(
-                    refresh_evaluation_slot, self.alert_id, held_until=held_until, expires_at=expires_at
+                owned = await _run_control(
+                    _ADMISSION_EXECUTOR,
+                    refresh_evaluation_slot,
+                    self.alert_id,
+                    held_until=held_until,
+                    expires_at=expires_at,
                 )
             except Exception:
                 logger.exception("alerts.admission.refresh_failed", alert_id=self.alert_id)
@@ -377,7 +404,7 @@ class _SlotHolder:
     async def release(self) -> None:
         await self._stop_refreshing()
         if self.held_until is not None:
-            await asyncio.to_thread(release_evaluation_slot, self.alert_id, held_until=self.held_until)
+            await _run_control(_ADMISSION_EXECUTOR, release_evaluation_slot, self.alert_id, held_until=self.held_until)
 
 
 async def _finish(cleanup: Awaitable[_T]) -> _T:
@@ -556,7 +583,13 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     # so a timed-out attempt that finishes late would otherwise remove the lease a retried attempt holds.
     # No room means the reservation lapsed and the set filled up; prepare runs no query, so it goes
     # on without a slot and evaluate_alert waits for one.
-    held_until = await asyncio.to_thread(hold_evaluation_slot, inputs.alert_id, limit=max_inflight_evaluations())
+    try:
+        held_until = await _run_control(
+            _ADMISSION_EXECUTOR, hold_evaluation_slot, inputs.alert_id, limit=max_inflight_evaluations()
+        )
+    except Exception:
+        logger.exception("alerts.admission.hold_failed", alert_id=inputs.alert_id)
+        held_until = None
     return await _run_holding_slot(
         inputs.alert_id,
         held_until,
@@ -591,6 +624,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
     info = temporalio.activity.info()
     evaluation_id = f"{info.workflow_run_id}:{info.activity_id}"
+    # Keep detector idempotency stable, but prevent cleanup from cancelling a replacement attempt.
+    query_id = f"{evaluation_id}:{info.attempt}:"
     # Set once cancellation begins. A kill misses a query that has not started or that finishes
     # between two kills, and a thread abandoned after the kill budget can wake up later, so the
     # thread itself checks this before it queries and before it records. An attempt that a retry
@@ -612,7 +647,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # client_query_id names every query of this attempt, so a cancelled attempt can kill them.
         tag_queries(
             team_id=alert.team_id,
-            client_query_id=evaluation_id,
+            client_query_id=query_id,
             alert_config_id=str(alert.id),
             product=Product.PRODUCT_ANALYTICS,
             feature=Feature.ALERTING,
@@ -636,12 +671,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # A cancelled attempt kills its query and decides what to record; the thread it left
             # behind must not write a check of its own.
             raise
+        except AlertDataUnavailableError as err:
+            error = {"message": str(err)}
         except LLMDetectorUnavailableError:
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
             # re-raise so the retry policy gets another attempt. Once the attempts run out the
             # retry-exhausted path records an errored check, the same outcome as any other
             # evaluation that never produced a value.
-            record_ai_detector_check_outcome("unavailable")
             raise
         except LLMDetectorMisconfiguredError as err:
             # Same fail-loud outcome as a bad query shape below, counted apart because a
@@ -697,6 +733,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             current_alert = _lock_evaluation_alert(
                 alert_id=inputs.alert_id, team_id=evaluated_alert.team_id, insight_id=evaluated_alert.insight_id
             )
+            _stop_if_cancelled()
             if current_alert is None or not _evaluation_inputs_match(evaluated_fingerprint, current_alert):
                 # Leave the current state and due time intact. The next scheduler tick can
                 # evaluate the edited alert; a disabled or deleted alert needs no further work.
@@ -760,7 +797,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # could pick up an AI detector and run its model call on the shared pool.
         alert = await _load_alert_for_evaluation(inputs)
         team_id = alert.team_id
-        executor = _LLM_EVALUATE_EXECUTOR if is_llm_detector_config(alert.detector_config) else None
+        uses_llm_detector = is_llm_detector_config(alert.detector_config)
+        if uses_llm_detector != inputs.uses_llm_detector:
+            # The prepare phase picked the task queue from the detector type it read, and only
+            # the AI worker holds the model credentials. An edit since then means this worker may
+            # not be able to run the alert as it now stands, so leave it to the next scheduler
+            # tick, which prepares and routes it again.
+            logger.info("alerts.skip_detector_type_changed", alert_id=inputs.alert_id)
+            return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
+        executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
         # Shielded, so cancelling the attempt leaves this future to complete when the thread exits,
         # which is what _stop_work waits for.
         thread = asyncio.ensure_future(
@@ -790,7 +835,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         give_up_at = time.monotonic() + timeouts.activity_schedule_to_close.total_seconds()
         while not thread.done() and time.monotonic() < give_up_at:
             try:
-                await asyncio.to_thread(cancel_query_on_cluster, team_id, evaluation_id)
+                await _run_control(_CANCELLATION_EXECUTOR, cancel_query_on_cluster, team_id, query_id)
             except Exception:
                 logger.exception("alerts.evaluate.cancel_query_failed", alert_id=inputs.alert_id)
             await asyncio.wait({thread}, timeout=_SLOT_POLL_SECONDS)
@@ -923,10 +968,16 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
                 # machine keeps that from sending a duplicate notification.
                 if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
                     return RecordFailedEvaluationResult()
-                alert_check, should_notify = _write_errored_alert_check(alert, _failed_evaluation_error(inputs))
+                error = _failed_evaluation_error(inputs)
+                alert_check, should_notify = _write_errored_alert_check(alert, error)
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()
+
+        # Counted here and not on the failing attempt, so one scheduled check stays one increment
+        # however many times Temporal retried it.
+        if error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
+            record_ai_detector_check_outcome("unavailable")
 
         logger.warning(
             "alerts.recorded_failed_evaluation",
@@ -1000,11 +1051,10 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
         )
         title = f"{alert_name[:75]} could not be evaluated"
         if error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
-            # A provider PostHog could not reach is not something the alert's owner can fix,
+            # A check the AI detector could not complete is not something the owner can fix,
             # so this case drops the advice to review the alert settings.
             body = (
                 f"PostHog could not evaluate this alert: {error_message}. "
-                "The alert and insight settings are correct, so there is nothing to change. "
                 f"{next_check_message} If it fails again, contact support."
             )
         else:

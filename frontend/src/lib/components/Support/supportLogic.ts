@@ -512,6 +512,9 @@ export const supportLogic = kea<supportLogicType>([
             exception_event,
             billing_issue,
             target,
+            ai_conversation_id,
+            ai_trace_id,
+            ai_feedback_rating,
         }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
@@ -521,6 +524,10 @@ export const supportLogic = kea<supportLogicType>([
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
                 billing_issue: billing_issue ?? false,
+                // Carried through so a PostHog AI handover still attributes the ticket it files.
+                ai_conversation_id,
+                ai_trace_id,
+                ai_feedback_rating,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {

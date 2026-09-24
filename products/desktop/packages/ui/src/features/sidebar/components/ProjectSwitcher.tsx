@@ -14,7 +14,6 @@ import {
   SignOut,
 } from "@phosphor-icons/react";
 import {
-  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -54,6 +53,7 @@ import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import { NavRailTile } from "@posthog/ui/features/sidebar/components/NavRailTile";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import {
@@ -263,14 +263,13 @@ export function ProjectSwitcher({
       <DropdownMenuTrigger
         render={
           isIcon ? (
-            <Button
-              variant="outline"
-              size="icon"
+            <NavRailTile
               aria-label={projectName}
-              className="shrink-0 font-semibold text-[11px] text-muted-foreground uppercase hover:bg-fill-selected aria-expanded:bg-fill-active"
+              caption={projectName}
+              tileClassName="border border-border bg-fill-secondary font-semibold text-xs uppercase"
             >
               {projectInitials}
-            </Button>
+            </NavRailTile>
           ) : (
             <Item
               size="xs"

@@ -1013,7 +1013,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
-                'mcp-analytics',
+                'mcp-analytics-intent-routing',
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',

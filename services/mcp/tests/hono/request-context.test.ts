@@ -309,16 +309,43 @@ describe('RequestContext', () => {
         })
     })
 
+    describe('getSessionUuid memoization', () => {
+        it('serves one lookup per key and retries after a failure', async () => {
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+            const spy = vi.spyOn(ctx.sessionManager, 'getSessionUuid')
+
+            const first = await ctx.getSessionUuid('sess-memo')
+            const second = await ctx.getSessionUuid('sess-memo')
+            expect(second).toBe(first)
+            expect(spy).toHaveBeenCalledTimes(1)
+
+            // A cached rejection would outlive the blip that caused it, and three tool-error
+            // paths await this outside a try.
+            spy.mockRejectedValueOnce(new Error('redis down'))
+            await expect(ctx.getSessionUuid('sess-retry')).rejects.toThrow('redis down')
+            spy.mockRestore()
+            await expect(ctx.getSessionUuid('sess-retry')).resolves.toMatch(/^[0-9a-f-]{36}$/)
+        })
+    })
+
     describe('getEffectiveSessionUuid', () => {
         it.each([
-            { sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
-            { sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
-            { sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+            { mcpConversationId: undefined, sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
+            { mcpConversationId: undefined, sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
+            { mcpConversationId: undefined, sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+            { mcpConversationId: 'conv-1', sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'conv-1' },
+            // MCP 2026-07-28 sends neither of the other two, so without the handle these events
+            // ship with no `$session_id`.
+            { mcpConversationId: 'conv-1', sessionId: undefined, mcpSessionId: undefined, expectedKey: 'conv-1' },
         ])(
-            'sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
-            async ({ sessionId, mcpSessionId, expectedKey }) => {
+            'conversationId=$mcpConversationId sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
+            async ({ mcpConversationId, sessionId, mcpSessionId, expectedKey }) => {
                 const ctx = new RequestContext(fakeRedis(), env, makeProps())
-                const effective = await ctx.getEffectiveSessionUuid({ sessionId, mcpSessionId } as any)
+                const effective = await ctx.getEffectiveSessionUuid({
+                    mcpConversationId,
+                    sessionId,
+                    mcpSessionId,
+                } as any)
 
                 expect(effective).toBe(expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined)
                 if (expectedKey) {
