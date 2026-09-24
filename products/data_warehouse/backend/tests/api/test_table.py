@@ -2,7 +2,7 @@ import ipaddress
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
@@ -936,9 +936,14 @@ class TestTable(APIBaseTest):
         file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
         test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
 
-        with patch(
-            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
-        ) as mock_get_columns:
+        with (
+            patch("products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns,
+            # Quote detection reads the file for real, which a mocked S3 client can't serve.
+            patch(
+                "products.warehouse_sources.backend.models.table.DataWarehouseTable.detect_csv_double_quotes_setting",
+                return_value=True,
+            ),
+        ):
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
                 "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
@@ -964,6 +969,7 @@ class TestTable(APIBaseTest):
         # Verify the table was created
         table = DataWarehouseTable.objects.get(name="test_csv_table")
         assert table is not None
+        assert table.options == {"csv_allow_double_quotes": True}
 
         # Verify S3 client was called to upload the file
         mock_s3.upload_fileobj.assert_called_once_with(
@@ -972,6 +978,47 @@ class TestTable(APIBaseTest):
 
         # Verify URL pattern was set correctly
         assert table.url_pattern == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/test_file.csv"
+
+    @parameterized.expand(
+        [
+            ("neither_quote_setting_parses", None, "comma-separated CSV with a header row"),
+            ("the_read_fails_outright", ServerException("Access Denied", code=499), "Failed to upload file"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_leaves_no_table_when_the_csv_cannot_be_read(
+        self, _name, detect_outcome, expected_message, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("test_file.csv", b'id,name\n1,"Test\n', content_type="text/csv")
+        detect = Mock(side_effect=detect_outcome) if isinstance(detect_outcome, Exception) else Mock(return_value=None)
+
+        s3 = MagicMock()
+
+        with (
+            patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", detect),
+            patch("products.data_warehouse.backend.presentation.views.table.get_s3_client", return_value=s3),
+            self.settings(
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "unreadable_csv", "format": "CSVWithNames"},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert expected_message in response.json()["message"]
+        assert not DataWarehouseTable.objects.filter(name="unreadable_csv").exists()
+        s3.rm.assert_called_once_with(f"test-warehouse-bucket/managed/team_{self.team.id}/test_file.csv")
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_file_upload_api_disabled(self, mock_feature_enabled):
@@ -1009,6 +1056,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert "Table names must start with a letter or underscore" in response.json()["message"]
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_updates_existing_table(self, mock_boto3_client, mock_feature_enabled):
@@ -1075,6 +1123,7 @@ class TestTable(APIBaseTest):
                 if "Key" in obj:
                     s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_file_upload_with_minio(self, mock_feature_enabled):
         """Test file upload using actual MinIO bucket instead of mocking."""
@@ -1140,6 +1189,7 @@ class TestTable(APIBaseTest):
         self._delete_all_from_s3(s3_client, test_bucket_name)
         s3_client.delete_bucket(Bucket=test_bucket_name)
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_sanitizes_filename_for_s3_key(self, mock_boto3_client, mock_feature_enabled):
@@ -1211,6 +1261,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert "Table names must start with a letter" in response.json()["message"]
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_table_name_defaults_to_sanitized_filename_when_valid(
