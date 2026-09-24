@@ -1,2 +1,10 @@
+pub mod checkpoint;
 pub mod command;
 pub mod config;
+pub mod emit;
+pub mod loki;
+pub mod mapping;
+pub mod plan;
+pub mod run;
+pub mod send;
+pub mod shard;
