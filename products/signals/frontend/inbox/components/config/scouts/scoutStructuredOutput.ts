@@ -8,60 +8,17 @@ export interface ScoutStructuredOutputSchemaParse {
     error: string | null
 }
 
-// Positions the config API walks without reading their keys as JSON Schema keywords: a record
-// property may legitimately be named `pattern`, and an example payload may contain any key.
-const NAME_MAP_KEYS = ['properties', '$defs', 'definitions', 'dependentSchemas']
-const DATA_KEYS = ['default', 'const', 'enum', 'examples']
-const REFERENCE_KEYS = ['$ref', '$dynamicRef', '$recursiveRef']
-const REGEX_KEYWORDS = ['pattern', 'patternProperties']
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function unsupportedConstructError(node: unknown): string | null {
-    if (Array.isArray(node)) {
-        for (const item of node) {
-            const error = unsupportedConstructError(item)
-            if (error) {
-                return error
-            }
-        }
-        return null
-    }
-    if (!isPlainObject(node)) {
-        return null
-    }
-    for (const [key, value] of Object.entries(node)) {
-        if (DATA_KEYS.includes(key)) {
-            continue
-        }
-        if (NAME_MAP_KEYS.includes(key) && isPlainObject(value)) {
-            for (const subSchema of Object.values(value)) {
-                const error = unsupportedConstructError(subSchema)
-                if (error) {
-                    return error
-                }
-            }
-            continue
-        }
-        if (REFERENCE_KEYS.includes(key) && typeof value === 'string' && !value.startsWith('#')) {
-            return `The schema can only reference itself, so "${key}" must start with #.`
-        }
-        if (REGEX_KEYWORDS.includes(key)) {
-            return `The schema can't use "${key}". Use enum, type, length, or numeric bounds instead.`
-        }
-        const error = unsupportedConstructError(value)
-        if (error) {
-            return error
-        }
-    }
-    return null
-}
-
 /**
- * Read the editor text as a record schema, applying the rules the config API applies, so a
- * malformed schema is named under the field rather than coming back as a rejected save.
+ * Read the editor text as a record schema, applying the shape rules the config API applies, so a
+ * malformed schema is named under the field rather than coming back as a rejected save. The API
+ * also refuses schema constructs that would attack the worker, such as a reference to another
+ * document or a regex keyword. Those rules stay on the server alone, because a copy here can only
+ * drift, and a copy that drifts toward strict refuses a schema the API accepts. The save surfaces
+ * the API's own message for them.
  * Blank text is a half-finished edit, not a clear: it parses to no schema and no error.
  */
 export function parseScoutStructuredOutputSchema(text: string): ScoutStructuredOutputSchemaParse {
@@ -86,10 +43,6 @@ export function parseScoutStructuredOutputSchema(text: string): ScoutStructuredO
             schema: null,
             error: `The schema is over the ${SCOUT_STRUCTURED_OUTPUT_SCHEMA_MAX_BYTES} byte limit. Describe fewer fields.`,
         }
-    }
-    const constructError = unsupportedConstructError(parsed)
-    if (constructError) {
-        return { schema: null, error: constructError }
     }
     return { schema: parsed, error: null }
 }
