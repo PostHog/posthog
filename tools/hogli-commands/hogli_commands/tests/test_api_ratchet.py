@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -189,13 +190,14 @@ def _write_repo(
     api_ts: str = API_TS_FIXTURE,
     baseline: str | None = None,
     generated_signals: str = GENERATED_SIGNALS,
+    generated_workflows: str = GENERATED_WORKFLOWS,
 ) -> None:
     (root / "frontend/src/lib").mkdir(parents=True, exist_ok=True)
     (root / "frontend/src/lib/api.ts").write_text(api_ts)
     (root / "products/signals/frontend/generated").mkdir(parents=True, exist_ok=True)
     (root / "products/signals/frontend/generated/api.ts").write_text(generated_signals)
     (root / "products/workflows/frontend/generated").mkdir(parents=True, exist_ok=True)
-    (root / "products/workflows/frontend/generated/api.ts").write_text(GENERATED_WORKFLOWS)
+    (root / "products/workflows/frontend/generated/api.ts").write_text(generated_workflows)
     (root / api_ratchet.CORE_GENERATED).parent.mkdir(parents=True, exist_ok=True)
     (root / api_ratchet.CORE_GENERATED).write_text(GENERATED_CORE)
     rule = root / api_ratchet.SEMGREP_RULE
@@ -218,6 +220,13 @@ _FIXTURE_ROUTES = {
 
 def _baseline_lines(*names: str) -> str:
     return "".join(f"{name} {_FIXTURE_ROUTES[name]}\n" for name in names)
+
+
+# A base ref where `hogFlows` never existed.
+API_TS_FIXTURE_WITHOUT_HOGFLOWS = API_TS_FIXTURE.replace(
+    "    public hogFlows(): ApiRequest {\n        return this.environmentsDetail().addPathComponent('hog_flows')\n    }\n\n",
+    "",
+)
 
 
 class TestApiRequestResolver:
@@ -405,12 +414,12 @@ class TestBaselineFixModes:
         assert read_baseline(tmp_path) == {"hogFlows projects/{}/hog_flows"}
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 1
 
-    def test_update_warns_that_it_grandfathers_new_debt(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_update_warns_when_it_grows_the_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write_repo(tmp_path, baseline=_baseline_lines("hogFlows"))
         monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
         result = runner.invoke(cmd_lint_api_ratchet, ["--update-baseline"])
         assert result.exit_code == 0
-        assert "grandfathers new debt" in result.output
+        assert "grew the baseline" in result.output
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
 
 
@@ -478,7 +487,8 @@ class TestSemgrepRules:
             "prefer-codegen-api-namespaced-workflows",
         ]
         signals = by_id["prefer-codegen-api-namespaced-signals"]
-        assert signals["paths"]["include"] == ["/products/signals/frontend/"]
+        assert signals["paths"]["include"] == ["/products/signals/frontend/", "/frontend/src/"]
+        assert "/frontend/src/lib/api.ts" in signals["paths"]["exclude"]
         assert signals["severity"] == "WARNING"
         # Both nesting depths, so api.signalScout.runs.list() cannot slip through.
         assert signals["pattern-either"] == [
@@ -487,6 +497,67 @@ class TestSemgrepRules:
         ]
         # A namespace only the core client covers belongs to no product, so no rule.
         assert "prefer-codegen-api-namespaced-core" not in by_id
+
+    # Covering a shared namespace in each owner's own rule would report one call per owner.
+    def test_a_namespace_two_products_own_gets_one_shared_rule_instead(self, tmp_path: Path) -> None:
+        api_ts = API_TS_FIXTURE.replace(
+            "    public hogFlows(): ApiRequest {",
+            "    public activity(teamId?: TeamType['id']): ApiRequest {\n"
+            "        return this.environmentsDetail(teamId).addPathComponent('activity')\n"
+            "    }\n\n"
+            "    public hogFlows(): ApiRequest {",
+        ).replace(
+            "const api = {",
+            "const api = {\n"
+            "    activity: {\n"
+            "        async list(): Promise<any> {\n"
+            "            return await new ApiRequest().activity().get()\n"
+            "        },\n"
+            "    },",
+        )
+        generated_signals = GENERATED_SIGNALS + (
+            "export const signalsActivityList = (projectId: string) => {\n"
+            "    return apiMutator({ url: `/api/projects/${projectId}/activity/`, method: 'GET' })\n"
+            "}\n"
+        )
+        generated_workflows = GENERATED_WORKFLOWS + (
+            "export const workflowsActivityList = (projectId: string) => {\n"
+            "    return apiMutator({ url: `/api/projects/${projectId}/activity/`, method: 'GET' })\n"
+            "}\n"
+        )
+        _write_repo(
+            tmp_path, api_ts=api_ts, generated_signals=generated_signals, generated_workflows=generated_workflows
+        )
+        parsed = yaml.safe_load((tmp_path / api_ratchet.SEMGREP_RULE).read_text())
+        by_id = {rule["id"]: rule for rule in parsed["rules"]}
+
+        assert sorted(by_id) == [
+            "prefer-codegen-api-namespaced-shared-activity",
+            "prefer-codegen-api-namespaced-signals",
+            "prefer-codegen-api-namespaced-workflows",
+        ]
+
+        signals_patterns = {
+            pattern["pattern"] for pattern in by_id["prefer-codegen-api-namespaced-signals"]["pattern-either"]
+        }
+        workflows_patterns = {
+            pattern["pattern"] for pattern in by_id["prefer-codegen-api-namespaced-workflows"]["pattern-either"]
+        }
+        assert signals_patterns == {"api.signalReports.$METHOD(...)", "api.signalReports.$MEMBER.$METHOD(...)"}
+        assert workflows_patterns == {"api.hogFlows.$METHOD(...)", "api.hogFlows.$MEMBER.$METHOD(...)"}
+
+        shared = by_id["prefer-codegen-api-namespaced-shared-activity"]
+        assert shared["pattern-either"] == [
+            {"pattern": "api.activity.$METHOD(...)"},
+            {"pattern": "api.activity.$MEMBER.$METHOD(...)"},
+        ]
+        assert shared["paths"]["include"] == [
+            "/products/signals/frontend/",
+            "/products/workflows/frontend/",
+            "/frontend/src/",
+        ]
+        assert "/frontend/src/lib/api.ts" in shared["paths"]["exclude"]
+        assert shared["severity"] == "WARNING"
 
     def test_the_check_fails_when_the_committed_rules_are_stale(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -549,3 +620,73 @@ class TestCommand:
             "propertyDefinitions projects/{}/property_definitions",
             "organizationMembers organizations/{}/members",
         }
+
+
+class TestExposedBuilders:
+    def _run(self, monkeypatch: pytest.MonkeyPatch, root: Path, base_source: str | None) -> Result:
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", root)
+        if base_source is None:
+            monkeypatch.delenv(api_ratchet.API_RATCHET_BASE_ENV, raising=False)
+        else:
+            monkeypatch.setenv(api_ratchet.API_RATCHET_BASE_ENV, "HEAD^1")
+            monkeypatch.setattr(api_ratchet, "_read_base_api_ts", lambda repo_root, ref: base_source)
+        return runner.invoke(cmd_lint_api_ratchet, [])
+
+    def test_a_builder_the_base_already_had_fails_with_the_command_that_records_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+
+        result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE)
+
+        assert result.exit_code == 1
+        assert "hogFlows" in result.output
+        assert "already existed" in result.output
+        assert "--update-baseline --write-semgrep" in result.output
+        assert "duplicate a generated client" not in result.output
+        # The named command is the whole fix.
+        assert runner.invoke(cmd_lint_api_ratchet, ["--update-baseline", "--write-semgrep"]).exit_code == 0
+        assert self._run(monkeypatch, tmp_path, API_TS_FIXTURE).exit_code == 0
+
+    def test_a_builder_missing_from_the_base_is_still_new_debt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE_WITHOUT_HOGFLOWS)
+        assert result.exit_code == 1
+        assert "duplicate a generated client" in result.output
+        assert "already existed" not in result.output
+
+    def test_without_the_env_var_the_check_stays_strict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        result = self._run(monkeypatch, tmp_path, None)
+        assert result.exit_code == 1
+        assert "duplicate a generated client" in result.output
+        assert "already existed" not in result.output
+
+    def test_an_unreadable_base_ref_falls_back_to_strict_with_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        monkeypatch.setenv(api_ratchet.API_RATCHET_BASE_ENV, "HEAD^1")
+        monkeypatch.setattr(api_ratchet, "_read_base_api_ts", lambda repo_root, ref: None)
+        result = runner.invoke(cmd_lint_api_ratchet, [])
+        assert result.exit_code == 1
+        assert "could not be read" in result.output
+        assert "hogFlows" in result.output
+        # The warning must not corrupt the machine-readable report.
+        report = json.loads(CliRunner(mix_stderr=False).invoke(cmd_lint_api_ratchet, ["--json"]).stdout)
+        assert report["exposed"] == []

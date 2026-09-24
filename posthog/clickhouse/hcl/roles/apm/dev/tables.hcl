@@ -392,24 +392,6 @@ database "posthog" {
     }
   }
 
-  patch_table "kafka_trace_spans_avro" {
-    engine "kafka" {
-      collection           = "warpstream_traces"
-      topic_list           = "clickhouse_traces"
-      group_name           = "clickhouse-traces-avro"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-  }
-
   # Same views the logs role runs, pointed at a different destination: the storage
   # tables live on the logs nodes, so these write through the writable proxies above
   # rather than straight into local tables.

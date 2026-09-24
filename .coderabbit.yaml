@@ -35,6 +35,16 @@ reviews:
     suggested_reviewers: false
     in_progress_fortune: false
 
+    # Agents read the raw comment body, and that body includes the folded
+    # sections. The AI agent prompt block in each inline comment repeats the
+    # finding, so it only adds tokens to the agent context.
+    enable_prompt_for_ai_agents: false
+
+    # Keep the lists of ignored files, extra context, and suppressed comments
+    # out of the review body for the same reason. This is the default value,
+    # and it is set here so that nobody turns it on by accident.
+    review_details: false
+
     auto_review:
         enabled: true
 

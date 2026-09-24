@@ -1013,7 +1013,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
-                'mcp-analytics',
+                'mcp-analytics-intent-routing',
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
@@ -1028,7 +1028,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
-                'experiment-migrate-mcp-tool',
                 'experiment-setup-context',
                 'data-warehouse-scene',
                 'data-quality-checks',
@@ -1036,7 +1035,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(37)
     })
 
     it('every loops tool is gated on the loops flag', () => {

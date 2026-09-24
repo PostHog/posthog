@@ -1,6 +1,8 @@
 import {
   ArchiveIcon,
   ArrowClockwiseIcon,
+  BellIcon,
+  BellSlashIcon,
   CaretLeftIcon,
   CaretRightIcon,
   ChartLineIcon,
@@ -114,10 +116,16 @@ import {
   closeSettings,
   openSettings,
 } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  NOTIFICATION_PAUSE_MS,
+  notificationsPaused,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
+import { toast } from "@posthog/ui/primitives/toast";
 import {
   goBackInHistory,
   goForwardInHistory,
@@ -265,6 +273,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
   const openFeedback = useFeedbackStore((state) => state.open);
+  const notificationsPausedUntil = useSettingsStore(
+    (state) => state.notificationsPausedUntil,
+  );
+  const setNotificationsPausedUntil = useSettingsStore(
+    (state) => state.setNotificationsPausedUntil,
+  );
+  const pausedNow = notificationsPaused(notificationsPausedUntil);
   const view = useAppView();
   const setReviewMode = useReviewNavigationStore(
     (state) => state.setReviewMode,
@@ -553,6 +568,34 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         onRun: toggleLeftSidebar,
       },
       {
+        id: "toggle-notifications-pause",
+        label: pausedNow
+          ? "Resume notifications"
+          : "Pause notifications for 1 hour",
+        keywords: "mute silence sound quiet meeting alerts",
+        icon: pausedNow ? (
+          <BellIcon size={12} className="text-muted-foreground" />
+        ) : (
+          <BellSlashIcon size={12} className="text-muted-foreground" />
+        ),
+        action: "toggle-notifications-pause",
+        onRun: () => {
+          if (pausedNow) {
+            setNotificationsPausedUntil(null);
+            toast.success("Notifications resumed");
+            return;
+          }
+          const until = Date.now() + NOTIFICATION_PAUSE_MS;
+          setNotificationsPausedUntil(until);
+          toast.success(
+            `Notifications paused until ${new Date(until).toLocaleTimeString(
+              [],
+              { hour: "numeric", minute: "2-digit" },
+            )}`,
+          );
+        },
+      },
+      {
         id: "send-feedback",
         label: "Send feedback",
         keywords: "report issue bug screenshot logs",
@@ -708,6 +751,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     closeSettingsDialog,
     toggleLeftSidebar,
     openFeedback,
+    pausedNow,
+    setNotificationsPausedUntil,
     openReviewPanel,
     reviewTaskId,
     openedTask,

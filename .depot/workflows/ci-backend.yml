@@ -11,8 +11,12 @@
 # - The `wait-for-handoff` job waits for GitHub Actions to hand the event off and exposes
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
 #   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
-#   job nor the relay has a counterpart here.
+#   job nor the relay has a counterpart here. A GitHub rerun does not restart this workflow,
+#   so the relay's failure log prints the `depot ci` commands that retry it, and the label
+#   that sends the PR back to GitHub Actions.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
+# - turbo-discover adds the `origin` remote before its history fetch when it is missing.
+#   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
 #   the canonical composites; any deltas are documented in each mirror's header). Every
@@ -52,7 +56,7 @@
 #   is safe only while its status remains optional.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
 #   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
-#   trial runs do the same work as handed-off PR runs
+#   trial runs match handed-off PR runs
 # - per-segment split plans (.test_durations.core/.temporal): the restore steps mirror
 #   canonical but miss until the depot timing refresher saves those files to Depot Cache;
 #   shards fall back to the union .test_durations
@@ -83,6 +87,9 @@
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
+# - WAIT_FOR_DOCKER_REGISTRY_MIRROR makes bin/ci-wait-for-docker launch pull Docker Hub
+#   images from mirror.gcr.io before `compose up`. Token requests to auth.docker.io time out
+#   intermittently from Depot CI sandboxes, and one failed pull leaves the whole stack missing.
 # - Compose launches run under `nohup` with stdin, stdout and stderr redirected to
 #   $RUNNER_TEMP/compose-launch.log. Depot ends a step's background processes and closes its
 #   output pipes when the step shell exits, so a plain `&` launch dies before it creates any
@@ -154,6 +161,7 @@ env:
     HYPOTHESIS_CONSTANTS_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
+    WAIT_FOR_DOCKER_REGISTRY_MIRROR: mirror.gcr.io
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
     CLICKHOUSE_HOST: 'localhost'
@@ -168,6 +176,9 @@ env:
     CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
+    # The root conftest ends a green pytest session with os._exit once every report is written.
+    # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
+    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -326,6 +337,7 @@ jobs:
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -373,6 +385,11 @@ jobs:
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
+                        # Tests read these MCP manifests from disk. Each one is a turbo input of
+                        # its reader (tasks directly, posthog_ai through feature_flags'
+                        # backend:mcp-surface task). Add a manifest here only with that wiring.
+                        - products/feature_flags/mcp/tools.yaml
+                        - products/tasks/mcp/tools.yaml
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
@@ -677,10 +694,18 @@ jobs:
             # The posthog-ci-test-selection event properties, as one JSON object.
             telemetry: ${{ steps.discover.outputs.telemetry }}
         steps:
+            # A deep checkout is slow with or without blob:none: the blobless one fetches every file of
+            # the tree in a second request. Check out at depth 1, then add the history the merge-base
+            # steps read, without file contents.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+            - name: Fetch history without file contents
+              # --depth, not --deepen: --deepen adds no history once GitHub has replaced the PR's
+              # merge ref, because no ref then points at GITHUB_SHA.
+              run: |
+                  # Depot CI serves an input-less checkout from a fast clone that adds no origin remote.
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
+                  echo "History depth: $(git rev-list --count HEAD)"
             - name: Verify PR merge for test selection
               id: verify-merge
               if: github.event_name == 'pull_request'
@@ -688,7 +713,7 @@ jobs:
                   PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   set -euo pipefail
-                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and fetch depth before retrying." >&2' ERR
+                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and the history fetch before retrying." >&2' ERR
                   test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
                   test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
@@ -774,11 +799,12 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
-            - name: Install pnpm dependencies
-              uses: ./.depot/actions/pnpm-install
+            - name: Set up pnpm and Node
+              uses: ./.depot/actions/setup-pnpm
               with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - name: Install turbo
+              uses: ./.depot/actions/setup-turbo
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
             # --no-project` for the dependent cascade; the script pins tach, so no
             # Python project sync is needed. A missing uv widens the cascade to
@@ -1024,19 +1050,27 @@ jobs:
               id: build
               env:
                   PRODUCT_MATRIX_JSON: ${{ needs.turbo-discover.outputs.matrix }}
-                  # Manual shadow runs compare with canonical master pushes, which run legacy schema only.
+                  # The new-events-schema variants double the matrix, so run them only on
+                  # opted-in PRs.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
                       schema_modes='[false, true]'
                   else
                       schema_modes='[false]'
-                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                   fi
+                  # Experiments reads flags from $feature/<key> properties. The native-JSON table keeps
+                  # them in the $feature_flags map, which HogQL does not read yet, so it runs legacy-only.
                   include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
                       $matrix[] as $entry
                       | $schema_modes[] as $new_events_schema
+                      | select(
+                          ($new_events_schema | not)
+                          or ([($entry.legs // [{"filters": ($entry.filters // "")}])[].filters]
+                              | any(contains("products-experiments")) | not)
+                        )
                       | $entry + {"new-events-schema": $new_events_schema}
                     ]
                   ')
@@ -1201,9 +1235,10 @@ jobs:
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             - name: Register Temporal search attributes
+              timeout-minutes: 10
               run: |
                   bin/wait-for-docker temporal
-                  python manage.py register_temporal_search_attributes
+                  PYTHONFAULTHANDLER=1 timeout --signal=ABRT --kill-after=30s 3m python manage.py register_temporal_search_attributes
             - name: Restore test durations from cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -1298,10 +1333,11 @@ jobs:
                       ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && github.ref == 'refs/heads/master' && '--store-durations' || '' }}
                       ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && '--junitxml=junit-product.xml' || '' }}
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
-                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
+                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
-                  # scopes coverage to that product and writes products/<name>/coverage.xml — works for
-                  # bin-packed buckets (each product writes its own file) and split products (unioned later).
+                  # scopes coverage to that product and saves its data to products/<name>/.coverage. This works
+                  # for bin-packed buckets (each product writes its own file) and split products, whose data
+                  # the report job combines.
                   # sysmon: Python 3.12+'s low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
                   COVERAGE_CORE: sysmon
               shell: bash
@@ -1412,16 +1448,16 @@ jobs:
                   retention-days: 2
 
             - name: Stage product coverage
-              # Rename each products/<name>/coverage.xml to <name>.xml so the product name
+              # Rename each products/<name>/.coverage to <name>.coverage so the product name
               # survives upload-artifact's least-common-ancestor path collapse.
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               shell: bash
               run: |
                   mkdir -p cov-staging
-                  for f in products/*/coverage.xml; do
+                  for f in products/*/.coverage; do
                       [ -f "$f" ] || continue
                       product=$(basename "$(dirname "$f")")
-                      cp "$f" "cov-staging/${product}.xml"
+                      cp "$f" "cov-staging/${product}.coverage"
                   done
 
             - name: Upload product coverage
@@ -1429,8 +1465,8 @@ jobs:
               # always(): a failing test shard still has partial coverage worth reporting.
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               with:
-                  name: coverage-xml-${{ strategy.job-index }}
-                  path: cov-staging/*.xml
+                  name: coverage-products-${{ strategy.job-index }}
+                  path: cov-staging/*.coverage
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -1438,6 +1474,10 @@ jobs:
             - name: Verify new snapshots for flakiness
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') }}
               shell: bash
+              # The reruns must write the same schema mode's snapshot file as the main
+              # run, or the new-schema file removed before each rerun never comes back.
+              env:
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
@@ -2376,7 +2416,8 @@ jobs:
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
-                  # Manual shadow runs compare with canonical master pushes, which run legacy schema only.
+                  # The new-events-schema variants double the matrix, so run them only on
+                  # opted-in PRs.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
@@ -2644,7 +2685,7 @@ jobs:
                   fi
 
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
-                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                       core_new_events_schema="[]"
                       core_persons_on_events_new_schema="[]"
                       temporal_new_events_schema="[]"
@@ -3123,7 +3164,7 @@ jobs:
                   COVERAGE_CORE: sysmon
                   # Mirrors canonical: the coverage report skips narrowed runs, so
                   # instrumenting one is pure overhead.
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
@@ -3372,7 +3413,8 @@ jobs:
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
-                  path: coverage-core.xml
+                  path: .coverage
+                  include-hidden-files: true
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -3391,6 +3433,10 @@ jobs:
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure') }}
               shell: bash
+              # The reruns must write the same schema mode's snapshot file as the main
+              # run, or the new-schema file removed before each rerun never comes back.
+              env:
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   .github/scripts/verify-new-snapshots.sh
@@ -3572,22 +3618,8 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
-            # Use GitHub app token so Actions run after commiting updated snapshots
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
-            - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ steps.app-token.outputs.token }}
-                  fetch-depth: 1
-
+            # Look for patches before the checkout. Most runs have none, and the required
+            # gate waits for this job.
             - name: Download all snapshot patches
               id: download-patches
               continue-on-error: true
@@ -3614,6 +3646,24 @@ jobs:
                     echo "has-patches=false" >> $GITHUB_OUTPUT
                     echo "Patch files empty or missing - no snapshot changes"
                   fi
+
+            # Use GitHub app token so Actions run after commiting updated snapshots
+            - name: Get app token
+              if: steps.check-patches.outputs.has-patches == 'true'
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Checkout
+              if: steps.check-patches.outputs.has-patches == 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  token: ${{ steps.app-token.outputs.token }}
+                  fetch-depth: 1
 
             # The commit action loads from the PR head, and a head that predates it would fail
             # with "action manifest not found" instead of saying what to do.
@@ -4076,7 +4126,7 @@ jobs:
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./cov-artifacts
-                  pattern: coverage-xml-*
+                  pattern: coverage-products-*
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true

@@ -169,12 +169,31 @@ class TestScoutStatusTransitions(BaseTest):
         paused = self._config(status=Status.PAUSED_BY_SYSTEM, pause_reason=Reason.REPEATED_FAILURES)
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-other")
 
-        with patch("products.signals.backend.scout_harness.limits.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
+        with patch("products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
             applied = paused.transition_status_by_system(Status.ACTIVE, pause_reason=Reason.REPEATED_FAILURES)
 
         assert applied is False
         paused.refresh_from_db()
         assert paused.enabled is False
+
+    def test_system_resume_uses_the_flag_configured_enabled_cap(self) -> None:
+        # The resume re-checks the ceiling the API enforces, so a project given more capacity in
+        # the flag gets its breaker-paused scout back instead of staying silenced at 250.
+        paused = self._config(status=Status.PAUSED_BY_SYSTEM, pause_reason=Reason.REPEATED_FAILURES)
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-other")
+
+        with (
+            patch("products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM", 1),
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value={"team_configs": {str(self.team.id): {"max_enabled_scouts": 5}}},
+            ),
+        ):
+            applied = paused.transition_status_by_system(Status.ACTIVE, pause_reason=Reason.REPEATED_FAILURES)
+
+        assert applied is True
+        paused.refresh_from_db()
+        assert paused.enabled is True
 
     def test_system_resume_starts_with_a_clean_failure_streak(self) -> None:
         # Without the reset, the first failed run after a resume would re-trip the breaker

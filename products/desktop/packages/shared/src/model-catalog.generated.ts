@@ -56,6 +56,16 @@ export const REASONING_EFFORTS: readonly ReasoningEffort[] = [
   "ultracode",
 ];
 
+/** What a picker calls each depth. */
+export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+  ultracode: "Ultracode",
+};
+
 /** A value for each runtime adapter. */
 export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>;
 
@@ -89,6 +99,15 @@ export interface CatalogModel {
   /** The rates behind the multiplier, ready to render. Absent whenever
       `cost` is. */
   costSummary?: string;
+  /** Runs with the 1M-token context window. Absent means it does not, and a
+      picker offers no window choice. */
+  supports1MContext?: boolean;
+  /** Runs in fast mode. Absent means it does not, and a picker offers no
+      fast-mode toggle. */
+  supportsFastMode?: boolean;
+  /** Superseded: no picker offers it, and a session already pinned to it
+      still runs and still reads its name and cost from here. */
+  retired?: boolean;
 }
 
 /** The model `1×` refers to. */
@@ -116,6 +135,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "≈0.57×",
     costSummary: "Input $1.40 · Output $4.40 per 1M tokens",
+    retired: true,
   },
   {
     id: "zai-org/glm-5.3",
@@ -176,6 +196,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
+    retired: true,
   },
   {
     id: "claude-opus-4-6",
@@ -188,6 +209,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
+    retired: true,
   },
   {
     id: "claude-opus-4-7",
@@ -200,6 +222,9 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
+    supports1MContext: true,
+    supportsFastMode: true,
+    retired: true,
   },
   {
     id: "claude-opus-4-8",
@@ -212,6 +237,8 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
+    supports1MContext: true,
+    supportsFastMode: true,
   },
   {
     id: "claude-opus-5",
@@ -224,6 +251,8 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
+    supports1MContext: true,
+    supportsFastMode: true,
   },
   {
     id: "claude-opus-5-5",
@@ -236,6 +265,8 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2×",
     costSummary: "Input $4 · Output $20 per 1M tokens",
+    supports1MContext: true,
+    supportsFastMode: true,
   },
   {
     id: "claude-fable-5",
@@ -248,6 +279,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "5×",
     costSummary: "Input $10 · Output $50 per 1M tokens",
+    supports1MContext: true,
   },
   {
     id: "claude-fable-5-1",
@@ -260,6 +292,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "5×",
     costSummary: "Input $10 · Output $50 per 1M tokens",
+    supports1MContext: true,
   },
   {
     id: "claude-sonnet-5",
@@ -272,6 +305,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1×",
     costSummary: "Input $2 · Output $10 per 1M tokens",
+    supports1MContext: true,
   },
   {
     id: "claude-sonnet-4-6",
@@ -284,6 +318,8 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1.5×",
     costSummary: "Input $3 · Output $15 per 1M tokens",
+    supports1MContext: true,
+    retired: true,
   },
   {
     id: "gpt-5",
@@ -381,6 +417,67 @@ export const MODELS: readonly CatalogModel[] = [
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
   claude: "claude-sonnet-5",
   codex: "gpt-5",
+};
+
+export interface CapabilityNotch {
+  model: string;
+  effort: ReasoningEffort;
+}
+
+type CapabilityLadders = ByRuntimeAdapter<readonly CapabilityNotch[]>;
+
+/** The Faster → Smarter rungs each harness offers, cheapest first. Filter them
+    against what the gateway serves before rendering, so a rung naming a retired
+    model drops out instead of becoming a stop that fails on send. */
+export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
+  claude: [
+    {
+      model: "claude-sonnet-5",
+      effort: "medium",
+    },
+    {
+      model: "claude-sonnet-5",
+      effort: "high",
+    },
+    {
+      model: "claude-opus-5-5",
+      effort: "medium",
+    },
+    {
+      model: "claude-opus-5-5",
+      effort: "xhigh",
+    },
+    {
+      model: "claude-fable-5-1",
+      effort: "max",
+    },
+  ],
+  codex: [
+    {
+      model: "gpt-6-luna",
+      effort: "low",
+    },
+    {
+      model: "gpt-6-sol",
+      effort: "low",
+    },
+    {
+      model: "gpt-6-sol",
+      effort: "medium",
+    },
+    {
+      model: "gpt-6-sol",
+      effort: "high",
+    },
+    {
+      model: "gpt-6-sol",
+      effort: "xhigh",
+    },
+    {
+      model: "gpt-6-astra",
+      effort: "max",
+    },
+  ],
 };
 
 export interface ModelFamily {

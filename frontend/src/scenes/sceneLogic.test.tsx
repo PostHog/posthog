@@ -2,7 +2,7 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
-import { expectLogic, partial, truth } from 'kea-test-utils'
+import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -89,6 +89,25 @@ describe('sceneLogic', () => {
         })
     })
 
+    // A trailing slash used to reach the scene, then get replaced out of the address bar. That
+    // second navigation re-ran every `urlToAction` of the scene, so the OAuth consent screen
+    // reloaded its data and blanked while the person was reading it.
+    it('opens a scene once when the URL carries a trailing slash', async () => {
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+
+        const from = testUtilsContext().recordedHistory.length
+        router.actions.push(`${urls.eventDefinitions()}/`)
+        await expectLogic(logic).delay(1)
+        const openScenes = testUtilsContext()
+            .recordedHistory.slice(from)
+            .filter((recorded) => recorded.action.type === logic.actionTypes.openScene)
+
+        expect(openScenes).toHaveLength(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.eventDefinitions())
+    })
+
     it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
         router.actions.push('/feature-flags')
         await expectLogic(logic).delay(1)
@@ -169,6 +188,28 @@ describe('sceneLogic', () => {
         // redirect must carry it across so those links keep opening the right report. The hash
         // carries global side-panel state, so it has to survive the redirect too.
         expect(router.values.searchParams.review).toEqual('r-9')
+        expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
+    it.each([
+        ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
+        [
+            'the project-prefixed test health path',
+            (projectId: number) => `/project/${projectId}/engineering-analytics/test-health`,
+            () => urls.engineeringAnalyticsTests(),
+        ],
+        ['the health path', () => '/engineering-analytics/health', () => urls.engineeringAnalyticsDeploys()],
+    ])('redirects %s without dropping scope or hash', async (_label, oldPath, newPath) => {
+        const projectId = teamLogic.values.currentTeamId
+        router.actions.push(
+            oldPath(projectId),
+            { source: 'source-1', repo: 'PostHog/posthog' },
+            { panel: 'max:inspect' }
+        )
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(newPath())
+        expect(router.values.location.pathname).toEqual(`/project/${projectId}${newPath()}`)
+        expect(router.values.searchParams).toMatchObject({ source: 'source-1', repo: 'PostHog/posthog' })
         expect(router.values.hashParams.panel).toEqual('max:inspect')
     })
 

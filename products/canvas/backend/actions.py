@@ -15,6 +15,8 @@ the source-validation import path (the builder imports it for verb names).
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
+
 import structlog
 import posthoganalytics
 from rest_framework import serializers
@@ -87,6 +89,62 @@ class TaskCreateAndRunPayloadSerializer(TaskCreatePayloadSerializer):
     reasoning_effort = serializers.CharField(
         required=False, max_length=32, help_text="Reasoning effort supported by the selected model. Requires model."
     )
+
+
+class WorkflowIdsPayloadSerializer(serializers.Serializer):
+    """Payload for the workflows.pause and workflows.resume verbs."""
+
+    workflow_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=20,
+        help_text="The workflows to change, all in this project.",
+    )
+
+
+def _set_workflows_enabled(team_id: int, user_id: int, payload: dict[str, Any], *, enabled: bool) -> dict[str, Any]:
+    from rest_framework import status as http_status  # noqa: PLC0415
+    from rest_framework.response import Response  # noqa: PLC0415
+
+    from products.workflows.backend.facade import api as workflows_facade  # noqa: PLC0415 — load on execute
+
+    with transaction.atomic():
+        changed = []
+        for workflow_id in payload["workflow_ids"]:
+            try:
+                new_status = workflows_facade.set_workflow_enabled(
+                    team_id=team_id, user_id=user_id, workflow_id=workflow_id, enabled=enabled
+                )
+            except workflows_facade.WorkflowNotFound:
+                raise CanvasActionDenied(
+                    Response(
+                        {"detail": f"Workflow {workflow_id} is not in this project."},
+                        status=http_status.HTTP_404_NOT_FOUND,
+                    )
+                )
+            except workflows_facade.WorkflowAccessDenied:
+                raise CanvasActionDenied(
+                    Response(
+                        {"detail": f"You cannot edit workflow {workflow_id}."}, status=http_status.HTTP_403_FORBIDDEN
+                    )
+                )
+            except workflows_facade.WorkflowArchived:
+                raise CanvasActionDenied(
+                    Response(
+                        {"detail": f"Workflow {workflow_id} is archived and cannot be changed."},
+                        status=http_status.HTTP_409_CONFLICT,
+                    )
+                )
+            changed.append({"id": str(workflow_id), "status": new_status})
+    return {"workflows": changed}
+
+
+def _pause_workflows(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
+    return _set_workflows_enabled(team_id, user_id, payload, enabled=False)
+
+
+def _resume_workflows(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
+    return _set_workflows_enabled(team_id, user_id, payload, enabled=True)
 
 
 def _create_annotation(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
@@ -213,6 +271,39 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
                 "a retry returns the existing task and latest run without starting another run. "
                 "Use the returned status in the result message. A queued run has not finished. "
                 "Declare this verb separately from tasks.create, which still creates a task without a run."
+            ),
+        ),
+        CanvasAction(
+            verb="workflows.pause",
+            summary="Disable workflows in this project so they stop running.",
+            destructive=True,
+            payload_serializer=WorkflowIdsPayloadSerializer,
+            execute=_pause_workflows,
+            required_scopes=("hog_flow:write",),
+            usage=(
+                "Payload `{workflow_ids}` (1 to 20 workflow ids in this project) → result "
+                "`{workflows: [{id, status}]}`. Sets each workflow's status to `draft`, the same "
+                "change as disabling it in the Workflows product: a scheduled workflow stops at its "
+                "next occurrence and an event-triggered one stops firing. Its schedule and content "
+                "are kept, so `workflows.resume` restores it. The viewer must be able to edit each "
+                "workflow; an id from another project fails the whole call. Destructive: the host asks "
+                "the viewer to confirm. Use it for a pause switch on a board that owns a set of loops, "
+                'with copy such as "Pause the loops in this space" and the returned statuses in the result.'
+            ),
+        ),
+        CanvasAction(
+            verb="workflows.resume",
+            summary="Enable workflows in this project so they run again.",
+            destructive=False,
+            payload_serializer=WorkflowIdsPayloadSerializer,
+            execute=_resume_workflows,
+            required_scopes=("hog_flow:write",),
+            usage=(
+                "Payload `{workflow_ids}` (1 to 20 workflow ids in this project) → result "
+                "`{workflows: [{id, status}]}`. Sets each workflow's status to `active`, the same "
+                "change as enabling it in the Workflows product; a scheduled workflow fires again at its "
+                "next occurrence. The viewer must be able to edit each workflow. Pair with "
+                "`workflows.pause` behind one switch and reflect the returned statuses."
             ),
         ),
     ]

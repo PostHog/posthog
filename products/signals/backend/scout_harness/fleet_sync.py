@@ -64,8 +64,9 @@ def materialize_scout_fleet(team: Team, *, surface: str | None = None) -> set[st
 
     `prune=True` puts this on the same terms as the coordinator tick: a scout retired from
     `products/signals/skills/` is tombstoned on the team instead of lingering as a live row the
-    fleet UI keeps listing. The reap only touches rows the harness seeded and the team never
-    edited, so a hand-authored or forked scout of the same name survives it.
+    fleet UI keeps listing, and its config is retired with it rather than left enabled behind a
+    skill that is gone. The reap only touches rows the harness seeded and the team never edited,
+    so a hand-authored or forked scout of the same name survives it.
     """
     # Timed from the first read, not from the reconcile: `duration_ms` is what a cold project
     # waits with its roster under a skeleton, and the flag read is part of that wait.
@@ -135,6 +136,10 @@ def _capture_fleet_synced(
                 "diverged_count": len(result.diverged_skill_names),
                 "tombstoned_count": len(result.tombstoned_skill_names),
                 "pruned_count": pruned_count,
+                # Configs this pass moved to a retired pause. The measure of the ghost-row
+                # problem: before the lifecycle every prune left its config enabled with no
+                # skill behind it, so a non-zero prune with a zero retire count is a regression.
+                "retired_count": len(result.retired_config_skill_names),
                 "configs_registered_count": len(configs_after - configs_before),
                 "withheld_count": withheld_count,
                 "fleet_size": len(configs_after),

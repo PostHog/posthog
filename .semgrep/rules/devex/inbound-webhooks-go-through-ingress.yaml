@@ -111,7 +111,3 @@ rules:
               - '**/tests/**'
               - 'test_*.py'
               - '*_test.py'
-              # Ratchet. Each entry is a verifier that predates ingress, and the PR that
-              # migrates that endpoint removes its line. The paths are the ones on master,
-              # so the rule holds whether or not the migrations land with it.
-              - /ee/api/vercel/vercel_webhooks.py

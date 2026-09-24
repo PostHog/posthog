@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -1377,15 +1377,6 @@ export interface eventUsageLogicActions {
     reportExperimentAiSummaryRequested: (experiment: Experiment) => {
         experiment: Experiment
     }
-    reportExperimentAutoRefreshToggled: (
-        experiment: Experiment,
-        enabled: boolean,
-        interval: number
-    ) => {
-        enabled: boolean
-        experiment: Experiment
-        interval: number
-    }
     reportExperimentBehaviorComparisonFailed: (
         experimentId: ExperimentIdType,
         context: ExperimentWatchLoadFailedContext
@@ -1849,6 +1840,17 @@ export interface eventUsageLogicActions {
     reportFunnelStepReordered: () => {
         value: true
     }
+    reportGithubInstallationSelected: (
+        surface: string,
+        discoveryId?: string,
+        installationId?: string,
+        responseAgeMs?: number
+    ) => {
+        discoveryId: string | undefined
+        installationId: string | undefined
+        responseAgeMs: number | undefined
+        surface: string
+    }
     reportGroupProfileViewed: (delay?: number) => {
         delay: number | undefined
     }
@@ -2018,6 +2020,15 @@ export interface eventUsageLogicActions {
     ) => {
         error: string
         kind: string
+    }
+    reportIntegrationLinkExistingOffered: (
+        kind: string,
+        surface: IntegrationConnectSurface,
+        counts: IntegrationLinkExistingCounts
+    ) => {
+        counts: IntegrationLinkExistingCounts
+        kind: string
+        surface: IntegrationConnectSurface
     }
     reportInviteMembersButtonClicked: () => {
         value: true
@@ -2603,6 +2614,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationLinkExistingOffered: (
+            kind: string,
+            surface: IntegrationConnectSurface,
+            counts: IntegrationLinkExistingCounts
+        ) => ({ kind, surface, counts }),
+        reportGithubInstallationSelected: (
+            surface: string,
+            discoveryId?: string,
+            installationId?: string,
+            responseAgeMs?: number
+        ) => ({ surface, discoveryId, installationId, responseAgeMs }),
         reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
@@ -2953,11 +2975,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             forceRefresh,
             context,
-        }),
-        reportExperimentAutoRefreshToggled: (experiment: Experiment, enabled: boolean, interval: number) => ({
-            experiment,
-            enabled,
-            interval,
         }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -3557,6 +3574,31 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 self_driving: selfDriving,
             })
         },
+        // The banner offering an existing installation is where an unfamiliar account name is read,
+        // so it reports what it offered: without this, neither the label nor its source is recorded
+        // anywhere, and a confusing entry only shows up as a support ticket.
+        reportGithubInstallationSelected: ({ surface, discoveryId, installationId, responseAgeMs }) => {
+            posthog.capture('integration_link_existing_selected', {
+                integration_kind: 'github',
+                surface,
+                discovery_id: discoveryId,
+                installation_id: installationId,
+                response_age_ms: responseAgeMs,
+            })
+        },
+        reportIntegrationLinkExistingOffered: ({ kind, surface, counts }) => {
+            posthog.capture('integration_link_existing_offered', {
+                integration_kind: kind,
+                surface,
+                discovery_id: counts.discoveryId,
+                displayed_installation_ids: counts.installationIds,
+                response_age_ms: counts.responseAgeMs,
+                installation_count: counts.total,
+                sibling_installation_count: counts.sibling,
+                orphan_installation_count: counts.orphan,
+                unnamed_installation_count: counts.unnamed,
+            })
+        },
         // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
         // only says the user started, so without this the drop-off is invisible outside session
         // recordings — and `access_denied` in particular hides a workspace waiting on an admin.
@@ -4116,13 +4158,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
                 previous_refresh_state: context?.previous_refresh_state ?? null,
                 previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
-            })
-        },
-        reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
-            posthog.capture('experiment auto refresh toggled', {
-                ...getEventPropertiesForExperiment(experiment),
-                enabled,
-                interval,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {

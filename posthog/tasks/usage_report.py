@@ -30,7 +30,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.constants import FlagRequestType
+from posthog.constants import AI_EVENT_NAME_PREFIX, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.billing import AI_COST_MARKUP_PERCENT
@@ -43,7 +43,6 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.schema_enums import AIEventType
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
@@ -88,9 +87,6 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSt
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
 
-# AI events dynamically generated from AIEventType TS enum
-# Changes to the AIEventType enum will impact usage reporting
-AI_EVENTS = [event.value for event in AIEventType]
 GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE = 20
 GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE = 20
 # Gateway generations are emitted after provider completion. The default gateway
@@ -121,7 +117,6 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # Emitted server-side on each prompt fetch. Prompt management is free, so the event is an
     # artifact of using the product rather than customer instrumentation.
     LLM_PROMPT_FETCHED_EVENT,
-    *AI_EVENTS,
     *CONVERSATIONS_EVENTS,
 ]
 
@@ -746,12 +741,17 @@ def get_teams_with_billable_event_count_in_period(
         FROM {events_read_table(use_new_events_schema(None))}
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND event NOT IN %(excluded_events)s
+            AND NOT startsWith(event, %(ai_event_prefix)s)
         GROUP BY team_id
     """
 
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
         return _execute_split_query(
-            begin, end, query_template, {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS}, num_splits=12
+            begin,
+            end,
+            query_template,
+            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
+            num_splits=12,
         )
 
 
@@ -777,13 +777,18 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         FROM {events_read_table(use_new_events_schema(None))}
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND event NOT IN %(excluded_events)s
+            AND NOT startsWith(event, %(ai_event_prefix)s)
             AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
         return _execute_split_query(
-            begin, end, query_template, {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS}, num_splits=12
+            begin,
+            end,
+            query_template,
+            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
+            num_splits=12,
         )
 
 
@@ -848,9 +853,11 @@ def _get_ai_sub_sdk_event_metric_counts(
             count(1) as count
         FROM {events_read_table(use_new_events_schema)}
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND {lib_expression} IN ({quoted_ai_parent_libs})
             AND startsWith(event, '$ai_')
-        WHERE {ai_lib_expression} IN ({quoted_ai_libs})
+        -- Property expressions stay out of PREWHERE: the native-JSON reader calls an executable UDF,
+        -- which ClickHouse cannot resolve inside PREWHERE (it fails with "Unknown function").
+        WHERE {lib_expression} IN ({quoted_ai_parent_libs})
+            AND {ai_lib_expression} IN ({quoted_ai_libs})
         GROUP BY team_id, sdk_lib, ai_lib
     """
 
@@ -1588,11 +1595,11 @@ def get_teams_with_ai_event_count_in_period(
                     if(verified, {request_id_expr}, '') AS request_id,
                     if(verified, {relay_expr}, '') IN ('true', '1') AS relay
                 FROM {events_read_table(use_new)}
-                WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+                WHERE startsWith(event, %(ai_event_prefix)s) AND timestamp >= %(begin)s AND timestamp < %(end)s
             )
             GROUP BY team_id
         """,
-            {"begin": begin, "end": end, "ai_events": AI_EVENTS},
+            {"begin": begin, "end": end, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
@@ -1696,7 +1703,7 @@ def get_teams_with_ai_event_count_in_period(
                                 if(verified AND relay, {span_id_expr}, '') AS span_id
                             FROM {events_read_table(use_new)}
                             WHERE team_id IN %(relayed_team_ids)s
-                              AND event IN %(ai_events)s
+                              AND startsWith(event, %(ai_event_prefix)s)
                               AND timestamp >= %(relay_begin)s AND timestamp < %(sponsor_end)s
                               AND {verified_expr} IN ('true', '1')
                               AND {relay_expr} IN ('true', '1')
@@ -1713,7 +1720,7 @@ def get_teams_with_ai_event_count_in_period(
                 "evaluation_allowance": GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE,
                 "backdate_seconds": int(GATEWAY_SPONSORSHIP_BACKDATE.total_seconds()),
                 "relayed_team_ids": relayed_team_ids,
-                "ai_events": AI_EVENTS,
+                "ai_event_prefix": AI_EVENT_NAME_PREFIX,
                 "begin": begin,
                 "end": end,
                 "sponsor_begin": begin - GATEWAY_SPONSORSHIP_LOOKAROUND,
@@ -1752,6 +1759,7 @@ POSTHOG_AI_PRODUCTS = [
     "workflows",
     "subscriptions",
     "alert_investigation_agent",
+    "alert_llm_detector",
     "product_analytics",
     "surveys",
     "replay_vision",
@@ -1948,10 +1956,12 @@ def _get_teams_with_ai_credits_for_products(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND {region_expr} = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
+                    -- Property expressions stay out of PREWHERE (see _get_ai_sub_sdk_event_metric_counts).
+                    WHERE
+                        {region_expr} = %(region_url)s
                         AND {ai_product_expr} IN %(ai_products)s
                         -- PostHog-funded task origins (e.g. task_analysis runs) are never billed
                         -- to the customer. Events without the property yield '' and pass.
@@ -2629,9 +2639,10 @@ def get_teams_with_sdk_logs_records_in_period(
     tuples ready for `convert_team_usage_rows_to_dict`.
 
     `team_ids_with_logs` must be the team_ids that produced any log records in the same period
-    (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
-    pre-filter on `logs_distributed` — without it, scanning the `resource_attributes` map cluster-wide
-    hits the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
+    (typically the result of `get_teams_with_logs_records_in_period`). The resource index narrows the
+    scan to matching resources before reading the `resource_attributes` map to reduce scanned bytes.
+    Raw rows still determine the counts and exact time bounds.
+    If the input is empty, the query is skipped.
 
     NB: query the physical `logs_distributed` table, not `logs`. `logs` is the HogQL table alias and
     only resolves inside HogQL (`parse_select`); raw `sync_execute` runs ClickHouse SQL directly, where
@@ -2648,6 +2659,17 @@ def get_teams_with_sdk_logs_records_in_period(
                 resource_attributes['telemetry.sdk.name'] AS sdk_name,
                 count() AS count
             FROM logs_distributed
+            PREWHERE (team_id, resource_fingerprint) GLOBAL IN (
+                SELECT team_id, resource_fingerprint
+                FROM log_attributes_distributed
+                WHERE team_id IN %(team_ids)s
+                  AND attribute_type = 'resource'
+                  AND attribute_key = 'telemetry.sdk.name'
+                  AND attribute_value IN %(sdk_names)s
+                  AND time_bucket >= toStartOfInterval(toDateTime(%(begin)s), INTERVAL 10 MINUTE)
+                  AND time_bucket <= toStartOfInterval(toDateTime(%(end)s), INTERVAL 10 MINUTE)
+                GROUP BY team_id, resource_fingerprint
+            )
             WHERE team_id IN %(team_ids)s
               AND timestamp >= %(begin)s
               AND timestamp < %(end)s

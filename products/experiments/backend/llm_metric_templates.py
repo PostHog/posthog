@@ -63,6 +63,9 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
     # The applicable guard excludes N/A evaluations (applicable=false) but keeps events
     # where the property isn't set at all (JSONExtractRaw returns '' for missing keys).
     applicable_filter = HogQLPropertyFilter(key="JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'")
+    boolean_filter = HogQLPropertyFilter(
+        key="JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')"
+    )
     return ExperimentRatioMetric(
         name="Eval pass rate",
         numerator=EventsNode(
@@ -71,6 +74,7 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
                 _prompt_filter(prompt_name),
                 HogQLPropertyFilter(key="JSONExtractBool(properties, '$ai_evaluation_result')"),
                 applicable_filter,
+                boolean_filter,
             ],
         ),
         denominator=EventsNode(
@@ -78,6 +82,7 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
             properties=[
                 _prompt_filter(prompt_name),
                 applicable_filter,
+                boolean_filter,
             ],
         ),
     )
