@@ -1126,6 +1126,8 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
             ),
             ("experiments_create", "experiments/"),
+            ("hog_flow_publish", "hog_flows/00000000-0000-0000-0000-000000000000/publish/"),
+            ("hog_flow_bulk_delete", "hog_flows/bulk_delete/"),
         ]
     )
     def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
