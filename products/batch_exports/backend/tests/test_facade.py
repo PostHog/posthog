@@ -16,6 +16,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,
+    BatchExportOnDemand,
     BatchExportRun,
 )
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
@@ -68,6 +69,21 @@ def _create_run(*, finished_at, records=0, status=BatchExportRun.Status.COMPLETE
         # created_at is auto_now_add, so the ordering a test needs can only be set afterwards.
         BatchExportRun.objects.filter(id=run_id).update(created_at=created_at)
     return run_id
+
+
+@pytest.mark.parametrize(
+    "contract_enum,model_choices",
+    [
+        (contracts.DestinationType, BatchExportDestination.Destination),
+        (contracts.BatchExportModel, BatchExport.Model),
+        (contracts.BatchExportModel, BatchExportOnDemand.Model),
+        (contracts.BatchExportRunStatus, BatchExportRun.Status),
+        (contracts.BatchExportBackfillStatus, BatchExportBackfill.Status),
+    ],
+    ids=["destination type", "model", "on-demand model", "run status", "backfill status"],
+)
+def test_contract_enums_match_the_model_choices(contract_enum, model_choices):
+    assert {member.value for member in contract_enum} == set(model_choices.values)
 
 
 def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team, organization):

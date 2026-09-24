@@ -7,13 +7,16 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.models import Team
 
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import BatchExportBackfillSummary, BatchExportDetail
+from products.batch_exports.backend.facade.contracts import (
+    BatchExportBackfillSummary,
+    BatchExportDetail,
+    DestinationType,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 EXPORT_NAME = "PostHog HTTP Migration"
-HTTP_DESTINATION_TYPE = "HTTP"
 DATA_START_UNBOUNDED = "the start of the team's data"
 VALID_INTERVALS = set(batch_exports_api.list_supported_intervals())
 REGION_URLS = {
@@ -95,7 +98,7 @@ class Command(BaseCommand):
         )
 
         try:
-            existing_export = batch_exports_api.get_batch_export_by_name(team.id, EXPORT_NAME, HTTP_DESTINATION_TYPE)
+            existing_export = batch_exports_api.get_batch_export_by_name(team.id, EXPORT_NAME, DestinationType.HTTP)
         except batch_exports_api.MultipleBatchExportsError:
             raise CommandError(
                 "More than one existing migration found! This should never happen if the management command is used, we don't know enough to proceed"
@@ -274,7 +277,7 @@ def create_migration(
     batch_export = batch_exports_api.create_batch_export(
         team_id,
         name=EXPORT_NAME,
-        destination_type=HTTP_DESTINATION_TYPE,
+        destination_type=DestinationType.HTTP,
         destination_config={
             "url": url,
             "token": dest_token,

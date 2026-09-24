@@ -60,6 +60,7 @@ from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import BatchExportRunStatus, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
@@ -70,13 +71,13 @@ def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]
     batch_export_id = batch_exports_testing.create_batch_export(
         team_id,
         name="A batch export",
-        destination_type="S3",
+        destination_type=DestinationType.S3,
         destination_config={"bucket_name": "my_production_s3_bucket"},
     )
     now = dt.datetime.now()
     batch_export_run_id = batch_exports_testing.create_batch_export_run(
         batch_export_id=batch_export_id,
-        status="Failed",
+        status=BatchExportRunStatus.FAILED,
         data_interval_start=now - dt.timedelta(hours=1),
         data_interval_end=now,
     )
@@ -638,12 +639,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
-            self.team.pk, destination_type="S3", destination_config={"bucket_name": "my_production_s3_bucket"}
+            self.team.pk,
+            destination_type=DestinationType.S3,
+            destination_config={"bucket_name": "my_production_s3_bucket"},
         )
         now = dt.datetime.now()
         batch_export_run_id = batch_exports_testing.create_batch_export_run(
             on_demand_id=on_demand_id,
-            status="Failed",
+            status=BatchExportRunStatus.FAILED,
             data_interval_start=now - dt.timedelta(hours=1),
             data_interval_end=now,
         )

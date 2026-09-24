@@ -77,6 +77,7 @@ from posthog.team_notifications.slack import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import DestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
@@ -6860,7 +6861,7 @@ class TestIntegrationDeletionHogFunctionGuard:
         batch_exports_testing.create_batch_export(
             self.team.id,
             name="Test batch export",
-            destination_type="AwsS3",
+            destination_type=DestinationType.AWS_S3,
             destination_config={},
             integration_id=self.integration.id,
         )

@@ -494,11 +494,12 @@ class ActivityLogTestHelper(APILicensedTest):
     def create_batch_export(self, name: str = "Test Export", **kwargs) -> dict[str, Any]:
         """Create a batch export directly, without the API."""
         from products.batch_exports.backend.facade import testing as batch_exports_testing
+        from products.batch_exports.backend.facade.contracts import DestinationType
 
         batch_export_id = batch_exports_testing.create_batch_export(
             self.team.id,
             name=name,
-            destination_type="HTTP",
+            destination_type=DestinationType.HTTP,
             destination_config={"url": "https://example.com"},
             **kwargs,
         )

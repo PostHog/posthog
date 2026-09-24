@@ -80,6 +80,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import BatchExportModel, BatchExportRunStatus, DestinationType
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -2736,7 +2737,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             batch_exports_testing.create_batch_export(
                 team_id,
                 name="A batch export",
-                destination_type="S3",
+                destination_type=DestinationType.S3,
                 destination_config={"bucket_name": "my_production_s3_bucket"},
             )
 
@@ -2769,12 +2770,15 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         batch_export_id = batch_exports_testing.create_batch_export(
             3,
             name="Test export",
-            destination_type="S3",
+            destination_type=DestinationType.S3,
             destination_config={"bucket_name": "test_bucket"},
-            model="events",
+            model=BatchExportModel.EVENTS,
         )
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
-            3, destination_type="FileDownload", destination_config={"format": "Parquet"}, model="events"
+            3,
+            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_config={"format": "Parquet"},
+            model=BatchExportModel.EVENTS,
         )
 
         for parent_id, parent_on_demand_id in ((batch_export_id, None), (None, on_demand_id)):
@@ -2785,7 +2789,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                     data_interval_end=now() - timedelta(hours=i),
                     data_interval_start=now() - timedelta(hours=i + 1),
                     finished_at=now(),
-                    status="Completed",
+                    status=BatchExportRunStatus.COMPLETED,
                     records_completed=100 * (i + 1),  # 100, 200, 300
                 )
 
@@ -2793,12 +2797,15 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         hogql_batch_export_id = batch_exports_testing.create_batch_export(
             3,
             name="Test HogQL export",
-            destination_type="S3",
+            destination_type=DestinationType.S3,
             destination_config={"bucket_name": "test_bucket"},
-            model="hogql",
+            model=BatchExportModel.HOGQL,
         )
         hogql_on_demand_id = batch_exports_testing.create_batch_export_on_demand(
-            3, destination_type="FileDownload", destination_config={"format": "Parquet"}, model="hogql"
+            3,
+            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_config={"format": "Parquet"},
+            model=BatchExportModel.HOGQL,
         )
 
         for parent_id, parent_on_demand_id in ((hogql_batch_export_id, None), (None, hogql_on_demand_id)):
@@ -2808,7 +2815,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 data_interval_end=now(),
                 data_interval_start=now() - timedelta(hours=1),
                 finished_at=now(),
-                status="Completed",
+                status=BatchExportRunStatus.COMPLETED,
                 records_completed=5000,
             )
 
@@ -2833,10 +2840,14 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         batch_export_id = batch_exports_testing.create_batch_export(
-            3, name="Test export", destination_type="Workflows", destination_config={}, model="events"
+            3,
+            name="Test export",
+            destination_type=DestinationType.WORKFLOWS,
+            destination_config={},
+            model=BatchExportModel.EVENTS,
         )
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
-            3, destination_type="Workflows", destination_config={}, model="events"
+            3, destination_type=DestinationType.WORKFLOWS, destination_config={}, model=BatchExportModel.EVENTS
         )
 
         for parent_id, parent_on_demand_id in ((batch_export_id, None), (None, on_demand_id)):
@@ -2847,7 +2858,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                     data_interval_end=now() - timedelta(hours=i),
                     data_interval_start=now() - timedelta(hours=i + 1),
                     finished_at=now(),
-                    status="Completed",
+                    status=BatchExportRunStatus.COMPLETED,
                     records_completed=100 * (i + 1),  # 100, 200, 300
                 )
 

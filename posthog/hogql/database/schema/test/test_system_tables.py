@@ -46,6 +46,11 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import (
+    BatchExportBackfillStatus,
+    BatchExportRunStatus,
+    DestinationType,
+)
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.canvas.backend.models import Canvas
@@ -209,7 +214,7 @@ class TestSystemTablesTeamScoping(BaseTest):
 
 def _create_batch_export(team: Team, label: str) -> uuid.UUID:
     return batch_exports_testing.create_batch_export(
-        team.pk, name=f"export_{label}", destination_type="S3", destination_config={}
+        team.pk, name=f"export_{label}", destination_type=DestinationType.S3, destination_config={}
     )
 
 
@@ -225,27 +230,33 @@ def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest
 
 def _create_batch_export_backfill(team: Team, label: str) -> uuid.UUID:
     batch_export_id = batch_exports_testing.create_batch_export(
-        team.pk, name=f"export_for_backfill_{label}", destination_type="S3", destination_config={}
+        team.pk, name=f"export_for_backfill_{label}", destination_type=DestinationType.S3, destination_config={}
     )
-    return batch_exports_testing.create_backfill(batch_export_id, team_id=team.pk, status="Running")
+    return batch_exports_testing.create_backfill(
+        batch_export_id, team_id=team.pk, status=BatchExportBackfillStatus.RUNNING
+    )
 
 
 def _create_batch_export_run(team: Team, label: str) -> uuid.UUID:
     batch_export_id = batch_exports_testing.create_batch_export(
-        team.pk, name=f"export_for_run_{label}", destination_type="S3", destination_config={}
+        team.pk, name=f"export_for_run_{label}", destination_type=DestinationType.S3, destination_config={}
     )
     return batch_exports_testing.create_batch_export_run(
-        batch_export_id=batch_export_id, status="Running", data_interval_end=timezone.now()
+        batch_export_id=batch_export_id, status=BatchExportRunStatus.RUNNING, data_interval_end=timezone.now()
     )
 
 
 def _create_batch_export_on_demand(team: Team, label: str) -> uuid.UUID:
-    return batch_exports_testing.create_batch_export_on_demand(team.pk, destination_type="S3", destination_config={})
+    return batch_exports_testing.create_batch_export_on_demand(
+        team.pk, destination_type=DestinationType.S3, destination_config={}
+    )
 
 
 def _create_batch_export_run_on_demand(team: Team, label: str) -> uuid.UUID:
     return batch_exports_testing.create_batch_export_run(
-        on_demand_id=_create_batch_export_on_demand(team, label), status="Running", data_interval_end=timezone.now()
+        on_demand_id=_create_batch_export_on_demand(team, label),
+        status=BatchExportRunStatus.RUNNING,
+        data_interval_end=timezone.now(),
     )
 
 
