@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
 
 from posthog.redis import get_client
 from posthog.temporal.alerts.admission import (
@@ -101,15 +100,3 @@ def test_scheduler_release_leaves_the_slot_a_running_check_holds() -> None:
         assert inflight_alert_ids() == {"running"}
         release_evaluation_slot("running", held_until=held)
         assert inflight_alert_ids() == set()
-
-
-def test_hold_raises_when_redis_stays_unavailable() -> None:
-    client = MagicMock()
-    client.eval.side_effect = ConnectionError("redis down")
-    with (
-        patch("posthog.temporal.alerts.admission.redis.get_client", return_value=client),
-        patch("posthog.temporal.alerts.admission.time.sleep"),
-        pytest.raises(ConnectionError),
-    ):
-        hold_evaluation_slot("x", limit=1)
-    assert client.eval.call_count == 3

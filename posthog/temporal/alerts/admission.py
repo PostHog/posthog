@@ -114,15 +114,8 @@ def hold_evaluation_slot(alert_id: str, *, limit: int, lease_seconds: float = SL
     Returns None when the check no longer holds a slot and the set is full.
     """
     expires_at = time.time() + lease_seconds
-    for attempt in range(_BOOKKEEPING_ATTEMPTS):
-        try:
-            held = redis.get_client().eval(_HOLD_SCRIPT, 1, INFLIGHT_KEY, time.time(), limit, expires_at, alert_id)
-            return expires_at if held else None
-        except Exception:
-            if attempt == _BOOKKEEPING_ATTEMPTS - 1:
-                raise
-            time.sleep(_BOOKKEEPING_RETRY_SECONDS)
-    raise AssertionError("unreachable")
+    held = redis.get_client().eval(_HOLD_SCRIPT, 1, INFLIGHT_KEY, time.time(), limit, expires_at, alert_id)
+    return expires_at if held else None
 
 
 def refresh_evaluation_slot(alert_id: str, *, held_until: float, expires_at: float) -> bool:

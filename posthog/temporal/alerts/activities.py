@@ -416,11 +416,13 @@ async def _run_holding_slot(
     during the backoff lets the scheduler admit past the limit under the very overload that causes
     the retries; the next attempt's hold takes the slot over.
 
-    An attempt stops early when Temporal cancels it or when the slot can no longer be held. Both
-    run stop_work to completion before the slot is given back, so the work is over while it is
-    still counted. Work that stop_work could not stop keeps the slot, which lapses on its own once
-    nothing refreshes it. A lost slot then fails the attempt so Temporal retries it, and the retry
-    waits for a slot of its own.
+    An attempt stops early when Temporal cancels it or when the slot can no longer be held, and
+    runs stop_work to completion before it gives the slot back. When Redis is unreachable it stops
+    a refresh interval before the slot lapses, so its work ends while it is still counted. When a
+    retried attempt takes the slot over, the old attempt learns it only on its next refresh, so the
+    two overlap under one slot for up to one refresh interval. Work that stop_work could not stop
+    keeps the slot, which lapses on its own once nothing refreshes it. A lost slot fails the
+    attempt with a retryable error, and a retry waits for a slot of its own.
     """
     holder = _SlotHolder(alert_id, held_until)
     body = asyncio.ensure_future(run())
@@ -591,7 +593,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     evaluation_id = f"{info.workflow_run_id}:{info.activity_id}"
     # Set once cancellation begins. A kill misses a query that has not started or that finishes
     # between two kills, and a thread abandoned after the kill budget can wake up later, so the
-    # thread itself checks this before it queries and before it records.
+    # thread itself checks this before it queries and before it records. An attempt that a retry
+    # replaced learns it only on its next slot refresh, so a query that finishes before then still
+    # records.
     stopping = threading.Event()
 
     def _stop_if_cancelled() -> None:
