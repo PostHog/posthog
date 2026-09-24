@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+# The repo's .envrc exports COMPOSE_PROJECT_NAME=posthog. Under that name this ClickHouse replaces the dev stack's
+# clickhouse container, and the cleanup's `down --remove-orphans` removes every other dev stack container.
+export COMPOSE_PROJECT_NAME=clickhouse-udfs-util-test
 TEMP_DIR=$(mktemp -d)
 UDFS=(
     decompress
@@ -127,13 +130,21 @@ for proc in /proc/[0-9]*; do
         continue
     fi
     checked=$((checked + 1))
+    inspected=0
     for fd in "$proc"/fd/*; do
         target=$(readlink "$fd" 2>/dev/null) || continue
+        inspected=$((inspected + 1))
         if [[ "$target" == socket:* ]]; then
             echo "UDF process '${args[*]}' holds descriptor ${fd##*/} ($target)." >&2
             leaks=$((leaks + 1))
         fi
     done
+    # A UDF process always has stdin open, so a live process with no readable descriptor means this check cannot
+    # see its descriptors, for example because it runs as another user. That must fail, not pass as clean.
+    if ((inspected == 0)) && [[ -e "$proc" ]]; then
+        echo "Cannot read the descriptors of UDF process '${args[*]}'." >&2
+        exit 1
+    fi
 done
 if ((checked == 0)); then
     echo "Expected running pooled UDF processes, found none." >&2
