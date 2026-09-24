@@ -158,7 +158,13 @@ export const WithUpNextQueue: Story = {
 const STORY_SLASH_COMMANDS = buildSlashCommands(APP_COMMANDS, [
     { name: 'clear', description: 'Clear conversation history and free up context' },
     { name: 'compact', description: 'Clear conversation history but keep a summary in context' },
-    { name: 'querying-posthog-data', description: 'Query PostHog data with SQL', hint: 'question' },
+    // Kept verbose: the menu's width cap is only exercised by a description this long.
+    {
+        name: 'querying-posthog-data',
+        description:
+            'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations over PostHog entities and query analytics data.',
+        hint: 'question',
+    },
 ])
 
 /** Typing `/` opens the slash command menu, and a side question answer sits in the Banner slot. */
@@ -181,6 +187,29 @@ export const WithSlashCommands: Story = {
                     )}
                     <Composer.Frame>
                         <ComposerCommandMenu commands={STORY_SLASH_COMMANDS}>
+                            <Composer.Field>
+                                <Composer.Placeholder>{placeholder}</Composer.Placeholder>
+                                <Composer.Textarea />
+                            </Composer.Field>
+                        </ComposerCommandMenu>
+                    </Composer.Frame>
+                    <Composer.Submit />
+                </Composer.Root>
+            </div>
+        )
+    },
+}
+
+/** Before the agent has advertised its own commands, the menu says so rather than looking complete. */
+export const WithAppSlashCommandsOnly: Story = {
+    args: { initialValue: '/', isThreadVisible: true },
+    render: ({ initialValue, placeholder, ...rootProps }) => {
+        const [value, setValue] = useState(initialValue)
+        return (
+            <div className="w-180 mx-auto p-4 pt-96">
+                <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
+                    <Composer.Frame>
+                        <ComposerCommandMenu commands={buildSlashCommands(APP_COMMANDS, [])}>
                             <Composer.Field>
                                 <Composer.Placeholder>{placeholder}</Composer.Placeholder>
                                 <Composer.Textarea />
