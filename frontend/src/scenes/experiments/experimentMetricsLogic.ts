@@ -46,6 +46,9 @@ const MAX_POLL_RETRIES = 5
  * this cap every tab that resumed the run would poll its id (and the per-tick live-progress query) forever.
  */
 const MAX_POLL_DURATION_MS = 30 * 60 * 1000
+// `default_code` of the backend's RecalculationSchedulingUnavailable: the one answer that confirms the
+// workflow was never queued.
+const SCHEDULING_UNAVAILABLE_CODE = 'recalculation_scheduling_unavailable'
 
 export const RECALCULATION_STATUSES = {
     pending: 'pending',
@@ -889,13 +892,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     // Undim the rows this trigger dimmed. Nothing else will: the run never started, so no
                     // result ever lands for them, and an automatic trigger shows no toast to explain it.
                     actions.setRecalculatingMetricUuids([])
-                    // A run that never started emits no terminal event, so `failed_to_start` is the only
-                    // signal that separates this class from a run that started and then failed.
+                    // A run that never started emits no terminal event, so this is the only record of it.
+                    // Only the backend's own code confirms the start never happened; a dropped response
+                    // leaves it unknown, so `failed_to_start` stays false rather than guessing.
                     actions.reportExperimentMetricRecalculation('failed', {
                         experiment_id: resolvedIds.experimentId,
                         recalculation_id: null,
                         trigger,
-                        failed_to_start: true,
+                        failed_to_start: error?.code === SCHEDULING_UNAVAILABLE_CODE,
                         status_code: error?.status,
                     })
                     if (userInitiated) {

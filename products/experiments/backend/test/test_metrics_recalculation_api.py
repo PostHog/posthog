@@ -163,6 +163,24 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.json()["id"] == str(row.id)
         assert row.status == ExperimentMetricsRecalculation.Status.IN_PROGRESS
 
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    def test_post_reports_start_failure_when_the_row_was_force_failed(self, mock_run, mock_connect):
+        # A start left unresolved past the staleness threshold can be force-failed by another POST. The
+        # rollback then matches no row even though no worker claimed it, so a response built on the
+        # matched-row count alone would hand the client a dead run to poll.
+        exp = self._launched_experiment()
+
+        def _row_force_failed_then_rpc_fails(*args, **kwargs):
+            ExperimentMetricsRecalculation.objects.filter(experiment=exp).update(
+                status=ExperimentMetricsRecalculation.Status.FAILED
+            )
+            raise RuntimeError("deadline exceeded")
+
+        mock_run.side_effect = _row_force_failed_then_rpc_fails
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
     # ------------------------------------------------------------------
     # GET /metrics_recalculation/latest/
     # ------------------------------------------------------------------

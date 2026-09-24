@@ -675,7 +675,7 @@ describe('experimentMetricsLogic', () => {
                     post: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
                             503,
-                            { detail: SCHEDULER_DOWN_DETAIL },
+                            { detail: SCHEDULER_DOWN_DETAIL, code: 'recalculation_scheduling_unavailable' },
                         ],
                     },
                 })
@@ -697,6 +697,31 @@ describe('experimentMetricsLogic', () => {
                     }),
                 ])
                 expect(logic.values.recalculationLoading).toBe(false)
+            })
+
+            it('leaves failed_to_start false when the response never confirms the start', async () => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            freshCompletedRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [500, {}] },
+                })
+                mountLogic()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                }).toDispatchActions([
+                    logic.actionCreators.reportExperimentMetricRecalculation('failed', {
+                        experiment_id: EXPERIMENT.id as number,
+                        recalculation_id: null,
+                        trigger: 'manual',
+                        failed_to_start: false,
+                        status_code: 500,
+                    }),
+                ])
             })
 
             it('undims the rows it dimmed, so results stop reading as refreshing', async () => {

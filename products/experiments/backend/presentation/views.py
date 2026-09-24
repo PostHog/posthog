@@ -1439,10 +1439,22 @@ class EnterpriseExperimentsViewSet(
                     query_to__isnull=True,
                 ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
                 log_context = {"recalculation_id": recalculation_id, "experiment_id": experiment.id}
-                if not rolled_back:
+                # A zero-row update says only that the row moved on, not where it moved to: the staleness
+                # cleanup can force a long-unresolved PENDING row to FAILED. Read the landing state, so a
+                # dead row is never handed back as a run the client should poll.
+                landed_status = (
+                    None
+                    if rolled_back
+                    else ExperimentMetricsRecalculation.objects.filter(team=self.team, id=recalculation_id)
+                    .values_list("status", flat=True)
+                    .first()
+                )
+                if landed_status in (
+                    ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                    ExperimentMetricsRecalculation.Status.COMPLETED,
+                ):
                     # The worker claimed the row, so the start landed and only the response leg failed.
-                    # Telling the client the run never started would be wrong: it is running. Answer as a
-                    # normal create and let the client poll it.
+                    # Telling the client the run never started would be wrong: it is running.
                     logger.warning(
                         "Experiment metrics recalculation start errored after the worker claimed the run",
                         extra=log_context,
