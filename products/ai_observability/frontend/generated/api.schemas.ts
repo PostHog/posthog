@@ -617,6 +617,7 @@ export interface UploadSubmissionApi {
     items?: ItemSubmissionApi[]
     /**
      * One to 1,000 unique item/scorer-version results. The entire request commits atomically.
+     * @minItems 1
      * @maxItems 1000
      */
     results: ResultSubmissionApi[]

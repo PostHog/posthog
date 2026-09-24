@@ -316,6 +316,7 @@ class UploadSubmissionSerializer(_StrictDataclassSerializer[UploadSubmission]):
     results = serializers.ListField(
         child=ResultSubmissionSerializer(),
         allow_empty=False,
+        min_length=1,
         max_length=MAX_UPLOAD_RESULTS,
         help_text="One to 1,000 unique item/scorer-version results. The entire request commits atomically.",
     )

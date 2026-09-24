@@ -286,6 +286,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     .describe('Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels.'),
             })
         )
+        .min(1)
         .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
         .describe('One to 1,000 unique item\/scorer-version results. The entire request commits atomically.'),
 })
