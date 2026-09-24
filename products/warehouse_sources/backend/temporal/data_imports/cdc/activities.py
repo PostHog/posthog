@@ -1470,8 +1470,11 @@ class CDCExtractActivity:
         truncated_tables = list(self.reader.truncated_tables)
         self.reader.clear_truncated_tables()
         self._truncated_tables.extend(truncated_tables)
+        # The decoder names a table `schema.table`, while a schema created with a source schema set is
+        # stored bare, so the lookup goes through the same map as the change events.
+        stored_names = self._build_event_name_map()
         for table_name in truncated_tables:
-            trunc_schema = self.schema_by_name.get(table_name)
+            trunc_schema = self.schema_by_name.get(stored_names.get(table_name, table_name))
             if trunc_schema is None:
                 continue
             self._schema_log(trunc_schema).warning(

@@ -1463,6 +1463,8 @@ class TestCDCExtractActivity:
         assert schema.initial_sync_complete is False
         mock_reader.confirm_position.assert_called_once_with("0/500")
 
+    # The decoder reports a truncated table qualified, even when the schema is stored bare.
+    @parameterized.expand([("bare", "users"), ("qualified_as_the_decoder_reports_it", "public.users")])
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.unpause_external_data_schedule",
         create=True,
@@ -1477,6 +1479,8 @@ class TestCDCExtractActivity:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_truncate_sets_snapshot_mode(
         self,
+        _name,
+        truncated_name,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -1505,8 +1509,7 @@ class TestCDCExtractActivity:
             events,
         )
 
-        # Simulate a truncate for the "users" table
-        mock_reader.truncated_tables = ["users"]
+        mock_reader.truncated_tables = [truncated_name]
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)

@@ -15,8 +15,10 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest import skipIf
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -2958,6 +2960,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "the native-JSON events table keeps flags in the $feature_flags map, which HogQL does not read yet",
+    )
     def test_retention_first_time_ever_breakdown_does_not_inflate_buckets(self):
         # First-ever retention with a breakdown by an event property that was
         # captured later than the user's first event (e.g. a flag rolled out

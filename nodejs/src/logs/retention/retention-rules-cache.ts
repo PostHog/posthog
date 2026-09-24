@@ -5,7 +5,12 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 
-import { MAX_ENABLED_RETENTION_RULES, type RetentionRuleRow, compileRetentionRuleSet } from './compile-retention-rules'
+import {
+    MAX_ENABLED_RETENTION_RULES,
+    type RetentionRuleRow,
+    type RetentionRuleSource,
+    compileRetentionRuleSet,
+} from './compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './evaluate-retention'
 
 const REFRESH_MS = 30_000
@@ -22,6 +27,32 @@ export const logsRetentionRulesDroppedCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+/** The span-rule counterpart of `logsRetentionRulesDroppedCounter`, emitted by the traces consumer. */
+export const tracesRetentionRulesDroppedCounter = new Counter({
+    name: 'traces_ingestion_retention_rules_dropped_total',
+    help: 'Enabled span retention rules fetched but discarded at compile time (invalid retention_days tier or malformed config).',
+    labelNames: ['team_id'],
+})
+
+const retentionRulesDroppedCounters: Record<RetentionRuleSource, Counter<'team_id'>> = {
+    logs: logsRetentionRulesDroppedCounter,
+    spans: tracesRetentionRulesDroppedCounter,
+}
+
+// Each source has its own table: log rules in `LogsRetentionRule`, span rules in `TracesRetentionRule`.
+const RULES_QUERY: Record<RetentionRuleSource, string> = {
+    logs: `SELECT id::text AS id, config, version
+           FROM logs_logsretentionrule
+           WHERE team_id = $1 AND enabled = true
+           ORDER BY priority ASC, created_at ASC
+           LIMIT ${MAX_ENABLED_RETENTION_RULES}`,
+    spans: `SELECT id::text AS id, config, version
+            FROM tracing_tracesretentionrule
+            WHERE team_id = $1 AND enabled = true
+            ORDER BY priority ASC, created_at ASC
+            LIMIT ${MAX_ENABLED_RETENTION_RULES}`,
+}
+
 const retentionCacheInstrumentOpts = { measureTime: false, sendException: false } as const
 
 type CacheEntry = {
@@ -31,20 +62,26 @@ type CacheEntry = {
 }
 
 export class RetentionRulesCache {
-    private cache = new Map<number, CacheEntry>()
+    // Keyed by team *and* source: a team can have both log and span rules, and each consumer
+    // must only see its own.
+    private cache = new Map<string, CacheEntry>()
 
     constructor(private postgres: PostgresRouter) {}
 
-    public async getCompiledRuleSet(teamId: number): Promise<CompiledRetentionRuleSet> {
+    public async getCompiledRuleSet(
+        teamId: number,
+        source: RetentionRuleSource = 'logs'
+    ): Promise<CompiledRetentionRuleSet> {
         return instrumentFn(
             {
                 key: 'logsIngestion.retention.getCompiledRuleSet',
                 ...retentionCacheInstrumentOpts,
-                getLoggingContext: () => ({ team_id: teamId }),
+                getLoggingContext: () => ({ team_id: teamId, source }),
             },
             async () => {
                 const now = Date.now()
-                const existing = this.cache.get(teamId)
+                const cacheKey = `${teamId}:${source}`
+                const existing = this.cache.get(cacheKey)
                 if (existing && now - existing.fetchedAtMs < REFRESH_MS) {
                     trace.getActiveSpan()?.setAttributes({
                         'logs.retention.cache_hit': true,
@@ -55,7 +92,7 @@ export class RetentionRulesCache {
                 }
                 let rows: RetentionRuleRow[]
                 try {
-                    rows = await this.fetchRules(teamId)
+                    rows = await this.fetchRules(teamId, source)
                 } catch (error) {
                     // Fail open: this runs in the ingestion hot path, so a rules-fetch failure
                     // (e.g. a Postgres blip) must never propagate and DLQ otherwise-valid logs.
@@ -64,6 +101,7 @@ export class RetentionRulesCache {
                     // header. The stale `fetchedAtMs` means the next message retries the fetch.
                     logger.warn('[logs-retention] rules fetch failed — falling back', {
                         teamId,
+                        source,
                         error: String(error),
                     })
                     trace.getActiveSpan()?.setAttributes({
@@ -75,15 +113,16 @@ export class RetentionRulesCache {
                 const compiled = compileRetentionRuleSet(rows)
                 const droppedCount = rows.length - compiled.rules.length
                 if (droppedCount > 0) {
-                    logsRetentionRulesDroppedCounter.inc({ team_id: String(teamId) }, droppedCount)
+                    retentionRulesDroppedCounters[source].inc({ team_id: String(teamId) }, droppedCount)
                     logger.warn('[logs-retention] enabled rules discarded at compile — check retention_days tier', {
                         teamId,
+                        source,
                         fetched: rows.length,
                         dropped: droppedCount,
                     })
                 }
                 const vw = rows.reduce((m, r) => Math.max(m, r.version ?? 0), 0)
-                this.cache.set(teamId, { compiled, versionWatermark: vw, fetchedAtMs: now })
+                this.cache.set(cacheKey, { compiled, versionWatermark: vw, fetchedAtMs: now })
                 trace.getActiveSpan()?.setAttributes({
                     'logs.retention.cache_hit': false,
                     'logs.retention.db_row_count': rows.length,
@@ -95,21 +134,12 @@ export class RetentionRulesCache {
         )
     }
 
-    private async fetchRules(teamId: number): Promise<RetentionRuleRow[]> {
+    private async fetchRules(teamId: number, source: RetentionRuleSource): Promise<RetentionRuleRow[]> {
         const res = await this.postgres.query<{
             id: string
             config: Record<string, unknown>
             version: string
-        }>(
-            PostgresUse.COMMON_READ,
-            `SELECT id::text AS id, config, version
-             FROM logs_logsretentionrule
-             WHERE team_id = $1 AND enabled = true
-             ORDER BY priority ASC, created_at ASC
-             LIMIT ${MAX_ENABLED_RETENTION_RULES}`,
-            [teamId],
-            'logs-retention-rules-fetch'
-        )
+        }>(PostgresUse.COMMON_READ, RULES_QUERY[source], [teamId], 'logs-retention-rules-fetch')
         return res.rows.map((r) => ({
             id: r.id,
             config: r.config ?? {},

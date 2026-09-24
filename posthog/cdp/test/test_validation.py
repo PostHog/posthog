@@ -1010,6 +1010,37 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         with self.assertRaises(ValidationError):
             serializer.is_valid(raise_exception=True)
 
+    def test_warehouse_row_filter_needs_its_table(self):
+        # The row filter compiles against the entry's table name, so an entry without one never matches.
+        row_filter = [{"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}]
+        serializer = HogFunctionFiltersSerializer(
+            data={"source": "data-warehouse-table", "data_warehouse": [{"properties": row_filter}]},
+            context=self.filters_context,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            serializer.is_valid(raise_exception=True)
+        assert "Pick a table" in str(ctx.exception)
+
+        # The picker's placeholder entry is dropped on save; a filter on it must not vanish with it.
+        serializer = HogFunctionFiltersSerializer(
+            data={
+                "source": "data-warehouse-table",
+                "data_warehouse": [{"name": "Select a table", "table_name": "", "properties": row_filter}],
+            },
+            context=self.filters_context,
+        )
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
+
+        serializer = HogFunctionFiltersSerializer(
+            data={
+                "source": "data-warehouse-table",
+                "data_warehouse": [{"table_name": "accounts", "properties": row_filter}],
+            },
+            context=self.filters_context,
+        )
+        assert serializer.is_valid(), serializer.errors
+
     @parameterized.expand(
         [
             ("valid_dotted", "{person.properties.email}", False),

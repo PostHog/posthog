@@ -1,5 +1,6 @@
 import json
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -17,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
+from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
@@ -369,9 +370,6 @@ _PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL = "tasks-exclude-wizard-from-boot-total
 # Preserve that command order on replay while new runs can release it after the primary clone.
 _PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clone"
 
-# Desktop preparation links a large workspace and writes compiled package outputs. Give
-# that non-idempotent work one attempt with a budget larger than its inner 10-minute cap.
-_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
 _DEV_STACK_PREVIEW_WAIT_TIMEOUT = timedelta(minutes=15)
 
@@ -415,6 +413,9 @@ _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-c
 # Same two-step deprecate-then-delete cleanup lifecycle as the patches above.
 _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
+# Keep histories that already recorded a failed wall-clock exit on their original branch.
+_PATCH_ID_DELIVERED_PR_TIMEOUT_STATUS = "tasks-delivered-pr-timeout-status"
+
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
@@ -437,6 +438,10 @@ _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 
 _PATCH_ID_PROGRESS_EMIT_NONBLOCKING = "progress-emit-nonblocking-2026-09"
+# A new activity worker can record the merge queue flag as true while an old workflow worker
+# ignores it and dispatches, so replay takes the skip only where the marker was recorded.
+_PATCH_ID_MERGE_QUEUE_SKIP = "tasks-merge-queue-skip-2026-09"
+_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY = "tasks-inactivity-anchored-on-last-activity"
 
 _PENDING_PROGRESS_FLUSH_SECONDS = 15.0
 
@@ -709,7 +714,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._dispatch_followup(followup)
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
-        await workflow.sleep(timeout.total_seconds())
+        if workflow.patched(_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY):
+            if self._last_active_time is None:
+                self._last_active_time = workflow.now()
+            remaining = timeout - (workflow.now() - self._last_active_time)
+            if remaining.total_seconds() > 0:
+                await workflow.sleep(remaining.total_seconds())
+        else:
+            await workflow.sleep(timeout.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
     async def _wait_for_max_run_duration(self, cap: timedelta):
@@ -917,7 +929,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         pending_tasks_results = await asyncio.gather(
             *pending, return_exceptions=True
         )  # Ensure all pending tasks are cancelled
-        for task in done:
+        completed_events = (
+            self._completed_events_in_priority_order(done)
+            if workflow.patched(_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY)
+            else done
+        )
+        for task in completed_events:
             if task.exception():
                 workflow.logger.warning(
                     "Event wait task failed",
@@ -947,6 +964,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 return task_result
         raise RuntimeError("No event was completed successfully")
+
+    @staticmethod
+    def _completed_events_in_priority_order(done: Iterable[asyncio.Task[TaskEvent]]) -> list[asyncio.Task[TaskEvent]]:
+        return sorted(
+            done,
+            key=lambda task: task.exception() is None and task.result() == TaskEvent.TIMEOUT_REACHED,
+        )
 
     async def _should_run_ci_follow_up(self) -> CIFollowUpDecision:
         """Check whether a CI follow-up message should be sent to the agent.
@@ -988,6 +1012,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "pr_url": pr_context.pr_url,
                     "pr_state": pr_context.pr_state,
                 },
+            )
+            return CIFollowUpDecision.SKIP
+        if pr_context.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
+            workflow.logger.info(
+                "PR is in the merge queue, skipping CI follow-up",
+                extra={"run_id": self.context.run_id, "pr_url": pr_context.pr_url},
             )
             return CIFollowUpDecision.SKIP
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
@@ -1113,6 +1143,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             label = "PR merged" if snapshot.pr_state == "merged" else "PR closed"
             await self._emit_progress("ci", "completed", label, "setup")
             return CIFollowUpDecision.TERMINAL
+        if snapshot.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
+            # The journal stays untouched, so the feedback waits for the next tick after the PR
+            # leaves the queue instead of being marked handled.
+            workflow.logger.info(
+                "PR is in the merge queue, skipping CI follow-up",
+                extra={"run_id": self.context.run_id, "pr_url": snapshot.pr_url},
+            )
+            return CIFollowUpDecision.SKIP
         attention = self._babysit_journal.attention(snapshot)
         if attention.is_empty:
             if (
@@ -1557,9 +1595,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
                 # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
-                # A run that outlived the hard cap is a failure, not a completion, and the
-                # state marker carries the reason so error_message stays empty.
-                await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
+                status = (
+                    "completed"
+                    if workflow.patched(_PATCH_ID_DELIVERED_PR_TIMEOUT_STATUS) and self._delivered_pr_watch_complete()
+                    else "failed"
+                )
+                await self._update_task_run_status(status, timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
             elif timeout_event is not None and self._agent_lost_exit_is_failure():
                 await self._update_task_run_status(
                     "failed", error_message=AGENT_LOST_ERROR_MESSAGE, timed_out_inactivity=True
@@ -2111,9 +2152,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
         will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
-        def prepares_desktop(repository: str) -> bool:
-            return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
-
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
         boot_path = "overlap" if overlap else "classic"
         launch_ms: int | None = None
@@ -2141,7 +2179,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             async def clone_repository(
                 repository: str,
             ) -> tuple[CloneRepositoryInSandboxOutput | None, bool, bool]:
-                prepares_repository_desktop = prepares_desktop(repository)
                 try:
                     clone_output = await workflow.execute_activity(
                         clone_repository_in_sandbox,
@@ -2152,9 +2189,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
                         ),
-                        start_to_close_timeout=(
-                            _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
-                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                 except Exception as error:
@@ -2229,7 +2264,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if will_checkout and checkout_repository not in failed_repositories and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
-            prepares_repository_desktop = prepares_desktop(checkout_repository)
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup", wait=False)
@@ -2244,9 +2278,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
                 ),
-                start_to_close_timeout=(
-                    _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
-                ),
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             # Pre-rollout histories (and mocked tests) recorded a null result here.
@@ -2875,6 +2907,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if self._pr_progress_emitted:
             return False
         return not self.context.create_pr or self._ci_repetitions > 0
+
+    def _delivered_pr_watch_complete(self) -> bool:
+        return (
+            self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            and self._pr_progress_emitted
+            and self._last_turn_succeeded
+            and self._end_of_turn_received is True
+            and self._agent_active is False
+            and self._pending_followup is None
+            and not self._pending_followups
+            and self._pending_babysit is None
+        )
 
     def _agent_lost_mid_turn(self) -> bool:
         """True only when an open turn is backed by evidence the agent was still working.

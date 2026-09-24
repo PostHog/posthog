@@ -1,5 +1,6 @@
 import {
   type AgentRuntime,
+  type ExecutionMode,
   TASKS_PREWARM_SANDBOX_FLAG,
   type WorkspaceMode,
 } from "@posthog/shared";
@@ -30,6 +31,7 @@ export interface UseWarmTaskOptions {
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
+  permissionMode?: ExecutionMode | null;
   sandboxEnvironmentId?: string | null;
   customImageId?: string | null;
 }
@@ -47,6 +49,7 @@ export function useWarmTask({
   runtimeAdapter,
   model,
   reasoningEffort,
+  permissionMode,
   sandboxEnvironmentId,
   customImageId,
 }: UseWarmTaskOptions): void {
@@ -63,6 +66,9 @@ export function useWarmTask({
   const normalizedRuntimeAdapter = runtimeAdapter ?? null;
   const normalizedModel = model ?? null;
   const normalizedReasoningEffort = reasoningEffort ?? null;
+  const normalizedPermissionMode = runtimeAdapter
+    ? (permissionMode ?? null)
+    : null;
   const normalizedSandboxEnvironmentId = sandboxEnvironmentId ?? null;
   const normalizedCustomImageId = customImageId ?? null;
   // Repo-less channel tasks deliberately discard any persisted/stale picker
@@ -99,6 +105,7 @@ export function useWarmTask({
           runtimeAdapter: normalizedRuntimeAdapter,
           model: normalizedModel,
           reasoningEffort: normalizedReasoningEffort,
+          permissionMode: normalizedPermissionMode,
           sandboxEnvironmentId: normalizedSandboxEnvironmentId,
           customImageId: normalizedCustomImageId,
         })}`
@@ -136,6 +143,7 @@ export function useWarmTask({
     const warmRuntimeAdapter = normalizedRuntimeAdapter;
     const warmModel = normalizedModel;
     const warmReasoningEffort = normalizedReasoningEffort;
+    const warmPermissionMode = normalizedPermissionMode;
     const warmSandboxEnvironmentId = normalizedSandboxEnvironmentId;
     const warmCustomImageId = normalizedCustomImageId;
     debounceRef.current = setTimeout(() => {
@@ -153,6 +161,7 @@ export function useWarmTask({
           runtime_adapter: warmRuntimeAdapter,
           model: warmModel,
           reasoning_effort: warmReasoningEffort,
+          initial_permission_mode: warmPermissionMode,
           ...(warmSandboxEnvironmentId
             ? { sandbox_environment_id: warmSandboxEnvironmentId }
             : {}),
@@ -181,6 +190,7 @@ export function useWarmTask({
                 runtimeAdapter: warmRuntimeAdapter,
                 model: warmModel,
                 reasoningEffort: warmReasoningEffort,
+                permissionMode: warmPermissionMode,
                 sandboxEnvironmentId: warmSandboxEnvironmentId,
                 customImageId: warmCustomImageId,
               }),
@@ -210,6 +220,7 @@ export function useWarmTask({
     normalizedRuntimeAdapter,
     normalizedModel,
     normalizedReasoningEffort,
+    normalizedPermissionMode,
     normalizedSandboxEnvironmentId,
     normalizedCustomImageId,
   ]);

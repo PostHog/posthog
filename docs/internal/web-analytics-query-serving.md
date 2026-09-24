@@ -179,3 +179,10 @@ A `*_lazy_query` taking seconds is a bucket-read problem (rare).
 A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
+
+## Identifying a failed marketing query
+
+Marketing Analytics query errors show a query ID when the request has one.
+Use that ID to find the failed request in the query log.
+The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
+Errors outside the query path, such as configuration failures, may have no query ID.

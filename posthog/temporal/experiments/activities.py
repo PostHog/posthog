@@ -28,6 +28,7 @@ from products.experiments.backend.facade.timeseries import (
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
+    merge_saved_metric_breakdowns,
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -372,8 +373,11 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                 )
                 continue
 
+            # Fingerprint the effective config (with link-metadata breakdowns), the same dict the calc
+            # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
+            # saved query here would file breakdown-configured metrics under a hash no reader looks up.
             fingerprint = compute_metric_fingerprint(
-                saved_metric.query,
+                merge_saved_metric_breakdowns(saved_metric.query, exp_to_saved_metric.metadata),
                 experiment.start_date,
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
@@ -455,11 +459,7 @@ def _calculate_experiment_saved_metric_sync(
     # a fingerprint (added by the experiment API serializer). The activity must
     # apply both or the response cache key diverges from /query's.
     query = {
-        **saved_metric.query,
-        "breakdownFilter": {
-            **(saved_metric.query.get("breakdownFilter") or {}),
-            "breakdowns": saved_metric_metadata.get("breakdowns") or [],
-        },
+        **merge_saved_metric_breakdowns(saved_metric.query, saved_metric_metadata),
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
