@@ -61286,6 +61286,8 @@ export namespace Schemas {
          */
       read_only_mcp_access?: boolean | null;
       readonly member_count: number;
+      /** Whether the organization has an owner other than the requesting user. An owner can only leave or lower their own level when this is true. */
+      readonly has_other_owner: boolean;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
       /**
@@ -61355,6 +61357,8 @@ export namespace Schemas {
       /** @nullable */
       readonly logo_media_id: string | null;
       readonly membership_level: OrganizationMembershipLevelEnum;
+      /** Whether the organization has an owner other than the requesting user. An owner can only leave or lower their own level when this is true. */
+      readonly has_other_owner: boolean;
       members_can_use_personal_api_keys?: boolean;
       /**
          * Set this to 'No' to temporarily disable an organization.
@@ -73903,6 +73907,8 @@ export namespace Schemas {
          */
       read_only_mcp_access?: boolean | null;
       readonly member_count?: number;
+      /** Whether the organization has an owner other than the requesting user. An owner can only leave or lower their own level when this is true. */
+      readonly has_other_owner?: boolean;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
       /**
