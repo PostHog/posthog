@@ -665,6 +665,12 @@ SPACE_SETUP_SCOPES = (
     "task:write",
     "canvas:write",
     "hog_flow:write",
+    # `workflows-schedule-create` and `workflows-test-run` require these beside `hog_flow:write`;
+    # without them the MCP server hides both tools and no loop can be scheduled or tested.
+    "person:read",
+    "group:read",
+    # The building-loops skill checks the repository is reachable through the GitHub integration.
+    "integration:read",
     "query:read",
     "data_catalog:read",
     "insight:read",
