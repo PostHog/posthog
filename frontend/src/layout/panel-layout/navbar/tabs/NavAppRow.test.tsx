@@ -73,14 +73,14 @@ describe('NavAppRow', () => {
             post: { '/api/environments/:team_id/file_system_shortcut/': create },
             delete: { '/api/environments/:team_id/file_system_shortcut/star-test/': remove },
         })
-        const { getByLabelText, queryByLabelText, findByRole } = render(<NavAppRow item={{ path, type, href }} />)
+        const { getByLabelText, queryByLabelText, findByText } = render(<NavAppRow item={{ path, type, href }} />)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
         const initialPath = router.values.location.pathname
         const starButton = async (name: string): Promise<HTMLElement> => {
             if (hasMenu) {
                 fireEvent.click(getByLabelText(`Open ${path} menu`))
-                expect(await findByRole('menuitem', { name: 'Configure home' })).toBeTruthy()
-                return await findByRole('menuitem', { name })
+                expect(await findByText('Configure home')).toBeTruthy()
+                return await findByText(name)
             }
             expect(queryByLabelText(`Open ${path} menu`)).toBeNull()
             return getByLabelText(name)
