@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import type { AnyResponseType, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
@@ -75,10 +77,17 @@ function toTotalValue(result: TrendResult): TrendResult {
     }
 }
 
-function toSlope(result: TrendResult): TrendResult {
+// Mirrors the slope query runner's incomplete_end, which dashes the last segment.
+function toSlope(result: TrendResult, source: TrendsQuery): TrendResult {
     const ends = <T>(values: T[] | undefined): T[] =>
         values && values.length > 2 ? [values[0], values[values.length - 1]] : (values ?? [])
-    return { ...result, data: ends(result.data), days: ends(result.days), labels: ends(result.labels) }
+    const days = ends(result.days)
+    const lastDay = days[days.length - 1]
+    const currentBucketStart = dayjs()
+        .tz('utc', true)
+        .startOf(source.interval ?? 'day')
+    const incomplete_end = !!lastDay && dayjs(lastDay).tz('utc', true) >= currentBucketStart
+    return { ...result, data: ends(result.data), days, labels: ends(result.labels), incomplete_end }
 }
 
 function toCumulative(result: TrendResult): TrendResult {
@@ -132,14 +141,15 @@ type RowsNeeded = 'buckets' | 'totals' | 'heatmap' | 'boxPlot'
 interface PreviewRecipe {
     needs: RowsNeeded
     when?: (source: TrendsQuery, rows: PreviewRows) => boolean
-    transform?: (result: TrendResult) => TrendResult
+    transform?: (result: TrendResult, source: TrendsQuery) => TrendResult
     sampleRows?: (loaded: TrendResult[]) => unknown[]
 }
 
 const noBreakdown = (source: TrendsQuery): boolean => !hasBreakdown(source)
 const summable = (source: TrendsQuery, rows: PreviewRows): boolean => canSumBuckets(source, rows.results)
-const canSlope = (source: TrendsQuery): boolean =>
-    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && !hasBreakdown(source)
+// The slope query ranks breakdown values by the two end buckets alone, so a truncated breakdown may slope others.
+const canSlope = (source: TrendsQuery, rows: PreviewRows): boolean =>
+    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && (!hasBreakdown(source) || isCompleteBreakdown(rows.response))
 const completeCountries = (source: TrendsQuery, rows: PreviewRows): boolean =>
     hasCountryCodeBreakdown(source) && isCompleteBreakdown(rows.response)
 
@@ -209,7 +219,10 @@ export function deriveChartPreview(
 
     if (rows) {
         const response = recipe.transform
-            ? withResults(rows.response, rows.results.map(recipe.transform))
+            ? withResults(
+                  rows.response,
+                  rows.results.map((result) => recipe.transform!(result, source))
+              )
             : rows.response
 
         return { response, sample: false }

@@ -50,6 +50,26 @@ describe('deriveChartPreview', () => {
         expect(results(preview)[0]).toMatchObject({ data, count })
     })
 
+    it.each([
+        ['is the current period', '2026-01-04T12:00:00Z', true],
+        ['has ended', '2026-01-10T12:00:00Z', false],
+    ])('flags the slope end as incomplete when the last bucket %s', (_, now, incomplete) => {
+        jest.useFakeTimers().setSystemTime(new Date(now))
+        try {
+            const preview = deriveChartPreview(
+                ChartDisplayType.SlopeGraph,
+                query(ChartDisplayType.ActionsLineGraph, { interval: 'day' }),
+                response([series({})])
+            )
+            expect(results(preview)[0]).toMatchObject({
+                days: ['2026-01-01', '2026-01-04'],
+                incomplete_end: incomplete,
+            })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it.each(['total', 'sum'])('derives a %s total from raw buckets', (math) => {
         const preview = deriveChartPreview(
             ChartDisplayType.BoldNumber,
@@ -202,12 +222,28 @@ describe('deriveChartPreview', () => {
     it.each([
         ['smoothed buckets', query(ChartDisplayType.ActionsLineGraph, { trendsFilter: { smoothingIntervals: 2 } })],
         [
-            'breakdown buckets',
+            'a truncated breakdown',
             query(ChartDisplayType.ActionsLineGraph, {
                 breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
             }),
+            true,
         ],
-    ])('does not derive a slope from %s', (_, source) => {
-        expect(deriveChartPreview(ChartDisplayType.SlopeGraph, source, response([series({})]))).toBeNull()
+    ])('does not derive a slope from %s', (_, source, hasMore = false) => {
+        expect(deriveChartPreview(ChartDisplayType.SlopeGraph, source, response([series({})], hasMore))).toBeNull()
+    })
+
+    it('derives one slope per value from a complete breakdown', () => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+        })
+        const loaded = response([
+            series({ breakdown_value: 'Chrome' }),
+            series({ breakdown_value: 'Safari', data: [5, 6, 7, 8] }),
+        ])
+
+        expect(results(deriveChartPreview(ChartDisplayType.SlopeGraph, source, loaded))).toMatchObject([
+            { breakdown_value: 'Chrome', data: [1, 4] },
+            { breakdown_value: 'Safari', data: [5, 8] },
+        ])
     })
 })
