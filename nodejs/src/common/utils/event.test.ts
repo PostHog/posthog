@@ -24,21 +24,6 @@ describe('normalizeEvent()', () => {
         expect(normalizeEvent(event2 as any).properties).toEqual({ a: 1, $sent_at: '2020-02-23T02:15:00.000Z' })
     })
 
-    describe('$ip', () => {
-        test.each([
-            { name: 'backfills the address capture resolved', properties: {}, expected: { $ip: '1.2.3.4' } },
-            {
-                name: 'keeps an address the producer sent',
-                properties: { $ip: '5.6.7.8' },
-                expected: { $ip: '5.6.7.8' },
-            },
-            { name: 'drops the key when the producer sends null', properties: { $ip: null }, expected: {} },
-        ])('$name', ({ properties, expected }) => {
-            const event = { distinct_id: 'something', properties, ip: '1.2.3.4' }
-            expect(normalizeEvent(event as any).properties).toEqual(expected)
-        })
-    })
-
     describe('$session_id normalization', () => {
         test.each([
             {

@@ -117,11 +117,7 @@ export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): 
     if (event['$set_once']) {
         properties['$set_once'] = { ...properties['$set_once'], ...event['$set_once'] }
     }
-    if (properties['$ip'] === null) {
-        // an explicit null means the producer knows there is no client address to record,
-        // so the address capture resolved describes a server hop and must not be stamped on
-        delete properties['$ip']
-    } else if (!properties['$ip'] && event.ip) {
+    if (!properties['$ip'] && event.ip) {
         // if $ip wasn't sent with the event, then add what we got from capture
         properties['$ip'] = event.ip
     }
