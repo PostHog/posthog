@@ -60,6 +60,7 @@ function SidebarStory({
     overlay = false,
     empty = false,
     recentsCollapsed = false,
+    folderToOpen,
 }: {
     tab?: NavExperimentTab
     search?: string
@@ -67,6 +68,7 @@ function SidebarStory({
     overlay?: boolean
     empty?: boolean
     recentsCollapsed?: boolean
+    folderToOpen?: string
 }): JSX.Element {
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
         useActions(panelLayoutLogic)
@@ -85,6 +87,9 @@ function SidebarStory({
         }
         setRecentsCollapsed(recentsCollapsed)
         loadShortcutsSuccess(empty ? [] : starred)
+        if (folderToOpen !== undefined) {
+            navFilesTabLogic.actions.openFolder(folderToOpen)
+        }
     })
     return <NavBar />
 }
@@ -169,6 +174,7 @@ export const FilesOptions: Story = {
         await userEvent.click(options)
     },
 }
+export const OpenFolder: Story = { args: { collapsed: true, folderToOpen: 'Product research' } }
 export const Chat: Story = {
     args: { tab: 'chat' },
     decorators: [

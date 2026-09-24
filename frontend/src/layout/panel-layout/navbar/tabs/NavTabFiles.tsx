@@ -16,7 +16,7 @@ import { NavTabSection } from './NavTabSection'
 export function NavTabFiles(): JSX.Element {
     const { navExperimentActiveTab } = useValues(panelLayoutLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
-    const { searchTerm } = useValues(navFilesTabLogic)
+    const { searchTerm, folderRevealCount } = useValues(navFilesTabLogic)
     const { fullFileSystemFiltered: starredFiles } = useValues(
         projectTreeLogic({ key: FILES_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'files' })
     )
@@ -65,7 +65,7 @@ export function NavTabFiles(): JSX.Element {
                 <NavTabSection
                     label="Files"
                     dataAttr="nav-files-project-toggle"
-                    key={`files-${!!searchTerm.trim()}`}
+                    key={`files-${!!searchTerm.trim()}-${folderRevealCount}`}
                     actions={!showStarred && <span className="size-6.5 shrink-0" aria-hidden />}
                 >
                     <ProjectTree
