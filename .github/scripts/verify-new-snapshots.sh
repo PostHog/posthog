@@ -20,20 +20,25 @@ echo ""
 
 # Extract unique test files from snapshot paths
 # snapshot path: posthog/hogql/database/test/__snapshots__/test_database.ambr
+#            or: posthog/hogql/database/test/__snapshots__/test_database.new_events_schema.ambr
 # test path:     posthog/hogql/database/test/test_database.py
+# A job runs in one events-schema mode, so each test file maps to the one new snapshot it produced.
 declare -A test_files
+declare -A snapshot_for_test
 
 while IFS= read -r ambr_file; do
     # Get the test file path
     dir=$(dirname "$ambr_file")          # posthog/hogql/database/test/__snapshots__
     test_dir=$(dirname "$dir")            # posthog/hogql/database/test
-    basename=$(basename "$ambr_file" .ambr)  # test_database
+    basename=$(basename "$ambr_file" .ambr)  # test_database or test_database.new_events_schema
+    basename=${basename%.new_events_schema}  # test_database
 
     # Construct test file path
     test_file="${test_dir}/${basename}.py"
 
     if [ -f "$test_file" ]; then
         test_files["$test_file"]=1
+        snapshot_for_test["$test_file"]="$ambr_file"
     else
         echo "⚠️  Warning: Could not find test file ${test_file} for ${ambr_file}"
     fi
@@ -57,10 +62,8 @@ failed_files=()
 for test_file in "${!test_files[@]}"; do
     echo "🔄 Verifying all tests in: $test_file"
 
-    # Find snapshot files related to this test file
-    test_dir=$(dirname "$test_file")
-    test_basename=$(basename "$test_file" .py)
-    test_snapshot="${test_dir}/__snapshots__/${test_basename}.ambr"
+    # The snapshot file this test file produced in this job's events-schema mode
+    test_snapshot="${snapshot_for_test[$test_file]}"
 
     # Clear previous checksums
     rm -f "$temp_dir"/checksums_run*.txt
@@ -84,10 +87,14 @@ for test_file in "${!test_files[@]}"; do
             break
         fi
 
-        # Calculate checksums of snapshots related to this test file
-        if [ -f "$test_snapshot" ]; then
-            sha256sum "$test_snapshot" >> "$temp_dir/checksums_run${run}.txt"
+        # A rerun that leaves the file missing ran in the wrong events-schema mode
+        # or mapped to the wrong test file; passing here would drop the snapshot.
+        if [ ! -f "$test_snapshot" ]; then
+            echo "  ❌ Run $run did not recreate $test_snapshot"
+            failed_files+=("$test_file (snapshot not regenerated)")
+            break
         fi
+        sha256sum "$test_snapshot" >> "$temp_dir/checksums_run${run}.txt"
     done
 
     # Compare checksums across runs if all runs succeeded

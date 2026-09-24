@@ -1006,6 +1006,30 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
 }
 
 /**
+ * Reshape a saved/shared metric into the inline ExperimentMetric shape, merging the
+ * per-experiment link metadata (breakdown attribution, breakdowns) into the query.
+ */
+function enrichSharedMetric(sharedMetric: Experiment['saved_metrics'][number]): ExperimentMetric {
+    return {
+        ...sharedMetric.query,
+        name: sharedMetric.name,
+        sharedMetricId: sharedMetric.saved_metric,
+        isSharedMetric: true,
+        ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+            breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+            breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+        }),
+        breakdownFilter: {
+            ...sharedMetric.query?.breakdownFilter,
+            breakdowns: sharedMetric.metadata?.breakdowns || [],
+            ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                breakdown_limit: sharedMetric.metadata.breakdown_limit,
+            }),
+        },
+    } as ExperimentMetric
+}
+
+/**
  * Maps metrics to their results and errors in the correct display order
  * This handles the complex logic of:
  * 1. Mapping results by index to original metrics array (including shared metrics)
@@ -1037,29 +1061,7 @@ export function getOrderedMetricsWithResults(
 
     const enrichedSharedMetrics = (experiment.saved_metrics || [])
         .filter((sharedMetric) => sharedMetric.metadata?.type === metricType)
-        .map((sharedMetric) => ({
-            ...sharedMetric.query,
-            name: sharedMetric.name,
-            sharedMetricId: sharedMetric.saved_metric,
-            isSharedMetric: true,
-            /**
-             * Merge per-experiment breakdown attribution from metadata into the query
-             */
-            ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-                breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-                breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-            }),
-            /**
-             * Merge breakdowns from metadata into breakdownFilter
-             */
-            breakdownFilter: {
-                ...sharedMetric.query?.breakdownFilter,
-                breakdowns: sharedMetric.metadata?.breakdowns || [],
-                ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                    breakdown_limit: sharedMetric.metadata.breakdown_limit,
-                }),
-            },
-        })) as ExperimentMetric[]
+        .map(enrichSharedMetric)
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
 
@@ -1269,35 +1271,9 @@ export const metricResults =
             type === 'secondary' ? experiment.metrics_secondary || [] : experiment.metrics || []
         ) as ExperimentMetric[]
 
-        /**
-         * Reshape saved/shared metrics into the inline ExperimentMetric shape so both can be merged and
-         * ordered together below.
-         */
         const sharedMetrics = (experiment.saved_metrics || [])
             .filter((sharedMetric) => sharedMetric.metadata?.type === type)
-            .map((sharedMetric) => ({
-                ...sharedMetric.query,
-                name: sharedMetric.name,
-                sharedMetricId: sharedMetric.saved_metric,
-                isSharedMetric: true,
-                /**
-                 * Merge per-experiment breakdown attribution from metadata into the query
-                 */
-                ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-                    breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-                    breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-                }),
-                /**
-                 * Merge breakdowns from metadata into breakdownFilter
-                 */
-                breakdownFilter: {
-                    ...sharedMetric.query?.breakdownFilter,
-                    breakdowns: sharedMetric.metadata?.breakdowns || [],
-                    ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                        breakdown_limit: sharedMetric.metadata.breakdown_limit,
-                    }),
-                },
-            })) as ExperimentMetric[]
+            .map(enrichSharedMetric)
 
         /**
          * Merge inline + shared metrics, dropping any without a uuid (defensive). One entry per metric
