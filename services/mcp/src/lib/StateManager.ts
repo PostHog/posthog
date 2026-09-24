@@ -9,7 +9,6 @@ import {
     PostHogApiError,
     wrapError,
 } from '@/lib/errors'
-import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
@@ -60,6 +59,7 @@ export class StateManager {
                 scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
+                is_impersonated: false,
             }
         }
 
@@ -95,6 +95,7 @@ export class StateManager {
             scopes: scope ? scope.split(' ') : [],
             scoped_teams: scoped_teams ?? [],
             scoped_organizations: scoped_organizations ?? [],
+            is_impersonated: introspectionResult.data.is_impersonated === true,
         }
     }
 
@@ -351,8 +352,7 @@ export class StateManager {
             return undefined
         }
 
-        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
-        // consent checks treat "no org" as "skip", not as a hard error.
+        // Non-throwing: consent checks treat "no org" as "skip", not as an error.
         const orgId = await this._resolveOrganizationId()
         if (!orgId) {
             return undefined
@@ -438,23 +438,6 @@ export class StateManager {
             fetchedAtKey: `gatewayToolsFetchedAt:${projectId}` as const,
             fetcher: () => this._api.getGatewayTools(projectId),
             ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
-        })
-    }
-
-    async getEnvironmentPrompt(opts?: { includeProductContext?: boolean }): Promise<string | undefined> {
-        const includeProductContext = opts?.includeProductContext !== false
-        const [user, org, project] = await Promise.all([
-            this.getCachedOrFetchUser().catch(() => undefined),
-            this.getCachedOrFetchOrg().catch(() => undefined),
-            this.getCachedOrFetchProject().catch(() => undefined),
-        ])
-        const integrationKinds =
-            includeProductContext && project
-                ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
-                : undefined
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, {
-            integrationKinds,
-            includeProductContext,
         })
     }
 

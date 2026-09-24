@@ -69,6 +69,9 @@ tools:
     elements-values-list:
         operation: elements_values_list
         enabled: false
+    events-retention-retrieve:
+        operation: events_retention_retrieve
+        enabled: false
     insight-create:
         operation: insights_create
         enabled: true
@@ -302,9 +305,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-analyze-retrieve:
-        operation: insights_analyze_retrieve
-        enabled: false
     insights-bulk-delete-create:
         operation: insights_bulk_delete_create
         enabled: false
@@ -366,12 +366,6 @@ tools:
                 - alerts
     insights-my-last-viewed-retrieve:
         operation: insights_my_last_viewed_retrieve
-        enabled: false
-    insights-suggestions-create:
-        operation: insights_suggestions_create
-        enabled: false
-    insights-suggestions-retrieve:
-        operation: insights_suggestions_retrieve
         enabled: false
     insights-trending-retrieve:
         operation: insights_trending_retrieve

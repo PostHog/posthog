@@ -18,9 +18,23 @@ logger = structlog.get_logger(__name__)
 
 
 class LinkSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-    short_code = serializers.CharField(required=True, allow_null=False)
-    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="User who created the link. Null when that user was deleted.",
+    )
+    short_code = serializers.CharField(
+        required=True,
+        allow_null=False,
+        max_length=255,
+        help_text="The unique code/path that identifies the short link, e.g. 'abc123'",
+    )
+    _create_in_folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Folder path to file the link under in the project tree.",
+    )
 
     class Meta:
         model = Link
@@ -36,12 +50,23 @@ class LinkSerializer(serializers.ModelSerializer):
             "_create_in_folder",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "redirect_url": {"help_text": "Destination the short link redirects to."},
+            # The model's help text names hog.gg, which this serializer rejects. Overriding here keeps
+            # the published schema honest without the migration a model change would need.
+            "short_link_domain": {"help_text": "Domain the short link is hosted on. Only phog.gg is accepted."},
+            "description": {"help_text": "Free-form note about what the link is for."},
+        }
+
+    def validate_short_link_domain(self, value: str) -> str:
+        # Field-level so that create, PUT and PATCH all reject a bad domain. A check inside create()
+        # covers only the create path.
+        if value != "phog.gg":
+            raise serializers.ValidationError("Only phog.gg is allowed as a short link domain")
+        return value
 
     def create(self, validated_data: dict[str, Any]) -> Link:
         team = Team.objects.get(id=self.context["team_id"])
-
-        if validated_data.get("short_link_domain") != "phog.gg":
-            raise serializers.ValidationError({"short_link_domain": "Only phog.gg is allowed as a short link domain"})
 
         link = Link.objects.create(
             team=team,
@@ -63,8 +88,6 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LinkSerializer
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
-    # Use the team from the user's current context when not in a team-specific route
-    param_derived_from_user_current_team = "team_id"
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id).order_by("-created_at")

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_maintenance_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
     execute_with_conflict_retry,
 )
 
@@ -122,15 +123,27 @@ class DeltaMaintenance:
         await self._logger.adebug(json.dumps(compact_stats))
 
     async def compact_table(self) -> None:
+        """Compact and vacuum unconditionally, after a non-CDC sync has loaded its rows.
+
+        An object-store refusal (see `run_scheduled` for why it does not fail the sync) is logged
+        and swallowed. Every other failure propagates to the caller, which decides how to report it.
+        """
         table = await self._table.get_delta_table()
         if table is None:
             raise Exception("Deltatable not found")
 
-        await self._compact(table)
-        # Reuse the table already resolved above instead of re-fetching it: `get_delta_table`
-        # is cached only opportunistically, so a re-fetch here can race a concurrent sync of a
-        # different table evicting this table's cache entry and spuriously report it missing.
-        await self._vacuum(table)
+        try:
+            await self._compact(table)
+            # Reuse the table already resolved above instead of re-fetching it: `get_delta_table`
+            # is cached only opportunistically, so a re-fetch here can race a concurrent sync of a
+            # different table evicting this table's cache entry and spuriously report it missing.
+            await self._vacuum(table)
+        except ObjectStorePermissionDeniedError:
+            await self._logger.awarning(
+                "Delta maintenance skipped: the object store denied the operation. The table's rows "
+                "are unaffected and the next maintenance pass retries the same cleanup."
+            )
+            return
         await self._logger.adebug("Compacting and vacuuming complete")
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
@@ -291,6 +304,14 @@ class DeltaMaintenance:
         retries the same idempotent cleanup. A transient infra error (see
         `is_transient_maintenance_error`) — an object-store hiccup, a racy concurrent-maintenance
         DeltaError, or an app-DB connection blip — is logged at warning instead of captured.
+
+        An object-store refusal (see is_object_store_permission_denied) is logged at warning too.
+        Compaction and vacuuming only rewrite and reclaim files that the load has already committed,
+        so a refused pass leaves every live row queryable and costs the table nothing but a delayed
+        cleanup. It is a policy condition on our own bucket rather than a maintenance defect, so a
+        report per sync would say the same thing repeatedly about something no code change fixes.
+        The watermark is not persisted either, so the cadence re-attempts the vacuum on the next pass
+        instead of waiting another `commit_threshold` commits for a cleanup that never ran.
         """
         try:
             if is_cdc_companion:
@@ -311,6 +332,9 @@ class DeltaMaintenance:
                 await database_sync_to_async_pool(update_sync_type_config_keys)(
                     schema.id, schema.team_id, updates={watermark_key: new_version}
                 )
+        except ObjectStorePermissionDeniedError:
+            await self._logger.awarning("Delta maintenance skipped: the object store denied the operation")
+            return
         except Exception as e:
             if is_transient_maintenance_error(e):
                 await self._logger.awarning(f"Delta maintenance skipped: transient infra error: {e}")

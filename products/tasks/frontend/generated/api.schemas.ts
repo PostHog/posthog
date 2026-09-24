@@ -1317,6 +1317,130 @@ export interface ChannelMembersWriteApi {
 }
 
 /**
+ * * `goal` - Goal
+ * * `feature` - Feature
+ */
+export type SpaceSetupKindEnumApi = (typeof SpaceSetupKindEnumApi)[keyof typeof SpaceSetupKindEnumApi]
+
+export const SpaceSetupKindEnumApi = {
+    Goal: 'goal',
+    Feature: 'feature',
+} as const
+
+/**
+ * * `day` - Day
+ * * `week` - Week
+ * * `month` - Month
+ */
+export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+
+export const SpaceGoalPeriodEnumApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+/**
+ * * `at_least` - At least
+ * * `at_most` - At most
+ */
+export type SpaceGoalDirectionEnumApi = (typeof SpaceGoalDirectionEnumApi)[keyof typeof SpaceGoalDirectionEnumApi]
+
+export const SpaceGoalDirectionEnumApi = {
+    AtLeast: 'at_least',
+    AtMost: 'at_most',
+} as const
+
+/**
+ * The metric a goal space should move.
+ */
+export interface SpaceGoalWriteApi {
+    /**
+     * The goal in one or two sentences, e.g. 'Increase the weekly activation rate'.
+     * @maxLength 2000
+     */
+    statement: string
+    /** How often the metric is measured.
+     *
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    period?: SpaceGoalPeriodEnumApi
+    /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
+     *
+     * * `at_least` - At least
+     * * `at_most` - At most */
+    direction?: SpaceGoalDirectionEnumApi
+    /**
+     * Target value as typed, e.g. '20%' or '1500'.
+     * @maxLength 64
+     * @nullable
+     */
+    target?: string | null
+    /**
+     * Date the target should be reached.
+     * @nullable
+     */
+    deadline?: string | null
+    /**
+     * Short id of an existing insight that measures the goal, when there is one.
+     * @maxLength 64
+     * @nullable
+     */
+    insight_short_id?: string | null
+}
+
+/**
+ * The feature a feature space is set up around.
+ */
+export interface SpaceFeatureWriteApi {
+    /**
+     * Feature name as people call it.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * What the feature does, in a sentence.
+     * @maxLength 2000
+     */
+    description?: string
+    /**
+     * Key of the feature flag that gates it, if any.
+     * @maxLength 400
+     * @nullable
+     */
+    flag_key?: string | null
+}
+
+/**
+ * Request body for starting the task that sets a space up for a goal or a feature.
+ */
+export interface ChannelSetupWriteApi {
+    /** What the space is set up for.
+     *
+     * * `goal` - Goal
+     * * `feature` - Feature */
+    kind: SpaceSetupKindEnumApi
+    /** Required when kind is 'goal'. */
+    goal?: SpaceGoalWriteApi
+    /** Required when kind is 'feature'. */
+    feature?: SpaceFeatureWriteApi
+    /**
+     * Repository the loops work in, as 'owner/name'. Defaults to the channel's first repository.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+}
+
+/**
+ * The setup task that was started for the channel.
+ */
+export interface SpaceSetupStartedDTOApi {
+    task_id: string
+}
+
+/**
  * Request body for starring/unstarring a channel for the requesting user.
  */
 export interface ChannelStarWriteApi {
@@ -1714,6 +1838,11 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /**
+     * Earliest start time in UTC. Null for runs without a schedule.
+     * @nullable
+     */
+    scheduled_at?: string | null
     /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
     preview_available?: boolean
 }
@@ -1875,6 +2004,7 @@ export interface PaginatedTaskListItemListApi {
  * * `posthog_ai` - PostHog AI
  * * `experiments` - Experiments
  * * `signal_report` - Signal Report
+ * * `autoresearch` - Autoresearch
  * * `signals_scout` - Signals Scout
  * * `scout_suggestions` - Signals Scout Suggestions
  * * `support_reply` - Support Reply
@@ -1886,6 +2016,7 @@ export interface PaginatedTaskListItemListApi {
  * * `signals_chat` - Signals Chat
  * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
+ * * `space_setup` - Space Setup
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1900,6 +2031,7 @@ export const TaskOriginProductEnumApi = {
     PosthogAi: 'posthog_ai',
     Experiments: 'experiments',
     SignalReport: 'signal_report',
+    Autoresearch: 'autoresearch',
     SignalsScout: 'signals_scout',
     ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
@@ -1911,6 +2043,7 @@ export const TaskOriginProductEnumApi = {
     SignalsChat: 'signals_chat',
     TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
+    SpaceSetup: 'space_setup',
 } as const
 
 /**
@@ -1957,6 +2090,7 @@ export interface TaskCreateApi {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -1967,7 +2101,8 @@ export interface TaskCreateApi {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
-     * * `workflow` - Workflow */
+     * * `workflow` - Workflow
+     * * `space_setup` - Space Setup */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2065,7 +2200,12 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
-    /** Start the task's first cloud run immediately after creation. */
+    /**
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * @nullable
+     */
+    scheduled_at?: string | null
+    /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
     start_run?: boolean
     /**
      * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
@@ -2177,6 +2317,7 @@ export interface TaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -2187,7 +2328,8 @@ export interface TaskWriteApi {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
-     * * `workflow` - Workflow */
+     * * `workflow` - Workflow
+     * * `space_setup` - Space Setup */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2309,6 +2451,7 @@ export interface PatchedTaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -2319,7 +2462,8 @@ export interface PatchedTaskWriteApi {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
-     * * `workflow` - Workflow */
+     * * `workflow` - Workflow
+     * * `space_setup` - Space Setup */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2748,11 +2892,16 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
     claude_model_access?: ClaudeModelAccessEnumApi | null
+    /**
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * @nullable
+     */
+    scheduled_at?: string | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -2881,11 +3030,16 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
     claude_model_access?: ClaudeModelAccessEnumApi | null
+    /**
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * @nullable
+     */
+    scheduled_at?: string | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -2965,6 +3119,13 @@ export interface CodexTaskRunCreateSchemaApi {
 }
 
 export interface TaskRunResumeRequestSchemaApi {
+    /**
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * @nullable
+     */
+    scheduled_at?: string | null
+    model?: string
+    reasoning_effort?: ReasoningEffortEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -3332,7 +3493,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
@@ -4553,32 +4714,40 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
- * The default AI run triple stored at team or user level.
+ * The default AI run selection stored at team or user level.
  *
  * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
- * their responses. `runtime_adapter` and `model` must be set together; send all three
- * as null to clear a stored preference.
+ * their responses. What a complete selection is depends on the harness: an ACP default
+ * sets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send
+ * every field as null to clear a stored preference.
  */
 export interface TasksAIRunPreferencesApi {
-    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+    /** Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: TaskRuntimeEnumApi | null
+    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.
      * @nullable
      */
     model?: string | null
-    /** Default reasoning effort for models that expose an effort control.
+    /** Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi | null
+    reasoning_effort?: TaskRunReasoningEffortEnumApi | null
 }
 
 /**
@@ -4596,12 +4765,14 @@ export const TasksResolvedAIRunDefaultsSourceEnumApi = {
 } as const
 
 /**
- * The AI run triple a new run will effectively use when the caller pins nothing,
+ * The AI run selection a new run will effectively use when the caller pins nothing,
  * plus which preference level supplied it.
  */
 export interface TasksResolvedAIRunDefaultsApi {
+    /** Harness the effective default runs on: 'acp' or 'pi'. 'acp' when no preference is stored. */
+    runtime: string
     /**
-     * Effective default runtime adapter, or null when no preference is stored.
+     * Effective default runtime adapter, or null when no preference is stored or the harness is Pi.
      * @nullable
      */
     runtime_adapter: string | null
@@ -4676,6 +4847,11 @@ export interface ModelChoiceApi {
     display_name: string
     /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
     supported_efforts: ReasoningEffortEnumApi[]
+    /**
+     * Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.
+     * @nullable
+     */
+    cost_multiplier?: string | null
 }
 
 export interface ModelCatalogueResponseApi {
@@ -5222,6 +5398,7 @@ export interface PaginatedTaskSummaryDTOListApi {
 /**
  * * `user_created` - user_created
  * * `posthog_ai` - posthog_ai
+ * * `signal_report` - signal_report
  */
 export type WarmTaskRequestOriginProductEnumApi =
     (typeof WarmTaskRequestOriginProductEnumApi)[keyof typeof WarmTaskRequestOriginProductEnumApi]
@@ -5229,6 +5406,7 @@ export type WarmTaskRequestOriginProductEnumApi =
 export const WarmTaskRequestOriginProductEnumApi = {
     UserCreated: 'user_created',
     PosthogAi: 'posthog_ai',
+    SignalReport: 'signal_report',
 } as const
 
 /**
@@ -5295,7 +5473,8 @@ export interface WarmTaskRequestApi {
     /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
      *
      * * `user_created` - user_created
-     * * `posthog_ai` - posthog_ai */
+     * * `posthog_ai` - posthog_ai
+     * * `signal_report` - signal_report */
     origin_product?: WarmTaskRequestOriginProductEnumApi
     /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
      *
@@ -5307,6 +5486,11 @@ export interface WarmTaskRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
+    /**
+     * Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the warm Run boots repo-less and the submit that creates the report's discussion task activates it.
+     * @nullable
+     */
+    signal_report?: string | null
 }
 
 /**
@@ -5511,6 +5695,7 @@ export type TasksListParams = {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -5522,6 +5707,7 @@ export type TasksListParams = {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5650,6 +5836,7 @@ export const TasksListExcludeOriginProduct = {
     PosthogAi: 'posthog_ai',
     Experiments: 'experiments',
     SignalReport: 'signal_report',
+    Autoresearch: 'autoresearch',
     SignalsScout: 'signals_scout',
     ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
@@ -5661,6 +5848,7 @@ export const TasksListExcludeOriginProduct = {
     SignalsChat: 'signals_chat',
     TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
+    SpaceSetup: 'space_setup',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5794,6 +5982,13 @@ export type TasksRunsStreamRetrieveParams = {
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
      */
     start?: string
+}
+
+export type TasksRunsStreamTokenRetrieveParams = {
+    /**
+     * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
+     */
+    resync?: boolean
 }
 
 export type TasksThreadMessagesListParams = {

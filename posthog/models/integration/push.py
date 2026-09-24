@@ -16,6 +16,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model, refresh_tracking
+from .google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -112,6 +113,11 @@ def preserved_push_config(
         if isinstance(existing_keys, list) and existing_keys:
             result[CONFIG_PUSH_IDENTITY_PUBLIC_KEYS] = existing_keys
 
+    # Verification checks tokens against a registered public key only, so `required` with no key would
+    # stop every device from registering. `optional` never rejects, and existing channels use it keyless.
+    if result.get(CONFIG_PUSH_IDENTITY_VERIFICATION) == "required" and not result.get(CONFIG_PUSH_IDENTITY_PUBLIC_KEYS):
+        raise ValidationError("Add a public key to turn on identity verification.")
+
     return result
 
 
@@ -133,6 +139,8 @@ class FirebaseIntegration:
         push_identity_public_keys: list[str] | None = None,
     ) -> "model.Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
+
+        key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
 
         try:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
@@ -191,6 +199,14 @@ class FirebaseIntegration:
         scope = "https://www.googleapis.com/auth/firebase.messaging"
         key_info = self.integration.sensitive_config.get("key_info", {})
 
+        try:
+            key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
+        except InvalidGoogleTokenUriError:
+            refresh_tracking.record_refresh_failure(
+                self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
+            )
+            self.integration.save(update_fields=["config"])
+            raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:

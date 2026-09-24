@@ -92,3 +92,10 @@ export function useLoopLimits(): LoopLimits | null {
   // A disabled query still serves its cached page, so guard on the flag too.
   return hogFlows ? null : (data ?? null);
 }
+
+export function useLoopLimitReason(): string | null {
+  const limits = useLoopLimits();
+  return limits?.atLimit === true
+    ? `You've reached the limit of ${limits.max} loops for this project. Delete one to add another.`
+    : null;
+}

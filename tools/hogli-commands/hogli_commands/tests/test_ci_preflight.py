@@ -234,7 +234,7 @@ class TestStalenessRisks:
         conflicts: list[str] | None,
         expected_fragments: list[str],
     ) -> None:
-        risks = _staleness_risks(branch_files, master_files, conflicts)
+        risks = _staleness_risks(branch_files, master_files, conflicts, [])
         assert len(risks) == len(expected_fragments)
         for fragment, risk in zip(expected_fragments, risks):
             assert fragment in risk

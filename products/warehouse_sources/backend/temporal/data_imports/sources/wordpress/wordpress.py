@@ -277,7 +277,9 @@ def validate_credentials(
         return False, "Invalid WordPress username or application password"
 
     if response.status_code == 403:
-        return False, "These credentials lack permission to read this WordPress site"
+        return False, (
+            "Your WordPress credentials lack permission to read this site. Check the user's role and try again."
+        )
 
     if response.status_code == 404:
         return False, "WordPress REST API not found at this URL — confirm the site URL and that the REST API is enabled"

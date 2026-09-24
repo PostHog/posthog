@@ -7,6 +7,8 @@ export interface GuidedWizardStep<Step extends string = string> {
     step: Step
     label: string
     optional?: boolean
+    /** Rendered as data-attr on the step button, for autocapture analytics. */
+    dataAttr?: string
 }
 
 export interface GuidedWizardStepperProps<Step extends string> {
@@ -20,6 +22,9 @@ export interface GuidedWizardStepperProps<Step extends string> {
     unlistedStepPosition?: 'start' | 'end'
     onStepClick?: (step: Step) => void
     stepErrors?: Partial<Record<Step, string[]>>
+    /** Steps that stay in the sequence for consistent numbering but can't be navigated to, keyed to the reason why. */
+    disabledSteps?: Partial<Record<Step, string>>
+    className?: string
     'aria-label'?: string
 }
 
@@ -29,6 +34,8 @@ export function GuidedWizardStepper<Step extends string>({
     unlistedStepPosition = 'start',
     onStepClick,
     stepErrors = {},
+    disabledSteps = {},
+    className,
     'aria-label': ariaLabel = 'Wizard progress',
 }: GuidedWizardStepperProps<Step>): JSX.Element {
     const currentStepIndex = steps.findIndex(({ step }) => step === currentStep)
@@ -45,32 +52,44 @@ export function GuidedWizardStepper<Step extends string>({
     }
 
     return (
-        <nav className="flex items-center" aria-label={ariaLabel}>
+        <nav className={cn('flex items-center', className)} aria-label={ariaLabel}>
             {steps.map((step, index) => {
                 const isCompleted = currentOrder > index
                 const isCurrent = currentStep === step.step
                 const hasErrors = (stepErrors[step.step]?.length ?? 0) > 0
                 const isBlocked = isInteractive && currentStepHasErrors && index > currentOrder
+                const disabledReason = disabledSteps[step.step]
 
                 const button = (
                     <button
                         type="button"
-                        onClick={() => handleStepClick(step.step, index)}
-                        // aria-disabled instead of disabled so the button keeps pointer events (the blocked tooltip needs hover) and its tab-order slot
-                        aria-disabled={isBlocked || !isInteractive}
+                        onClick={() => !disabledReason && handleStepClick(step.step, index)}
+                        // aria-disabled instead of disabled so the button keeps pointer events (the tooltips need hover) and its tab-order slot
+                        aria-disabled={isBlocked || !!disabledReason || !isInteractive}
+                        data-attr={step.dataAttr}
                         className={cn(
                             'group flex items-center gap-1.5 px-2 py-1 rounded',
                             'transition-all duration-150',
                             'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
                             isBlocked && 'opacity-50 cursor-not-allowed',
-                            !isBlocked && isInteractive && 'hover:bg-fill-button-tertiary-hover active:scale-[0.98]',
+                            !isBlocked && disabledReason && 'opacity-50 cursor-default',
+                            !isBlocked &&
+                                !disabledReason &&
+                                isInteractive &&
+                                'hover:bg-fill-button-tertiary-hover active:scale-[0.98]',
                             !isInteractive && 'cursor-default'
                         )}
                         aria-current={isCurrent ? 'step' : undefined}
                     >
                         {/* Indicator: errors outrank the completed checkmark, current or not */}
                         {hasErrors ? (
-                            <IconWarning className="size-5 text-warning" />
+                            <Tooltip
+                                title={stepErrors[step.step]?.map((error) => (
+                                    <div key={error}>{error}</div>
+                                ))}
+                            >
+                                <IconWarning className="size-5 text-warning" />
+                            </Tooltip>
                         ) : isCompleted ? (
                             <IconCheckCircle className="size-5 text-success" />
                         ) : (
@@ -119,7 +138,13 @@ export function GuidedWizardStepper<Step extends string>({
                         )}
 
                         {/* Step */}
-                        {isBlocked ? <Tooltip title="Fix errors before proceeding">{button}</Tooltip> : button}
+                        {isBlocked ? (
+                            <Tooltip title="Fix errors before proceeding">{button}</Tooltip>
+                        ) : disabledReason ? (
+                            <Tooltip title={disabledReason}>{button}</Tooltip>
+                        ) : (
+                            button
+                        )}
                     </div>
                 )
             })}

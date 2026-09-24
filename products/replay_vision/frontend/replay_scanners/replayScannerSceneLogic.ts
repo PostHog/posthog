@@ -12,9 +12,7 @@ export enum ReplayScannerTab {
     Observations = 'observations',
     Search = 'search',
     Calibration = 'calibration',
-    OnDemand = 'on-demand',
-    Backfills = 'backfills',
-    Configuration = 'configuration',
+    Run = 'run',
     Scouts = 'scouts',
     Alerts = 'alerts',
 }
@@ -23,7 +21,17 @@ const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
 // The at-a-glance Overview (charts + stat panels) is the landing tab; Observations is the drill-down list.
 const DEFAULT_TAB: ReplayScannerTab = ReplayScannerTab.Overview
 
+// Keys of tabs that were merged into others, so links and bookmarks made before still open the right place.
+const TAB_ALIASES: Record<string, ReplayScannerTab> = {
+    'on-demand': ReplayScannerTab.Run,
+    backfills: ReplayScannerTab.Run,
+    configuration: ReplayScannerTab.Overview,
+}
+
 function parseTab(tab: unknown): ReplayScannerTab {
+    if (typeof tab === 'string' && Object.hasOwn(TAB_ALIASES, tab)) {
+        return TAB_ALIASES[tab]
+    }
     return SCANNER_TABS.includes(tab as ReplayScannerTab) ? (tab as ReplayScannerTab) : DEFAULT_TAB
 }
 
@@ -104,16 +112,26 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             } else {
                 searchParams.tab = values.activeTab
             }
-            // The query belongs to the Search tab; carrying it to another tab would re-run it on return.
-            if (values.activeTab !== ReplayScannerTab.Search) {
-                delete searchParams.q
-            }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
 
     urlToAction(({ actions, values }) => ({
         [urls.replayVision(':id')]: ({ id }, searchParams) => {
+            // Old per-scanner search links open the hub search.
+            if (searchParams.tab === ReplayScannerTab.Search) {
+                const q = searchParams.q != null ? String(searchParams.q) : ''
+                router.actions.replace(
+                    urls.replayVision(),
+                    {
+                        tab: ReplayScannerTab.Search,
+                        ...(id && id !== 'new' ? { scanner: id } : {}),
+                        ...(q ? { q } : {}),
+                    },
+                    router.values.hashParams
+                )
+                return
+            }
             const scannerId = id || 'new'
             if (scannerId !== values.scannerId) {
                 actions.setScannerId(scannerId)

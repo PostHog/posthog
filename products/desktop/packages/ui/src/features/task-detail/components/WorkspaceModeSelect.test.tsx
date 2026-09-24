@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceModeSelect } from "./WorkspaceModeSelect";
@@ -180,6 +180,27 @@ describe("WorkspaceModeSelect", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText("Connect GitHub")).not.toBeInTheDocument();
+  });
+
+  it("marks only the active run location", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceModeSelect
+        value="worktree"
+        onChange={vi.fn()}
+        overrideModes={["local", "worktree", "cloud"]}
+        hasGithubIntegration
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Workspace mode" }));
+
+    const menu = await screen.findByRole("menu");
+    const rowFor = (label: string): Element | null =>
+      within(menu).getByText(label).closest('[role="menuitem"]');
+    expect(rowFor("Worktree")).toHaveAttribute("aria-current", "true");
+    expect(rowFor("Local")).not.toHaveAttribute("aria-current");
+    expect(rowFor("Cloud")).not.toHaveAttribute("aria-current");
   });
 
   it("keeps the standard Cloud trigger label", () => {

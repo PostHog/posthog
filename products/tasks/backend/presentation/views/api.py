@@ -85,6 +85,7 @@ from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExcee
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
+    StreamTokenRoute,
     observe_stream_backlog_bytes,
     observe_stream_backlog_gap,
     observe_stream_backlog_oversized,
@@ -94,6 +95,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_connection_opened,
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
+    observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import (
@@ -135,6 +137,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     SlackThreadContextThreadSerializer,
+    StreamReadTokenQuerySerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
     TaskBasicSerializer,
@@ -260,8 +263,6 @@ def _agent_run_disabled_response() -> Response:
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
 
-# One rollout per origin product — the Code app and PostHog AI reach different populations, so a shared
-# flag would drag one to 100% while rolling out the other.
 WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
     tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
 }
@@ -270,6 +271,7 @@ WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
 WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         tasks_facade.TaskOriginProduct.POSTHOG_AI,
+        tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     }
 )
 
@@ -420,8 +422,8 @@ class TaskUsageUpstreamUnavailable(APIException):
     default_code = "task_usage_upstream_unavailable"
 
 
-class _SignalReportTaskCreateThrottle(UserRateThrottle):
-    """Rate-limits only signal-report task creation on the shared create endpoint.
+class _SignalReportTaskThrottle(UserRateThrottle):
+    """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
     Report-started tasks run unbilled inference (the customer pays per PR), so their creation
     rate needs a per-user bound the generic create path doesn't; the per-report cap alone still
@@ -435,14 +437,24 @@ class _SignalReportTaskCreateThrottle(UserRateThrottle):
         return super().allow_request(request, view)
 
 
-class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_burst"
     rate = "10/hour"
 
 
-class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_day"
     rate = "30/day"
+
+
+class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
+    scope = "signal_report_task_warm_burst"
+    rate = "30/hour"
+
+
+class SignalReportTaskWarmSustainedThrottle(_SignalReportTaskThrottle):
+    scope = "signal_report_task_warm_day"
+    rate = "120/day"
 
 
 @extend_schema(tags=["tasks"])
@@ -466,8 +478,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
-        if getattr(self, "action", None) == "create":
+        action = getattr(self, "action", None)
+        if action == "create":
             throttles += [SignalReportTaskCreateBurstThrottle(), SignalReportTaskCreateSustainedThrottle()]
+        elif action == "warm":
+            throttles += [SignalReportTaskWarmBurstThrottle(), SignalReportTaskWarmSustainedThrottle()]
         return throttles
 
     def _user_id(self) -> int | None:
@@ -732,8 +747,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the agent without the client ever calling the run endpoint — so the gates that endpoint puts
         # in front of a cloud run have to be applied here too. Without this, a warm booted while the
         # caller was entitled still runs after Desktop access or the usage limit turns against them.
-        # Scoped to warmable origins, which is what a warm can ever be reused for; the code-access
-        # exempt Inbox shapes are not among them, matching how the warm endpoint gates.
+        # Scoped to warmable origins, which is what a warm can ever be reused for. The repo-less Inbox
+        # discussion is one of them and stays code-access exempt below, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
         can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
         if can_activate_warm_run and is_sandbox_origin_request(request):
@@ -1422,7 +1437,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
         # `task_exempt_from_code_access`, only the Inbox shapes are — so warming applies it flat. A
         # caller who can't run the task must not be able to provision a sandbox for it either.
-        if access_response := code_access_required_response(request, self.organization):
+        signal_report = request.validated_data.get("signal_report")
+        code_access_allowed = False
+        if origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            code_access_allowed = code_access_required_response(request, self.organization) is None
+        elif access_response := code_access_required_response(request, self.organization):
             return access_response
 
         user_id = self._user_id()
@@ -1453,6 +1472,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             client_provenance=get_task_client_provenance(request),
             origin_product=request.validated_data["origin_product"],
             initial_permission_mode=request.validated_data.get("initial_permission_mode"),
+            signal_report_id=signal_report.id if signal_report is not None else None,
+            code_access_allowed=code_access_allowed,
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
@@ -1832,6 +1853,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if startable == "scheduled":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "error": "This run is scheduled to start automatically. Wait for it to start, or create a new run."
+                    }
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if startable.startswith("bad_status:"):
             current_status = startable.split(":", 1)[1]
             return Response(
@@ -1841,6 +1871,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     }
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if tasks_facade.task_run_awaits_report_activation(pk, task_id, self.team_id):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": tasks_facade.REPORT_WARM_RUN_NOT_ACTIVATED}).data,
+                status=status.HTTP_409_CONFLICT,
             )
 
         # Backstop: don't launch the cloud workflow without Desktop access or for an over-limit team.
@@ -2798,6 +2834,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         strict_request_validation=True,
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["post"], url_path="analysis-activity", required_scopes=["task:write"])
     def analysis_activity(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2938,6 +2975,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ConnectionTokenResponseSerializer({"token": token}).data)
 
     @validated_request(
+        query_serializer=StreamReadTokenQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=StreamReadTokenResponseSerializer,
@@ -2946,7 +2984,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run stream read token",
-        description="Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy.",
+        description=(
+            "Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy. "
+            "A run that keeps only a short live tail in Redis is routed to the proxy only when the client sets "
+            "resync=true, meaning it rebuilds from the durable run log when the proxy reports a trimmed cursor."
+        ),
     )
     @action(
         detail=True,
@@ -2960,18 +3002,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
         if stream_info is None or token is None:
             raise NotFound()
-        # Only the Django read leg serves the durable backlog, so thin-tail runs must
-        # not be routed to the agent-proxy — a proxy reader would silently lose
-        # everything behind the 500-entry live window.
+        client_can_resync = bool(getattr(request, "validated_query_data", {}).get("resync"))
+        thin_tail_withheld = run_stream_thin_tail(stream_info.state) and not client_can_resync
         stream_base_url = (
             None
-            if run_stream_thin_tail(stream_info.state)
+            if thin_tail_withheld
             else tasks_facade.resolve_stream_base_url(
                 distinct_id=request.user.distinct_id,
                 organization_id=self.team.organization_id,
                 force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
             )
         )
+        route: StreamTokenRoute = "thin_tail_withheld"
+        if not thin_tail_withheld:
+            route = "proxy" if stream_base_url else "django"
+        observe_stream_token_routed(stream_info.origin_product, route, client_can_resync)
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 
     @validated_request(
@@ -3061,6 +3106,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+
+        if method in _HUMAN_STEERING_COMMAND_METHODS and tasks_facade.task_run_awaits_report_activation(
+            pk, task_id, self.team_id
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": tasks_facade.REPORT_WARM_RUN_NOT_ACTIVATED}).data,
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
@@ -3170,6 +3223,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             ):
                 return access_response
+
+        if (
+            method == "set_config_option"
+            and params.get("configId") == "model"
+            and tasks_facade.task_run_model_outside_gateway_pin(pk, task_id, self.team_id, params.get("value"))
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "This run's gateway token does not allow that model."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         connection = tasks_facade.get_task_run_sandbox_connection(
             pk, task_id, self.team_id, user_id=request.user.id, distinct_id=request.user.distinct_id
@@ -4274,6 +4337,7 @@ class LegacyDesktopAccessViewSet(viewsets.ViewSet):
         summary="Check PostHog Desktop access",
         description="Compatibility endpoint for released PostHog Desktop clients.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
         team = getattr(request.user, "team", None)

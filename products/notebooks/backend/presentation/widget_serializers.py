@@ -186,6 +186,13 @@ class WidgetStatusSerializer(serializers.Serializer):
 
 
 class WidgetVersionSerializer(serializers.Serializer):
+    generation_cost_usd = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=6,
+        allow_null=True,
+        required=False,
+        help_text="Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.",
+    )
     id = serializers.UUIDField(help_text="Immutable widget version identifier.")
     parent_version_id = serializers.UUIDField(allow_null=True, help_text="Version this one was based on.")
     version = serializers.IntegerField(min_value=1, help_text="One-based version number.")

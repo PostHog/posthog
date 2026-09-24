@@ -17,6 +17,7 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { Mocks } from '~/mocks/utils'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
@@ -100,6 +101,33 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
         return logicWithProps
     }
+
+    it('shows loading while the dashboard list loads', async () => {
+        let completeDashboardLoad!: () => void
+        const dashboardLoad = new Promise<void>((resolve) => {
+            completeDashboardLoad = resolve
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team/dashboards/': async () => {
+                    await dashboardLoad
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+
+        dashboardsModel.mount()
+        const dashboardsList = logicWith({
+            listGroupType: TaxonomicFilterGroupType.Dashboards,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Dashboards],
+        })
+
+        expect(dashboardsList.values.showLoadingState).toBe(true)
+        expect(dashboardsList.values.showEmptyState).toBe(false)
+
+        completeDashboardLoad()
+        await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+    })
 
     it.each([
         { state: 'initial request pending', initialCompleted: false, previousSearchPending: false, clear: false },
@@ -1746,11 +1774,20 @@ describe('infiniteListLogic', () => {
                 ...props,
             })
 
-        it('floats the selected value above the group list when idle, without displacing a leading catch-all row', async () => {
-            logic = logicWith({ value: 'search term', groupType: TaxonomicFilterGroupType.Events })
+        it.each([
+            ['keeps the catch-all item first by default', undefined, ['All events', 'search term'], 'All events'],
+            ['puts the selected series first when requested', true, ['search term', 'All events'], 'search term'],
+        ])('%s', async (_description, promoteSelectedItemToFirstPosition, expectedNames, expectedSelectedName) => {
+            logic = logicWith({
+                value: 'search term',
+                groupType: TaxonomicFilterGroupType.Events,
+                promoteSelectedItemToFirstPosition,
+            })
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
-            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
-            expect((logic.values.results[1] as { name?: string })?.name).toBe('search term')
+            expect(logic.values.results.slice(0, 2).map((item) => (item as { name?: string })?.name)).toEqual(
+                expectedNames
+            )
+            expect((logic.values.selectedItem as { name?: string } | undefined)?.name).toBe(expectedSelectedName)
         })
 
         it('statically inserts the committed selection while its row is not yet loaded', async () => {

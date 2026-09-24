@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
@@ -56,9 +57,12 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert kwargs["create_pr"] is False
         assert kwargs["posthog_mcp_scopes"] == "full"
 
-    def test_idempotent_when_non_terminal_run_exists(self):
+    @parameterized.expand([("empty_pool", 0), ("full_pool", _CAPS.per_user)])
+    def test_idempotent_when_non_terminal_run_exists(self, _name, other_warm_runs):
         task = self._task()
         existing = task.create_run(mode="interactive", extra_state={"await_user_message": True})
+        for _ in range(other_warm_runs):
+            self._warm_run_on_new_task()
 
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,

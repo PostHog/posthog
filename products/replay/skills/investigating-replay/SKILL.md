@@ -18,17 +18,17 @@ ask for each piece.
 
 ## Available tools
 
-| Tool                                       | Purpose                                                  |
-| ------------------------------------------ | -------------------------------------------------------- |
-| `posthog:session-recording-get`            | Recording metadata (duration, counts, status)            |
-| `posthog:persons-retrieve`                 | Person profile (properties, distinct IDs)                |
-| `posthog:execute-sql`                      | Query events, errors, and page views in session          |
-| `posthog:query-error-tracking-issues-list` | Find error tracking issues linked to the session         |
-| `posthog:vision-observations-list`         | Check for an existing Replay Vision AI summary           |
-| `posthog:vision-scanners-list`             | Find summarizer scanners (`scanner_type=summarizer`)     |
-| `posthog:vision-scanners-scan-session`     | Run a summarizer scanner on the session (slow, optional) |
-| `posthog:vision-scanners-create`           | Create a temporary summarizer scanner (ask first)        |
-| `posthog:vision-scanners-delete`           | Delete a temporary scanner after summarizing             |
+| Tool                                         | Purpose                                                    |
+| -------------------------------------------- | ---------------------------------------------------------- |
+| `posthog:session-recording-get`              | Recording metadata (duration, counts, status)              |
+| `posthog:persons-retrieve`                   | Person profile (properties, distinct IDs)                  |
+| `posthog:execute-sql`                        | Query events, errors, and page views in session            |
+| `posthog:query-error-tracking-issues-list`   | Find error tracking issues linked to the session           |
+| `posthog:vision-observations-list`           | Check for an existing Replay Vision AI summary             |
+| `posthog:vision-observations-retrieve`       | Read one observation in full (`scanner_result`)            |
+| `posthog:vision-scanners-inline-scan-create` | Generate an AI summary of the session (slow, optional)     |
+| `posthog:vision-scanners-list`               | Find saved summarizer scanners (`scanner_type=summarizer`) |
+| `posthog:vision-scanners-scan-session`       | Run a saved summarizer scanner on the session (slow)       |
 
 ## Workflow
 
@@ -176,83 +176,65 @@ a scanner can only observe a given session once.
    }
    ```
 
-   Look for an observation where `scanner_snapshot.scanner_type` is `summarizer`
-   and `status` is `succeeded`. If found, read `scanner_result.model_output`
-   (`title`, `summary`, `intent`, `outcome`, `friction_points`, `keywords`) — done,
-   no new scan needed.
+   The rows come back narrowed to `id`, `session_id`, `status`, `summary_line` and
+   `scanner_id`. Look for one whose `status` is `succeeded`, then read it in full with
+   `vision-observations-retrieve` for that `id`: its `scanner_snapshot.scanner_type`
+   tells you whether it is a `summarizer`, and `scanner_result.model_output` carries
+   `title`, `summary`, `intent`, `outcome`, `friction_points` and `keywords`. If you
+   find one, you are done — no new scan needed.
 
-2. **Find a summarizer scanner** if none exists yet:
-
-   ```json
-   posthog:vision-scanners-list
-   {
-     "scanner_type": "summarizer"
-   }
-   ```
-
-   - Exactly one → use it.
-   - More than one → show the user the scanners (name + prompt) and ask which to use.
-   - None → no summarizer scanner exists. See
-     **No summarizer scanner? Run a temporary one** below.
-
-3. **Scan the session** with the chosen scanner. Warn this is async and takes
-   several minutes (rasterize + LLM):
+2. **Generate one** with an inline scan. Pass this exact config: inline scans are
+   keyed by a fingerprint of the whole config, so the config below reuses the same
+   scanner row the player's Summarize button uses on its built-in prompt, while a
+   different prompt or `length` mints a separate scanner and a separate summary.
 
    ```json
-   posthog:vision-scanners-scan-session
+   posthog:vision-scanners-inline-scan-create
    {
-     "id": "<scanner_id>",
-     "session_id": "<session_id>"
-   }
-   ```
-
-4. **Retrieve the result** by polling `vision-observations-list` (step 1) until
-   the new observation reaches `succeeded`.
-
-### No summarizer scanner? Run a temporary one
-
-If the project has no summarizer scanner, you can still produce a one-off summary
-with a throwaway scanner — but **ask the user's permission before creating anything**.
-
-1. **Ask permission** to create a temporary summarizer scanner just to summarize
-   this one session.
-
-2. **Create it disabled** so it never sweeps on a schedule — a disabled scanner
-   only runs when you trigger it on demand, so it won't touch other sessions or
-   burn quota in the background:
-
-   ```json
-   posthog:vision-scanners-create
-   {
-     "name": "Temporary on-demand summary",
+     "session_ids": ["<session_id>"],
      "scanner_type": "summarizer",
-     "scanner_config": {
-       "prompt": "Summarize what the user was trying to do, whether they succeeded, and any friction they hit."
-     },
-     "query": { "kind": "RecordingsQuery" },
-     "model": "gemini-3-flash-preview",
-     "enabled": false
+     "prompt": "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
+     "scanner_config": { "length": "medium" }
    }
    ```
 
-3. **Scan this session on demand** with the new scanner, then poll for the result:
+   Leave `model` out so the server default applies. Warn the user this is async and
+   takes several minutes (rasterize + LLM). Nothing is scheduled and there is
+   nothing to clean up: the scanner an inline scan mints never sweeps on its own. A
+   400 here usually means the organization has not approved AI data processing yet.
 
-   ```json
-   posthog:vision-scanners-scan-session
-   {
-     "id": "<new_scanner_id>",
-     "session_id": "<session_id>"
-   }
-   ```
+3. **Read `results[0].scan_outcome` before polling.** `started` means poll
+   `vision-observations-list` (step 1) until the new observation reaches `succeeded`.
+   `already_scanned` means a terminal observation already exists — read it via step 1,
+   and if its status is `failed` or `ineligible` say so rather than polling. A null
+   `scan_id` or `skipped_quota` means nothing ran: report the quota, do not poll.
 
-   Poll `vision-observations-list` until the observation reaches `succeeded` and
-   read `scanner_result.model_output`.
+### The project already has a summarizer scanner
 
-4. **Ask whether to keep or delete the scanner.** Once you have the observation,
-   ask the user if they want to keep the temporary scanner or delete it with
-   `vision-scanners-delete`. Deleting is safe: the summary you just read is also
-   emitted as an event that persists after the scanner is gone, so cleaning up the
-   temporary scanner does not lose the result.
+Use an inline scan for a one-off summary even then. Only reach for a saved scanner
+when the user wants that scanner's own prompt rather than the built-in one:
+
+```json
+posthog:vision-scanners-list
+{
+  "scanner_type": "summarizer"
+}
+```
+
+Show the user the scanners (name + prompt), ask which to use, then run it against
+the session and poll `vision-observations-list` until the observation reaches
+`succeeded`:
+
+```json
+posthog:vision-scanners-scan-session
+{
+  "id": "<scanner_id>",
+  "session_id": "<session_id>"
+}
+```
+
+Never create a scanner to answer a single question — `vision-scanners-create`
+leaves a scheduled sweep behind that the inline scan does not.
 
 ## Tips
 

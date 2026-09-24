@@ -32,8 +32,9 @@ from products.data_quality.backend.logic.notifications import (
     notify_check_started_failing,
     notify_materialization_blocked,
 )
+from products.data_quality.backend.logic.posthog_tables import by_name
 from products.data_quality.backend.logic.runner import run_check
-from products.data_quality.backend.logic.subject_access import referenced_subject_names
+from products.data_quality.backend.logic.subject_access import pin_referenced_subjects, referenced_subject_names
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.temporal.activities.notify_failing_checks import _notify_failing_checks
 from products.data_quality.backend.temporal.contracts import NotifyFailingChecksInputs
@@ -567,6 +568,46 @@ class TestDataQualityNotifications(BaseTest):
         resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
         assert self.user.id in resolved
+        assert blocked.id not in resolved
+
+    @parameterized.expand([("own_subject",), ("relationships_target",)])
+    def test_members_denied_posthog_tables_do_not_get_a_notification_that_reads_one(self, shape: str) -> None:
+        events = by_name("events")
+        assert events is not None
+        self._enable_access_controls()
+        allowed = User.objects.create_and_join(self.organization, "allowed-ph@test.com", "password")
+        blocked = User.objects.create_and_join(self.organization, "blocked-ph@test.com", "password")
+        self._deny_resource("warehouse_objects", blocked)
+        if shape == "own_subject":
+            check = self._check(
+                subject_type=SubjectType.POSTHOG_TABLE,
+                saved_query_id=None,
+                posthog_table="events",
+                subject_name="events",
+                column_name="distinct_id",
+            )
+        else:
+            check = self._check(
+                check_type=CheckType.RELATIONSHIPS,
+                column_name="customer_id",
+                config={
+                    "to_subject_type": SubjectType.POSTHOG_TABLE,
+                    "to_subject_uuid": str(events.id),
+                    "to_column": "distinct_id",
+                },
+            )
+        resolver = _WarehouseSubjectResolver(
+            self.team,
+            check.subject_type,
+            str(check.subject_uuid),
+            referenced_names=referenced_subject_names(self.team.id, check.check_type, check.config),
+            executed_references=pin_referenced_subjects(self.team.id, check.check_type, check.config) or (),
+        )
+
+        resolved = resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert self.user.id in resolved
+        assert allowed.id in resolved
         assert blocked.id not in resolved
 
     def test_a_relationship_target_keeps_its_name_for_notification_filtering(self) -> None:

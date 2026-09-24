@@ -113,6 +113,7 @@ def _make_schema(
     schema.partition_count = partition_count
     schema.partition_size = partition_size
     schema.save = MagicMock()
+    type(schema).cdc_halted = ExternalDataSchema.cdc_halted
     return schema
 
 
@@ -151,10 +152,23 @@ def _fake_complete_schema_run(schema, *, last_synced_at):
     return True
 
 
+def _fake_mark_schema_running_unless_halted(schema):
+    """Stand-in for mark_schema_running_unless_halted on the in-memory mock schema. The real
+    conditional update is covered by tests/test_models.py::TestMarkSchemaRunningUnlessHalted."""
+    if schema.cdc_halted:
+        return False
+    schema.status = ExternalDataSchema.Status.RUNNING
+    return True
+
+
 @pytest.fixture(autouse=True)
 def _stub_sync_type_config_merge():
     """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
     with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_schema_running_unless_halted",
+            side_effect=_fake_mark_schema_running_unless_halted,
+        ),
         patch.object(
             CDCExtractActivity,
             "_update_schema_sync_type_config",
@@ -253,12 +267,16 @@ class TestGetCDCAdapter:
         adapter = get_cdc_adapter(source)
         assert isinstance(adapter, PostgresCDCAdapter)
 
-    def test_raises_for_unsupported_source(self):
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import get_cdc_adapter
+    @parameterized.expand([("no_adapter_for_the_type", "MySQL"), ("not_a_source_type_at_all", "UnsupportedDB")])
+    def test_raises_a_typed_error_for_an_unsupported_source(self, _name, source_type):
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+            CDCUnsupportedSourceTypeError,
+            get_cdc_adapter,
+        )
 
         source = _make_source()
-        source.source_type = "UnsupportedDB"
-        with pytest.raises(ValueError, match="CDC is not supported"):
+        source.source_type = source_type
+        with pytest.raises(CDCUnsupportedSourceTypeError, match="CDC is not supported"):
             get_cdc_adapter(source)
 
     def test_create_reader_extracts_params(self):
@@ -358,6 +376,27 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     return activity_obj
 
 
+class TestSetupSelfCleansUnrunnableSchedules:
+    @parameterized.expand([("no_adapter_for_the_type", "MySQL"), ("not_a_source_type_at_all", "UnsupportedDB")])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_a_source_type_without_cdc_deletes_the_schedule_instead_of_failing(
+        self, _name, source_type, _mock_close_conns, MockSourceModel, mock_get_adapter
+    ):
+        source = _make_source()
+        source.source_type = source_type
+        MockSourceModel.objects.get.return_value = source
+        MockSourceModel.DoesNotExist = ExternalDataSource.DoesNotExist
+
+        act = _make_extract_activity(source)
+        with patch.object(act, "_delete_own_schedule") as mock_delete:
+            assert act._setup() is False
+
+        mock_delete.assert_called_once()
+        mock_get_adapter.assert_not_called()
+
+
 class TestBackpressureGuard:
     def _activity(self) -> CDCExtractActivity:
         source = _make_source()
@@ -410,22 +449,6 @@ class TestBackpressureGuard:
 
         mark_running.assert_not_called()
         assert act.reader is None
-
-
-class TestMarkSchemasRunning:
-    def test_skips_activity_log_to_avoid_stale_pooled_connection(self):
-        # A previous attempt may have left the pooler connection stale; the extra
-        # _get_before_update SELECT that activity logging would run raises OperationalError
-        # ("the connection is closed") on it, failing the run before extraction even starts.
-        source = _make_source()
-        act = _make_extract_activity(source)
-        schema = _make_schema("users", source=source)
-        act.cdc_schemas = [schema]
-
-        act._mark_schemas_running()
-
-        assert schema.status == ExternalDataSchema.Status.RUNNING
-        schema.save.assert_called_once_with(update_fields=["status", "updated_at"], skip_activity_log=True)
 
 
 class TestFlushDeferredRuns:
@@ -1028,7 +1051,6 @@ class TestCDCExtractActivity:
         mock_reader.close.assert_called_once()
 
         # Schema marked completed even with no changes
-        schema.save.assert_called()
         assert schema.status == "Completed"
         assert schema.latest_error is None
         assert schema.last_synced_at is not None
@@ -2532,16 +2554,16 @@ class TestErrorClassification:
         mock_posthoganalytics,
         mock_get_machine_id,
     ):
-        # A revoked REPLICATION/SELECT grant surfaces as psycopg InsufficientPrivilege, which the
-        # adapter doesn't classify, so it loops as retryable UNKNOWN. Its SQLSTATE (42501) is what
-        # tells a human this is a permission error and not some other ProgrammingError.
+        # Preserve coverage for unknown psycopg failures now that insufficient privileges have a
+        # dedicated category. The SQLSTATE distinguishes an unclassified syntax error from other
+        # ProgrammingError subclasses without capturing potentially sensitive exception text.
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
         mock_reader = MagicMock()
-        mock_reader.read_changes.side_effect = psycopg.errors.InsufficientPrivilege("permission denied")
+        mock_reader.read_changes.side_effect = psycopg.errors.SyntaxError("invalid syntax")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
@@ -2557,13 +2579,13 @@ class TestErrorClassification:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         with (
             patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest"),
-            pytest.raises(psycopg.errors.InsufficientPrivilege),
+            pytest.raises(psycopg.errors.SyntaxError),
         ):
             cdc_extract_activity(inputs)
 
         captured = mock_posthoganalytics.capture.call_args.kwargs
         assert captured["event"] == "cdc extraction unclassified error"
-        assert "42501" in captured["properties"]["sqlstates"]
+        assert "42601" in captured["properties"]["sqlstates"]
 
 
 class TestSlotInvalidationRecovery:
@@ -3232,6 +3254,19 @@ class TestSuccessRepaintGuards:
         # digest email reporting "paused, action required".
         assert "cdc_extraction_paused" not in recovered.sync_type_config
 
+    def test_a_buffered_schema_clears_its_pause_marker_but_keeps_the_consumers_status(self):
+        source = _make_source()
+        buffered = _make_schema("buffered_table", source=source)
+        buffered.status = ExternalDataSchema.Status.FAILED
+        buffered.sync_type_config["cdc_extraction_paused"] = {"reason": "transaction_too_large"}
+        act = self._activity_with(buffered)
+        act._buffered_table_names = {"buffered_table"}
+
+        act._finalize_success()
+
+        assert "cdc_extraction_paused" not in buffered.sync_type_config
+        assert buffered.status == ExternalDataSchema.Status.FAILED
+
 
 class TestCDCBoundedReadLoop:
     """The read loop peeks at most CDC_MAX_CHANGES_PER_READ changes per pass, advancing the slot
@@ -3736,6 +3771,48 @@ class TestBufferedIngressCapture:
             captured["reader"] = self._run(MockBufferWriter, events, [schema], source, capture=captured)
 
         captured["reader_ref"].confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_crash_mid_transaction_leaves_a_file_straddling_the_restart(self, MockBufferWriter):
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+            ChangeEventBatcher as RealBatcher,
+        )
+
+        class _DyingStream:
+            def __init__(self, events):
+                self._events = events
+
+            def __len__(self):
+                return len(self._events)
+
+            def __iter__(self):
+                yield from self._events
+                raise RuntimeError("pod killed mid-transaction")
+
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1}),
+            _make_event(op="I", position="0/100", columns={"id": 2}),
+            _make_event(op="I", position="0/200", columns={"id": 3}),
+            _make_event(op="I", position="0/200", columns={"id": 4}),
+        ]
+        captured: dict = {}
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ChangeEventBatcher",
+                side_effect=lambda **kwargs: RealBatcher(max_events=4, **kwargs),
+            ),
+            pytest.raises(RuntimeError, match="pod killed mid-transaction"),
+        ):
+            self._run(MockBufferWriter, _DyingStream(events), [schema], source, capture=captured)
+
+        written = MockBufferWriter.return_value.write_batch.call_args.kwargs["table"]
+        assert written.column(CDC_SEQ_COLUMN).to_pylist() == [0x100, 0x100, 0x200, 0x200]
+        captured["reader_ref"].confirm_position.assert_called_once_with("0/100")
+        cleanup = MockBufferWriter.return_value.cleanup_superseded_files
+        cleanup.assert_called_once_with(team_id=schema.team_id, schema_id=str(schema.id), restart_seq=0x100)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_source_column_named_like_seq_fails_the_buffered_run(self, MockBufferWriter):

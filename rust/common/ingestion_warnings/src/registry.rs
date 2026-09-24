@@ -44,12 +44,13 @@ impl WarningType {
     /// This list exists so the trust-allowlist invariant below can still be
     /// airtight: `captureProduced` must equal "reachable by one of capture's two
     /// emit routes", and without this the direct route would be invisible to it.
-    pub const DIRECT_EMIT: [Self; 8] = [
+    pub const DIRECT_EMIT: [Self; 9] = [
         Self::HighVolumeDistinctId,
         Self::DistinctIdTruncated,
         Self::InvalidAiEvent,
         Self::InvalidAiPayload,
         Self::NoAiSpansIngested,
+        Self::MisroutedEvent,
         Self::MissingSessionId,
         Self::InvalidSessionId,
         Self::MissingSnapshotData,

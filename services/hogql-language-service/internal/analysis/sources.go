@@ -2,7 +2,6 @@ package analysis
 
 import (
 	"iter"
-	"strings"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 )
@@ -31,7 +30,7 @@ func (b Bindings) sources() iter.Seq[Source] {
 				if !scope.budget.lookup(len(source.name) + 1) {
 					return
 				}
-				name := strings.ToLower(source.name)
+				name := source.name
 				if seen[name] {
 					continue
 				}

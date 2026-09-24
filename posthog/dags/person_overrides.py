@@ -17,7 +17,7 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import EVENTS_TARGETS, FLAG_EVALUATIONS, resolve_placements, sweep_clusters
+from posthog.models.deletion_targets import EVENTS, FLAG_EVALUATIONS, resolve_placements, sweep_clusters
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 # Every table the squash rewrites person_id on. sharded_flag_evaluations is not an events table,
@@ -25,9 +25,13 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 # uuid against that column. A row a merge left on the absorbed person therefore matches nothing and
 # survives until its partition ages out, so the squash has to move it too.
 #
+# sharded_events_json is deliberately absent, so the squash never reaches the events cluster. Its
+# rows keep the person_id a merge left on them, because this job deletes the overrides that record
+# the correct one; see COVERAGE_DOC.
+#
 # Deliberately not PERSONAL_DATA_TARGETS: registering a table for deletion should not silently make
 # it a squash target as well.
-SQUASH_TARGETS = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+SQUASH_TARGETS = (EVENTS, FLAG_EVALUATIONS)
 
 
 def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:

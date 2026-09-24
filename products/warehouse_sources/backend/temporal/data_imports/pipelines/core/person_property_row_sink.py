@@ -23,6 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     binding_staged_prefix,
     job_staged_prefix,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    ObjectStoreConfigurationError,
+    aretry_staged_write,
+    is_object_store_configuration_error,
+)
 
 # A sibling job prefix whose newest file is older than this is considered abandoned (its consumer
 # never ran, or gave up retrying) and is swept. Anything younger may belong to a consumer that is
@@ -142,13 +147,18 @@ class PersonPropertyRowSink:
         await self.logger.adebug(
             f"Staging person-property chunk {chunk} ({len(columns)} cols) to {self._get_path_prefix()}"
         )
-        await asyncio.to_thread(
-            write_table,
-            projected,
-            f"{self._get_path_prefix()}/chunk_{self._attempt_token}_{chunk:06d}.parquet",
-            filesystem=self._get_fs(),
-            compression="zstd",
-            use_dictionary=True,
+        path = f"{self._get_path_prefix()}/chunk_{self._attempt_token}_{chunk:06d}.parquet"
+        await aretry_staged_write(
+            lambda: asyncio.to_thread(
+                write_table,
+                projected,
+                path,
+                filesystem=self._get_fs(),
+                compression="zstd",
+                use_dictionary=True,
+            ),
+            path=path,
+            logger=self.logger,
         )
 
     async def clear(self) -> None:
@@ -168,8 +178,12 @@ class PersonPropertyRowSink:
         ran.
 
         The two clears are independent backstops, so a failure in one (e.g. a permissions error
-        deleting the own prefix) must not skip the other — the sweep always runs, and any
-        own-prefix error is re-raised only afterward.
+        deleting the own prefix) must not skip the other — the sweep always runs, and any error is
+        re-raised only afterward.
+
+        Both clears address the same binding prefix with the same credentials, so a refused grant
+        fails both. That is one configuration problem, so it is raised once, as a typed error that
+        a retry cannot resolve.
         """
         async with aget_s3_client() as s3_client:
             own_prefix_error: Exception | None = None
@@ -180,9 +194,21 @@ class PersonPropertyRowSink:
                     pass
                 except Exception as e:
                     own_prefix_error = e
-            await self._sweep_abandoned_sibling_prefixes(s3_client)
-            if own_prefix_error is not None:
-                raise own_prefix_error
+
+            sweep_error: Exception | None = None
+            try:
+                await self._sweep_abandoned_sibling_prefixes(s3_client)
+            except Exception as e:
+                sweep_error = e
+
+            failure = own_prefix_error or sweep_error
+            if failure is None:
+                return
+            if is_object_store_configuration_error(failure):
+                raise ObjectStoreConfigurationError(
+                    f"Object store refused to clear staged person-property rows under {self._get_binding_prefix()}"
+                ) from failure
+            raise failure
 
     async def _sweep_abandoned_sibling_prefixes(self, s3_client: Any) -> None:
         try:

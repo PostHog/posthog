@@ -8,6 +8,7 @@ contract check watches this file to decide whether they must retest.
 from __future__ import annotations
 
 from dataclasses import field
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final, NotRequired, TypedDict
 from uuid import UUID
@@ -26,11 +27,24 @@ class DemandDiscoveryInputs:
 
 
 @frozen
-class AlertDemand:
-    """Due configuration IDs per source, bounded so the payload stays small. `omitted_by_source` counts
-    what discovery left out; that work is due again next tick."""
+class AlertBatchKey:
+    """Names a chunk of due work by what it holds rather than by where it was cut.
 
-    configuration_ids_by_source: dict[SourceKind, list[str]]
+    `slot` is `next_check_at` floored to the minute, so a chunk keeps its identity across ticks:
+    a slow evaluation of a key is still the same key when the next tick rediscovers it.
+    """
+
+    team_id: int
+    slot: str
+
+
+@frozen
+class AlertDemand:
+    """Due batch keys per source, bounded so the payload stays small. A key costs a fixed amount and
+    does not grow with a team's alert count. `omitted_by_source` counts keys discovery left out;
+    that work is due again next tick."""
+
+    batch_keys_by_source: dict[SourceKind, list[AlertBatchKey]]
     omitted_by_source: dict[SourceKind, int] = field(default_factory=dict)
 
 
@@ -41,7 +55,8 @@ class SourceDispatchInputs:
     tick_id: str
     source: SourceKind
     page: int
-    configuration_ids: list[str]
+    batch_keys: list[AlertBatchKey]
+    cutoff: str
 
 
 @frozen
@@ -49,8 +64,138 @@ class SourceDispatchReport:
     source: SourceKind
     page: int
     dispatched: int
-    remaining_ids: list[str]
-    evaluation_workflow_id: str | None
+    remaining_keys: list[AlertBatchKey]
+    evaluation_workflow_ids: list[str]
+    # Not remaining: the run that already holds the key is still working it.
+    already_running: int = 0
+
+
+@frozen
+class SourceEvaluationInputs:
+    """What a source's own evaluation workflow receives from its dispatcher.
+
+    The key, not a list of ids. The evaluation loads full configurations anyway, so shipping ids
+    through the orchestrator would be transit cost, and re-reading gives it the fresher set.
+    """
+
+    source: SourceKind
+    cutoff: str
+    batch_key: AlertBatchKey
+
+
+@frozen
+class PlatformAlertCheck:
+    """One configuration and its runtime state, as a source adapter reads it.
+
+    Flat rather than nested, because a source never holds the rows and has nothing to do with
+    the split between what belongs to the configuration and what belongs to the instance.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    source_config: dict[str, Any]
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    check_interval_minutes: int
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+    schedule_restriction: dict[str, Any] | None
+    next_check_at: datetime | None
+    consecutive_failures: int
+    legacy_configuration_id: UUID | None
+    state: str
+    last_notified_at: datetime | None
+    snooze_until: datetime | None
+
+    @property
+    def filters(self) -> dict[str, Any]:
+        """Satisfies the logs query layer, which names this field `filters`."""
+        return self.source_config
+
+
+@frozen
+class PlatformAlertUpsert:
+    """One configuration a source wants copied into the shared tables."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    name: str
+    enabled: bool
+    source_kind: SourceKind
+    source_config: dict[str, Any]
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    check_interval_minutes: int
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+    schedule_restriction: dict[str, Any] | None
+    next_check_at: datetime | None
+
+
+@frozen
+class PlatformAlertOutcome:
+    """What one check decided. The platform turns this into rows."""
+
+    configuration_id: UUID
+    new_state: str
+    notified: bool
+    consecutive_failures: int
+    # Recording an outcome without it leaves a configuration discovery keeps handing back to an
+    # evaluation that cannot succeed.
+    disable: bool = False
+
+
+@frozen
+class GroupTransition:
+    """One transition a delivery would carry. `grouping_key` is empty until a source groups,
+    so delivery reads a list of one today and a list of N when fan-out ships."""
+
+    grouping_key: str
+    notification: str
+
+
+@frozen
+class AlertDeliveryPreview:
+    """What delivery would send. The PoC records it instead of contacting a destination."""
+
+    source: SourceKind
+    alert_id: str
+    alert_name: str
+    evaluation_key: str
+    destination_names: tuple[str, ...]
+    transitions: tuple[GroupTransition, ...]
+
+
+@frozen
+class SourceBatchEvaluation:
+    """What one batch decided, before any of it is written.
+
+    Evaluation returns this and the write runs as its own activity, so Temporal has the
+    deliveries in history before anything can advance a schedule past them.
+    """
+
+    outcomes: tuple[PlatformAlertOutcome, ...]
+    previews: tuple[AlertDeliveryPreview, ...]
+    # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
+    # them, the way a truncated cohort already behaves.
+    omitted: int = 0
+
+
+# The platform's write, which a source's evaluation workflow starts by name. One definition,
+# because a rename that misses a source breaks it at runtime and nothing else would catch it.
+RECORD_OUTCOMES_ACTIVITY: Final[str] = "alerts_platform_record_outcomes"
+
+
+@frozen
+class SourceOutcomeInputs:
+    team_id: int
+    cutoff: str
+    outcomes: tuple[PlatformAlertOutcome, ...]
 
 
 @frozen
@@ -59,6 +204,11 @@ class TickPage:
     run_id: str
     dispatched: int
     remaining: int
+    # Sources whose dispatcher failed on this page, and the keys they never took. Those keys keep
+    # their due time, so a later tick rediscovers them; the page reports them rather than ending
+    # the tick.
+    failed_sources: int = 0
+    undispatched: int = 0
 
 
 @frozen
@@ -69,7 +219,7 @@ class OrchestrateInputs:
     deadline: str | None = None  # stop starting pages after this
     hard_deadline: str | None = None  # the execution timeout lands here; no page may run past it
     page: int = 0
-    demand: dict[SourceKind, list[str]] | None = None
+    demand: dict[SourceKind, list[AlertBatchKey]] | None = None
     pages: list[TickPage] | None = None
     omitted: int = 0  # due work discovery left out of the bounded manifest; counted as remaining
 

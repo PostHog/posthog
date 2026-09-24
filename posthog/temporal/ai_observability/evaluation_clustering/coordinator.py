@@ -46,6 +46,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai_observability.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
+        DISCOVERY_FAIL_CLOSED_PATCH_ID,
         GUARANTEED_TEAM_IDS,
         TeamDiscoveryInput,
         get_team_ids_for_ai_observability,
@@ -99,6 +100,8 @@ async def _discover_teams_and_jobs() -> tuple[list[int], dict[int, list[JobConfi
             retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
         )
     except Exception:
+        if workflow.patched(DISCOVERY_FAIL_CLOSED_PATCH_ID):
+            raise
         logger.warning("Team discovery failed, falling back to guaranteed teams", exc_info=True)
         team_ids = sorted(GUARANTEED_TEAM_IDS)
 

@@ -62,8 +62,7 @@ import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
-/** Roster order: A to Z by name, or by lifecycle group so scouts that need a decision lead. */
-export type ScoutRosterSort = 'name' | 'status'
+export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
 import type { BreakPointFunction } from 'kea'
 
 import { configMatchesScoutOwner, listScoutOwnerOptions } from '../utils/scoutOwners'
@@ -75,6 +74,7 @@ import {
     FleetSummary,
     isSettledRun,
     rosterRunCosts,
+    runResponseCoversFleet,
     scoutDisplayName,
     SCOUT_ROSTER_WINDOW_DAYS,
     SCOUT_ROSTER_WINDOW_HOURS,
@@ -89,6 +89,22 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 // which Replay Vision's scanner scouts do.
 export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
+
+const SCOUT_RECENCY_TIMESTAMPS: Record<
+    'created' | 'updated' | 'last_run',
+    (config: SignalScoutConfig) => string | null
+> = {
+    created: (config) => config.created_at,
+    updated: (config) => config.updated_at,
+    last_run: (config) => config.last_run_at,
+}
+
+function compareByRecency(firstTimestamp: string | null, secondTimestamp: string | null): number {
+    if (!firstTimestamp || !secondTimestamp) {
+        return firstTimestamp === secondTimestamp ? 0 : firstTimestamp ? -1 : 1
+    }
+    return dayjs(secondTimestamp).valueOf() - dayjs(firstTimestamp).valueOf()
+}
 
 function isRecentlySystemPaused(config: SignalScoutConfig, evaluatedAt: Date): boolean {
     return Boolean(
@@ -331,6 +347,7 @@ export interface scoutFleetLogicValues {
     scoutRunCosts: Map<string, number>
     scoutRunCostsLoading: boolean
     scoutRuns: SignalScoutRunSummary[]
+    scoutRunsCoverFleet: boolean
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
     scoutSearch: string
@@ -584,6 +601,7 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
+        scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
         expensiveRunCostThreshold: (
             scoutRuns: SignalScoutRunSummary[],
             scoutRunCosts: Map<string, number>
@@ -1165,6 +1183,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (s) => [s.scoutRuns],
             (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
         ],
+        // Whether `scoutRuns` speaks for the whole fleet. The endpoint probes a bounded number of
+        // scouts, so past that bound an empty rollup means "not read", not "never ran" - and a
+        // surface that cannot tell the two apart reports lost history as a scout that never worked.
+        scoutRunsCoverFleet: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): boolean => runResponseCoversFleet(scoutConfigs?.length ?? 0),
+        ],
         expensiveRunCostThreshold: [
             (s) => [s.scoutRuns, s.scoutRunCosts],
             (scoutRuns: SignalScoutRunSummary[], scoutRunCosts: Map<string, number>): number | null =>
@@ -1261,9 +1286,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     )
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
+                // Both re-sorts are stable: rows are already A to Z, so equal keys keep their name order.
                 if (scoutRosterSort === 'status') {
-                    // Stable: rows are already A to Z, so scouts in one group keep their name order.
                     rows.sort((a, b) => SCOUT_GROUP_ORDER.indexOf(a.group) - SCOUT_GROUP_ORDER.indexOf(b.group))
+                } else if (scoutRosterSort !== 'name') {
+                    const timestampOf = SCOUT_RECENCY_TIMESTAMPS[scoutRosterSort]
+                    rows.sort((a, b) => compareByRecency(timestampOf(a.config), timestampOf(b.config)))
                 }
                 return rows
             },
@@ -1420,6 +1448,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 surface: 'fleet_list',
                 // `filter_match_count`: rows still shown after every filter.
                 extra: { filter, filter_match_count: values.rosterScouts.length },
+            })
+        },
+        setScoutRosterSort: ({ sort }) => {
+            captureScoutAction({
+                actionType: 'sort_roster',
+                surface: 'fleet_list',
+                extra: { sort, filter_match_count: values.rosterScouts.length },
             })
         },
         // The owner's identity stays out of the payload: which teammate was picked answers no product

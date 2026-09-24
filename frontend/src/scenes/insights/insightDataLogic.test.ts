@@ -6,6 +6,7 @@ jest.mock('~/queries/query', () => ({
 
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -19,6 +20,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -76,6 +78,64 @@ describe('insightDataLogic', () => {
 
         theInsightLogic = insightLogic(props)
         theInsightLogic.mount()
+    })
+
+    describe('referenced cohorts on an individual insight', () => {
+        it('resolves saved, edited, and prop-synced cohort names without requesting the list', async () => {
+            await expectLogic(theInsightDataLogic).toFinishAllListeners()
+            initKeaTests()
+            router.actions.push('/insights/123')
+            const list = jest.fn(() => ({ count: 0, results: [] }))
+            const requestedIds: number[] = []
+            const query = (ids: number[]): InsightVizNode => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter: { breakdown_type: 'cohort', breakdown: ids },
+                },
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team/insights/': {
+                        results: [{ id: 1, short_id: Insight123, query: query([1]) }],
+                    },
+                    '/api/projects/:team/cohorts/': list,
+                    '/api/projects/:team/cohorts/:id/': ({ params }) => {
+                        const id = Number(params.id)
+                        requestedIds.push(id)
+                        return {
+                            id,
+                            name: `Referenced cohort ${id}`,
+                            groups: [],
+                            filters: { properties: { type: 'AND', values: [] } },
+                        }
+                    },
+                },
+            })
+            const props = { dashboardItemId: Insight123, doNotLoad: true }
+            const dataLogic = insightDataLogic(props)
+            dataLogic.mount()
+            await expectLogic(dataLogic).toFinishAllListeners()
+            expect(list).not.toHaveBeenCalled()
+            expect(requestedIds).toEqual([])
+
+            await expectLogic(dataLogic, () =>
+                insightLogic(props).actions.loadInsight(Insight123)
+            ).toFinishAllListeners()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+            expect(insightLogic(props).values.derivedName).toContain('Referenced cohort 1')
+
+            await expectLogic(dataLogic, () => dataLogic.actions.setQuery(query([1, 3000]))).toFinishAllListeners()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+            expect(insightLogic(props).values.derivedName).toContain('Referenced cohort 3000')
+
+            await expectLogic(dataLogic, () => dataLogic.actions.syncQueryFromProps(query([2]))).toFinishAllListeners()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+            expect(insightLogic(props).values.derivedName).toContain('Referenced cohort 2')
+            expect(requestedIds).toEqual([1, 3000, 2])
+            expect(list).not.toHaveBeenCalled()
+        })
     })
 
     describe('syncQueryFromProps', () => {
@@ -618,7 +678,29 @@ describe('insightDataLogic', () => {
             sceneLogic.mount()
             sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
             const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
-                values: { insightLogicRef: { logic: { key: Insight42 } } },
+                values: { insightId: Insight42, dashboardId: null },
+            } as any)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.persistDisplayOptions(updatedQuery)
+                }).toFinishAllListeners()
+
+                expect(patchSpy).not.toHaveBeenCalled()
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
+        })
+
+        it('skips the PATCH even when insightSceneLogic has not yet rebuilt its insightLogicRef for this insight', async () => {
+            // insightLogicRef can lag insightId/dashboardId right after the scene mounts, because a
+            // separate listener rebuilds it asynchronously. This mocks that lag: the guard must not
+            // rely on insightLogicRef being present or already correct.
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightId: Insight42, dashboardId: null, insightLogicRef: null },
             } as any)
 
             try {

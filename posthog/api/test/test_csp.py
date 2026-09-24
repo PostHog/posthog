@@ -5,10 +5,18 @@ from html import escape
 import time_machine
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.client import RequestFactory
 
-from posthog.api.csp import parse_report_to, parse_report_uri, process_csp_report, sample_csp_report
+from parameterized import parameterized
+
+from posthog.api.csp import (
+    parse_report_to,
+    parse_report_uri,
+    process_csp_report,
+    sample_csp_report,
+    sanitize_report_url,
+)
 from posthog.sampling import sample_on_property
 
 
@@ -682,3 +690,34 @@ class TestCSPModule(TestCase):
             result2 = sample_csp_report(properties1.copy(), 0.5)
 
             assert result1 == result2, "Same URL+time should produce consistent sampling results within the same minute"
+
+
+class TestSanitizeReportUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "django_reset_token",
+                "https://app.example.com/reset/0198aaaa-bbbb-cccc-dddd-eeeeffff0000/abc123-0f0f0f0f0f0f0f0f",
+                "https://app.example.com/reset/<redacted>/<redacted>",
+            ),
+            # token_urlsafe output lacks a digit about once in 165 sharing tokens.
+            (
+                "sharing_token_without_a_digit",
+                "https://app.example.com/shared/AbcdEfghIjklMnop_QrstUvwxYz-AbCd",
+                "https://app.example.com/shared/<redacted>",
+            ),
+            (
+                "percent_encoded_token_character",
+                "https://app.example.com/reset/0198aaaa-bbbb-cccc-dddd-eeeeffff0000/abc123%2D0f0f0f0f0f0f0f0f",
+                "https://app.example.com/reset/<redacted>/<redacted>",
+            ),
+            # Triage groups reports by route, so a long lowercase route name must survive.
+            (
+                "long_route_names",
+                "https://app.example.com/project/2/session-recordings/authorize_and_redirect",
+                "https://app.example.com/project/2/session-recordings/authorize_and_redirect",
+            ),
+        ]
+    )
+    def test_masks_tokens_but_keeps_route_names(self, _name: str, url: str, expected: str) -> None:
+        assert sanitize_report_url(url) == expected

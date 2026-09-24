@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## Check what a condition does before you push it
@@ -282,6 +282,28 @@ Measured checkout-step durations, from the GitHub API on real runs:
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
 
+## Never splice a caller's input into a command an inner shell re-parses
+
+A composite action that builds `sh -c "... $INPUT"` hands the container's shell a **script**, not a flag list. That inner shell re-parses it, and `exec` replaces the shell on the first command — so a token that ends a command there truncates every flag after it. With `#`, a newline or `;` the truncation is silent: `exec` never returns, nothing else runs, and the job exits 0. `&` and `|` truncate the command too, but the leftover flag then runs as a command of its own and the step fails with 127.
+
+The input reaches it looking innocent. Inside a YAML block scalar (`args: >-`) a `#` is **data**, not a YAML comment, and a more-indented line is not folded, so it keeps its newlines. Neither needs unusual input — a note or an indented flag is enough.
+
+Measured on [#101671](https://github.com/PostHog/posthog/pull/101671) before this was fixed: `semgrep-go` loaded 5 of the 7 configs it listed, `semgrep-rust` 5 of 7, `semgrep-general` 4 of 6, and the `--exclude-rule` / `--include` scopes below the comment went with them. CI was green throughout.
+
+Quoting harder is not the fix — the value already sits inside double quotes, and another pair collapses every flag into one argument. **Split it yourself and pass positional parameters**, the way `.github/actions/semgrep-ci` now does:
+
+```bash
+set -f                          # split on whitespace WITHOUT expanding globs
+semgrep_args=($SEMGREP_ARGS)
+set +f
+... sh -c 'exec tool ... "$@"' sh "${semgrep_args[@]}"
+```
+
+Nothing re-parses the value: each word reaches the tool verbatim, a glob arrives unexpanded for the tool to match itself, and a stray `#` becomes an argument the tool rejects loudly instead of a comment that eats the rest.
+
+`WF012` watches for the pattern coming back. It flags any action that splices an input into an inner shell, and checks that action's callers until it stops. An empty `SHELL_SPLIT_INPUTS` is the healthy state.
+`#` stays fine in every other input — `dorny/paths-filter` `filters:`, `actions/github-script` `script:`, a webhook `payload:` — so the rule is per-input, never blanket.
+
 ## Network fetches
 
 Downloads from outside the runner need retries, or a transient reset becomes a red check with no findings ([actionlint died on `curl: (35)`](https://github.com/PostHog/posthog/actions/runs/32022348027/job/95364480249)).
@@ -338,6 +360,7 @@ Make those runs pass, and never let untrusted code reach a secret.
 - Comment or label only on same-repo PRs — the fork token can't write.
 - To act on a fork PR with secrets/write (reviewer or label bots), use `pull_request_target`: base-repo permissions, but it must **never check out and run fork code**. That's why those workflows can't fold into a `pull_request` parent.
 - First-time contributors need maintainer approval before workflows run (`action_required`) — expected.
+- Depot CI runs no fork PR at all, so the backend router keeps fork PRs on GitHub Actions and the required check stays on the head. Never re-push a fork's head in-repo to get it a Depot run. See [Pull requests from forks](../../../docs/published/handbook/engineering/fork-pull-requests.md).
 
 ## Timeouts
 
@@ -366,6 +389,10 @@ The only sanctioned exception is a job whose purpose is validating the migration
 ## Runners
 
 `depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+**Name the OS version, never `ubuntu-latest`.**
+GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
+`WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
+A runner matrix that an expression builds (`fromJSON(needs.plan.outputs.val)`) is opaque to the linter, so it fails closed: pin the labels where they are generated (`dist-workspace.toml` for the release workflows) and put `# hogli-lint: allow-generated-runner-matrix -- <where they are pinned>` above the job key.
 New Depot labels must be added to the allow-list in `.github/actionlint.yaml` or actionlint fails.
 Details: `/depot-github-runners`.
 
@@ -479,7 +506,7 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout names only the paths the job reads (`sparse-checkout` + cone mode off), or is shallow; bounded `1000 + blob:none` only for base diffing.
-- [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
+- [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.

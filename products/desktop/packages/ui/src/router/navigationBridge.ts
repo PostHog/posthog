@@ -228,18 +228,35 @@ export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
   });
 }
 
-export function navigateToNewLoop(): void {
-  void getRouterOrNull()?.navigate({ to: "/loops/new" });
+export function navigateToSpaceLoops(
+  channelId: string,
+  options?: { ignoreBlocker?: boolean },
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/loops",
+    params: { channelId },
+    ignoreBlocker: options?.ignoreBlocker,
+  });
 }
 
 export function navigateToLoopDetail(
   loopId: string,
-  options?: { ignoreBlocker?: boolean; edit?: boolean },
+  options?: { ignoreBlocker?: boolean; edit?: boolean; channelId?: string },
 ): void {
+  const search = options?.edit ? { edit: true } : {};
+  if (options?.channelId) {
+    void getRouterOrNull()?.navigate({
+      to: "/spaces/$channelId/loops/$loopId",
+      params: { channelId: options.channelId, loopId },
+      search,
+      ignoreBlocker: options?.ignoreBlocker,
+    });
+    return;
+  }
   void getRouterOrNull()?.navigate({
     to: "/loops/$loopId",
     params: { loopId },
-    search: options?.edit ? { edit: true } : {},
+    search,
     ignoreBlocker: options?.ignoreBlocker,
   });
 }

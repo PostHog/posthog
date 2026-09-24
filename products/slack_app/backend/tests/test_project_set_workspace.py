@@ -1,8 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
-
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -11,12 +9,11 @@ from posthog.models.user import User
 from products.slack_app.backend.api import RulesCommand
 from products.slack_app.backend.models import SlackSettings
 from products.slack_app.backend.services.commands import (
-    MENTION_HELP_REDIRECT,
+    SLASH_COMMAND_PREFIX,
     _handle_project_set_workspace,
     dispatch_rules_command,
 )
 
-SLASH_COMMAND_PREFIX = "/posthog"
 WORKSPACE_HELP_LINE = "`/posthog project workspace <id>`"
 
 
@@ -50,6 +47,7 @@ class TestHandleProjectSetWorkspace:
             user_id=self.user.id,
             target_team_id=target_team_id,
             workspace_candidates=[self.integration],
+            command_prefix=SLASH_COMMAND_PREFIX,
         )
 
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
@@ -127,8 +125,8 @@ class TestHandleHelp:
         self.user = User.objects.create_and_join(self.organization, "help@example.com", "pw")
         self.slack = MagicMock()
 
-    def _help_text(self, command_prefix: str = SLASH_COMMAND_PREFIX) -> str:
-        """Dispatch `help` the way a real command does, so the surface branch is exercised too."""
+    def _help_text(self) -> str:
+        """Dispatch `help` the way a real command does, rather than calling the handler."""
         dispatch_rules_command(
             RulesCommand(action="help"),
             self.slack,
@@ -138,7 +136,7 @@ class TestHandleHelp:
             slack_user_id="U1",
             slack_workspace_id="T_WS",
             user_id=self.user.id,
-            command_prefix=command_prefix,
+            command_prefix=SLASH_COMMAND_PREFIX,
         )
         return self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
 
@@ -167,15 +165,9 @@ class TestHandleHelp:
         assert "`@PostHog <task description>`" in text
         assert "reply in an active thread" in text
 
-    @parameterized.expand([("slash", SLASH_COMMAND_PREFIX), ("mention", "@PostHog")])
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
-    def test_help_is_ephemeral_to_the_caller(self, _name, command_prefix, mock_info):
+    def test_help_is_ephemeral_to_the_caller(self, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=False, is_owner=False)
-        self._help_text(command_prefix=command_prefix)
+        self._help_text()
         assert self.slack.client.chat_postMessage.call_count == 0
         assert self.slack.client.chat_postEphemeral.call_args.kwargs["user"] == "U1"
-
-    def test_mention_help_redirects_to_the_slash_command(self):
-        text = self._help_text(command_prefix="@PostHog")
-        assert text == MENTION_HELP_REDIRECT
-        assert "Available commands" not in text

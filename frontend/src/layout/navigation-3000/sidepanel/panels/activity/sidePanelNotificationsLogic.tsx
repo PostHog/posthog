@@ -1018,7 +1018,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             refreshInAppUnreadCount: async () => {
                 try {
                     const countResp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )
                     actions.setInAppUnreadCount(countResp.count)
                 } catch {
@@ -1328,7 +1328,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 }
                 try {
                     const countResp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )
                     actions.setInAppUnreadCount(countResp.count)
                 } catch {

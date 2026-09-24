@@ -91,7 +91,7 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
     feature_flags: {
         label: 'Feature flags',
         description: 'Feature flags that may be ready for cleanup',
-        healthyDescription: 'No stale flags',
+        healthyDescription: 'No flags to clean up',
         icon: <IconToggle className="size-5" />,
         showInSummary: true,
     },
@@ -151,7 +151,7 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
     error_tracking_missing_source_maps: 'Missing source maps',
-    stale_feature_flags: 'Stale feature flag',
+    stale_feature_flags: 'Feature flag cleanup candidate',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {

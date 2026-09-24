@@ -179,11 +179,16 @@ function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
 }
 
 const concurrencyController = new ConcurrencyController(1)
+const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
+    if (isAccountsTableQuery(query)) {
+        return accountsTableConcurrencyController
+    }
+
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
 
@@ -322,6 +327,7 @@ export interface dataNodeLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null
     responseError: string | null
     responseErrorObject: Record<string, any> | null
@@ -420,6 +426,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?: {
@@ -443,6 +450,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
         payload?: {
@@ -496,6 +504,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null,
         payload?: any
     ) => {
@@ -513,6 +522,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
         payload?: any
     }
@@ -539,6 +549,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null,
         payload?: any
     ) => {
@@ -556,6 +567,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
         payload?: any
     }
@@ -745,6 +757,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => DataNode | null
         canLoadNewData: (newQuery: DataNode<Record<string, any>> | null, isShowingCachedResults: boolean) => boolean
@@ -764,6 +777,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             responseError: string | null,
             dataLoading: boolean,
@@ -787,6 +801,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => boolean
         dataLimit: (
@@ -804,6 +819,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => number | null
         backToSourceQuery: (query: DataNode<Record<string, any>>) => InsightVizNode | null
@@ -823,6 +839,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => string | null
         nextAllowedRefresh: (
@@ -841,6 +858,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => string | null
         getInsightRefreshButtonDisabledReason: (
@@ -862,6 +880,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => QueryTiming[] | null
         numberOfRows: (
@@ -879,6 +898,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => number | null
         hasActiveFilters: (query: DataNode<Record<string, any>>) => boolean
@@ -899,6 +919,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             responseErrorObject: Record<string, any> | null,
             queryScanResult: QueryScanPollResult | null
@@ -2075,7 +2096,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortQuery: async ({ queryId }) => {
             try {
                 const { currentTeamId } = values
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}/`)
+                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

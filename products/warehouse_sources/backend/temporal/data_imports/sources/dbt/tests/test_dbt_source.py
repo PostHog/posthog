@@ -15,7 +15,12 @@ class TestDbtSource:
     def test_connection_host_fields_cover_host_determining_fields(self):
         # These fields retarget where the stored token is sent (host and account path); missing one
         # lets an editor point the preserved credential at their own server or another account.
-        assert self.source.connection_host_fields == ["region", "custom_base_url", "account_id"]
+        assert self.source.connection_host_fields == [
+            "region",
+            "custom_base_url",
+            "discovery_api_url",
+            "account_id",
+        ]
 
     def test_declares_v3_as_default_over_legacy_pin(self):
         # New sources are stamped with default_version; a revert here silently pins them to the
@@ -37,6 +42,16 @@ class TestDbtSource:
             ("jobs", False),
             ("users", False),
             ("runs", True),
+            ("run_steps", True),
+            ("run_artifacts", True),
+            ("audit_logs", False),
+            ("models", False),
+            ("tests", False),
+            ("sources", False),
+            ("snapshots", False),
+            ("seeds", False),
+            ("exposures", False),
+            ("model_historical_runs", False),
         ],
     )
     def test_schema_incremental_support(self, endpoint, incremental):

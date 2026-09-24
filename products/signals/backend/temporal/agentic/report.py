@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -21,12 +22,16 @@ from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
+from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, ReportLink, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.models import ArtefactAttribution, SignalActorKind, SignalReport, SignalReportArtefact
+from products.signals.backend.receivers import _is_safety_suppressed
+from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_content_gates import team_report_metrics_enabled
+from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -37,6 +42,7 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.resolve_reviewers import (
+    MAX_SUGGESTED_REVIEWERS,
     ReviewerResolutionDiagnostics,
     resolve_suggested_reviewers_with_diagnostics,
 )
@@ -90,6 +96,13 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    # Check specs the verification turn authored, written as rows by the transition activity that
+    # writes the metrics they reference — a check naming a metric the report never got is dropped
+    # there rather than stored pointing at nothing. `None` predates the field and writes none.
+    checks: list[dict[str, Any]] | None = None
+    # The research sandbox task the check rows are attributed to, so the report's log names what
+    # decided the fix was worth re-measuring. `None` for saved fixtures and pre-existing outputs.
+    research_task_id: str | None = None
     # Whether the rollout let this run author charts at all. Carried so telemetry can tell a run
     # that chose not to chart apart from one that was never allowed to, which would otherwise read
     # as the agent's charting rate moving on every rollout step. `None` predates the field.
@@ -209,32 +222,54 @@ def _parse_stored_metrics(raw: object, report_id: str) -> list[ReportMetric]:
 
 
 async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[str | None, str | None]:
-    """Title/summary of the resolved report this one recurred from, if any.
+    """Title/summary of the report claimed as fixed that this one recurred from, if any.
 
-    When a signal that would have grouped into an already-resolved report spawns a fresh report
-    instead (resolved reports never reopen), the grouping pipeline links the two with symmetric
-    `related_to` artefacts. The recurrence source is whichever linked report is resolved — handing it
-    to the research agent lets it judge regression vs. new dimension vs. distinct.
+    When a signal that would have grouped into a report already closed as fixed spawns a fresh
+    report instead (such a report never reopens), the grouping pipeline writes a `recurrence_of`
+    report link. Legacy reports use symmetric `related_to` artefacts. The source makes that claim:
+    resolved, or dismissed as fixed (see recurrence.py). Handing it to the research agent lets it
+    judge regression vs. new dimension vs. distinct.
     """
     related_ids: list[str] = []
+    recurrence_ids: list[str] = []
     async for artefact in SignalReportArtefact.objects.filter(
-        team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.RELATED_TO
+        team_id=team_id,
+        report_id=report_id,
+        type__in=(SignalReportArtefact.ArtefactType.RELATED_TO, SignalReportArtefact.ArtefactType.REPORT_LINK),
     ).order_by("created_at"):
         try:
-            related_ids.append(RelatedTo.model_validate_json(artefact.content).report_id)
-        except ValidationError:
+            if artefact.type == SignalReportArtefact.ArtefactType.REPORT_LINK:
+                link = ReportLink.model_validate_json(artefact.content)
+                if link.kind == ReportLinkKind.RECURRENCE_OF:
+                    recurrence_ids.append(link.report_id)
+            else:
+                related_ids.append(str(UUID(RelatedTo.model_validate_json(artefact.content).report_id)))
+        except (ValidationError, ValueError):
             continue
+    related_ids = recurrence_ids or related_ids
     if not related_ids:
         return None, None
-    resolved = (
-        await SignalReport.objects.filter(id__in=related_ids, team_id=team_id, status=SignalReport.Status.RESOLVED)
-        .only("title", "summary")
+    async for candidate in (
+        SignalReport.objects.filter(
+            id__in=related_ids,
+            team_id=team_id,
+            status__in=(SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED),
+        )
+        .only("title", "summary", "status", "team")
         .order_by("-created_at")
-        .afirst()
-    )
-    if resolved is None:
-        return None, None
-    return resolved.title, resolved.summary
+    ):
+        if await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(str(candidate.id), team_id):
+            continue
+        if candidate.status == SignalReport.Status.RESOLVED:
+            return candidate.title, candidate.summary
+        # Only an archived candidate costs the dismissal read, and the newest match wins, so the
+        # loop stops at the first one rather than reading every link.
+        if (
+            str(candidate.id) in recurrence_ids
+            and await database_sync_to_async(fixed_dismissal_at, thread_sensitive=False)(candidate) is not None
+        ):
+            return candidate.title, candidate.summary
+    return None, None
 
 
 _AGENTIC_ARTEFACT_TYPES = [
@@ -289,19 +324,40 @@ def _build_reviewers_content(
                 commit_hashes_with_reasons[sha] = str(reason) if reason else ""
 
     resolution = resolve_suggested_reviewers_with_diagnostics(team_id, repository, commit_hashes_with_reasons)
+    paths = [path for finding in findings for path in finding.relevant_code_paths]
+    owner_reviewers = suggest_repository_owners(
+        team_id, repository, paths, [reviewer.login.lower() for reviewer in resolution.reviewers]
+    )
 
     reviewers_content: list[ReviewerContent] = []
+    reviewers_by_login = {reviewer.login.lower(): reviewer for reviewer in resolution.reviewers}
+    for owner in owner_reviewers:
+        reviewer = reviewers_by_login.get(owner.login)
+        reviewers_content.append(
+            ReviewerContent(
+                github_login=owner.login,
+                user_uuid=None,
+                github_name=reviewer.name if reviewer else None,
+                relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits] if reviewer else [],
+                reason=owner.reason,
+                is_skill_owner=False,
+                source_skill=None,
+            )
+        )
+        if len(reviewers_content) == MAX_SUGGESTED_REVIEWERS:
+            break
     for reviewer in resolution.reviewers:
+        if len(reviewers_content) == MAX_SUGGESTED_REVIEWERS:
+            break
+        if reviewer.login.lower() in {entry["github_login"] for entry in reviewers_content}:
+            continue
         reviewers_content.append(
             ReviewerContent(
                 github_login=reviewer.login.lower(),
-                # Commit authorship only ever names a GitHub account, so this path stores no uuid;
-                # read-time enrichment resolves the login to a member as it always has.
                 user_uuid=None,
                 github_name=reviewer.name,
                 relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits],
                 reason=None,
-                # Pipeline reviewers are commit-authorship-derived, never owner-injected.
                 is_skill_owner=False,
                 source_skill=None,
             )
@@ -377,7 +433,7 @@ def _reviewer_selection_written_since(team_id: int, report_id: str, since: datet
     ).exists()
 
 
-def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
+def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
     # the latest row of each type; findings are keyed by `signal_id` (latest per signal wins).
@@ -393,7 +449,20 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
     # `mark_report_pending_input`). The research activity only resolves the payload; see
     # `_resolve_report_charts_payload` and `RunAgenticReportOutput.charts`.
     with transaction.atomic():
+        if any(isinstance(draft.content, SuggestedReviewers) for draft in artefacts):
+            SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+            human_selected_reviewers = SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                actor_kind=SignalActorKind.USER,
+            ).exists()
+        else:
+            human_selected_reviewers = False
+        wrote_reviewers = False
         for draft in artefacts:
+            if human_selected_reviewers and isinstance(draft.content, SuggestedReviewers):
+                continue
             SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
@@ -401,6 +470,8 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
                 attribution=draft.attribution,
                 reevaluate_autostart=False,
             )
+            wrote_reviewers |= isinstance(draft.content, SuggestedReviewers)
+    return wrote_reviewers
 
 
 def _resolve_report_charts_payload(
@@ -525,7 +596,7 @@ async def _persist_agentic_report_artefacts(
             )
         )
 
-    await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
+    wrote_reviewers = await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
         artefacts=artefacts,
@@ -535,7 +606,7 @@ async def _persist_agentic_report_artefacts(
     # above, so re-promotions without new findings don't re-fire. Delivery is at-least-once
     # (a retry of this activity re-captures an identical payload), so consumers read report
     # state as the latest event per report_id rather than counting raw events.
-    if reviewers_content and has_new_finding:
+    if wrote_reviewers:
         await database_sync_to_async(capture_suggested_reviewers_resolved, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,
@@ -577,6 +648,29 @@ async def _persist_agentic_report_artefacts(
     # has settled (READY with no pending signals), so the task is scoped to the report's final
     # summary rather than whichever research pass finished first — see
     # `maybe_autostart_implementation_activity` in temporal/summary.py.
+
+
+def _team_runs_scouts(team_id: int) -> bool:
+    """Whether this team's scout fleet could take an `agent` check dispatched at it.
+
+    The enrollment half of the gate the check dispatcher applies, read at authoring time so the
+    research turn is never offered a kind whose lane does not exist. A project at its daily run
+    budget still counts as running scouts: a research check stays pending until its report resolves
+    and its soak passes, so today's budget says nothing about that day, and the dispatcher defers a
+    throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
+    kind, never the report.
+    """
+    from products.signals.backend.scout_harness.run_gates import (  # noqa: PLC0415
+        ScoutRunRejectionKind,
+        check_fleet_gates,
+    )
+
+    try:
+        rejection = check_fleet_gates(team_id)
+        return rejection is None or rejection.kind == ScoutRunRejectionKind.THROTTLED
+    except Exception:
+        logger.warning("scout fleet availability check failed", team_id=team_id, exc_info=True)
+        return False
 
 
 def _team_has_business_knowledge(team_id: int) -> bool:
@@ -670,6 +764,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
                 input.team_id
             )
+            # An `agent` check needs a scout fleet to dispatch it. A team with none degrades to
+            # deterministic checks rather than storing a check that could never run.
+            agent_checks_enabled = await database_sync_to_async(_team_runs_scouts, thread_sensitive=False)(
+                input.team_id
+            )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.team_id, input.report_id)
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
@@ -702,6 +801,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 metrics_enabled=metrics_enabled,
+                agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
@@ -738,6 +838,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
+            checks=[check.model_dump(mode="json") for check in result.checks],
+            research_task_id=result.research_task_id,
             charts_enabled=True,
         )
     except Exception as error:

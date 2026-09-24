@@ -1,0 +1,156 @@
+cases:
+    - name: additions from every file on the walk add up, root first
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              additions: team-arch
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              additions: [team-a, team-arch]
+      expect:
+          a/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: a/owners.yaml
+              slack: '#team-a'
+              additions: [team-arch, team-a]
+          x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              additions: [team-arch]
+
+    - name: inherit false drops the additions of ancestor files
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              additions: team-arch
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              inherit: false
+              additions: team-a
+      expect:
+          a/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: a/owners.yaml
+              slack: '#team-a'
+              additions: [team-a]
+
+    - name: additions do not make a path owned
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              additions: team-arch
+      expect:
+          a/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+              additions: [team-arch]
+
+    - name: the additions of every matching rule append to the file-level additions
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              additions: team-arch
+              rules:
+                - match: '/a/'
+                  additions: team-a
+                - match: '*.py'
+                  additions: team-py
+      expect:
+          a/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              additions: [team-arch, team-a, team-py]
+          b/x.txt:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              additions: [team-arch]
+
+    - name: a slash-star rule applies to a direct child directory and not to what is inside it
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+          products/owners.yaml: |
+              version: 1
+              owners: []
+              rules:
+                - match: '/*'
+                  additions: team-arch
+          products/new/product.yaml: |
+              name: New
+              owners: [team-new]
+      expect:
+          products/new:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+              additions: [team-arch]
+          products/new/:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+              additions: [team-arch]
+          products/new/backend:
+              owners: [team-new]
+              unowned_by_design: false
+              status: active
+              source: products/new/product.yaml
+              slack: '#team-new'
+              additions: []
+          products/new/product.yaml:
+              owners: [team-new]
+              unowned_by_design: false
+              status: active
+              source: products/new/product.yaml
+              slack: '#team-new'
+              additions: []
+
+    - name: a trailing-slash rule applies below the directory and not to the directory itself
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              rules:
+                - match: '/docs/'
+                  additions: team-docs
+      expect:
+          docs/new:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              additions: [team-docs]
+          docs:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              additions: []

@@ -38,13 +38,18 @@
         {% if password %}
             <p>Copy this now:</p>
             <input type="text"
+                   id="provisioned-password"
                    readonly
                    value="{{ password }}"
-                   onclick="this.select()"
                    style="width: 100%;
                           padding: 8px;
                           font-family: monospace;
                           font-size: 14px" />
+            <script nonce="{{ request.csp_nonce }}">
+                document.getElementById("provisioned-password").addEventListener("click", function (event) {
+                    event.currentTarget.select();
+                });
+            </script>
         {% else %}
             <p>
                 <em>The control plane did not return a password in this response. Retrieve the credentials

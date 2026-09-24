@@ -14,6 +14,14 @@ The expansion count must not delay the scoped results or keep the aggregate reve
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
 
+## Action definitions
+
+Event-only insight editors and closed breakdown pickers do not load the action list.
+Action series load their definitions to resolve names and event-scoped properties.
+Opening an event picker that offers Actions loads the list; later opens reuse the shared cache.
+When an insight series picker opens on Suggested series, the current selection is the first and selected item. All events follows it.
+The classic popover unmounts after its close transition and starts with a fresh search when reopened.
+
 ## Typing and rendering
 
 The legacy picker debounces API searches for 500 ms after the last keystroke, including while the initial response is loading.
@@ -25,3 +33,21 @@ Local filtering and rendering still update on each keystroke.
 The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.
 
 Tag-filtered requests retain ORM pagination after resolving matching event IDs. Both paths preserve the same response fields and project scope, including legacy definitions whose `project_id` is null.
+
+## Cohort names on individual insights
+
+Individual insight pages load cohort names by ID from the query's cohort property filters and cohort breakdowns.
+This includes edit, subscriptions, alerts, and sharing routes with optional item IDs; the separate `quick-start` scene keeps the full list load.
+These requests use the parent project ID, which can differ from the current environment ID.
+They reuse the shared cohort cache when the query changes, and resolve nested cohort references for definition popovers.
+The shared model queues cohort detail requests with at most 10 in flight across overlapping loads and nested references.
+This limits concurrent requests, not the total number of references an insight can resolve.
+An insight without cohort references does not load the cohort list.
+The insight breadcrumb subscribes to the resolved insight name so generated titles update when cohort names arrive.
+The cohort picker continues to load its options independently.
+Opening an AI visualization's definition resolves its cohort references even when the chart is collapsed.
+Navigating from a dashboard reuses the cohorts already in the shared cache and fetches only missing references.
+
+Other pages retain the shared model's full-list loading behavior.
+The model stays mounted across navigation, so leaving an individual insight must trigger the list load if it has not already run.
+Keep both `cohortsById` and `allCohorts.results` populated: insight titles and filter chips use the former, while charts, legends, tooltips, and color settings use the latter.

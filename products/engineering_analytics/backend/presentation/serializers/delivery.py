@@ -1,17 +1,23 @@
-"""Payloads for the delivery reads: a scope's delivery summary and its pull request timelines."""
+"""Payloads for the delivery reads: a scope's delivery summary, its pull request timelines, and an author's
+comparison with their team."""
 
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    DeliveryComparison,
     DeliveryLeadTime,
     DeliverySummary,
     DurationDistribution,
     PRTimeline,
     PRTimelinePush,
+    PRTimelineRedTime,
     PRTimelineSegment,
+    PullRequestReadyToMerge,
     PullRequestTimelines,
+    ReadyToMergeMedians,
     ScopeRepoDistribution,
     ScopeRepoFigure,
+    TeamReadyToMergeMedians,
 )
 from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
@@ -87,8 +93,8 @@ class DeliveryLeadTimeSerializer(DataclassSerializer):
             },
             "merged_pr_count": {"help_text": "PRs in scope merged in the window (bots and drafts excluded)."},
             "deployed_merged_pr_count": {
-                "help_text": "Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are "
-                "still waiting for a deploy or fall outside the scan."
+                "help_text": "Of merged_pr_count, the PRs whose first successful in-scope deployment was observed "
+                "by the window end. The rest are still waiting for a deploy or fall outside the scan."
             },
         }
 
@@ -199,6 +205,15 @@ class PRTimelinePushSerializer(DataclassSerializer):
         }
 
 
+class PRTimelineRedTimeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PRTimelineRedTime
+        extra_kwargs = {
+            "kind": {"help_text": "The red segment cause."},
+            "seconds_per_merged_pr": {"help_text": "Average seconds per merged pull request attributed to this cause."},
+        }
+
+
 class PRTimelineSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="The repository the pull request belongs to.")
     pushes = PRTimelinePushSerializer(
@@ -243,6 +258,10 @@ class PullRequestTimelinesSerializer(DataclassSerializer):
         help_text="The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one "
         "pull request of a pull_request scope.",
     )
+    red_seconds_per_merged_pr = PRTimelineRedTimeSerializer(
+        many=True,
+        help_text="Average red time per merged pull request, grouped by the evidence that classifies each red stretch.",
+    )
 
     class Meta:
         dataclass = PullRequestTimelines
@@ -264,6 +283,115 @@ class PullRequestTimelinesSerializer(DataclassSerializer):
                 "help_text": "True when the Trunk merge-queue table is synced, so out_of_merge_queue can appear."
             },
             "generated_at": {"help_text": "The now every open PR's timeline ends at."},
+            "merged_pr_count": {"help_text": "Every pull request merged in the selected scope and window."},
             "truncated": {"help_text": "True when more PRs matched than the limit."},
             "limit": {"help_text": "The maximum number of PRs returned."},
+        }
+
+
+class ReadyToMergeMediansSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ReadyToMergeMedians
+        extra_kwargs = {
+            "merged_pr_count": {"help_text": "Pull requests merged in the window, bots and drafts excluded."},
+            "ready_to_merge_seconds": {
+                "help_text": "Median seconds from the last ready_for_review to merge. Null when nothing was measured.",
+                "allow_null": True,
+            },
+            "p90_ready_to_merge_seconds": {
+                "help_text": "90th percentile of the ready-to-merge seconds.",
+                "allow_null": True,
+            },
+            "ready_to_first_approval_seconds": {
+                "help_text": "Median seconds from ready to the first approval, over the pull requests with an "
+                "approval. Null when nothing was measured.",
+                "allow_null": True,
+            },
+            "first_approval_to_merge_seconds": {
+                "help_text": "Median seconds from the first approval to merge. The two approval medians do not add "
+                "up to the ready-to-merge median.",
+                "allow_null": True,
+            },
+            "before_first_approval_share": {
+                "help_text": "Share (0 to 1) of all ready-to-merge hours spent before the first approval, summed "
+                "over the pull requests, so long pull requests weigh more.",
+                "allow_null": True,
+            },
+        }
+
+
+class PullRequestReadyToMergeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PullRequestReadyToMerge
+        extra_kwargs = {
+            "number": {"help_text": "The pull request number."},
+            "ready_to_merge_seconds": {
+                "help_text": "Seconds from the last ready_for_review to merge. Null when not observed.",
+                "allow_null": True,
+            },
+            "ready_to_first_approval_seconds": {
+                "help_text": "Seconds from ready to the first approval. Null without an approval or review data.",
+                "allow_null": True,
+            },
+            "first_approval_to_merge_seconds": {
+                "help_text": "Seconds from the first approval to merge. Null without an approval or review data.",
+                "allow_null": True,
+            },
+            "before_first_approval_share": {
+                "help_text": "Share (0 to 1) of the ready-to-merge time spent before the first approval.",
+                "allow_null": True,
+            },
+        }
+
+
+class TeamReadyToMergeMediansSerializer(DataclassSerializer):
+    medians = ReadyToMergeMediansSerializer(
+        allow_null=True,
+        help_text="Over the pull requests by the team's members, the same population as a github_team scope, "
+        "without the pr_number pull request. Null when fewer than three other authors contribute a ready time, "
+        "because the author could read a teammate's value back from the median. The approval medians are null "
+        "on the same terms for approvals.",
+    )
+
+    class Meta:
+        dataclass = TeamReadyToMergeMedians
+        extra_kwargs = {"github_team": {"help_text": "The GitHub team slug."}}
+
+
+class DeliveryComparisonSerializer(DataclassSerializer):
+    author_medians = ReadyToMergeMediansSerializer(
+        help_text="Over the author's pull requests, without the pr_number pull request."
+    )
+    teams = TeamReadyToMergeMediansSerializer(
+        many=True, help_text="The author's teams that team_basis picked, sorted by slug. Empty for no_team."
+    )
+    repo_medians = ReadyToMergeMediansSerializer(
+        help_text="Over every non-bot pull request in the repository, the author's included and the pr_number "
+        "pull request left out."
+    )
+    pull_request = PullRequestReadyToMergeSerializer(
+        allow_null=True,
+        help_text="The pr_number pull request measured the same way, when it merged in the window. Null otherwise.",
+    )
+
+    class Meta:
+        dataclass = DeliveryComparison
+        extra_kwargs = {
+            "author": {"help_text": "The GitHub login the comparison is for."},
+            "has_membership_data": {
+                "help_text": "True when the team membership table is synced. Without it, team_basis is no_team."
+            },
+            "review_data_available": {
+                "help_text": "False when reviews aren't synced: the approval medians are then null."
+            },
+            "ready_data_available": {
+                "help_text": "False when issue events aren't synced: the ready-to-merge medians are then null."
+            },
+            "team_basis": {
+                "help_text": "How the teams were picked from the author's teams that own code: pull_request (the "
+                "pr_number asked the team to review); review_requests (the team the author's pull "
+                "requests asked to review most often in the window, with ties kept); only_team (the author is in "
+                "one team); all_teams (no review request points at one team); no_team (no team, or no membership "
+                "data)."
+            },
         }

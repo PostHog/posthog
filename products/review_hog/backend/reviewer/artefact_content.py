@@ -55,6 +55,10 @@ class ReviewIssueFinding(BaseModel):
     run_index: int = Field(
         description="The review turn (1-based) that produced this finding; scopes publishing to one turn."
     )
+    validation_context: str | None = Field(
+        default=None,
+        description="The reviewed head, mode, and model configurations for verdict reuse and Flash outcome attribution.",
+    )
     title: str = Field(description="Issue title.")
     file: str = Field(description="Repository-relative path to the file containing the issue.")
     lines: list[LineRange] = Field(default_factory=list, description="Affected line ranges.")
@@ -245,12 +249,20 @@ class PerspectiveSelectionArtefact(BaseModel):
 
 
 class PerspectiveResultArtefact(BaseModel):
-    """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn."""
+    """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn.
+
+    The complete reviewer arm keys the resume because different efforts can review the same commit.
+    Rows without an arm are not reused: their model alone cannot establish the reasoning budget.
+    """
 
     head_sha: str = Field(description="PR head commit this review was computed for.")
     pass_number: int = Field(description="The review perspective (1=Logic, 2=Contracts, 3=Performance).")
     chunk_id: int = Field(description="The chunk this perspective reviewed.")
     review: IssuesReview = Field(description="The issues this perspective found in this chunk.")
+    review_model: str | None = Field(default=None, description="The reviewer model that produced this result.")
+    review_config: str | None = Field(
+        default=None, description="Serialized reviewer configuration that produced this result."
+    )
 
 
 class PRSnapshotArtefact(BaseModel):

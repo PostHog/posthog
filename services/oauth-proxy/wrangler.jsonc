@@ -21,6 +21,13 @@
             "globs": ["src/static/**/*.html"],
             "fallthrough": true,
         },
+        // The RoundHog faces the region picker serves are imported as ArrayBuffers from
+        // @posthog/brand, so the page needs no third-party font host. See src/handlers/fonts.ts.
+        {
+            "type": "Data",
+            "globs": ["**/*.woff2"],
+            "fallthrough": true,
+        },
     ],
     "kv_namespaces": [
         {

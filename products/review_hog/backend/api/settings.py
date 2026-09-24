@@ -43,6 +43,18 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         "branch, and reply on every thread. On by default; turning it off makes reviews stop at "
         "publishing.",
     )
+    review_authored_prs = serializers.BooleanField(
+        required=False,
+        help_text="Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. "
+        "Off by default. Flash reviews post findings without resolving comments.",
+    )
+    flash_reasoning_effort = serializers.ChoiceField(
+        required=False,
+        choices=ReviewUserSettings.FlashReasoningEffort.choices,
+        help_text="Reasoning effort for this user's automatic and manually requested Flash reviews: "
+        "'medium' (default) or 'xhigh'. Applies to both review and validation. "
+        "Saved independently of the automatic-review toggle.",
+    )
     urgency_threshold = serializers.ChoiceField(
         required=False,
         choices=ReviewUserSettings.UrgencyThreshold.choices,
@@ -67,6 +79,8 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
             "stamphog_review_inbox_prs",
             "review_labeled_prs",
             "resolve_comments",
+            "review_authored_prs",
+            "flash_reasoning_effort",
             "urgency_threshold",
             "can_trigger_reviews",
             "stamphog_connected",

@@ -26,6 +26,7 @@ describe("resolveTabAppViewDisplay", () => {
     ["report", null, "Report"],
     ["report", { title: "  " }, "Report"],
     ["inbox", { title: "Ignored report title" }, "Self-driving"],
+    ["canvases", null, "Canvases"],
   ] as const)("labels a %s tab with %o as %s", (appView, report, label) =>
     expect(resolveTabAppViewDisplay(appView, report).label).toBe(label),
   );

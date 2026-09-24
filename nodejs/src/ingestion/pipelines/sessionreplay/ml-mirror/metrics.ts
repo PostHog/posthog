@@ -19,7 +19,7 @@ export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 export type MlImageSource = 'css' | 'html'
 /** Phases of the ML key work around one Kafka batch: the key bulk read before processing, the key writes and re-read after it, and the deferred publications. */
 export type MlKeyPhase = 'prepare' | 'commit' | 'publish'
-export type MlKeyIdentityMismatchReason = 'wrapped_key_missing'
+export type MlKeyIdentityMismatchReason = 'wrapped_key_missing' | 'month_key_unavailable' | 'seal_unopenable'
 export type MlKeyRequest =
     | 'kms_generate'
     | 'kms_decrypt'
@@ -71,7 +71,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyIdentityMismatch = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_identity_mismatch_total',
-        help: 'Stored ML key rows the mirror could not use: the row has no wrapped key and no tombstone, so its sessions are dropped (ml_key_stored_key_unusable log names the rows)',
+        help: 'Stored ML key rows the mirror could not use, so their sessions are dropped, by reason. wrapped_key_missing: the row has no key and no tombstone, and the ml_key_stored_key_unusable log names these rows. seal_unopenable: the row and its team month key disagree. month_key_unavailable: the row is intact but its team month key gave no key, so one month key can raise this once per session that needed it. Each reason counts a row once per batch',
         labelNames: ['reason'],
     })
     private static readonly mlProducedVersion = new Counter({
@@ -137,6 +137,11 @@ export class MlMirrorMetrics {
      * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
+    private static readonly mlKeyScheme = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_scheme_total',
+        help: 'Stored ML session keys resolved, by the scheme that sealed them. v2 wraps a session key with KMS directly. v3 seals a session key under its team month key, so only the month key reaches KMS. A team month key always uses KMS, so this counter leaves month keys out and v2 counts session keys alone. When v2 reaches zero, no session key predates v3, and the team block and the Python deletion sweep can go',
+        labelNames: ['scheme'],
+    })
     private static readonly mlKeyRowCacheLookups = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_lookups_total',
         help: 'Lookups of a stored ML key row in the per-process cache, by outcome. A hit skips the DynamoDB read, and skips the KMS decrypt as well while the plaintext cache still holds that key. A hit also does not see a tombstone written since the row was read. Note that dynamodb_read on ml_key_request_duration counts misses only, so read that rate against this one rather than as total key traffic',
@@ -144,7 +149,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyRowCacheEntries = new Gauge({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_entries',
-        help: 'Stored ML key rows the per-process cache holds, counted after a read. Expired rows stay counted until a read or an eviction removes them, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
+        help: 'Stored ML key rows the per-process cache holds, counted after a read. A read purges expired rows at most once a minute, and a lookup of an expired row or an eviction removes it between purges, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
     })
     private static readonly mlKeyReadRetries = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_read_retries_total',
@@ -153,7 +158,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyPhaseDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_key_phase_duration_ms',
-        help: 'Wall time of one ML key phase per Kafka batch. The consumer handles one batch at a time, so these phases plus anonymization are the batch wall time; a phase that dominates while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
+        help: 'Wall time of one ML key phase per Kafka batch. Prepare runs in the prepare stage and commit and publish in the commit stage, so a phase that dominates its stage while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
         labelNames: ['phase'],
         buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, Infinity],
     })
@@ -180,6 +185,10 @@ export class MlMirrorMetrics {
 
     public static observeMlKeyRequest(request: MlKeyRequest, ms: number): void {
         this.mlKeyRequestDuration.labels(request).observe(ms)
+    }
+
+    public static incrementMlKeyScheme(scheme: 'v2' | 'v3'): void {
+        this.mlKeyScheme.labels(scheme).inc()
     }
 
     public static incrementMlKeyRowCacheLookup(outcome: 'hit' | 'miss'): void {

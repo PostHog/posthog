@@ -16,8 +16,18 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
+from posthog.models import (
+    DataDeletionRequest,
+    Group,
+    GroupTypeMapping,
+    GroupUsageMetric,
+    Organization,
+    OrganizationMembership,
+    Tag,
+    Team,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.data_deletion_request import ExecutionMode, RequestStatus, RequestType
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
@@ -121,6 +131,10 @@ class TestSystemTablesTeamScoping(BaseTest):
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
     def test_system_table_has_team_id_filter(self, table_name):
+        if table_name == "data_deletion_requests":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
         db = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(
             team_id=self.team.pk,
@@ -173,12 +187,40 @@ class TestSystemTablesTeamScoping(BaseTest):
         assert "storage_ptr" not in table.fields
         assert "content_hash" not in table.fields
 
+    def test_data_deletion_requests_exposes_only_customer_safe_fields(self):
+        table = SystemTables().children["data_deletion_requests"].get()
+        assert isinstance(table, Table)
+
+        assert {name for name, field in table.fields.items() if not field.hidden} == {
+            "id",
+            "status",
+            "query",
+            "variables",
+            "selected_count",
+            "created_by_id",
+            "created_by_staff",
+            "created_at",
+            "updated_at",
+            "approved_at",
+            "selection_calculated_at",
+        }
+
 
 def _create_batch_export(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
     destination = BatchExportDestination.objects.create(type="S3", config={})
     return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
+
+
+def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest:
+    return DataDeletionRequest.objects.create(
+        team_id=team.pk,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query=f"SELECT uuid FROM events WHERE event = '{label}'",
+        status=RequestStatus.PENDING,
+    )
 
 
 def _create_batch_export_backfill(team: Team, label: str):
@@ -905,6 +947,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("dataset_items", _create_dataset_item),
     ("dataset_revisions", _create_dataset_revision),
     ("datasets", _create_dataset),
+    ("data_deletion_requests", _create_data_deletion_request),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
@@ -990,8 +1033,15 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
         self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
 
+    def _authorize_data_deletion_requests(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+
     @parameterized.expand(SYSTEM_TABLE_FACTORIES)
     def test_system_table_returns_only_own_team_data(self, table_name, factory):
+        if table_name == "data_deletion_requests":
+            self._authorize_data_deletion_requests()
+
         obj_team1 = factory(self.team, "team1")
         obj_team2 = factory(self.other_team, "team2")
 
@@ -1012,6 +1062,32 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
 
         assert response.results == [("high",)]
+
+    def test_data_deletion_requests_excludes_non_query_backed_requests(self):
+        self._authorize_data_deletion_requests()
+
+        visible = _create_data_deletion_request(self.team, "visible")
+        DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.EVENT_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+            events=["hidden"],
+            start_time=timezone.now(),
+            end_time=timezone.now(),
+            status=RequestStatus.PENDING,
+        )
+        DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+            hogql_query="",
+            status=RequestStatus.PENDING,
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.data_deletion_requests", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert ids == {str(visible.pk)}
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):

@@ -1,22 +1,42 @@
-from typing import Literal, Self
+import json
+from typing import Any, Literal, Self, cast
 
+import jsonpatch
+from jsonpointer import JsonPointerException
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationArtifactContent
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
+    AssistantTool,
+    AssistantToolCallMessage,
+    QuerySchemaRoot,
+    VisualizationArtifactContent,
+)
 
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
+
+from products.product_analytics.backend.facade.api import save_saved_insight_query, saved_insight_for_update
+from products.product_analytics.backend.facade.contracts import SavedInsightDefinition
 
 from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantNodeName, AssistantState, NodePath
 
 INSIGHT_TOOL_PROMPT = """
-Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. These visualizations are transient and only exist within the current conversation—they are not saved to the project. To save an insight permanently, users should click the open insight icon below the chart in the conversation.
+Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. Without `insight_id`, these visualizations are transient and are not saved to the project. To save an insight permanently, users should click the open insight icon below the chart in the conversation.
+
+A chart generated in this conversation can have an artifact or visualization ID without being saved. Never pass those IDs as `insight_id`. To revise an unsaved chart, omit both `insight_id` and `query_patch`, and provide a revised structured plan based on that chart and the requested changes. Only use `insight_id` after confirming the saved insight in this project through search or read_data.
+
+To update an existing saved insight, first read its saved query with read_data, then provide its short ID as `insight_id` and `query_patch` as a JSON-encoded array of JSON Patch operations against that full query. This saves the same insight and affects every dashboard referencing it. Use narrow paths for only the changes in the current request. Do not apply remembered preferences, defaults, or other improvements to unrelated settings. For example, [{"op":"replace","path":"/source/breakdownFilter/breakdown","value":"name"}] changes a legacy breakdown property; for a breakdowns list, use /source/breakdownFilter/breakdowns/0/property. Use add to set an optional field, remove to delete a field, and move with from/path to reorder a series without rebuilding it. Parent objects must exist. Never regenerate the whole query or replace a whole filter object to change one setting. Use the saved query, not dashboard overrides. Do not create a replacement insight or use upsert_dashboard for insight edits. The existing name and description are preserved. query_description and insight_type are used only for generation, not saved edits.
+When editing the currently open insight editor, omit `insight_id` to apply a draft to the editor, including its unsaved changes. Supply `insight_id` only when the user asks to save directly to that insight.
 
 This tool can also be used to edit the visualization the user is currently viewing on the insight page. In that case, you need to generate a new plan based on the schema of the existing insight.
 
@@ -516,6 +536,15 @@ InsightType = Literal["trends", "funnel", "retention", "sql"]
 
 
 class CreateInsightToolArgs(BaseModel):
+    insight_id: str | None = Field(
+        default=None,
+        description="Short ID of a saved insight in this project, confirmed through search or read_data. Never use an unsaved chart's artifact or visualization ID. Omit to create or revise an unsaved chart, or edit the open editor's draft.",
+    )
+    query_patch: str | None = Field(
+        default=None,
+        description="Required for saved edits: JSON-encoded JSON Patch array against the full saved query. Use add, replace, remove, move or test with precise paths. Read the saved query first. Omit for generation.",
+    )
+    expected_query: dict[str, Any] | None = Field(default=None, exclude=True)
     query_description: str = Field(description="A plan of the query to generate based on the template.")
     insight_type: InsightType = Field(description="The type of insight to generate.")
     viz_title: str = Field(
@@ -534,6 +563,91 @@ class CreateInsightTool(MaxTool):
     def get_required_resource_access(self):
         """Creating an insight requires editor-level access to insights."""
         return [("insight", "editor")]
+
+    async def _get_insight(self, insight_id: str) -> SavedInsightDefinition:
+        insight = await database_sync_to_async(saved_insight_for_update)(
+            team=self._team, user=self._user, short_id=insight_id
+        )
+        if insight is None:
+            raise MaxToolRetryableError(
+                "Insight not found. insight_id must be the short ID of a saved insight in this project. "
+                "For an unsaved chart from this conversation, omit insight_id and query_patch and provide a revised "
+                "structured plan. For a saved insight, use search or read_data to confirm its short ID before retrying."
+            )
+        return insight
+
+    async def is_dangerous_operation(self, insight_id: str | None = None, **kwargs: Any) -> bool:
+        return insight_id is not None
+
+    async def format_dangerous_operation_preview(
+        self, insight_id: str | None = None, query_patch: str | None = None, **kwargs: Any
+    ) -> str:
+        if insight_id is None:
+            raise MaxToolRetryableError("Provide the short ID of the insight to update.")
+        insight = await self._get_insight(insight_id)
+        preview = f"Update insight **{insight.name or insight.short_id}**. This changes every dashboard that uses this insight."
+        if query_patch is not None:
+            self._updated_insight_query(insight, query_patch)
+            preview += f"\n\nRequested query edits:\n```json\n{json.dumps(json.loads(query_patch), indent=2)}\n```"
+        return preview
+
+    async def _check_dangerous_operation(self, kwargs: dict[str, Any]) -> tuple[str, Any] | None:
+        insight_id = kwargs.get("insight_id")
+        if insight_id is None:
+            return await super()._check_dangerous_operation(kwargs)
+
+        insight = await self._get_insight(insight_id)
+        if kwargs.get("expected_query") is None:
+            kwargs["expected_query"] = insight.query
+        preview = f"Update insight **{insight.name or insight.short_id}**. This changes every dashboard that uses this insight."
+        if query_patch := kwargs.get("query_patch"):
+            self._updated_insight_query(insight, query_patch)
+            preview += f"\n\nRequested query edits:\n```json\n{json.dumps(json.loads(query_patch), indent=2)}\n```"
+        return self._handle_dangerous_operation(kwargs, preview=preview)
+
+    @staticmethod
+    def _updated_insight_query(insight: SavedInsightDefinition, query_patch: str) -> dict[str, Any]:
+        try:
+            operations = json.loads(query_patch)
+            if not isinstance(operations, list) or not operations:
+                raise ValueError("Provide at least one query edit.")
+            for operation in operations:
+                if (
+                    not isinstance(operation, dict)
+                    or operation.get("op") not in {"add", "replace", "remove", "move", "test"}
+                    or not isinstance(operation.get("path"), str)
+                    or not operation["path"].startswith("/")
+                ):
+                    raise ValueError("Use add, replace, remove, move or test with a nonempty JSON Pointer path.")
+            original = insight.query or {}
+            query = jsonpatch.apply_patch(original, operations)
+            original_source = original.get("source", original)
+            source = query.get("source", query)
+            if query.get("kind") != original.get("kind") or source.get("kind") != original_source.get("kind"):
+                raise ValueError("Editing an insight cannot change its query type.")
+            query.pop("response", None)
+            source.pop("response", None)
+            QuerySchemaRoot.model_validate(query)
+            return cast(dict[str, Any], query)
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            jsonpatch.JsonPatchException,
+            JsonPointerException,
+            ValidationError,
+        ) as error:
+            raise MaxToolRetryableError(
+                f"Could not apply the query edits. Read the saved query and retry: {error}"
+            ) from error
+
+    async def _save_insight_query(self, insight: SavedInsightDefinition, query: dict[str, Any]) -> None:
+        error = await database_sync_to_async(save_saved_insight_query)(
+            team=self._team, user=self._user, insight_id=insight.id, expected_query=insight.query, query=query
+        )
+        if error:
+            raise MaxToolRetryableError(error)
 
     @classmethod
     async def create_tool_class(
@@ -554,8 +668,39 @@ class CreateInsightTool(MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, viz_title: str, viz_description: str, query_description: str, insight_type: InsightType
+        self,
+        viz_title: str,
+        viz_description: str,
+        query_description: str,
+        insight_type: InsightType,
+        insight_id: str | None = None,
+        query_patch: str | None = None,
+        expected_query: dict[str, Any] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
+        if insight_id is not None:
+            if query_patch is None:
+                raise MaxToolRetryableError("Read the saved insight and provide query_patch with the requested edits.")
+            insight = await self._get_insight(insight_id)
+            if expected_query is not None and insight.query != expected_query:
+                raise MaxToolRetryableError("This insight changed while awaiting approval. Read it again and retry.")
+            await self._save_insight_query(insight, self._updated_insight_query(insight, query_patch))
+            return "", ToolMessagesArtifact(
+                messages=[
+                    ArtifactRefMessage(
+                        id=f"{self.tool_call_id}-saved-insight",
+                        content_type=ArtifactContentType.VISUALIZATION,
+                        source=ArtifactSource.INSIGHT,
+                        artifact_id=insight.short_id,
+                    ),
+                    AssistantToolCallMessage(
+                        content=f"Updated existing insight {insight.short_id}. All dashboards using it now use the updated query.",
+                        tool_call_id=self.tool_call_id,
+                        ui_payload={self.get_name(): {"saved_insight": {"short_id": insight.short_id}}},
+                    ),
+                ]
+            )
+        if query_patch is not None:
+            raise MaxToolRetryableError("Provide insight_id to edit a saved insight.")
         graph_builder = InsightsGraph(self._team, self._user)
         match insight_type:
             case "trends":

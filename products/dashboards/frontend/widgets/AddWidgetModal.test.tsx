@@ -9,7 +9,7 @@ import { BindLogic } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardType } from '~/types'
 
 import { AddWidgetModal } from './AddWidgetModal'
 
@@ -21,7 +21,7 @@ jest.mock('./previews/dashboardWidgetPreviews', () => ({
     },
 }))
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',

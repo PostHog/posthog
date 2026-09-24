@@ -16,6 +16,7 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 ``facade/hogql.py``, and temporal/source wiring via ``facade/temporal.py`` — not here.
 """
 
+from dataclasses import field
 from datetime import datetime, time, timedelta
 from uuid import UUID
 
@@ -83,6 +84,22 @@ class ExternalDataSource:
     is_direct_postgres: bool
     is_direct_mysql: bool
     direct_engine: str | None
+
+
+@dataclass(frozen=True)
+class ExternalDataSourceHealth:
+    """A source's sync health: how it is configured, plus its newest completed run and error.
+
+    `status` alone conflates "sync in progress" with "never succeeded", so a consumer needs
+    `last_run_at` to tell a healthy source from one that has never synced.
+    """
+
+    source_type: str
+    status: str | None
+    prefix: str | None
+    created_at: datetime
+    last_run_at: datetime | None
+    latest_error: str | None
 
 
 # --- Schema ---
@@ -251,3 +268,16 @@ class DataWarehouseCredential:
     id: UUID
     team_id: int
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class GitHubSourceCredential:
+    """How a GitHub source authenticates to the repositories it syncs.
+
+    Exactly one field is set. This is the one contract that carries a secret, because a consumer
+    that has to read the same repository the source reads cannot do it without the token. ``repr``
+    omits the token so it cannot reach a log line or a traceback frame.
+    """
+
+    integration_id: int | None = None
+    personal_access_token: str | None = field(default=None, repr=False)

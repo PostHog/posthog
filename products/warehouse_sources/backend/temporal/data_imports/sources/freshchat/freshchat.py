@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Any, Optional
 
+from requests import Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -11,8 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    _looks_like_json,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.settings import (
     FRESHCHAT_ENDPOINTS,
@@ -171,16 +175,37 @@ def freshchat_source(
     )
 
 
-def validate_credentials(domain: str, api_key: str) -> Optional[int]:
-    """Probe the Freshchat API. Returns the HTTP status code, or ``None`` on a connection error.
+def _returned_json(response: Response) -> bool:
+    """Classify the probe body the way the sync path classifies a page body.
 
-    Hits the account-configuration endpoint — the cheapest resource any valid token can read.
+    An empty body is not a mismatch: the REST client reads an empty 2xx as a valid empty page. A
+    body that starts as a JSON value but is cut short is a truncated read, which the sync path
+    retries, so it must not be reported here as the wrong host either.
     """
-    _ok, status = validate_via_probe(
+    if not response.content or not response.content.strip():
+        return True
+    return _looks_like_json(response.content)
+
+
+def validate_credentials(domain: str, api_key: str) -> tuple[Optional[int], bool]:
+    """Probe the Freshchat API. Returns ``(status code, whether the body was JSON)``.
+
+    The status is ``None`` on a connection error. A Freshworks portal domain serves the web app on
+    these paths and answers the probe with 200 and HTML, so the status alone cannot tell an API host
+    from a host that only serves a UI. The body has to be JSON for the domain to be usable.
+
+    Hits the account-configuration endpoint, the cheapest resource any valid token can read.
+    """
+    try:
         # Redirects pinned off on the session so a 3xx can't carry the token to another host.
-        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
-        f"{_base_url(domain)}/accounts/configuration",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        timeout=VALIDATE_TIMEOUT,
-    )
-    return status
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        response = session.get(
+            f"{_base_url(domain)}/accounts/configuration",
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=VALIDATE_TIMEOUT,
+            allow_redirects=False,
+        )
+    except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
+        return None, False
+
+    return response.status_code, _returned_json(response)

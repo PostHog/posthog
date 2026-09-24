@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
 from django.forms import ModelForm
 from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import redirect
@@ -11,20 +10,14 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 
 from posthog.models.organization import Organization
-from posthog.models.utils import convert_legacy_metrics
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.admin.recalculation_panel import (
     build_recalculation_panel,
     start_recalculation_for_experiment,
 )
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentMetricsRecalculation,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-)
+from products.experiments.backend.legacy_migration import migrate_experiment as migrate_legacy_experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
 from products.experiments.backend.recalculation import get_latest_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -347,74 +340,15 @@ class ExperimentAdmin(admin.ModelAdmin):
 
     def migrate_experiment(self, request, object_id):
         try:
-            with transaction.atomic():
-                original = Experiment.objects.select_for_update().get(pk=object_id)
+            # nosemgrep: idor-lookup-without-team (Django admin, staff-only)
+            team_id = Experiment.objects.values_list("team_id", flat=True).get(pk=object_id)
+            migration = migrate_legacy_experiment(int(object_id), team_id)
 
-                if original.stats_config and original.stats_config.get("migrated_to"):
-                    messages.warning(request, f"Experiment already migrated to {original.stats_config['migrated_to']}")
-                    return redirect("admin:experiments_experiment_change", original.stats_config["migrated_to"])
-
-                new_experiment = Experiment()
-
-                # copy all fields... almost all...
-                excluded_fields = ["id", "created_at", "key"]
-                for field in original._meta.fields:
-                    if field.name not in excluded_fields:
-                        value = getattr(original, field.name)
-                        # Deep copy dicts to avoid shared references
-                        if isinstance(value, dict):
-                            value = copy.deepcopy(value)
-                        setattr(new_experiment, field.name, value)
-
-                # migrate metrics and secondary metrics
-                new_experiment.metrics = convert_legacy_metrics(original.metrics)
-                new_experiment.metrics_secondary = convert_legacy_metrics(original.metrics_secondary)
-
-                # update the migrated from relation
-                if new_experiment.stats_config is None:
-                    new_experiment.stats_config = {}
-                new_experiment.stats_config["migrated_from"] = int(object_id)
-
-                # save the experiment, we need this for referential integrity
-                new_experiment.save()
-
-                # find the shared metrics "migrated to" and create new relationships
-                # check if all saved metrics have been migrated
-                for metric in original.saved_metrics.all():
-                    kind = metric.query.get("kind") if metric.query else None
-                    is_legacy = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
-                    migrated = bool(metric.metadata and "migrated_to" in metric.metadata)
-
-                    # bail with an exception if the metric is legacy and has not been migrated
-                    if is_legacy and not migrated:
-                        raise Exception(f"Saved metric {metric.id} has not been migrated yet")
-
-                    # because we need metadata from the through table, we can't just do
-                    # experiment.saved_metrics.add. We need to create the relationship by hand
-                    original_to_saved_metric = ExperimentToSavedMetric.objects.get(
-                        experiment=original, saved_metric=metric
-                    )
-
-                    # if is legacy, get the migrated metric, otherwise, keep the id from the original experiment
-                    metric_id = metric.metadata["migrated_to"] if is_legacy else metric.id
-
-                    saved_metric = ExperimentSavedMetric.objects.get(id=metric_id)
-
-                    # Create the new through object with the same metadata
-                    ExperimentToSavedMetric.objects.create(
-                        experiment=new_experiment,
-                        saved_metric=saved_metric,
-                        metadata=copy.deepcopy(original_to_saved_metric.metadata),
-                    )
-
-                # update the migrated to soft relation
-                if original.stats_config is None:
-                    original.stats_config = {}
-                original.stats_config["migrated_to"] = new_experiment.id
-                original.save(update_fields=["stats_config"])
-
-            messages.success(request, "Experiment migrated successfully")
-            return redirect("admin:experiments_experiment_change", new_experiment.pk)
+            if migration.already_migrated:
+                messages.warning(request, f"Experiment already migrated to {migration.experiment.id}")
+            else:
+                messages.success(request, "Experiment migrated successfully")
+            return redirect("admin:experiments_experiment_change", migration.experiment.pk)
         except Experiment.DoesNotExist:
             messages.error(request, "Experiment not found")
             return redirect("admin:experiments_experiment_changelist")

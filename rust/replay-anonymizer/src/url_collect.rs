@@ -51,7 +51,7 @@ pub const MAX_URLS_PER_MESSAGE: usize = 512;
 /// Enables URL collection for one anonymize call.
 #[derive(Debug, Clone)]
 pub struct UrlCollection {
-    /// Use `v2:<raw_team_id>:<YYYY-MM>` or a 32-character lowercase hexadecimal pseudonym. `None` produces global URL refs.
+    /// Use `v2:<raw_team_id>:<YYYY-MM>`, `v3:<raw_team_id>:<YYYY-MM>` or a 32-character lowercase hexadecimal pseudonym. `None` produces global URL refs.
     pub reference_namespace: Option<String>,
     /// Global key for the URL HMAC. The caller derives it under a URL-specific domain separator.
     pub url_key: String,

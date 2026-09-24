@@ -24,7 +24,7 @@ export function buildGroupAnalyticsTaxonomicGroupNames(
         name: capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural),
         searchPlaceholder: aggregationLabel(type.group_type_index).plural,
         type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-        endpoint: combineUrl(`api/environments/${teamId}/groups/`, {
+        endpoint: combineUrl(`api/projects/${teamId}/groups/`, {
             group_type_index: type.group_type_index,
         }).url,
         getPopoverHeader: () => 'Group Names',

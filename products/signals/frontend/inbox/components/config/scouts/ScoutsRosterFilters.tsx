@@ -15,6 +15,9 @@ const ENABLED_FILTER_OPTIONS: { value: ScoutEnabledFilter; label: string }[] = [
 const SORT_OPTIONS: { value: ScoutRosterSort; label: string }[] = [
     { value: 'name', label: 'Name' },
     { value: 'status', label: 'Status' },
+    { value: 'created', label: 'Recently created' },
+    { value: 'updated', label: 'Recently updated' },
+    { value: 'last_run', label: 'Last run' },
 ]
 
 /**
@@ -55,18 +58,7 @@ export function ScoutsRosterFilters(): JSX.Element {
                 data-attr="inbox-scout-filter-enabled"
             />
             {scoutTagOptions.length > 0 && (
-                <ScoutTagsFilter
-                    options={scoutTagOptions}
-                    selected={activeScoutTags}
-                    onToggle={(tag) =>
-                        setScoutTagFilter(
-                            activeScoutTags.includes(tag)
-                                ? activeScoutTags.filter((candidate) => candidate !== tag)
-                                : [...activeScoutTags, tag]
-                        )
-                    }
-                    onClear={() => setScoutTagFilter([])}
-                />
+                <ScoutTagsFilter options={scoutTagOptions} selected={activeScoutTags} onChange={setScoutTagFilter} />
             )}
             {scoutOwnerOptions.length > 0 && (
                 <ScoutOwnerFilter

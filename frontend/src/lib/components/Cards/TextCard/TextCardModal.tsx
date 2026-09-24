@@ -11,7 +11,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
-import { DashboardTileIdOrNew, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardTileIdOrNew, DashboardType } from '~/types'
 
 export function TextCardModal({
     isOpen,
@@ -21,7 +21,7 @@ export function TextCardModal({
 }: {
     isOpen: boolean
     onClose: () => void
-    dashboard: DashboardType<QueryBasedInsightModel>
+    dashboard: DashboardType
     textTileId: DashboardTileIdOrNew
 }): JSX.Element {
     const isNewTile = textTileId === null

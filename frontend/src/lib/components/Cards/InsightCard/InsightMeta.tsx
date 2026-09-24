@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconClock, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -45,12 +45,18 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
+import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
+import {
+    isDataVisualizationNode,
+    isDataVisualizationNodeWithHogQLQuery,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -60,7 +66,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import {
@@ -95,6 +101,7 @@ interface InsightMetaProps extends Pick<
     | 'setOverride'
     | 'duplicate'
     | 'dashboardId'
+    | 'canEditDashboard'
     | 'moveToDashboard'
     | 'copyToDashboard'
     | 'showEditingControls'
@@ -108,8 +115,8 @@ interface InsightMetaProps extends Pick<
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
-    tile?: DashboardTile<QueryBasedInsightModel>
-    insight: QueryBasedInsightModel
+    tile?: DashboardTile
+    insight: InsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
@@ -123,6 +130,7 @@ export function InsightMeta({
     insight,
     ribbonColor,
     dashboardId,
+    canEditDashboard,
     updateColor,
     toggleShowDescription,
     filtersOverride,
@@ -166,8 +174,15 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query, savingDisplayOptions, savingSqlVisualization, sqlVisualizationVersion } =
-        useValues(insightDataLogic(insightLogicProps))
+    const {
+        exportContext,
+        insightData,
+        insightDataRaw,
+        query,
+        savingDisplayOptions,
+        savingSqlVisualization,
+        sqlVisualizationVersion,
+    } = useValues(insightDataLogic(insightLogicProps))
     const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
@@ -179,19 +194,17 @@ export function InsightMeta({
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
     const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { copyToDestinations } = useValues(
-        dashboardWidgetMenusLogic({
-            instanceKey: insight.short_id,
-            dashboardId,
-            dashboards: insight.dashboards,
-            dashboard_tiles: insight.dashboard_tiles,
-        })
-    )
+    const dashboardWidgetMenusLogicProps = {
+        instanceKey: insight.short_id,
+        dashboardId,
+        dashboards: insight.dashboards,
+        dashboard_tiles: insight.dashboard_tiles,
+    }
+    const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
+    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -247,9 +260,8 @@ export function InsightMeta({
             : true
 
     // A killed run has no result to carry the scan, so it arrives on the query status instead.
-    const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
+    const queryScan: InsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
     const scanFindings = queryScan?.analysis?.findings ?? []
-    // Without a finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
     const queryScanTooltip =
         canEditInsight && queryScan && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
@@ -260,6 +272,9 @@ export function InsightMeta({
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+
+    const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
+    const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
@@ -287,15 +302,7 @@ export function InsightMeta({
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
     const hasDashboardPlacementActions = canShowCopyToDashboardTile || !!moveToDashboard || !!removeFromDashboard
 
-    // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
-    const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
-    const canEditDashboard = currentDashboard?.user_access_level
-        ? accessLevelSatisfied(
-              AccessControlResourceType.Dashboard,
-              currentDashboard.user_access_level,
-              AccessControlLevel.Editor
-          )
-        : true
+    const canEditCurrentDashboard = canEditDashboard ?? !dashboardId
 
     // Feedback buttons for Customer Analytics
     const feedbackButtons =
@@ -472,6 +479,7 @@ export function InsightMeta({
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
                         queryScanTooltip={queryScanTooltip}
+                        queryScanActionable={queryScanHasActionableFinding(scanFindings)}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -568,7 +576,7 @@ export function InsightMeta({
                             />
                         )}
 
-                        {canShowCopyToDashboardTile && !canEditDashboard && (
+                        {canShowCopyToDashboardTile && !canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
@@ -580,7 +588,7 @@ export function InsightMeta({
                         )}
 
                         {/* Dashboard related */}
-                        {canEditDashboard && (
+                        {canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
@@ -679,6 +687,33 @@ export function InsightMeta({
                                             export_context: exportContext,
                                         },
                                     ]}
+                                    copyToClipboardItems={
+                                        showCopyTableData
+                                            ? [
+                                                  {
+                                                      title: 'CSV',
+                                                      onClick: () => {
+                                                          if (!copyTableAdapter) {
+                                                              return
+                                                          }
+                                                          copyTableData(
+                                                              copyTableAdapter.toTableData(),
+                                                              ExporterFormat.CSV
+                                                          )
+                                                          reportInsightResultsCopiedToClipboard(
+                                                              'csv',
+                                                              insight.id ?? null,
+                                                              dashboardId ?? null
+                                                          )
+                                                      },
+                                                      disabledReason: copyTableAdapter
+                                                          ? undefined
+                                                          : 'No data to copy yet',
+                                                      'data-attr': 'insight-card-copy-as-csv',
+                                                  },
+                                              ]
+                                            : undefined
+                                    }
                                 />
                             </>
                         ) : null}
@@ -803,6 +838,7 @@ export function InsightMetaContent({
     infoPopover,
     dataRetentionWarning,
     queryScanTooltip,
+    queryScanActionable,
 }: {
     title: string
     fallbackTitle?: string
@@ -816,6 +852,8 @@ export function InsightMetaContent({
     infoPopover?: JSX.Element | null
     dataRetentionWarning?: string | null
     queryScanTooltip?: JSX.Element | null
+    /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
+    queryScanActionable?: boolean
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
@@ -824,9 +862,16 @@ export function InsightMetaContent({
     ) : null
     const queryScanIndicator = queryScanTooltip ? (
         <Tooltip title={queryScanTooltip}>
-            <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-query-scan">
-                Slow query
-            </LemonTag>
+            {queryScanActionable ? (
+                <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-query-scan">
+                    Slow query
+                </LemonTag>
+            ) : (
+                <IconClock
+                    className="ml-1.5 text-base shrink-0 text-secondary"
+                    data-attr="insight-card-query-scan-note"
+                />
+            )}
         </Tooltip>
     ) : null
     const titleContent = (

@@ -483,6 +483,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             unseen_id,
         ]
 
+    @parameterized.expand(
+        [
+            ("default order", {}),
+            ("pinned only", {"pinned": "true"}),
+            ("search", {"search": "Tied"}),
+        ]
+    )
+    def test_list_dashboards_pages_tied_rows_without_gaps_or_repeats(self, _name: str, query_params: dict) -> None:
+        tied_ids = [self.dashboard_api.create_dashboard({"name": "Tied", "pinned": True})[0] for _ in range(5)]
+
+        paged_ids: list[int] = []
+        for offset in range(0, len(tied_ids), 2):
+            response = self.dashboard_api.list_dashboards(
+                parent="environment",
+                query_params={**query_params, "limit": 2, "offset": offset},
+            )
+            paged_ids.extend(dashboard["id"] for dashboard in response["results"])
+
+        assert paged_ids == sorted(tied_ids)
+
     def test_list_includes_folder_from_filesystem(self):
         filed_id, _ = self.dashboard_api.create_dashboard(
             {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
@@ -2488,9 +2508,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard.pk)
         tile_insight = response["tiles"][0]["insight"]
         self.assertIsNone(tile_insight["query"])
-        # The stored filters are the definition the client converts, so they have to survive the read.
-        self.assertEqual(tile_insight["filters"]["events"], [{"id": "$pageview"}])
-        self.assertNotIn("insight", tile_insight["filters"])
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
@@ -3082,7 +3099,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_restriction_level": 21,
                     "favorited": False,
                     "filter_override_context": None,
-                    "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,
                     "id": ANY,

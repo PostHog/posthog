@@ -102,8 +102,8 @@ Create a Public API credential (a username and password pair) under **Public Man
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — ConfigCat's list endpoints expose no pagination and
-        # no server-side timestamp filter, so there is no incremental cursor to advance.
+        # Only the audit log is incremental — every other list endpoint returns its full
+        # collection with no pagination and no server-side timestamp filter to advance a cursor on.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -126,4 +126,7 @@ Create a Public API credential (a username and password pair) under **Public Man
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
