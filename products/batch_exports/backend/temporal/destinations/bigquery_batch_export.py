@@ -21,13 +21,10 @@ import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
     BadRequest,
     Forbidden,
-    GatewayTimeout,
     GoogleAPICallError,
     InternalServerError,
     NotFound,
     PermissionDenied,
-    ServiceUnavailable,
-    TooManyRequests,
 )
 from google.cloud import bigquery, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
@@ -1108,13 +1105,7 @@ class BigQueryClient:
         while True:
             try:
                 result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
-            except (
-                TooManyRequests,
-                ServiceUnavailable,
-                GatewayTimeout,
-                InternalServerError,
-                BigQueryQuotaExceededError,
-            ) as err:
+            except BigQueryQuotaExceededError as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 await self._wait_after_transient_load_error(err, attempt, backoff)
                 attempt += 1
@@ -1181,8 +1172,9 @@ class BigQueryClient:
                 raise BigQueryIncompatibleSchemaError(repr(field_name))
 
             except GoogleAPICallError as err:
-                # `google.api_core` maps only some status codes to a typed exception class, so a
-                # transient failure can arrive as the base class and must be judged by its code.
+                # `google.api_core` maps only some status codes to a typed exception class, so
+                # retryability comes from the status code and not from the class. This clause must
+                # stay below the `Forbidden` and `BadRequest` clauses, which are subclasses.
                 if not _is_retryable_status_code(err.code):
                     raise
 
