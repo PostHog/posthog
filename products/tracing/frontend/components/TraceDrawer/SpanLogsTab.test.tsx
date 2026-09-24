@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { fireEvent, render, within } from '@testing-library/react'
 
 import type { Span } from '../../types'
 import { SpanLogsTab } from './SpanLogsTab'
@@ -36,5 +36,16 @@ describe('SpanLogsTab', () => {
 
         expect(second.pinnedFilters).toBe(first.pinnedFilters)
         expect(second.initialFilters).toBe(first.initialFilters)
+    })
+
+    it('keeps an AI row on the trace scope after span scope was picked on a real span', () => {
+        const { container, rerender } = render(<SpanLogsTab span={span} />)
+        fireEvent.click(within(container).getAllByText('This span')[0])
+
+        rerender(<SpanLogsTab span={{ ...span, span_id: 'ai:event-1' }} />)
+
+        expect(capturedProps[capturedProps.length - 1].pinnedFilters).toMatchObject({
+            values: [{ key: 'trace_id', value: ['trace-abc'] }],
+        })
     })
 })
