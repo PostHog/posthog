@@ -159,11 +159,7 @@ describe('StateManager', () => {
                     .fn()
                     .mockResolvedValueOnce({ success: true, data: mockApiKey })
                     .mockRejectedValue(new Error('API unreachable'))
-                const api = {
-                    config: { apiToken: 'phx_test' },
-                    apiKeys: () => ({ current }),
-                    oauth: () => ({ introspect: async () => ({ success: false, error: { message: 'down' } }) }),
-                } as unknown as ApiClient
+                const api = { apiKeys: () => ({ current }) } as unknown as ApiClient
 
                 await new StateManager(cache, api).getApiKey()
                 vi.advanceTimersByTime(3 * 60 * 1000)
