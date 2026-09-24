@@ -27,7 +27,7 @@ from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ip
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_TERMINATION_REASON_MARKERS
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
@@ -77,6 +77,7 @@ from products.tasks.backend.facade.run_config import (
 logger = logging.getLogger(__name__)
 
 TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
+TASK_RUN_TERMINATION_REASON_CHOICES = list(TASK_RUN_TERMINATION_REASON_MARKERS)
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -508,6 +509,17 @@ class TaskRunDetailSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Latest summary for this task, including a summary inherited from an earlier run.",
     )
+    termination_reason = serializers.ChoiceField(
+        choices=TASK_RUN_TERMINATION_REASON_CHOICES,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Why a lifecycle bound stopped this run, when one did. `timed_out_wall_clock` is the "
+            "hard cap on total run time, `timed_out_inactivity` the idle cap, and `sandbox_gone` a "
+            "sandbox that disappeared. Null when the run ended on its own, so a failed run with a "
+            "null `error_message` and a null reason is a genuine failure rather than a timeout."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -527,6 +539,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "output",
             "task_summary",
             "state",
+            "termination_reason",
             "artifacts",
             "created_at",
             "updated_at",
