@@ -24,6 +24,7 @@ from typing import Any
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
 
+from posthog.dataclasses import frozen
 from posthog.migration_helpers.lock_phase import lock_tables
 
 TABLE = "posthog_taggeditem"
@@ -74,6 +75,20 @@ CONSTRAINT_EXISTS_SQL = """
 """
 
 
+@frozen
+class _PendingDrop:
+    """One object still on the table, and the locks its drop needs."""
+
+    label: str
+    """What the operator sees, for example `foreign key ... -> posthog_dashboard`."""
+
+    sql: str
+    """The statement that drops it."""
+
+    parents: tuple[str, ...]
+    """Tables to lock before the child, in the order a joining query locks them."""
+
+
 class _SchemaEditorShim:
     """The two methods `lock_tables` needs, over a plain connection."""
 
@@ -105,42 +120,42 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(f"{len(remaining)} objects left on {TABLE}:")
-        for label, _, parents in remaining:
-            locked = ", ".join([*parents, TABLE])
-            self.stdout.write(f"  {label}  (locks: {locked})")
+        for pending in remaining:
+            locked = ", ".join([*pending.parents, TABLE])
+            self.stdout.write(f"  {pending.label}  (locks: {locked})")
 
         if options["dry_run"]:
             return
 
         failed: list[str] = []
-        for label, sql, parents in remaining:
-            if self._drop(editor, label, sql, parents, options["attempts"], options["pause"]):
-                self.stdout.write(self.style.SUCCESS(f"dropped {label}"))
+        for pending in remaining:
+            if self._drop(editor, pending, options["attempts"], options["pause"]):
+                self.stdout.write(self.style.SUCCESS(f"dropped {pending.label}"))
             else:
-                failed.append(label)
-                self.stdout.write(self.style.WARNING(f"gave up on {label}, re-run to retry"))
+                failed.append(pending.label)
+                self.stdout.write(self.style.WARNING(f"gave up on {pending.label}, re-run to retry"))
 
         if failed:
             self.stdout.write(self.style.WARNING(f"{len(failed)} left: {', '.join(failed)}"))
         else:
             self.stdout.write(self.style.SUCCESS("All legacy constraints and foreign keys are gone."))
 
-    def _drop(self, editor: Any, label: str, sql: str, parents: list[str], attempts: int, pause: float) -> bool:
+    def _drop(self, editor: Any, pending: _PendingDrop, attempts: int, pause: float) -> bool:
         """One object, one transaction per attempt. A lost lock race costs nothing."""
         for attempt in range(1, attempts + 1):
             try:
                 with transaction.atomic():
-                    lock_tables(editor, [*parents, TABLE])
-                    editor.execute(sql)
+                    lock_tables(editor, [*pending.parents, TABLE])
+                    editor.execute(pending.sql)
                 return True
             except Exception as error:  # noqa: BLE001 — a lost lock race is the expected case
-                self.stdout.write(f"  {label}: attempt {attempt}/{attempts} did not get the lock ({error})")
+                self.stdout.write(f"  {pending.label}: attempt {attempt}/{attempts} did not get the lock ({error})")
                 time.sleep(pause)
         return False
 
-    def _remaining(self) -> list[tuple[str, str, list[str]]]:
-        """What is still on the table, as (label, drop statement, tables to lock first)."""
-        remaining: list[tuple[str, str, list[str]]] = []
+    def _remaining(self) -> list[_PendingDrop]:
+        """What is still on the table, in the order it is safe to drop."""
+        remaining: list[_PendingDrop] = []
 
         with connection.cursor() as cursor:
             for index in PARTIAL_UNIQUE_INDEXES:
@@ -150,18 +165,31 @@ class Command(BaseCommand):
 
             cursor.execute(CONSTRAINT_EXISTS_SQL, [TABLE, CHECK_CONSTRAINT])
             if cursor.fetchone():
-                remaining.append((f"check {CHECK_CONSTRAINT}", self._drop_constraint(CHECK_CONSTRAINT), []))
+                remaining.append(
+                    _PendingDrop(
+                        label=f"check {CHECK_CONSTRAINT}",
+                        sql=self._drop_constraint(CHECK_CONSTRAINT),
+                        parents=(),
+                    )
+                )
 
             cursor.execute(UNIQUE_TOGETHER_SQL, [TABLE])
             for (name,) in cursor.fetchall():
-                remaining.append((f"unique_together {name}", self._drop_constraint(name), []))
+                remaining.append(
+                    _PendingDrop(label=f"unique_together {name}", sql=self._drop_constraint(name), parents=())
+                )
 
             cursor.execute(FOREIGN_KEYS_SQL, [TABLE, [f"{field}_id" for field in LEGACY_FIELDS]])
             for name, parent in cursor.fetchall():
                 # A key that references its own table names the child as its parent, and the
                 # child is locked last either way.
-                parents = [] if parent == TABLE else [parent]
-                remaining.append((f"foreign key {name} -> {parent}", self._drop_constraint(name), parents))
+                remaining.append(
+                    _PendingDrop(
+                        label=f"foreign key {name} -> {parent}",
+                        sql=self._drop_constraint(name),
+                        parents=() if parent == TABLE else (parent,),
+                    )
+                )
 
         return remaining
 
