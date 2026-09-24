@@ -3009,6 +3009,33 @@ describe('runStreamLogic', () => {
             expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toBe('200-0')
         })
 
+        it('keeps buffered output when the stream drops before history arrives', async () => {
+            const firstHistory = deferred<Record<string, unknown>[]>()
+            jest.mocked(api.tasks.runs.getLogEntries).mockReturnValueOnce(firstHistory.promise)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            await MockStream.latest().emitMessage(
+                {
+                    ...sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        messageId: 'reply',
+                        content: { text: 'Recovered' },
+                    }),
+                    event_id: 'reply-1',
+                },
+                '200-0'
+            )
+            await MockStream.latest().emitClose()
+            await jest.advanceTimersByTimeAsync(2000)
+            await flushPromises()
+
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe('Recovered')
+            firstHistory.resolve([])
+            await flushPromises()
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe('Recovered')
+        })
+
         it.each(['status', 'history'] as const)(
             'retries terminal %s without reopening an ended stream',
             async (failure) => {

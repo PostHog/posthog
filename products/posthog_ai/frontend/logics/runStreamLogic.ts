@@ -3118,6 +3118,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (sameRun) {
                 session.committedCursor = previous.committedCursor
                 session.committedBacklogRunId = previous.committedBacklogRunId
+                if (previous.buffering) {
+                    session.buffer = [...previous.buffer]
+                    session.buffering = true
+                }
             } else {
                 actions.cancelPermissionDelivery()
                 actions.permissionRunChanged()
