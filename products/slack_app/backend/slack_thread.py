@@ -209,7 +209,7 @@ class SlackThreadHandler:
     def for_run(
         cls,
         context: SlackThreadContext,
-        run_id: str | UUID,
+        run_id: str | UUID | None,
         *,
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
