@@ -140,6 +140,7 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
                 {
                     loadSends: async (_: void, breakpoint) => {
                         cache.queryVersion = (cache.queryVersion ?? 0) + 1
+                        const version = cache.queryVersion
                         const query = { search: values.recipientSearch, status: values.statusFilter }
                         let page: MessageAsset[]
                         try {
@@ -152,6 +153,7 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
                         // Drops a response that lands after a newer search or filter started.
                         breakpoint()
                         cache.loadedQuery = query
+                        cache.loadedVersion = version
                         cache.nextOffset = page.length
                         actions.setHasMoreRecipients(page.length >= SENT_ROW_LIMIT)
                         return page
@@ -161,6 +163,12 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
                     // after a newer query started is dropped rather than written over its results.
                     loadMoreSends: async () => {
                         const version = cache.queryVersion
+                        // The first page of a newer query has not landed yet, so the shown rows and the
+                        // offset still belong to the old query. Any load-more success clears the shared
+                        // loading flag, so the button can be clicked in this window.
+                        if (cache.loadedVersion !== version) {
+                            return values.sends
+                        }
                         const shown = values.sends
                         const offset: number = cache.nextOffset ?? shown.length
                         const page = await loadPage(cache.loadedQuery ?? { search: '', status: null }, offset)
