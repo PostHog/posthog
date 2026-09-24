@@ -217,6 +217,25 @@ const panelLayoutStorage: StateStorage = createDebouncedStorage(
   PANEL_PERSIST_DEBOUNCE_MS,
 );
 
+// Returns whether the layout changed, so analytics skip actions that did nothing.
+function updateLayoutIfChanged(
+  set: (
+    updater: (state: PanelLayoutStore) => Partial<PanelLayoutStore>,
+  ) => void,
+  taskId: string,
+  updater: (layout: TaskLayout) => Partial<TaskLayout>,
+): boolean {
+  let changed = false;
+  set((state) =>
+    updateTaskLayout(state, taskId, (layout) => {
+      const updates = updater(layout);
+      changed = Object.keys(updates).length > 0;
+      return updates;
+    }),
+  );
+  return changed;
+}
+
 export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
   persist(
     (set, get) => ({
@@ -477,22 +496,19 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         direction,
         source,
       ) => {
-        set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) =>
-              splitPanelTree(
-                layout,
-                tabId,
-                sourcePanelId,
-                targetPanelId,
-                direction,
-              ) as Partial<TaskLayout>,
-          ),
+        const changed = updateLayoutIfChanged(
+          set,
+          taskId,
+          (layout) =>
+            splitPanelTree(
+              layout,
+              tabId,
+              sourcePanelId,
+              targetPanelId,
+              direction,
+            ) as Partial<TaskLayout>,
         );
-
-        if (source) {
+        if (changed && source) {
           track(ANALYTICS_EVENTS.PANEL_SPLIT, {
             source,
             direction,
@@ -502,15 +518,16 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
       },
 
       splitPanelWithCopy: (taskId, panelId, direction, source) => {
-        let changed = false;
-        set((state) =>
-          updateTaskLayout(state, taskId, (layout) => {
-            const updates = coreSplitPanelWithCopy(layout, panelId, direction);
-            changed = Object.keys(updates).length > 0;
-            return updates as Partial<TaskLayout>;
-          }),
+        const changed = updateLayoutIfChanged(
+          set,
+          taskId,
+          (layout) =>
+            coreSplitPanelWithCopy(
+              layout,
+              panelId,
+              direction,
+            ) as Partial<TaskLayout>,
         );
-
         if (changed) {
           track(ANALYTICS_EVENTS.PANEL_SPLIT, {
             source,
@@ -521,15 +538,11 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
       },
 
       closePanel: (taskId, panelId, source) => {
-        let changed = false;
-        set((state) =>
-          updateTaskLayout(state, taskId, (layout) => {
-            const updates = coreClosePanel(layout, panelId);
-            changed = Object.keys(updates).length > 0;
-            return updates as Partial<TaskLayout>;
-          }),
+        const changed = updateLayoutIfChanged(
+          set,
+          taskId,
+          (layout) => coreClosePanel(layout, panelId) as Partial<TaskLayout>,
         );
-
         if (changed) {
           track(ANALYTICS_EVENTS.PANEL_CLOSED, { source, task_id: taskId });
         }

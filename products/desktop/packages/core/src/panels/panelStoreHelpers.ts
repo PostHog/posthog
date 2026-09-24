@@ -95,9 +95,9 @@ let nextPanelId = 1;
 // The counter restarts at 1 on every app launch while layouts persist across
 // launches, so a restored tree can already hold "panel-1". Skip ids the tree
 // uses, because updateTreeNode stops at the first node with a matching id.
-export function generatePanelId(tree?: PanelNode): string {
+export function generatePanelId(tree: PanelNode): string {
   let id = `panel-${nextPanelId++}`;
-  while (tree && findPanelById(tree, id)) {
+  while (findPanelById(tree, id)) {
     id = `panel-${nextPanelId++}`;
   }
   return id;

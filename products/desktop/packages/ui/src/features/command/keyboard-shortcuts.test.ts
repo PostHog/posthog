@@ -73,23 +73,21 @@ describe("SHORTCUTS", () => {
   it.each([
     { id: "split-panel", keys: SHORTCUTS.SPLIT_PANEL },
     { id: "close-panel", keys: SHORTCUTS.CLOSE_PANEL },
-  ])("lists $id under panels for the task detail", ({ id, keys }) => {
-    expect(KEYBOARD_SHORTCUTS).toContainEqual(
-      expect.objectContaining({
-        id,
-        keys,
-        category: "panels",
-        context: "Task detail",
-      }),
-    );
-  });
-
-  it("binds the pane shortcuts to keys no other shortcut owns", () => {
-    const combos = Object.values(SHORTCUTS).flatMap((keys) => keys.split(","));
-    for (const keys of [SHORTCUTS.SPLIT_PANEL, SHORTCUTS.CLOSE_PANEL]) {
+  ])(
+    "lists $id under panels on a key no other shortcut owns",
+    ({ id, keys }) => {
+      expect(KEYBOARD_SHORTCUTS).toContainEqual(
+        expect.objectContaining({
+          id,
+          keys,
+          category: "panels",
+          context: "Task detail",
+        }),
+      );
+      const combos = Object.values(SHORTCUTS).flatMap((all) => all.split(","));
       expect(combos.filter((combo) => combo === keys)).toHaveLength(1);
-    }
-  });
+    },
+  );
 
   it("keeps browser and inner-panel tab shortcuts distinct off macOS", () => {
     expect(panelTabShortcut(true)).toBe(

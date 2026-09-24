@@ -19,6 +19,7 @@ import {
   updateTreeNode,
 } from "./panelTree";
 import type {
+  PanelContent,
   PanelNode,
   SplitDirection,
   Tab,
@@ -38,6 +39,49 @@ function createTerminalTab(cwd = ""): Tab {
     draggable: true,
     closeable: true,
   };
+}
+
+function splitWithNewPanel(
+  tree: PanelNode,
+  targetPanelId: string,
+  tab: Tab,
+  direction: SplitDirection,
+): { panelTree: PanelNode; newPanelId: string } {
+  const config = getSplitConfig(direction);
+  const newPanelId = generatePanelId(tree);
+  const newPanel: PanelNode = {
+    type: "leaf",
+    id: newPanelId,
+    content: {
+      id: newPanelId,
+      tabs: [tab],
+      activeTabId: tab.id,
+      showTabs: true,
+      droppable: true,
+    },
+  };
+
+  const panelTree = updateTreeNode(tree, targetPanelId, (panel) => ({
+    type: "group" as const,
+    id: generatePanelId(tree),
+    direction: config.splitDirection,
+    sizes: [50, 50],
+    children: config.isAfter ? [panel, newPanel] : [newPanel, panel],
+  }));
+
+  return { panelTree, newPanelId };
+}
+
+function updateLeafContent(
+  tree: PanelNode,
+  panelId: string,
+  update: (content: PanelContent) => Partial<PanelContent>,
+): PanelNode {
+  return updateTreeNode(tree, panelId, (node) =>
+    node.type === "leaf"
+      ? { ...node, content: { ...node.content, ...update(node.content) } }
+      : node,
+  );
 }
 
 function createDefaultPanelTree(): PanelNode {
@@ -321,32 +365,13 @@ export function openReadonlyTab(
   );
   if (!mainPanel) return {};
 
-  const newPanelId = generatePanelId(layout.panelTree);
-  const newPanel: PanelNode = {
-    type: "leaf",
-    id: newPanelId,
-    content: {
-      id: newPanelId,
-      tabs: [buildTab()],
-      activeTabId: tabId,
-      showTabs: true,
-      droppable: true,
-    },
-  };
-
-  const splitTree = updateTreeNode(
+  const { panelTree, newPanelId } = splitWithNewPanel(
     layout.panelTree,
     DEFAULT_PANEL_IDS.MAIN_PANEL,
-    (panel) => ({
-      type: "group" as const,
-      id: generatePanelId(layout.panelTree),
-      direction: "horizontal" as const,
-      sizes: [50, 50],
-      children: [panel, newPanel],
-    }),
+    buildTab(),
+    "right",
   );
-
-  return { panelTree: splitTree, focusedPanelId: newPanelId };
+  return { panelTree, focusedPanelId: newPanelId };
 }
 
 export function addRecentFile(
@@ -557,51 +582,14 @@ export function splitPanelTree(
   if (!tab) return {};
 
   if (sourcePanelId === targetPanelId && targetPanel.content.tabs.length <= 1) {
-    const singleTabConfig = getSplitConfig(direction);
-    const newPanelId = generatePanelId(layout.panelTree);
-    const terminalTab = createTerminalTab();
-    const newPanel: PanelNode = {
-      type: "leaf",
-      id: newPanelId,
-      content: {
-        id: newPanelId,
-        tabs: [terminalTab],
-        activeTabId: terminalTab.id,
-        showTabs: true,
-        droppable: true,
-      },
-    };
-
-    const updatedTree = updateTreeNode(
+    const { panelTree, newPanelId } = splitWithNewPanel(
       layout.panelTree,
       targetPanelId,
-      (panel) => ({
-        type: "group" as const,
-        id: generatePanelId(layout.panelTree),
-        direction: singleTabConfig.splitDirection,
-        sizes: [50, 50],
-        children: singleTabConfig.isAfter
-          ? [panel, newPanel]
-          : [newPanel, panel],
-      }),
+      createTerminalTab(),
+      direction,
     );
-
-    return { panelTree: updatedTree, focusedPanelId: newPanelId };
+    return { panelTree, focusedPanelId: newPanelId };
   }
-
-  const config = getSplitConfig(direction);
-  const newPanelId = generatePanelId(layout.panelTree);
-  const newPanel: PanelNode = {
-    type: "leaf",
-    id: newPanelId,
-    content: {
-      id: newPanelId,
-      tabs: [tab],
-      activeTabId: tab.id,
-      showTabs: true,
-      droppable: true,
-    },
-  };
 
   const treeAfterRemove = updateTreeNode(
     layout.panelTree,
@@ -609,19 +597,11 @@ export function splitPanelTree(
     (panel) => removeTabFromPanel(panel, tabId),
   );
 
-  const updatedTree = updateTreeNode(
+  const { panelTree: updatedTree } = splitWithNewPanel(
     treeAfterRemove,
     targetPanelId,
-    (panel) => {
-      const newGroup: PanelNode = {
-        type: "group",
-        id: generatePanelId(layout.panelTree),
-        direction: config.splitDirection,
-        sizes: [50, 50],
-        children: config.isAfter ? [panel, newPanel] : [newPanel, panel],
-      };
-      return newGroup;
-    },
+    tab,
+    direction,
   );
 
   const cleanedTree = applyCleanupWithFallback(
@@ -682,29 +662,12 @@ export function splitPanelWithCopy(
   );
   if (!activeTab) return {};
 
-  const copy = copyTab(layout.panelTree, activeTab);
-  const config = getSplitConfig(direction);
-  const newPanelId = generatePanelId(layout.panelTree);
-  const newPanel: PanelNode = {
-    type: "leaf",
-    id: newPanelId,
-    content: {
-      id: newPanelId,
-      tabs: [copy],
-      activeTabId: copy.id,
-      showTabs: true,
-      droppable: true,
-    },
-  };
-
-  const panelTree = updateTreeNode(layout.panelTree, panelId, (panel) => ({
-    type: "group" as const,
-    id: generatePanelId(layout.panelTree),
-    direction: config.splitDirection,
-    sizes: [50, 50],
-    children: config.isAfter ? [panel, newPanel] : [newPanel, panel],
-  }));
-
+  const { panelTree, newPanelId } = splitWithNewPanel(
+    layout.panelTree,
+    panelId,
+    copyTab(layout.panelTree, activeTab),
+    direction,
+  );
   return { panelTree, focusedPanelId: newPanelId };
 }
 
@@ -724,45 +687,34 @@ export function closePanel(
     (tab) => tab.closeable === false,
   );
   const neighbor = findNeighborLeaf(layout.panelTree, panelId);
-  if (!neighbor && pinnedTabs.length === panel.content.tabs.length) return {};
 
-  // The last pane has nowhere to send its pinned tabs, so it keeps them.
-  const keptTabs = neighbor ? [] : pinnedTabs;
-  const emptiedTree = updateTreeNode(layout.panelTree, panelId, (node) =>
-    node.type !== "leaf"
-      ? node
-      : {
-          ...node,
-          content: {
-            ...node.content,
-            tabs: keptTabs,
-            activeTabId:
-              keptTabs.find((tab) => tab.id === node.content.activeTabId)?.id ??
-              keptTabs[0]?.id ??
-              "",
-          },
-        },
-  );
   if (!neighbor) {
+    // The last pane has nowhere to send its pinned tabs, so it keeps them.
+    if (pinnedTabs.length === panel.content.tabs.length) return {};
+    const panelTree = updateLeafContent(
+      layout.panelTree,
+      panelId,
+      ({ activeTabId }) => ({
+        tabs: pinnedTabs,
+        activeTabId:
+          pinnedTabs.find((tab) => tab.id === activeTabId)?.id ??
+          pinnedTabs[0]?.id ??
+          "",
+      }),
+    );
     return {
-      panelTree: emptiedTree,
-      openFiles: pruneOpenFiles(layout.openFiles, emptiedTree),
+      panelTree,
+      openFiles: pruneOpenFiles(layout.openFiles, panelTree),
     };
   }
 
-  const treeWithPinnedTabs = updateTreeNode(emptiedTree, neighbor.id, (node) =>
-    node.type !== "leaf"
-      ? node
-      : {
-          ...node,
-          content: {
-            ...node.content,
-            tabs: [...node.content.tabs, ...pinnedTabs],
-          },
-        },
+  const movedTree = updateLeafContent(
+    updateLeafContent(layout.panelTree, panelId, () => ({ tabs: [] })),
+    neighbor.id,
+    ({ tabs }) => ({ tabs: [...tabs, ...pinnedTabs] }),
   );
   const panelTree = applyCleanupWithFallback(
-    cleanupNode(treeWithPinnedTabs),
+    cleanupNode(movedTree),
     layout.panelTree,
   );
 

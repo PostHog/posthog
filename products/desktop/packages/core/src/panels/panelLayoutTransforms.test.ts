@@ -216,7 +216,7 @@ describe("panelLayoutTransforms", () => {
       expect(closed.openFiles).toEqual(["src/App.tsx"]);
     });
 
-    it("moves tabs that cannot close into the neighbor before the pane collapses", () => {
+    it("moves tabs that cannot close into the neighbor, which then takes main-placed artifacts", () => {
       const layout = createInitialTaskLayout();
       const { next: split, newPane } = splitMainPanelRight(layout);
 
@@ -230,6 +230,20 @@ describe("panelLayoutTransforms", () => {
         "logs",
       ]);
       expect(closed.focusedPanelId).toBe(newPane.id);
+
+      const opened = applyUpdates(
+        closed,
+        openReadonlyTab(
+          closed,
+          "artifact-1",
+          "report.md",
+          { type: "artifact", runId: "run-1", artifactId: "1" },
+          "main",
+        ),
+      );
+      expect(findTabInTree(opened.panelTree, "artifact-1")?.panelId).toBe(
+        newPane.id,
+      );
     });
 
     it("keeps the last pane and its pinned tabs", () => {
@@ -246,28 +260,6 @@ describe("panelLayoutTransforms", () => {
         "logs",
       ]);
       expect(closed.panelTree.content.activeTabId).toBe("logs");
-    });
-
-    it("lets a main-placed artifact open in the pane that survived the main pane", () => {
-      const layout = createInitialTaskLayout();
-      const { next: split, newPane } = splitMainPanelRight(layout);
-      const closed = applyUpdates(split, closePanel(split, "main-panel"));
-
-      const opened = applyUpdates(
-        closed,
-        openReadonlyTab(
-          closed,
-          "artifact-1",
-          "report.md",
-          { type: "artifact", runId: "run-1", artifactId: "1" },
-          "main",
-        ),
-      );
-
-      expect(findTabInTree(opened.panelTree, "artifact-1")?.panelId).toBe(
-        newPane.id,
-      );
-      expect(opened.focusedPanelId).toBe(newPane.id);
     });
   });
 

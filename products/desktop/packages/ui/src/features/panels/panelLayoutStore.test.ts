@@ -658,16 +658,9 @@ describe("panelLayoutStore", () => {
       expect(getPanelTree("task-1").type).toBe("leaf");
     });
 
-    it("leaves drag-and-drop splits untracked", () => {
-      usePanelLayoutStore
-        .getState()
-        .splitPanel("task-1", "logs", "main-panel", "main-panel", "right");
-
-      expect(track).not.toHaveBeenCalled();
-    });
-
-    it("stays silent when the pane does not exist", () => {
+    it("leaves drag-and-drop splits and actions on a missing pane untracked", () => {
       const state = usePanelLayoutStore.getState();
+      state.splitPanel("task-1", "logs", "main-panel", "main-panel", "right");
       state.splitPanelWithCopy("task-1", "missing", "right", "shortcut");
       state.closePanel("task-1", "missing", "shortcut");
 
