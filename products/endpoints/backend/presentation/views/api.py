@@ -21,7 +21,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
 from openai import APIConnectionError
-from pydantic import ValidationError as PydanticValidationError
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -568,16 +571,15 @@ class EndpointViewSet(
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _field_errors(exc: PydanticValidationError) -> dict[str, str]:
-        """Flatten a pydantic error into field-level errors instead of its raw error dump."""
-        return {".".join(str(part) for part in error["loc"]) or "body": error["msg"] for error in exc.errors()}
-
-    @staticmethod
-    def _parse_run_request(request: Request) -> EndpointRunRequest:
+    def _parse_body[T: BaseModel](model: type[T], request: Request) -> T:
+        """Parse a body into field-level errors instead of pydantic's raw error dump."""
         try:
-            return EndpointRunRequest.model_validate(request.data)
+            return model.model_validate(request.data)
         except PydanticValidationError as exc:
-            raise ValidationError(EndpointViewSet._field_errors(exc)) from exc
+            field_errors = {
+                ".".join(str(part) for part in error["loc"]) or "body": error["msg"] for error in exc.errors()
+            }
+            raise ValidationError(field_errors) from exc
 
     @staticmethod
     def _rejection_reason(response: Response) -> str:
@@ -598,7 +600,7 @@ class EndpointViewSet(
         self._enforce_object_level_access(endpoint)
         service = EndpointExecutionService(self.team, request)
         try:
-            data = self._parse_run_request(request)
+            data = self._parse_body(EndpointRunRequest, request)
         except ValidationError as exc:
             service.log_rejected_run(endpoint, service.format_validation_detail(exc.detail))
             raise
@@ -652,12 +654,7 @@ class EndpointViewSet(
     )
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
-        try:
-            data = EndpointLastExecutionTimesRequest.model_validate(request.data)
-        except PydanticValidationError as exc:
-            raise ValidationError(self._field_errors(exc)) from exc
-
-        names = data.names
+        names = self._parse_body(EndpointLastExecutionTimesRequest, request).names
         if not names:
             return Response(
                 QueryStatusResponse(query_status=QueryStatus(id="", team_id=self.team.pk, complete=True)).model_dump(),
