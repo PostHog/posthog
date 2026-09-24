@@ -1456,6 +1456,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                             properties: {
                                                 name: 'Test issue',
                                                 description: 'This is the issue description',
+                                                assignee: null,
                                             },
                                         }
                                       : contextId === 'health-alerts'

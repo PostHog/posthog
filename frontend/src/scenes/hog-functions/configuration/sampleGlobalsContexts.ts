@@ -32,11 +32,10 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             status: issue.status,
             severity: issue.severity,
             fingerprint: fingerprintRecord.fingerprint,
-        }
-        if (issue.assignee) {
-            // Real issue lifecycle events stringify the assignee as {"type":...,"id":...},
-            // and omit the property entirely when the issue is unassigned
-            properties.assignee = JSON.stringify({ type: issue.assignee.type, id: issue.assignee.id })
+            // Real issue lifecycle events stringify the assignee as {"type":...,"id":...} and omit it
+            // when the issue is unassigned. Hog reads a missing property as null, so null tests the
+            // same and still shows that `assignee` exists
+            assignee: issue.assignee ? JSON.stringify({ type: issue.assignee.type, id: issue.assignee.id }) : null,
         }
         return {
             ...exampleGlobals,
