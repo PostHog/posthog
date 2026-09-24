@@ -1558,6 +1558,24 @@ def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime)
     return repainted
 
 
+def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
+    """Paint a schema Running at the start of a run, unless a CDC halt marker holds.
+
+    A halted schema absorbs every later status update, so Running painted over it would hide its
+    FAILED status and error until the marker clears. One conditional UPDATE: a marker written
+    under the row lock either commits first and blocks this, or commits after and repaints FAILED.
+    """
+    updated = (
+        ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)
+        .exclude(sync_type_config__has_key="cdc_broken")
+        .exclude(sync_type_config__has_key="cdc_extraction_paused")
+        .update(status=ExternalDataSchema.Status.RUNNING, updated_at=timezone.now())
+    )
+    if updated:
+        schema.status = ExternalDataSchema.Status.RUNNING
+    return bool(updated)
+
+
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
     """Mark a schema's first successful sync complete. Shared by the V2 pipelines and the V3 loader.
 

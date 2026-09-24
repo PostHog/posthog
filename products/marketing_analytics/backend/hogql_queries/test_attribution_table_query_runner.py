@@ -1088,8 +1088,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
         assert self._printed_sql(breakdown) == self.snapshot
 
-    # The precomputed half of each pair must carry neither the channel classifier nor an argMinMerge
-    # over raw_sessions: resolving those at read time is what exhausts memory on a large team.
+    # Entry properties must merge only for exceptional sessions; classifying the full range defeats the cache.
     @parameterized.expand(
         [
             ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),

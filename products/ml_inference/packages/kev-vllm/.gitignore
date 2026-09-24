@@ -1,0 +1,5 @@
+.venv/
+.venv-export/
+build/
+*.egg-info/
+__pycache__/
