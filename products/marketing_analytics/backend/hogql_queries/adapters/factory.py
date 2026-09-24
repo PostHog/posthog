@@ -20,6 +20,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.pinterest_ads i
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
+from products.marketing_analytics.backend.services.native_integrations import is_native_source_enabled
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 from ..constants import (
@@ -207,6 +208,8 @@ class MarketingSourceFactory:
 
         for source in self._external_sources:
             if source.source_type not in VALID_NATIVE_MARKETING_SOURCES:
+                continue
+            if not is_native_source_enabled(source.source_type, self.context.team):
                 continue
 
             tables = self._tables_by_source_id.get(str(source.id), [])

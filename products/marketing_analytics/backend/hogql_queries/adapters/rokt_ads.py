@@ -1,5 +1,3 @@
-import re
-
 from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
@@ -31,24 +29,24 @@ class RoktAdsAdapter(MarketingSourceAdapter[HierarchicalNativeAdsConfig]):
                 (tables.entity_table, (tables.entity_id_column, tables.entity_name_column)),
                 (
                     tables.stats_table,
-                    (tables.stats_entity_id_column, "datetime", "impressions", "referrals", "gross_cost"),
+                    (
+                        tables.stats_entity_id_column,
+                        "datetime",
+                        "impressions",
+                        "referrals",
+                        "gross_cost",
+                        "currency_code",
+                    ),
                 ),
             )
             for column in columns
             if not self._table_has_column(table, column)
         ]
-        if not re.fullmatch(r"[A-Z]{3}", self._report_currency()):
-            errors.append("Rokt Ads has an invalid report currency. Update the source currency, then sync again.")
         return ValidationResult(is_valid=not errors, errors=errors)
 
     def _get_from(self) -> ast.JoinExpr:
         # The report already contains campaign identity; a self-join would multiply daily rows.
         return ast.JoinExpr(table=ast.Field(chain=[self.config.stats_table.name]))
-
-    def _report_currency(self) -> str:
-        source = self.config.stats_table.external_data_source
-        currency = (source.job_inputs or {}).get("currency_code") if source else None
-        return str(currency or "USD")
 
     def _sum_metric(self, column: str) -> ast.Expr:
         table = self.config.stats_table
@@ -70,13 +68,17 @@ class RoktAdsAdapter(MarketingSourceAdapter[HierarchicalNativeAdsConfig]):
         if not self._table_has_column(table, column):
             return ast.Constant(value=0)
         return parse_expr(
-            "sum(toFloat(convertCurrency({currency}, {target}, coalesce(toFloat({value}), 0), "
-            "coalesce(toDate({date}), today()))))",
+            "sum(toFloat(convertCurrency(coalesce({currency}, {target}), {target}, coalesce(toFloat({value}), 0), "
+            "coalesce(toDate({date}), today())))) "
+            "+ throwIf(countIf(empty(coalesce({currency}, ''))) > 0, {message})",
             placeholders={
-                "currency": ast.Constant(value=self._report_currency()),
+                "currency": ast.Field(chain=[table.name, "currency_code"]),
                 "target": ast.Constant(value=self.context.base_currency),
                 "value": ast.Field(chain=[table.name, column]),
                 "date": ast.Field(chain=[table.name, "datetime"]),
+                "message": ast.Constant(
+                    value="Rokt Ads currency is missing. Fully resync CampaignPerformance, then try again."
+                ),
             },
         )
 

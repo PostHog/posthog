@@ -14,12 +14,19 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 ### Rokt Ads in Marketing analytics
 
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-rokt-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
 Sync `CampaignPerformance` to include Rokt Ads in Marketing analytics.
 The report provides campaign identity and daily metrics in one table, so the integration aggregates it without joining the report to itself.
 Spend uses `gross_cost`, clicks use `referrals`, and reported conversions and revenue use `conversions` and `conversion_value`.
 Missing optional conversion metrics show zero.
-Currency comes from the source's report currency setting, or USD when that setting is blank, and conversion uses each report date.
-Changing the source currency requires a full resync so historical rows use the same currency as new rows.
+The importer stores the requested report currency on each row, defaulting to USD, and conversion uses each report date.
+Changing the source currency affects newly synced rows; historical rows retain their own currency.
+Existing connections need a full resync of `CampaignPerformance` to backfill currency before using monetary metrics.
+Missing currency columns prevent monetary tiles, and empty historical currency values stop queries with a resync message.
 Creative, audience, demographic, and publisher reports are excluded to avoid counting overlapping breakdowns twice.
 
 ## Importing your local Postgres instance

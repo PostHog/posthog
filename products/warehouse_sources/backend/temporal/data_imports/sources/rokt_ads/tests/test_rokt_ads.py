@@ -162,6 +162,35 @@ class TestRoktAdsSource:
         assert batches == [[{"accountId": "acc_1"}]]
         client.run_report.assert_not_called()
 
+    @parameterized.expand([("configured", "GBP"), ("default", None)])
+    def test_each_report_row_keeps_the_currency_used_for_its_sync(self, _name: str, currency: str | None) -> None:
+        client = self._client(rows=[{"datetime": "2026-08-13T00:00:00Z", "gross_cost": 12.5}])
+        historical = list(
+            rokt_ads_source(
+                client,
+                "acc_1",
+                "CampaignPerformance",
+                _manager(),
+                "2026-08-13",
+                currency_code=currency,
+                today=date(2026, 8, 13),
+            )
+        )
+        current = list(
+            rokt_ads_source(
+                client,
+                "acc_1",
+                "CampaignPerformance",
+                _manager(),
+                "2026-08-14",
+                currency_code="AUD",
+                today=date(2026, 8, 14),
+            )
+        )
+        assert historical[0][0]["currency_code"] == (currency or "USD")
+        assert current[0][0]["currency_code"] == "AUD"
+        assert historical[0][0]["gross_cost"] == 12.5
+
     def test_report_covers_today_because_end_date_is_exclusive(self):
         client = self._client()
         list(rokt_ads_source(client, "acc_1", "CampaignPerformance", _manager(), "2026-08-11", today=date(2026, 8, 13)))

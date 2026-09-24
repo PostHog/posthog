@@ -1,8 +1,11 @@
+from unittest.mock import patch
+
 from parameterized import parameterized
 
 from posthog.schema import NativeMarketingSource
 
 from posthog.models.integration import OauthIntegration
+from posthog.models.team import Team
 
 from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
@@ -13,6 +16,7 @@ from products.marketing_analytics.backend.services.native_integrations import (
     aliases_for,
     canonical_source_aliases,
     display_name_for_key,
+    is_native_source_enabled,
     lookup_alias,
     normalize,
 )
@@ -143,5 +147,25 @@ class TestStructuralInvariants:
 
         assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"
 
-    def test_only_credential_based_integrations_lack_an_oauth_kind(self):
+    def test_only_credential_based_integrations_lack_an_oauth_kind(self) -> None:
         assert set(NativeMarketingSource) - set(OAUTH_KIND_BY_NATIVE) == {NativeMarketingSource.ROKT_ADS}
+
+
+class TestNativeSourceFeatureFlags:
+    @parameterized.expand([(False,), (True,)])
+    def test_source_rollout_does_not_disable_existing_integrations(self, enabled: bool) -> None:
+        team = Team(id=1, organization_id="00000000-0000-0000-0000-000000000001")
+        with patch(
+            "products.marketing_analytics.backend.services.native_integrations.feature_enabled_or_false",
+            return_value=enabled,
+        ) as evaluate:
+            assert is_native_source_enabled("RoktAds", team) is enabled
+            evaluate.assert_called_once_with(
+                "marketing-analytics-rokt-ads",
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+            )
+            evaluate.reset_mock()
+            assert is_native_source_enabled("GoogleAds", team)
+            evaluate.assert_not_called()

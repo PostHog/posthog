@@ -43,6 +43,7 @@ class TestRoktAdsAdapter(SimpleTestCase):
                     "campaign_id",
                     "campaign_name",
                     "datetime",
+                    "currency_code",
                     "impressions",
                     "referrals",
                     "gross_cost",
@@ -75,10 +76,8 @@ class TestRoktAdsAdapter(SimpleTestCase):
             ),
         )
 
-    @parameterized.expand([("configured", "GBP", "GBP"), ("default", None, "USD")])
-    def test_report_is_aggregated_once_in_the_configured_currency(
-        self, _name: str, currency: str | None, expected_currency: str
-    ) -> None:
+    @parameterized.expand([("changed_setting", "GBP"), ("default", None)])
+    def test_report_is_aggregated_once_using_the_stored_currency(self, _name: str, currency: str | None) -> None:
         adapter = self._adapter(currency)
         assert adapter.validate().is_valid
         for query in (adapter.build_query(), adapter.build_materialization_query("rokt-source")):
@@ -96,7 +95,11 @@ class TestRoktAdsAdapter(SimpleTestCase):
             assert "example_roktads_campaignperformance.gross_cost" in sql
             assert "example_roktads_campaignperformance.referrals" in sql
             assert "example_roktads_campaignperformance.conversion_value" in sql
-            assert f"convertCurrency('{expected_currency}', 'EUR'" in sql
+            assert "convertCurrency(coalesce(example_roktads_campaignperformance.currency_code, 'EUR'), 'EUR'" in sql
+            assert "throwIf(" in sql
+            assert "countIf(empty(coalesce(example_roktads_campaignperformance.currency_code, '')))" in sql
+            assert "Fully resync CampaignPerformance" in sql
+            assert "'GBP'" not in sql
             assert "toDate(example_roktads_campaignperformance.datetime)" in sql
             assert "net_cost" not in sql
             assert "acquisitions" not in sql
@@ -111,5 +114,8 @@ class TestRoktAdsAdapter(SimpleTestCase):
         assert query is not None
         assert "0 AS reported_conversion" in query.to_hogql()
 
-    def test_invalid_report_currency_is_rejected(self) -> None:
-        assert not self._adapter("not-a-currency").validate().is_valid
+    def test_old_report_without_currency_is_rejected(self) -> None:
+        adapter = self._adapter("GBP")
+        assert adapter.config.stats_table.columns is not None
+        del adapter.config.stats_table.columns["currency_code"]
+        assert not adapter.validate().is_valid
