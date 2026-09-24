@@ -169,6 +169,17 @@ const EMPTY_RENDERED_SCROLL: RenderedScrollDiagnostic = {
     rendered_scroll_samples: null,
 }
 
+// The offset between two browsers starts small and grows as playback proceeds, so a single first-frame
+// reading would miss it. Sample across the timeline instead: throttle to one reading per interval and
+// cap the total, so diffing the two browsers' samples by playhead time shows the offset accumulate.
+const RENDERED_SAMPLE_INTERVAL_MS = 2000
+const RENDERED_SAMPLE_MAX = 40
+
+interface RenderedSampleCache {
+    renderedSampleCount?: number
+    lastRenderedSampleAt?: number
+}
+
 // Reads the scroll offsets the player actually rendered in the replay iframe. The event-derived
 // 'recording anchor diagnostic' proves two browsers receive identical scroll events; this reads the
 // resulting DOM, so a browser that restores a nested scroll container to a different offset from the
@@ -209,6 +220,43 @@ function readRenderedScroll(replayer: Replayer | undefined): RenderedScrollDiagn
         }
     } catch {
         return EMPTY_RENDERED_SCROLL
+    }
+}
+
+// TODO: temporary diagnostic for the cross-browser rendered-scroll investigation. Emits one sample per
+// interval, tagged with the playhead so the two browsers' samples line up in time. Remove this and
+// readRenderedScroll once the cause is found.
+function captureRenderedScrollSample(args: {
+    replayer: Replayer | undefined
+    recordingId: string
+    timestamp: number | undefined
+    rrwebPlayerTime: number | null | undefined
+    cache: RenderedSampleCache
+}): void {
+    const { replayer, recordingId, timestamp, rrwebPlayerTime, cache } = args
+    try {
+        if ((cache.renderedSampleCount ?? 0) >= RENDERED_SAMPLE_MAX) {
+            return
+        }
+        const nowMs = performance.now()
+        if (
+            cache.lastRenderedSampleAt !== undefined &&
+            nowMs - cache.lastRenderedSampleAt < RENDERED_SAMPLE_INTERVAL_MS
+        ) {
+            return
+        }
+        cache.lastRenderedSampleAt = nowMs
+        cache.renderedSampleCount = (cache.renderedSampleCount ?? 0) + 1
+        posthog.capture('recording anchor diagnostic rendered', {
+            recording_id: recordingId,
+            is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
+            sample_index: cache.renderedSampleCount,
+            rrweb_player_time: rrwebPlayerTime ?? null,
+            current_timestamp: timestamp ?? null,
+            ...readRenderedScroll(replayer),
+        })
+    } catch {
+        // diagnostics must never break playback
     }
 }
 
@@ -2829,32 +2877,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 cache.replayerRecoveryAttempts = 0
                 actions.clearPlayerError()
-
-                // TODO: temporary diagnostic for the cross-browser first-frame investigation.
-                // Reads the scroll the player actually rendered for the first frame, to pair with the
-                // event-derived 'recording anchor diagnostic'. Deferred so the rrweb fork's Flush
-                // scroll re-apply settles first. Remove this block and readRenderedScroll once the
-                // cause is found.
-                if (props.mode !== SessionRecordingPlayerMode.Preview && !cache.renderedAnchorDiagnosticSent) {
-                    cache.renderedAnchorDiagnosticSent = true
-                    const rrwebPlayerTime = values.toRRWebPlayerTime(timestamp) ?? null
-                    cache.disposables.add(() => {
-                        const timer = setTimeout(() => {
-                            try {
-                                posthog.capture('recording anchor diagnostic rendered', {
-                                    recording_id: props.sessionRecordingId,
-                                    is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
-                                    rrweb_player_time: rrwebPlayerTime,
-                                    current_timestamp: timestamp,
-                                    ...readRenderedScroll(values.player?.replayer),
-                                })
-                            } catch {
-                                // diagnostics must never break playback
-                            }
-                        }, 300)
-                        return () => clearTimeout(timer)
-                    }, 'renderedAnchorDiagnostic')
-                }
             } catch (error) {
                 // The same failure can still slip through mid-play — recover rather than report it.
                 if (recoverStaleReplayer()) {
@@ -2871,7 +2893,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.groupedAssetErrors = null
             cache.rrwebWarningSummary = null
             cache.rrwebWarningCount = 0
-            cache.renderedAnchorDiagnosticSent = false
+            cache.renderedSampleCount = 0
+            cache.lastRenderedSampleAt = undefined
             if (cache.diagnosticsFlushTimer) {
                 clearTimeout(cache.diagnosticsFlushTimer)
                 cache.diagnosticsFlushTimer = null
@@ -3377,6 +3400,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentTimestamp(newTimestamp)
+
+                if (props.mode !== SessionRecordingPlayerMode.Preview) {
+                    captureRenderedScrollSample({
+                        replayer: values.player?.replayer,
+                        recordingId: props.sessionRecordingId,
+                        timestamp: newTimestamp,
+                        rrwebPlayerTime,
+                        cache,
+                    })
+                }
 
                 // Throttled position update for loading scheduler (every 5s)
                 if (shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)) {
