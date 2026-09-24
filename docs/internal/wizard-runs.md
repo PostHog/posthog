@@ -139,6 +139,13 @@ Events omit repository names, paths, full shell commands, diff contents, tokens,
 
 ## Deployment configuration
 
+### AI gateway URLs
+
+`WIZARD_GATEWAY_URL` is the gateway address returned to the setup agent.
+`WIZARD_GATEWAY_MINT_URL` optionally sets a separate address for the backend's token-mint requests and defaults to `WIZARD_GATEWAY_URL` when unset.
+For local Docker sandboxes, set `WIZARD_GATEWAY_URL=http://host.docker.internal:8080` and `WIZARD_GATEWAY_MINT_URL=http://localhost:8080` in PostHog's `.env.local`.
+Restart the backend after changing these settings.
+
 ### Distributed tracing
 
 Cloud runs use the shared OpenTelemetry instrumentation described in the [distributed tracing guide](https://posthog.com/docs/distributed-tracing).

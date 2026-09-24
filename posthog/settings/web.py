@@ -1273,6 +1273,7 @@ except ValueError:
 # Wizard gateway-token mint. Any of the four unset refuses every mint as
 # `unconfigured`, which ends the wizard run: there is no other gateway.
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
+WIZARD_GATEWAY_MINT_URL = get_from_env("WIZARD_GATEWAY_MINT_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
 # OAuth application client ids allowed to mint: llm_gateway:read is an internal
 # scope on every sandbox and agent token, so the scope alone does not identify the
