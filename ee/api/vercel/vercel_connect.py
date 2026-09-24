@@ -1,3 +1,4 @@
+import secrets
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
 from uuid import UUID
@@ -14,6 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
+from posthog.frontend_views import region_host_from_current_instance
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -32,10 +34,14 @@ ALLOWED_REDIRECT_DOMAINS = {
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
 CONNECT_SALT = "vercel_connect"
+CONNECT_NONCE_COOKIE = "ph_vercel_connect_nonce"
+CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
+SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
+_BROWSER_NONCE_KEY = "browser_nonce"
 
 
-def _sign_connect_session(data: dict) -> str:
-    return encrypt_payload(data, salt=CONNECT_SALT, jti=True)
+def _sign_connect_session(data: dict, browser_nonce: str) -> str:
+    return encrypt_payload({**data, _BROWSER_NONCE_KEY: browser_nonce}, salt=CONNECT_SALT, jti=True)
 
 
 def _load_connect_session(token: str) -> dict:
@@ -43,6 +49,55 @@ def _load_connect_session(token: str) -> dict:
         return decrypt_payload(token, salt=CONNECT_SALT, ttl=CONNECT_SESSION_TIMEOUT)
     except InvalidToken:
         raise signing.BadSignature("Invalid or expired token")
+
+
+def _browser_nonce_cookie_domain() -> str | None:
+    # The callback and the link page can run in different cloud regions, so both regions must receive the cookie.
+    return "posthog.com" if region_host_from_current_instance(settings.SITE_URL) else None
+
+
+def _set_browser_nonce_cookie(response: HttpResponse, browser_nonce: str) -> None:
+    response.set_cookie(
+        CONNECT_NONCE_COOKIE,
+        browser_nonce,
+        max_age=CONNECT_SESSION_TIMEOUT,
+        path=CONNECT_NONCE_COOKIE_PATH,
+        domain=_browser_nonce_cookie_domain(),
+        secure=settings.SESSION_COOKIE_SECURE,
+        httponly=True,
+        samesite="Lax",
+    )
+
+
+def _clear_browser_nonce_cookie(response: HttpResponse) -> None:
+    response.delete_cookie(
+        CONNECT_NONCE_COOKIE,
+        path=CONNECT_NONCE_COOKIE_PATH,
+        domain=_browser_nonce_cookie_domain(),
+        samesite="Lax",
+    )
+
+
+def _load_browser_bound_session(request: Request, token: str) -> dict:
+    try:
+        session = _load_connect_session(token)
+    except signing.BadSignature:
+        raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+    cookie_nonce = request.COOKIES.get(CONNECT_NONCE_COOKIE, "")
+    session_nonce = session.get(_BROWSER_NONCE_KEY)
+    if (
+        cookie_nonce
+        and isinstance(session_nonce, str)
+        and secrets.compare_digest(cookie_nonce.encode(), session_nonce.encode())
+    ):
+        return session
+
+    capture_exception(
+        Exception("Vercel connect: session used by a browser that did not start it"),
+        {"has_nonce_cookie": cookie_nonce != "", "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
 
 
 def _mark_token_used(jti: str) -> bool:
@@ -174,6 +229,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             )
             raise exceptions.AuthenticationFailed("Vercel authentication failed")
 
+        browser_nonce = secrets.token_urlsafe(32)
         session_token = _sign_connect_session(
             {
                 "access_token": token_response.access_token,
@@ -183,16 +239,20 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
                 "team_id": token_response.team_id,
                 "configuration_id": configuration_id,
                 "next_url": next_url,
-            }
+            },
+            browser_nonce=browser_nonce,
         )
 
         link_url = f"/connect/vercel/link?{urlencode({'session': session_token})}"
 
         if not request.user.is_authenticated:
             login_url = f"/login?next={quote(link_url)}"
-            return HttpResponseRedirect(redirect_to=login_url)
+            response = HttpResponseRedirect(redirect_to=login_url)
         else:
-            return HttpResponseRedirect(redirect_to=link_url)
+            response = HttpResponseRedirect(redirect_to=link_url)
+
+        _set_browser_nonce_cookie(response, browser_nonce)
+        return response
 
 
 class EnvironmentMappingSerializer(serializers.Serializer):
@@ -226,10 +286,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         preview_team_id = env_mapping.get("preview", production_team_id)
         development_team_id = env_mapping.get("development", production_team_id)
 
-        try:
-            cached_data = _load_connect_session(session_key)
-        except signing.BadSignature:
-            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
+        cached_data = _load_browser_bound_session(request, session_key)
 
         jti = cached_data.get("jti")
         if not jti or not _mark_token_used(jti):
@@ -368,7 +425,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             integration="vercel",
         )
 
-        return Response(
+        response = Response(
             {
                 "status": "linked",
                 "organization_id": str(organization_id),
@@ -377,6 +434,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             },
             status=201,
         )
+        _clear_browser_nonce_cookie(response)
+        return response
 
     @staticmethod
     def _build_env_secrets(
@@ -423,10 +482,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not session_key:
             raise exceptions.ValidationError("Missing session parameter")
 
-        try:
-            cached_data = _load_connect_session(session_key)
-        except signing.BadSignature:
-            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
+        cached_data = _load_browser_bound_session(request, session_key)
 
         user = cast(User, request.user)
         memberships = OrganizationMembership.objects.filter(
