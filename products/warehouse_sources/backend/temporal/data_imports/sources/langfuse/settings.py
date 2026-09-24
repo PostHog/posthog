@@ -26,7 +26,9 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+# Mutable to stay consistent with the other per-endpoint config objects in this package; these
+# are module-level constants that nothing reassigns.
+@dataclass(frozen=False)
 class LangfuseEndpointConfig:
     name: str
     path: str
