@@ -509,6 +509,7 @@ export class AgentServer {
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
+  private stampedRunTraceId: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
@@ -1569,7 +1570,7 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          const turnTraceId = this.promptResultTraceId(result);
+          const turnTraceId = this.turnTraceId(result);
           this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
@@ -2025,6 +2026,11 @@ export class AgentServer {
       executionEnvironment: "cloud",
     });
 
+    // Only that stamped header makes the run id a trace the generations land
+    // in. Unconditional so a re-init on this instance drops a stale run's id.
+    this.stampedRunTraceId =
+      gatewayEnv.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
+
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
       // Authed so this cache-warm matches the session's own authed fetch
       // (the models cache is keyed on auth presence).
@@ -2137,6 +2143,7 @@ export class AgentServer {
       eventIdSource: this.nextEventId,
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
+      stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
@@ -2956,7 +2963,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -3352,7 +3359,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -4790,6 +4797,13 @@ export class AgentServer {
       if (this.config.serviceTier) {
         openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
       }
+      // Codex sends no trace header, so the gateway stamps a fresh id per
+      // request and a run's generations each land in a trace of one. Codex-only:
+      // this header outranks `traceparent`, so setting it for Claude would
+      // replace the per-turn ids its CLI mints with one id for the whole run.
+      if (taskRunId && runtimeAdapter === "codex") {
+        openaiCustomHeaders["X-PostHog-Trace-Id"] = taskRunId;
+      }
     } else {
       customHeaders = buildPosthogScopedPropertyHeaderLines(
         gatewayProperties,
@@ -5606,11 +5620,12 @@ export class AgentServer {
     this.broadcastEvent(event);
   }
 
-  /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
-  private promptResultTraceId(result: PromptResponse): string | null {
+  /** The turn's gateway trace id: the one the Claude adapter reports via
+   * `PromptResponse._meta`, else the run id the codex headers stamped. */
+  private turnTraceId(result: PromptResponse): string | null {
     const traceId = (result._meta as { traceId?: unknown } | undefined)
       ?.traceId;
-    return typeof traceId === "string" ? traceId : null;
+    return typeof traceId === "string" ? traceId : this.stampedRunTraceId;
   }
 
   private broadcastTurnComplete(
