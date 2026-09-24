@@ -2,6 +2,9 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -92,6 +95,32 @@ describe('teamLogic', () => {
 
             expect(logic.values.currentTeam?.name).toBe('Renamed project')
             expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
+        })
+    })
+
+    describe('updateCurrentTeam failures', () => {
+        beforeEach(() => {
+            initKeaTests()
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        const abortError = Object.assign(new Error('The user aborted a request.'), { name: 'AbortError' })
+
+        it.each([
+            ['shows a message when the request got no response', new ApiError('Failed to fetch'), 1],
+            ['shows a message on a conflict', new ApiError('Conflict', 409, undefined, { detail: 'Taken' }), 1],
+            ['leaves a denied request to the global handler', new ApiError('Forbidden', 403), 0],
+            ['stays quiet when the request was cancelled', abortError, 0],
+        ])('%s', async (_, errorObject, expectedToasts) => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeamFailure('Update failed', errorObject)
+            }).toFinishAllListeners()
+
+            expect(toastError).toHaveBeenCalledTimes(expectedToasts)
+            toastError.mockRestore()
         })
     })
 

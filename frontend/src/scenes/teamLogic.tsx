@@ -665,6 +665,15 @@ export const teamLogic = kea<teamLogicType>([
             // renders its own. This one has none, so the rename would fail with nothing on screen.
             if (apiError?.status === 409) {
                 lemonToast.error(apiError.detail || error)
+                return
+            }
+            if ((errorObject as Error | undefined)?.name === 'AbortError') {
+                return
+            }
+            // It builds its message from `detail` or `statusText`, which a request that never got a
+            // response carries neither of, so that failure also leaves nothing on screen.
+            if (apiError?.status === undefined || apiError.status === 0) {
+                lemonToast.error("Couldn't save your project settings. Check your connection and try again.")
             }
         },
         createTeamSuccess: ({ currentTeam }) => {

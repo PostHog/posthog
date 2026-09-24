@@ -33,7 +33,10 @@ export function TeamDisplayName(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentProject } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const [name, setName] = useState(currentProject?.name || '')
+    // The field follows the stored name until the user edits it, so a project that resolves after
+    // the first render, or a rename made elsewhere, does not leave a stale value on screen.
+    const [editedName, setEditedName] = useState<string | null>(null)
+    const name = editedName ?? currentProject?.name ?? ''
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -57,7 +60,7 @@ export function TeamDisplayName(): JSX.Element {
     return (
         <div className="deprecated-space-y-4 max-w-160">
             <LemonField.Pure error={nameTaken ? NAME_TAKEN_REASON : undefined}>
-                <LemonInput value={name} onChange={setName} disabledReason={restrictedReason} />
+                <LemonInput value={name} onChange={setEditedName} disabledReason={restrictedReason} />
             </LemonField.Pure>
             <LemonButton
                 type="primary"
