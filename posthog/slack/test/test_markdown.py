@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.helpers.slack_markdown import opens_with_line_anchored_markdown
+from posthog.slack.markdown import opens_with_line_anchored_markdown
 
 
 class TestOpensWithLineAnchoredMarkdown(SimpleTestCase):

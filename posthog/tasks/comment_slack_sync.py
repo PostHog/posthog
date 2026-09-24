@@ -8,7 +8,6 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
-from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
@@ -16,6 +15,7 @@ from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_user
 
 logger = structlog.get_logger(__name__)
 
