@@ -31,6 +31,18 @@ tools:
     add-product-intent-partial-update:
         operation: organizations_projects_add_product_intent_partial_update
         enabled: false
+    canvases-sharing-list:
+        operation: canvases_sharing_list
+        enabled: false
+    canvases-sharing-passwords-create:
+        operation: canvases_sharing_passwords_create
+        enabled: false
+    canvases-sharing-passwords-destroy:
+        operation: canvases_sharing_passwords_destroy
+        enabled: false
+    canvases-sharing-refresh-create:
+        operation: canvases_sharing_refresh_create
+        enabled: false
     change-organization-create:
         operation: organizations_projects_change_organization_create
         enabled: false

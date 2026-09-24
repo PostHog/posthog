@@ -10,6 +10,7 @@ export const notificationTargetSchema = z.discriminatedUnion("kind", [
     kind: z.literal("task"),
     taskId: z.string(),
     taskRunId: z.string().optional(),
+    artifact: z.object({ itemId: z.string().min(1) }).optional(),
   }),
   z.object({
     kind: z.literal("canvas"),
