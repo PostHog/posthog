@@ -1019,7 +1019,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[Evaluation]) -> QuerySet[Evaluation]:
-        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at", "id")
         if not self._wants_slim_list():
             queryset = queryset.select_related("created_by", "model_configuration", "model_configuration__provider_key")
         if not self.action.endswith("update"):
