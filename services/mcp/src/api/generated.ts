@@ -47432,9 +47432,43 @@ export namespace Schemas {
          * @nullable
          */
       source_team_id: number | null;
+      /**
+         * Name of the project in source_team_id, so the picker can say where the installation comes from. Null for an installation no project has linked yet.
+         * @nullable
+         */
+      source_team_name: string | null;
     }
 
+    /**
+     * * `ok` - Ok
+     * * `not_connected` - Not Connected
+     * * `unavailable` - Unavailable
+     */
+    export type GitHubPersonalDiscoveryStatusEnum = typeof GitHubPersonalDiscoveryStatusEnum[keyof typeof GitHubPersonalDiscoveryStatusEnum];
+
+
+    export const GitHubPersonalDiscoveryStatusEnum = {
+      Ok: 'ok',
+      NotConnected: 'not_connected',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface GitHubAvailableInstallationsResponse {
+      /** Correlation ID for this discovery response. */
+      discovery_id: string;
+      /** Time this discovery completed. */
+      discovered_at: string;
+      /**
+         * GitHub identity of the credential used for personal discovery.
+         * @nullable
+         */
+      personal_github_login: string | null;
+      /** Whether personal discovery succeeded, has no connection, or is unavailable.
+       *
+       * * `ok` - Ok
+       * * `not_connected` - Not Connected
+       * * `unavailable` - Unavailable */
+      personal_discovery_status: GitHubPersonalDiscoveryStatusEnum;
       /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
       installations: GitHubAvailableInstallation[];
       /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
@@ -47514,12 +47548,20 @@ export namespace Schemas {
 
     export interface GitHubLinkExistingRequest {
       /**
+         * Discovery response ID for diagnostics only; grants no authority.
+         * @nullable
+         */
+      discovery_id?: string | null;
+      /**
          * Sibling team in the same organization whose GitHub installation should be reused.
          * @nullable
          */
       source_team_id?: number | null;
-      /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
-      installation_id?: string;
+      /**
+         * GitHub installation ID to link; resolved within the organization when source_team_id is omitted.
+         * @nullable
+         */
+      installation_id?: string | null;
     }
 
     export interface GitHubOAuthAuthorizeRequest {

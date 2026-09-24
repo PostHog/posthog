@@ -409,6 +409,18 @@ class StamphogGitHubClient:
         cache.set(cache_key, {"token": token, "expires_at": expires_epoch}, timeout=ttl)
         return token
 
+    def installation_token(self) -> str:
+        """A valid installation token, for a shared reader that talks to GitHub on its own.
+
+        The ownership file reader takes a bare token rather than a client, so one GraphQL read
+        serves every product instead of each one growing its own fetch.
+        """
+        return self._get_installation_token()
+
+    def refresh_installation_token(self) -> str:
+        """A freshly minted installation token, for a shared reader that met a 401 with the last one."""
+        return self._get_installation_token(force_refresh=True)
+
     # --- Core request helper ---
 
     def _request(

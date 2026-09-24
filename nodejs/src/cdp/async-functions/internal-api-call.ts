@@ -42,9 +42,10 @@ export async function callInternalApi(
         entityClaims: Record<string, string>
         body?: string
         extraHeaders?: Record<string, string>
+        retriableStatuses?: number[]
     }
 ): Promise<void> {
-    const { jwt, path, method, entityClaims, body, extraHeaders } = options
+    const { jwt, path, method, entityClaims, body, extraHeaders, retriableStatuses = [] } = options
     const startedAt = performance.now()
 
     // Counts once per handler call, not per retry attempt below: the retries are all one
@@ -90,7 +91,9 @@ export async function callInternalApi(
             fetchError = err as Error
         }
 
-        const succeeded = fetchError === null && status !== null && !RETRIABLE_STATUSES.includes(status)
+        const shouldRetry =
+            status !== null && (RETRIABLE_STATUSES.includes(status) || retriableStatuses.includes(status))
+        const succeeded = fetchError === null && status !== null && !shouldRetry
         if (succeeded) {
             const parsedBody = parseBody(text)
             if (status! >= 400) {

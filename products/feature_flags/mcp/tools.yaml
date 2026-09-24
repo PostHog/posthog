@@ -307,6 +307,154 @@ tools:
     feature-flag-request-usage-list:
         operation: feature_flag_request_usage_list
         enabled: false
+    feature-flag-roll-out-to-everyone:
+        operation: feature_flags_roll_out_to_everyone_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Roll feature flag out to everyone
+        description: >
+            Serve a feature flag to its whole audience: every user, or every group of the configured type when the flag
+            aggregates by groups. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it
+            from a key, or `feature-flag-get-all` to search by key or name.
+
+
+            Adds a release condition with no property filters at 100% and keeps the existing conditions below it. This
+            tool never accepts or replaces the `filters` object, so payloads, the holdout and the set of variants cannot
+            change. On a boolean flag, removing the new condition puts the previous targeting back. On a multivariate
+            flag the variant distribution is rewritten as well, so removing the condition restores the audience but not
+            the old split. A flag that already leads with such a condition gains no second one.
+
+
+            This tool changes targeting only. A disabled flag still serves nobody, so check `active` in the response and
+            use `feature-flag-enable` if it is false. A holdout is evaluated before release conditions, so users in one
+            keep getting the holdout variant instead of the rollout. Early access enrollment is evaluated before both.
+
+
+            Check `filters.feature_enrollment` in the definition you read. When it is true, this tool refuses the
+            rollout with 400 and writes nothing. Only the early access feature's own move to general availability with
+            its roll out to everyone option clears the gate. That move writes the 100% condition itself, so do not call
+            this tool after it. A plain stage change to general availability leaves `feature_enrollment` true, and this
+            tool keeps returning 400. The API does not expose that option, so ask the person to make the move in the
+            early access feature.
+
+
+            `update-feature-flag` and `feature-flag-set-release-condition-rollout` are not gated on enrollment. A
+            rollout written through either returns 200 while the enrollment marker still decides who is served. Do not
+            use either tool to bypass the 400.
+
+
+            Check `filters.aggregation_group_type_index` in the definition you read. When it is set, the flag buckets
+            groups of that type instead of people. The new condition then serves every group of that type, and a user
+            evaluated without such a group is served nothing. Say groups when you report the change.
+
+
+            A multivariate flag needs `variant_key`, and every other flag rejects it. A release condition decides who
+            the flag serves and not which variant they get, so this also gives the named variant 100% of the variant
+            distribution and every other variant 0%. When the user says "roll it out to everyone" about a multivariate
+            flag, ask which variant they mean rather than guessing. To serve everyone and keep the current split between
+            variants, use `update-feature-flag`.
+
+
+            Check `experiment_set_metadata` in the definition you read. When it lists an experiment with `is_running`
+            true, ship the winner with `experiment-ship-variant`: that tool makes the same distribution change and also
+            ends the experiment and records its conclusion. This tool leaves the experiment running with no end date, so
+            every later exposure enters one variant and the comparison stops being valid. Use this tool on that flag
+            only when the user wants the audience changed and the experiment kept running.
+
+
+            Read the flag first and send the `version` that read returned. Returns 409 when anyone changed the flag
+            after that version, and writes nothing. Read the flag again, check what changed, and decide the rollout
+            against the current definition. Do not retry with the same version: after a call writes a change that
+            version is no longer current, so a blind retry is the same 409. A call that finds the flag already rolled
+            out to everyone writes nothing and returns the version unchanged.
+
+
+            Returns 400 when the flag is gated on early access enrollment, when a multivariate flag has no
+            `variant_key`, when the flag defines no such variant, or when `variant_key` is sent for a flag with no
+            variants. Returns 409 when an approval policy gates rollout changes.
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - flagId
+                    - flag_id
+                    - feature_flag_id
+                    - featureFlagId
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
+                - filters
+    feature-flag-set-release-condition-rollout:
+        operation: feature_flags_set_release_condition_rollout_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Set feature flag release condition rollout
+        description: >
+            Set what percentage of one release condition's audience a feature flag is served to. Requires the flag's
+            numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to
+            search by key or name.
+
+
+            Changes `rollout_percentage` on the release condition at `condition_index` and nothing else. This tool never
+            accepts or replaces the `filters` object, so the condition's property filters, the other conditions, the
+            variants and the payloads cannot change.
+
+
+            Check `aggregation_group_type_index` on the condition, and on `filters` when the condition sets none. When
+            it is set, the flag buckets groups of that type instead of people, so 25 serves 25% of those groups rather
+            than 25% of users. Say groups when you report the change.
+
+
+            Read the flag first. `condition_index` counts the conditions in `filters.groups` from 0, and only the
+            definition you read says which condition is which, so never guess an index on a flag with more than one
+            condition. Send the `version` that same read returned. Returns 409 when anyone changed the flag after that
+            version, and writes nothing. Read the flag again, check the conditions still mean what you thought, and call
+            again with the new version. Do not retry with the same version: after a call writes a change that version is
+            no longer current, so a blind retry is the same 409. A call that sets the percentage the condition already
+            has writes nothing and returns the version unchanged.
+
+
+            On a multivariate flag this sets how many of the matching users or groups get a variant at all. It does not
+            change how the variants are split between them. When the user asks for a bare percentage on a multivariate
+            flag, ask which of the two they mean. Use `update-feature-flag` to change the split between variants.
+
+
+            Returns 400 when the flag has no release condition at that index, or when the percentage is outside 0
+            through 100. Returns 409 when an approval policy gates rollout changes.
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - flagId
+                    - flag_id
+                    - feature_flag_id
+                    - featureFlagId
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
+                - filters
     feature-flag-unarchive:
         operation: feature_flags_unarchive_create
         enabled: true
@@ -735,8 +883,8 @@ tools:
         title: Update feature flag
         description: >
             Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for
-            edits that have no dedicated tool, such as release conditions, rollout percentages, variants, payloads, tags
-            and the description.
+            edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant
+            definitions, payloads, tags and the description.
 
 
             Prefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`,
@@ -744,6 +892,14 @@ tools:
             targeting change someone else made between your read and your write is therefore not overwritten. Send
             `active` or `archived` here only when the same request also changes targeting or another field, so the whole
             edit lands in one write.
+
+
+            `feature-flag-set-release-condition-rollout` changes one release condition's percentage and
+            `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both
+            refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This
+            tool sends no `version`, so it writes even when the flag changed after your read. It replaces the whole
+            `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express
+            it, such as changing the split between variants while leaving the audience alone.
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
