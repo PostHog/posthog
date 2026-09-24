@@ -335,6 +335,8 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             ("task_off", "template-posthog-create-task", "destination", "hidden", False),
             ("typesafe_on", "native-typesafe", "transformation", "alpha", True),
             ("typesafe_off", "native-typesafe", "transformation", "alpha", False),
+            ("typesafe_workflow_on", "template-typesafe-classify", "destination", "alpha", True),
+            ("typesafe_workflow_off", "template-typesafe-classify", "destination", "alpha", False),
         ]
     )
     def test_flag_gated_template_visibility_follows_the_flag(

@@ -34,6 +34,7 @@ registerAsyncFunction('fetch', {
             method,
             body,
             headers: pickBy(headers, (v) => typeof v == 'string'),
+            ...(fetchOptions?.bearer_token_input ? { bearer_token_input: fetchOptions.bearer_token_input } : {}),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
             // Mint the webhook id here, once per fetch call, rather than in the
             // executor: it has to survive every retry of this call (the receiver
@@ -49,6 +50,10 @@ registerAsyncFunction('fetch', {
                 : {}),
         })
 
+        if (fetchQueueParameters.bearer_token_input && result.invocation.state.globals.inputs) {
+            // The fetch worker reads this secret from the function configuration on each attempt.
+            delete result.invocation.state.globals.inputs[fetchQueueParameters.bearer_token_input]
+        }
         result.invocation.queueParameters = fetchQueueParameters
     },
 

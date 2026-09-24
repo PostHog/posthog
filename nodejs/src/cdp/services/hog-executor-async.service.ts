@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { isCloud, isProdEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchOptions } from '~/common/utils/request'
@@ -18,6 +19,7 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
+import { resolveBearerToken } from '../utils/bearer-token'
 import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
@@ -453,6 +455,14 @@ export class HogExecutorAsyncService {
             return result
         }
 
+        if (templateId === 'template-typesafe-classify' && (isProdEnv() || isCloud())) {
+            return failSigning('TypeSafe is available only in local development. Run this workflow locally.')
+        }
+
+        if (params.aws_sigv4 && params.bearer_token_input) {
+            return failSigning('Use either AWS signing or bearer authentication, then retry.')
+        }
+
         let signedHeaders = headers
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
@@ -485,6 +495,20 @@ export class HogExecutorAsyncService {
                 headers: signedHeaders,
                 key: resolved.key,
             })
+        }
+
+        if (params.bearer_token_input) {
+            const resolved = resolveBearerToken(params.url, params.bearer_token_input, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            // Resolve the secret for each attempt so queued requests never store the API key.
+            signedHeaders = {
+                ...Object.fromEntries(
+                    Object.entries(signedHeaders).filter(([key]) => key.toLowerCase() !== 'authorization')
+                ),
+                Authorization: `Bearer ${resolved.token}`,
+            }
         }
 
         const fetchParams: FetchOptions = { method, headers: signedHeaders }

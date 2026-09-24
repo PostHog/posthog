@@ -1,0 +1,46 @@
+{
+    "free": true,
+    "status": "alpha",
+    "type": "destination",
+    "id": "template-typesafe-classify",
+    "name": "Classify with TypeSafe",
+    "description": "Ask a classification question about selected context. Return the category and confidence.",
+    "icon_url": "/static/posthog-icon.svg",
+    "category": ["Custom"],
+    "code_language": "hog",
+    "code": "",
+    "inputs_schema": [
+        {
+            "key": "api_key",
+            "type": "string",
+            "label": "TypeSafe API key",
+            "secret": true,
+            "templating": false,
+            "required": true,
+            "description": "Your TypeSafe API key. Stored as an encrypted secret."
+        },
+        {
+            "key": "question",
+            "type": "string",
+            "label": "Question",
+            "required": true,
+            "templating": false,
+            "description": "Ask which category fits the context. Include any rules for the decision."
+        },
+        {
+            "key": "context",
+            "type": "json",
+            "label": "Context",
+            "required": true,
+            "description": "Select the data to send to TypeSafe. Use event properties or variables from earlier steps."
+        },
+        {
+            "key": "categories",
+            "type": "json",
+            "label": "Categories",
+            "required": true,
+            "templating": false,
+            "description": "A JSON object with category names as keys and descriptions as values. Include a fallback category."
+        }
+    ]
+}
