@@ -8,7 +8,7 @@
  * - Model parameter extraction (for generation/embedding/evaluation events)
  */
 import { logger } from '~/common/utils/logger'
-import { AI_EVENT_TYPES, COSTED_AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { COSTED_AI_EVENT_TYPES, isAiEventName } from '~/ingestion/common/ai-event-types'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { convertRawEvent } from './convert-raw-event'
@@ -42,7 +42,7 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
     }
 
     // Normalize trace properties for all AI events.
-    const normalized: EventWithProperties = AI_EVENT_TYPES.has(event.event) ? normalizeTraceProperties(event) : event
+    const normalized: EventWithProperties = isAiEventName(event.event) ? normalizeTraceProperties(event) : event
 
     // Normalize error messages for all AI events with errors.
     const withErrorNormalization = processAiErrorNormalization(normalized)

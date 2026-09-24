@@ -10,6 +10,7 @@ temporalio-heavy imports here, off the ``facade/api.py`` path.
 
 from products.logs.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.logs.backend.temporal.activities import CheckAlertsInput
+from products.logs.backend.temporal.alert_evaluate import SOURCE_EVALUATION_ACTIVITIES, SOURCE_EVALUATION_WORKFLOWS
 from products.logs.backend.temporal.constants import SCHEDULE_CRON, SCHEDULE_ID, WORKFLOW_NAME
 from products.logs.backend.temporal.metrics import (
     LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
@@ -37,6 +38,8 @@ from products.logs.backend.temporal.volume_tick.schedule import create_logs_volu
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
+    "SOURCE_EVALUATION_ACTIVITIES",
+    "SOURCE_EVALUATION_WORKFLOWS",
     "CheckAlertsInput",
     "SCHEDULE_CRON",
     "SCHEDULE_ID",

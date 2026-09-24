@@ -1,5 +1,6 @@
 import { Text } from "@components/text";
 import { computeRefundEligibility } from "@posthog/core/inbox/refundEligibility";
+import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import {
   formatSignalReportSummaryMarkdown,
   humanizeReportTitle,
@@ -42,8 +43,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUserQuery } from "@/features/auth";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
-import { getReportRepository } from "@/features/inbox/api";
-import { buildCreatePrReportPrompt } from "@/features/inbox/buildCreatePrReportPrompt";
 import { ConventionalCommitTag } from "@/features/inbox/components/ConventionalCommitTag";
 import { CreatePrFeedbackSheet } from "@/features/inbox/components/CreatePrFeedbackSheet";
 import { DiscussReportSheet } from "@/features/inbox/components/DiscussReportSheet";
@@ -163,7 +162,6 @@ export default function ReportDetailScreen() {
   const refundFlagEnabled = !!useFeatureFlag(SIGNALS_PR_REFUNDS_FLAG);
   const { data: report, isLoading, error } = useInboxReport(reportId ?? null);
   const { data: me } = useUserQuery();
-  const [reportRepo, setReportRepo] = useState<string | null>(null);
   const [dismissOpen, setDismissOpen] = useState(false);
   const [discussOpen, setDiscussOpen] = useState(false);
   const [createPrFeedbackOpen, setCreatePrFeedbackOpen] = useState(false);
@@ -243,19 +241,6 @@ export default function ReportDetailScreen() {
     setSignalsExpanded(next);
   }, [report, tracker, signalsExpanded]);
 
-  useEffect(() => {
-    if (!reportId) return;
-    let cancelled = false;
-    getReportRepository(reportId)
-      .then((repo) => {
-        if (!cancelled) setReportRepo(repo);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [reportId]);
-
   // ── Derive artefact bits ────────────────────────────────────────────────
   const artefacts = artefactsQuery.data?.results ?? [];
 
@@ -316,19 +301,19 @@ export default function ReportDetailScreen() {
         ...(feedback ? { feedback_text: feedback.slice(0, 500) } : {}),
       });
       const prompt = buildCreatePrReportPrompt({
-        summary: report.summary,
+        reportId: report.id,
         feedback,
       });
       router.push({
         pathname: "/task",
         params: {
           prompt,
-          ...(reportRepo ? { repo: reportRepo } : {}),
           signalReport: report.id,
+          signalReportRelationship: "implementation",
         },
       });
     },
-    [report, router, reportRepo, tracker],
+    [report, router, tracker],
   );
 
   const handleBannerStart = useCallback(() => {
@@ -412,12 +397,13 @@ export default function ReportDetailScreen() {
         pathname: "/task",
         params: {
           prompt,
-          ...(reportRepo ? { repo: reportRepo } : {}),
           signalReport: report.id,
+          signalReportRelationship: "discussion",
+          signalReportDiscussionQuestion: question,
         },
       });
     },
-    [report, router, reportRepo, posthog],
+    [report, router, posthog],
   );
 
   if (error) {

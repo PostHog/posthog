@@ -5,10 +5,12 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "kea-test-utils": "catalog:",
         "posthog-js": "catalog:"
     },

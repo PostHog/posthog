@@ -7,6 +7,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import type { UserCustomerAnalyticsConfigApi } from '../../generated/api.schemas'
 import { CustomerAnalyticsNotifications } from './CustomerAnalyticsNotifications'
 import { CustomerAnalyticsTaskDigest } from './CustomerAnalyticsTaskDigest'
+import { TaskDigestModal } from './TaskDigestModal'
 
 const CONFIG_URL = '/api/projects/:team_id/user_customer_analytics_config/@me/'
 
@@ -25,6 +26,7 @@ interface TaskDigestStoryProps {
     loading?: boolean
     failing?: boolean
     notifications?: boolean
+    modal?: boolean
     saving?: boolean
     saveFails?: boolean
     width?: 'normal' | 'narrow'
@@ -36,6 +38,7 @@ function TaskDigestStory({
     failing,
     width,
     notifications,
+    modal,
     saving,
     saveFails,
 }: TaskDigestStoryProps): JSX.Element {
@@ -68,7 +71,13 @@ function TaskDigestStory({
 
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[900px] p-4'}>
-            {notifications ? <CustomerAnalyticsNotifications /> : <CustomerAnalyticsTaskDigest />}
+            {modal ? (
+                <TaskDigestModal onClose={() => {}} />
+            ) : notifications ? (
+                <CustomerAnalyticsNotifications />
+            ) : (
+                <CustomerAnalyticsTaskDigest />
+            )}
         </div>
     )
 }
@@ -113,3 +122,8 @@ export const Notifications: Story = {
 export const NotificationsNarrow: Story = { ...Notifications, args: { notifications: true, width: 'narrow' } }
 export const Saving: Story = { args: { saving: true } }
 export const SaveFailed: Story = { args: { saveFails: true } }
+
+export const TasksModal: Story = {
+    args: { modal: true },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+}

@@ -45,6 +45,7 @@ import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
@@ -353,6 +354,9 @@ export class LogsIngestionConsumer {
     // record source ('logs' | 'spans') instead, so map between the two explicitly
     // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
     protected metricRuleSource: MetricRuleSource = 'logs'
+    // Record source this consumer evaluates retention rules for. Same vocabulary as
+    // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
+    protected retentionRuleSource: RetentionRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -438,6 +442,14 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * The team's default retention period, applied to records no rule matches and sent as the
+     * batch `retention-days` Kafka header. Traces override this to read their own setting.
+     */
+    protected defaultRetentionDays(_teamId: number, logsSettings: LogsSettings): Promise<number> {
+        return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
     private isMetricRulesEnabledForTeam(teamId: number): boolean {
@@ -531,7 +543,7 @@ export class LogsIngestionConsumer {
         const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
         let retentionRuleSet: CompiledRetentionRuleSet | null = null
         if (retentionCache && retentionEvalEnabled) {
-            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId, this.retentionRuleSource)
         }
         const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
 
@@ -547,7 +559,7 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         if (useRetention && retentionRuleSet) {
-            const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+            const defaultRetentionDays = await this.defaultRetentionDays(message.teamId, logsSettings)
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
         }
 
@@ -911,7 +923,9 @@ export class LogsIngestionConsumer {
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
-                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        const retentionDays = await this.retryOnDependencyUnavailable(() =>
+                            this.defaultRetentionDays(message.teamId, logsSettings)
+                        )
 
                         // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)

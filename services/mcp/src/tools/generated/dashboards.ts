@@ -368,8 +368,10 @@ const dashboardInsightsRun = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_insights/`,
             query: {
                 filters_override: params.filters_override,
+                max_result_chars: params.max_result_chars,
                 output_format: params.output_format,
                 refresh: params.refresh,
+                tile_ids: params.tile_ids,
                 variables_override: params.variables_override,
             },
         })

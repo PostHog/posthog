@@ -20,6 +20,7 @@ HEALTH_CHECK_MODULES = [
     "products.growth.backend.temporal.health_checks.sdk_outdated",
     "products.cdp.backend.temporal.health_checks.ingestion_warnings",
     "products.data_warehouse.backend.temporal.health_checks.materialized_view_failure",
+    "products.data_warehouse.backend.temporal.health_checks.webhook_subscription_stale",
     "products.web_analytics.backend.temporal.health_checks.scroll_depth",
     "products.web_analytics.backend.temporal.health_checks.authorized_urls",
     "products.web_analytics.backend.temporal.health_checks.reverse_proxy",

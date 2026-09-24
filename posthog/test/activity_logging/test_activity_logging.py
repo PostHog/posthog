@@ -15,10 +15,15 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
-from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_INTENT_MAX_LENGTH,
+    activity_storage,
+    activity_visibility_manager,
+)
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -407,6 +412,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
             # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
             ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
+            ("github_diagnostic", "Integration", "github_diagnostic", False, True),
+            ("github_connected", "Integration", "created", False, False),
             # Ticket comment rows reference support-ticket bodies (rows written before write-time
             # masking still hold plaintext) and must be hidden from non-staff viewers
             ("ticket_comment", "Ticket", "commented", False, True),
@@ -621,36 +628,52 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 },
             ),
             (
-                "ignores unbound Array intent without consent lineage",
+                "records unbound Array intent with no task id",
                 ARRAY_APP_CLIENT_ID_DEV,
                 None,
                 False,
                 "Repairing a tile that hit the query row limit",
-                None,
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
             ),
             (
-                "ignores unbound delegated Array intent without consent lineage",
+                "records unbound delegated Array intent with no task id",
                 ARRAY_APP_CLIENT_ID_DEV,
                 None,
                 True,
                 "Repairing a tile that hit the query row limit",
-                None,
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
             ),
             (
-                "ignores third-party intent without a task binding",
+                "records third-party intent with no task id",
                 "third-party-client",
                 None,
                 False,
                 "Repairing a tile that hit the query row limit",
-                None,
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
             ),
             (
-                "ignores third-party delegated intent without a task binding",
+                "records third-party delegated intent with no task id",
                 "third-party-client",
                 None,
                 True,
                 "Repairing a tile that hit the query row limit",
-                None,
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
             ),
             ("ignores an empty allowlisted intent", ARRAY_APP_CLIENT_ID_DEV, None, False, None, None),
             (
@@ -693,16 +716,8 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
         self.assertEqual(log.user_id, self.user.id)
         self.assertEqual(log.client, "mcp")
 
-    def test_records_intent_from_an_interactive_desktop_grant(self) -> None:
-        token = self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, None)
-        OAuthRefreshToken.objects.create(
-            user=self.user,
-            application=token.application,
-            token="refresh-token",
-            access_token=token,
-            scoped_teams=[self.team.id],
-            scoped_organizations=[],
-        )
+    def test_recording_intent_does_not_re_enter_authentication(self) -> None:
+        self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, None)
 
         with (
             patch.object(
@@ -728,6 +743,65 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
             log.detail["trigger"],
             {"job_type": "agent", "job_id": "", "payload": {"intent": "Repairing a tile that hit the query row limit"}},
         )
+
+    def _authenticate_with_a_personal_api_key(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="MCP",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["dashboard:read", "dashboard:write"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+    def test_records_intent_from_a_personal_api_key(self) -> None:
+        self._authenticate_with_a_personal_api_key()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Weekly signups"},
+            HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+            HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["trigger"],
+            {"job_type": "agent", "job_id": "", "payload": {"intent": "Repairing a tile that hit the query row limit"}},
+        )
+        self.assertEqual(log.user_id, self.user.id)
+
+    def test_records_intent_from_a_session(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Weekly signups"},
+            HTTP_X_POSTHOG_INTENT="Disabling the flag per an incident runbook",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["trigger"],
+            {"job_type": "agent", "job_id": "", "payload": {"intent": "Disabling the flag per an incident runbook"}},
+        )
+
+    def test_an_intent_longer_than_the_cap_is_cut_to_it(self) -> None:
+        self._authenticate_with_a_personal_api_key()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Weekly signups"},
+            HTTP_X_POSTHOG_INTENT="w" * (ACTIVITY_LOG_INTENT_MAX_LENGTH + 20),
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(log.detail["trigger"]["payload"]["intent"], "w" * ACTIVITY_LOG_INTENT_MAX_LENGTH)
 
     def test_a_failing_attribution_loses_the_intent_and_nothing_else(self) -> None:
         task_id = UUID("019f4c2a-0000-7000-8000-0000000000aa")

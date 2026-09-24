@@ -2,11 +2,22 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import ApplePushIntegration, Integration
 from posthog.models.integration.push import is_apns_bundle_id, is_apns_team_id
+
+
+def _ec_public_pem() -> str:
+    return (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
 
 
 class TestApplePushIntegration(BaseTest):
@@ -18,6 +29,7 @@ class TestApplePushIntegration(BaseTest):
         bundle_id: str = "com.example.app",
         environment: str = "production",
         push_identity_verification: str | None = None,
+        push_identity_public_keys: list[str] | None = None,
     ) -> Integration:
         return ApplePushIntegration.integration_from_key(
             signing_key=signing_key,
@@ -27,6 +39,7 @@ class TestApplePushIntegration(BaseTest):
             team_id=self.team.id,
             environment=environment,
             push_identity_verification=push_identity_verification,
+            push_identity_public_keys=push_identity_public_keys,
         )
 
     def test_creates_integration(self):
@@ -50,14 +63,24 @@ class TestApplePushIntegration(BaseTest):
     def test_reconnecting_preserves_identity_verification(self):
         # Rotating the .p8 signing key is a routine action that re-upserts the integration. It must
         # not silently reset the verification policy, which would reopen device takeover.
-        self._create_apple_push_integration(push_identity_verification="required")
+        public_pem = _ec_public_pem()
+        self._create_apple_push_integration(
+            push_identity_verification="required", push_identity_public_keys=[public_pem]
+        )
         reconnected = self._create_apple_push_integration(key_id="ROTATED_KEY")
 
         assert reconnected.config["push_identity_verification"] == "required"
+        assert reconnected.config["push_identity_public_keys"] == [public_pem]
 
-    def test_rejects_an_unknown_identity_verification_mode(self):
+    @parameterized.expand(
+        [
+            ("unknown_mode", {"push_identity_verification": "enabled"}),
+            ("required_without_a_public_key", {"push_identity_verification": "required"}),
+        ]
+    )
+    def test_rejects_an_unusable_identity_verification_policy(self, _name: str, policy: dict[str, Any]) -> None:
         with self.assertRaises(ValidationError):
-            self._create_apple_push_integration(push_identity_verification="enabled")
+            self._create_apple_push_integration(**policy)
 
     def test_separate_integrations_for_different_bundles(self):
         first = self._create_apple_push_integration(bundle_id="com.example.app1")

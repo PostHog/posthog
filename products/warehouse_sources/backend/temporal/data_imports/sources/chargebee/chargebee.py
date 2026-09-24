@@ -27,7 +27,17 @@ def incremental_param(cursor_path: str) -> dict[str, Any]:
     }
 
 
-def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
+def get_resource(
+    name: str, should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any] = None
+) -> EndpointResource:
+    # Chargebee only guarantees `updated_at`/`occurred_at` on records updated after
+    # 2016-09-28 and omits it on some older, never-updated records (e.g. voided
+    # authorization transactions). Attaching the cursor filter with its initial value
+    # (0) on the first sync excludes those records server-side, and no later resync
+    # recovers them because the filter is sent again. Only send the filter once a real
+    # watermark exists from a previous sync; the watermark is computed from synced
+    # rows, so the first unfiltered sync still advances it.
+    apply_incremental_filter = should_use_incremental_field and db_incremental_field_last_value is not None
     resources: dict[str, EndpointResource] = {
         "Customers": {
             "name": "Customers",
@@ -43,7 +53,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/customers",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -67,7 +77,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/events",
                 "params": {
                     # the parameters below can optionally be configured
-                    "occurred_at[after]": incremental_param("occurred_at") if should_use_incremental_field else None,
+                    "occurred_at[after]": incremental_param("occurred_at") if apply_incremental_filter else None,
                     "limit": 100,
                 },
             },
@@ -87,7 +97,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/invoices",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -109,7 +119,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/orders",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -131,7 +141,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/subscriptions",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -153,7 +163,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "path": "/v2/transactions",
                 "params": {
                     # the parameters below can optionally be configured
-                    "updated_at[after]": incremental_param("updated_at") if should_use_incremental_field else None,
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
@@ -238,7 +248,7 @@ def chargebee_source(
             if should_use_incremental_field
             else "replace",
         },
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

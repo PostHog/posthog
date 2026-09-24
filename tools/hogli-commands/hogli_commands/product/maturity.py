@@ -43,7 +43,7 @@ from .isolation import (
 )
 from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
 from .product_yaml import load_all_product_yamls, load_product_yaml
-from .ts_helpers import codegen_adoption, codegen_call_sites
+from .ts_helpers import ManualCallSite, codegen_adoption, codegen_call_sites
 
 # ---------------------------------------------------------------------------
 # Config loading (best-effort from migration_config.json)
@@ -744,6 +744,17 @@ def score_boundaries(
 # ---------------------------------------------------------------------------
 
 
+def _call_site_target(site: ManualCallSite) -> str:
+    """What to migrate a manual call site to, for the evidence line."""
+    if site.generated_equivalent:
+        return f"→ {site.generated_equivalent}"
+    if site.note:
+        return f"({site.note})"
+    if site.namespaced:
+        return "→ this product's generated client"
+    return "(no match)"
+
+
 def score_codegen(product_dir: Path) -> DimensionScore:
     """Frontend code generation adoption.
 
@@ -791,11 +802,7 @@ def score_codegen(product_dir: Path) -> DimensionScore:
         )
         sites = codegen_call_sites(frontend_dir)
         if sites:
-            items = [
-                f"{site.file}:{site.line}  {site.verb}  "
-                + (f"→ {site.generated_equivalent}" if site.generated_equivalent else "(no match)")
-                for site in sites
-            ]
+            items = [f"{site.file}:{site.line}  {site.verb}  {_call_site_target(site)}" for site in sites]
             evidence.append(("call sites", items))
         skills.append("/adopting-generated-api-types")
         skills.append("/improving-drf-endpoints")
@@ -1203,7 +1210,7 @@ def generate_codegen_report(products: list[str] | None = None) -> str:
         if not sites:
             continue
 
-        matched = sum(1 for s in sites if s.generated_equivalent)
+        matched = sum(1 for s in sites if s.generated_equivalent or s.namespaced)
         total_manual += len(sites)
         total_matched += matched
 
@@ -1211,8 +1218,7 @@ def generate_codegen_report(products: list[str] | None = None) -> str:
         lines.append(f"{name}  {matched}/{len(sites)} matched ({pct}%)")
 
         for site in sites:
-            arrow = f"→ {site.generated_equivalent}" if site.generated_equivalent else "  (no match)"
-            lines.append(f"  {site.file}:{site.line}  {site.verb}({site.url[:50]})  {arrow}")
+            lines.append(f"  {site.file}:{site.line}  {site.verb}({site.url[:50]})  {_call_site_target(site)}")
 
         lines.append("")
 

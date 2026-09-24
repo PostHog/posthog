@@ -5,9 +5,10 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState, DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertType } from '../types'
+import { DEFAULT_LLM_DETECTION_CONFIDENCE } from './detectorConfigDefaults'
 
 export const CHART_CHECKS_LIMIT = 50
 export const TABLE_CHECKS_PAGE_SIZE = 25
@@ -30,6 +31,11 @@ export interface AlertHistoryChartPoint {
      * Use this instead of re-applying the alert's current thresholds, which may have changed since the check.
      */
     firedAtTime?: boolean
+    /**
+     * Whether the check would fire under the alert's current configuration. `undefined` lets the chart infer it
+     * from the thresholds; `null` marks a check it cannot classify.
+     */
+    wouldFireUnderCurrentConfiguration?: boolean | null
 }
 
 export interface AlertLogicProps {
@@ -41,6 +47,59 @@ function initialChecksHistoryParams(): ChecksHistoryParams {
         limit: CHART_CHECKS_LIMIT,
         offset: 0,
     }
+}
+
+/**
+ * An AI check's stored score folds the model's verdict and its confidence into one number, so a
+ * low-confidence "no anomaly" sits above the threshold without being a check that would fire. The
+ * verdict itself is on the check, and firing needs the verdict, the confidence, and the model
+ * naming the latest point — a confident anomaly about older history does not fire either.
+ */
+export function llmCheckWouldFire(check: AlertCheck, threshold: number): boolean | null {
+    const verdictIsAnomaly = check.triggered_metadata?.verdict_is_anomaly
+    const confidence = check.triggered_metadata?.confidence
+    if (typeof verdictIsAnomaly !== 'boolean' || typeof confidence !== 'number') {
+        return null
+    }
+    if (check.triggered_metadata?.latest_point_not_flagged === true) {
+        return false
+    }
+    return verdictIsAnomaly && confidence >= threshold
+}
+
+/**
+ * How a saved check reads under the alert's current detector. An AI verdict is classified against
+ * the current confidence threshold; under any other detector its folded score means nothing, so
+ * it is marked unclassifiable rather than compared with a statistical threshold. `undefined` leaves
+ * a statistical check to the chart's own threshold comparison.
+ */
+export function checkWouldFireUnderCurrentConfiguration(
+    check: AlertCheck,
+    detectorConfig: DetectorConfig | null | undefined
+): boolean | null | undefined {
+    const isModelCheck = typeof check.triggered_metadata?.verdict_is_anomaly === 'boolean'
+    if (detectorConfig?.type === DetectorType.LLM) {
+        return llmCheckWouldFire(check, detectorConfig.threshold ?? DEFAULT_LLM_DETECTION_CONFIDENCE)
+    }
+    return isModelCheck ? null : undefined
+}
+
+export function getAlertHistoryScoreName(
+    usesAnomalyScores: boolean,
+    alert: Pick<AlertType, 'detector_config' | 'checks'> | null
+): 'Anomaly confidence' | 'Anomaly score' | 'Value' {
+    if (!usesAnomalyScores) {
+        return 'Value'
+    }
+    const hasOnlyModelScores = (alert?.checks ?? []).every(
+        (check) =>
+            getCheckPlotValue(check, true) === null ||
+            (typeof check.triggered_metadata?.verdict_is_anomaly === 'boolean' &&
+                typeof check.triggered_metadata?.confidence === 'number')
+    )
+    return alert?.detector_config?.type === DetectorType.LLM && hasOnlyModelScores
+        ? 'Anomaly confidence'
+        : 'Anomaly score'
 }
 
 function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): number | null {
@@ -59,7 +118,7 @@ function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): numb
 export interface alertLogicValues {
     alert: AlertType | null
     alertHistoryChartSeries: AlertHistoryChartPoint[]
-    alertHistoryChartSeriesName: 'Anomaly score' | 'Value'
+    alertHistoryChartSeriesName: 'Anomaly confidence' | 'Anomaly score' | 'Value'
     alertHistoryChecksSortedDesc: AlertCheck[]
     alertHistoryHasHistory: boolean
     alertHistoryIsAnomalyDetection: boolean
@@ -121,7 +180,10 @@ export interface alertLogicMeta {
         alertHistoryChecksSortedDesc: (alert: AlertType | null) => AlertCheck[]
         alertHistoryChartSeries: (alert: AlertType | null) => AlertHistoryChartPoint[]
         alertHistoryUsesAnomalyScores: (alert: AlertType | null) => boolean
-        alertHistoryChartSeriesName: (alertHistoryUsesAnomalyScores: boolean) => 'Anomaly score' | 'Value'
+        alertHistoryChartSeriesName: (
+            alertHistoryUsesAnomalyScores: boolean,
+            alert: AlertType | null
+        ) => 'Anomaly confidence' | 'Anomaly score' | 'Value'
         alertHistoryHasHistory: (alert: AlertType | null) => boolean
         alertHistoryTablePageCount: (alert: AlertType | null) => number
         alertHistoryTableEntryCount: (alert: AlertType | null) => number
@@ -213,10 +275,12 @@ export const alertLogic = kea<alertLogicType>([
                     if (value === null) {
                         continue
                     }
+                    const wouldFire = checkWouldFireUnderCurrentConfiguration(check, alert.detector_config)
                     points.push({
                         value,
                         label: formatDate(dayjs(check.created_at), 'MMM D, HH:mm'),
                         firedAtTime: check.state === AlertState.FIRING,
+                        ...(wouldFire !== undefined ? { wouldFireUnderCurrentConfiguration: wouldFire } : {}),
                     })
                 }
                 return points
@@ -237,8 +301,9 @@ export const alertLogic = kea<alertLogicType>([
             },
         ],
         alertHistoryChartSeriesName: [
-            (s) => [s.alertHistoryUsesAnomalyScores],
-            (usesAnomalyScores: boolean) => (usesAnomalyScores ? 'Anomaly score' : 'Value'),
+            (s) => [s.alertHistoryUsesAnomalyScores, s.alert],
+            (usesAnomalyScores: boolean, alert: AlertType | null): 'Anomaly confidence' | 'Anomaly score' | 'Value' =>
+                getAlertHistoryScoreName(usesAnomalyScores, alert),
         ],
         alertHistoryHasHistory: [
             (s) => [s.alert],

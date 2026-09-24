@@ -102,6 +102,13 @@ const ROOTS = [
                 verifyPrefix: 'products/dashboards/frontend/widgets/',
             },
             'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
+            // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
+            // `en` out of the build. A hit on another locale means zod moved its locales barrel and
+            // the plugin no longer matches it.
+            {
+                pattern: 'zod/v4/locales/de.js',
+                verifyPrefix: 'zod/v4/locales/en.js',
+            },
             // See the entry root's note: inline-SVG hoggies must stay off the eager path.
             {
                 pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',

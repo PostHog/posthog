@@ -26,6 +26,25 @@ export interface RasterizeRecordingInput {
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
 }
 
+export interface ExtractThumbnailInput {
+    /** The rendered analysis MP4 to cut the frame from. */
+    source_s3_uri: string
+    /** Seconds into the analysis video, which is the time base the model's citations use. */
+    video_time_s: number
+    /** Pixels of burned-in metadata footer to crop off the bottom before scaling. */
+    footer_crop_px?: number
+    /** Output width; height follows the source aspect ratio. Defaults to 1280. */
+    width?: number
+    s3_bucket: string
+    s3_key_prefix: string
+    id: string
+}
+
+export interface ExtractThumbnailOutput {
+    s3_uri: string
+    file_size_bytes: number
+}
+
 /**
  * Extends the base InactivityPeriod from the shared protocol with
  * recording_ts fields that map segment boundaries to post-processed video

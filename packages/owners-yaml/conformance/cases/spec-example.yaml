@@ -1,0 +1,80 @@
+# The worked example in SPEC section 9.
+cases:
+    - name: the worked example resolves as the specification states for people
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-platform
+              status: active
+              teams:
+                team-billing:
+                  notifications: '#billing-bots'
+          billing/owners.yaml: |
+              version: 1
+              owners: [team-billing, '@alice']
+              status: deprecated
+              rules:
+                - match: 'api/'
+                  status: active
+                - match: 'vendor/'
+                  owners: null
+          billing/legacy/owners.yaml: |
+              version: 1
+              owners: []
+              inherit: false
+      expect:
+          billing/api/invoices.py:
+              owners: [team-billing, '@alice']
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-billing'
+          billing/jobs/run.py:
+              owners: [team-billing, '@alice']
+              unowned_by_design: false
+              status: deprecated
+              source: billing/owners.yaml
+              slack: '#team-billing'
+          billing/vendor/lib.py:
+              owners: []
+              unowned_by_design: true
+              status: deprecated
+              source: billing/owners.yaml
+              slack: null
+          billing/legacy/old.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+
+    - name: the worked example resolves as the specification states for notifications
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-platform
+              status: active
+              teams:
+                team-billing:
+                  notifications: '#billing-bots'
+          billing/owners.yaml: |
+              version: 1
+              owners: [team-billing, '@alice']
+              status: deprecated
+              rules:
+                - match: 'api/'
+                  status: active
+                - match: 'vendor/'
+                  owners: null
+          billing/legacy/owners.yaml: |
+              version: 1
+              owners: []
+              inherit: false
+      purpose: notifications
+      expect:
+          billing/api/invoices.py:
+              owners: [team-billing, '@alice']
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#billing-bots'

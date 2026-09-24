@@ -1,0 +1,82 @@
+{
+  "_format": "Shared matching contract. The canonical copy lives in the security hub repository at test-vectors/access-rules.json. The PostHog Django repository keeps a copy at products/security/backend/tests/fixtures/access-rules.json; change both together. Each case's expect string has one letter per surface in the order signup, app, ai_gateway, email_code: B = blocked, A = allowed (email_code: code required), E = exempt (email_code: code skipped). Rules are already normalized. The optional deciding map names the rule that must decide a surface.",
+  "suites": [
+    {
+      "name": "blocks and per-email exemptions",
+      "now": "2026-09-17T12:00:00Z",
+      "rules": [
+        {"id": "01920000-0000-7000-8000-000000000001", "targetType": "email_root", "targetValue": "farm.bot@example.com", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000002", "targetType": "email_domain", "targetValue": "throwaway.example", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000003", "targetType": "email_domain", "targetValue": "mailinator.com", "effect": "block", "scope": "signup", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000004", "targetType": "organization_id", "targetValue": "1111aaaa-1111-4111-8111-11111111aaaa", "effect": "block", "scope": "ai_gateway", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000005", "targetType": "email_root", "targetValue": "dottedvictim@gmail.com", "effect": "block", "scope": "ai_gateway", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000006", "targetType": "ip", "targetValue": "93.184.216.0/24", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000007", "targetType": "user_uuid", "targetValue": "2222abcd-2222-4222-8222-22222222abcd", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000008", "targetType": "ip", "targetValue": "203.0.113.0/24", "effect": "block", "scope": "all_access", "expiresAt": "2026-09-01T00:00:00Z"},
+        {"id": "01920000-0000-7000-8000-000000000009", "targetType": "email_domain", "targetValue": "posthog.com", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000010", "targetType": "user_uuid", "targetValue": "3333abcd-3333-4333-8333-33333333abcd", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000011", "targetType": "email", "targetValue": "mfa.user@example.org", "effect": "exempt", "scope": "email_code", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000012", "targetType": "email", "targetValue": "staff@posthog.com", "effect": "exempt", "scope": "email_code", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000013", "targetType": "everyone", "targetValue": "", "effect": "exempt", "scope": "email_code", "expiresAt": "2026-09-10T00:00:00Z"},
+        {"id": "01920000-0000-7000-8000-000000000014", "targetType": "team_id", "targetValue": "42", "effect": "block", "scope": "ai_gateway", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000015", "targetType": "email", "targetValue": "farmbot@example.com", "effect": "block", "scope": "future_scope", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000016", "targetType": "email", "targetValue": "farmbot@example.com", "effect": "limit", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000017", "targetType": "email", "targetValue": "farmbot@example.com", "effect": "exempt", "scope": "all_access", "expiresAt": null}
+      ],
+      "cases": [
+        {"name": "alias of an email root", "subject": {"email": "farm.bot+7@example.com"}, "expect": "BBBA"},
+        {"name": "upper-case alias of an email root", "subject": {"email": "FARM.BOT+99@EXAMPLE.COM"}, "expect": "BBBA"},
+        {"name": "email root with spaces", "subject": {"email": " farm.bot@example.com "}, "expect": "BBBA"},
+        {"name": "dots matter outside gmail", "subject": {"email": "farmbot@example.com"}, "expect": "AAAA"},
+        {"name": "different domain", "subject": {"email": "farm.bot@example.co"}, "expect": "AAAA"},
+        {"name": "cyrillic lookalike", "subject": {"email": "fаrm.bot@example.com"}, "expect": "AAAA"},
+        {"name": "member of a blocked organization", "subject": {"email": "member@target-org.example", "organizationIds": ["1111aaaa-1111-4111-8111-11111111aaaa"]}, "expect": "AABA"},
+        {"name": "member of a bystander organization", "subject": {"email": "member@bystander.example", "organizationIds": ["4444aaaa-4444-4444-8444-44444444aaaa"]}, "expect": "AAAA"},
+        {"name": "blocked organization by id", "subject": {"organizationIds": ["1111AAAA-1111-4111-8111-11111111AAAA"]}, "expect": "AABA"},
+        {"name": "bystander organization by id", "subject": {"organizationIds": ["4444aaaa-4444-4444-8444-44444444aaaa"]}, "expect": "AAAA"},
+        {"name": "blocked user by email and uuid", "subject": {"email": "victim@victim.example", "userUuid": "2222abcd-2222-4222-8222-22222222abcd"}, "expect": "BBBA"},
+        {"name": "blocked user by upper-case uuid", "subject": {"userUuid": "2222ABCD-2222-4222-8222-22222222ABCD"}, "expect": "BBBA"},
+        {"name": "gmail root through googlemail", "subject": {"email": "d.o.t.t.e.d.victim+x@googlemail.com"}, "expect": "AABA"},
+        {"name": "different gmail mailbox", "subject": {"email": "dottedvictim2@gmail.com"}, "expect": "AAAA"},
+        {"name": "subdomain of a blocked domain", "subject": {"email": "a@sub.throwaway.example"}, "expect": "BBBA"},
+        {"name": "blocked domain on its own", "subject": {"domain": "throwaway.example"}, "expect": "BBBA"},
+        {"name": "blocked domain inside another domain", "subject": {"email": "a@throwaway.example.evil.example"}, "expect": "AAAA"},
+        {"name": "shared suffix only", "subject": {"email": "a@xthrowaway.example"}, "expect": "AAAA"},
+        {"name": "unrelated domain", "subject": {"domain": "example.com"}, "expect": "AAAA"},
+        {"name": "signup-only domain", "subject": {"email": "someone@mailinator.com"}, "expect": "BAAA"},
+        {"name": "first address of a blocked range", "subject": {"ip": "93.184.216.0"}, "expect": "BBBA"},
+        {"name": "last address of a blocked range", "subject": {"ip": "93.184.216.255"}, "expect": "BBBA"},
+        {"name": "mapped address in a blocked range", "subject": {"ip": "::ffff:93.184.216.34"}, "expect": "BBBA"},
+        {"name": "address after the range", "subject": {"ip": "93.184.217.0"}, "expect": "AAAA"},
+        {"name": "address before the range", "subject": {"ip": "93.184.215.255"}, "expect": "AAAA"},
+        {"name": "mapped address outside the range", "subject": {"ip": "::ffff:93.184.217.1"}, "expect": "AAAA"},
+        {"name": "loopback", "subject": {"ip": "127.0.0.1"}, "expect": "AAAA"},
+        {"name": "address in an expired rule's range", "subject": {"ip": "203.0.113.5"}, "expect": "AAAA"},
+        {"name": "unreadable address", "subject": {"ip": "not-an-ip"}, "expect": "AAAA"},
+        {"name": "empty subject", "subject": {}, "expect": "AAAA"},
+        {"name": "clean email from a blocked range", "subject": {"email": "nobody@example.net", "ip": "93.184.216.1"}, "expect": "BBBA"},
+        {"name": "oldest matching rule decides", "subject": {"email": "farm.bot+7@example.com", "ip": "93.184.216.1"}, "expect": "BBBA", "deciding": {"signup": "01920000-0000-7000-8000-000000000001", "ai_gateway": "01920000-0000-7000-8000-000000000001"}},
+        {"name": "posthog.com account with matching blocks and an exemption", "subject": {"email": "staff@posthog.com", "userUuid": "3333abcd-3333-4333-8333-33333333abcd"}, "expect": "AAAE"},
+        {"name": "posthog.com alias", "subject": {"email": "STAFF+x@posthog.com"}, "expect": "AAAA"},
+        {"name": "posthog.com subdomain", "subject": {"email": "a@eu.posthog.com"}, "expect": "AAAA"},
+        {"name": "posthog.com account on a blocked range", "subject": {"email": "staff@posthog.com", "ip": "93.184.216.10"}, "expect": "AAAE"},
+        {"name": "exempt email", "subject": {"email": "mfa.user@example.org"}, "expect": "AAAE"},
+        {"name": "exempt email in mixed case", "subject": {"email": "MFA.User@Example.org"}, "expect": "AAAE"},
+        {"name": "alias of an exempt email", "subject": {"email": "mfa.user+x@example.org"}, "expect": "AAAA"},
+        {"name": "unknown type, scope and effect match nothing", "subject": {"email": "farmbot@example.com"}, "expect": "AAAA"}
+      ]
+    },
+    {
+      "name": "global MFA bypass",
+      "now": "2026-09-17T12:00:00Z",
+      "rules": [
+        {"id": "01920000-0000-7000-8000-000000000101", "targetType": "everyone", "targetValue": "", "effect": "exempt", "scope": "email_code", "expiresAt": "2026-09-20T00:00:00Z"}
+      ],
+      "cases": [
+        {"name": "any email", "subject": {"email": "anyone@example.com"}, "expect": "AAAE"},
+        {"name": "empty subject", "subject": {}, "expect": "AAAE"},
+        {"name": "posthog.com account", "subject": {"email": "staff@posthog.com"}, "expect": "AAAE"}
+      ]
+    }
+  ]
+}

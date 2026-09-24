@@ -25,6 +25,8 @@ from products.tasks.backend.temporal.metrics import (
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TURNS_HISTOGRAM_METRICS,
+    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
+    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
 )
 from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
     PostSlackUpdateInput,
@@ -42,6 +44,8 @@ __all__ = [
     "TASKS_RUN_TOKENS_HISTOGRAM_METRICS",
     "TASKS_RUN_TURNS_HISTOGRAM_BUCKETS",
     "TASKS_RUN_TURNS_HISTOGRAM_METRICS",
+    "TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS",
+    "TASKS_SDK_LATENCY_HISTOGRAM_METRICS",
     "WORKFLOWS",
     "PostSlackUpdateInput",
     "ProcessTaskWorkflow",

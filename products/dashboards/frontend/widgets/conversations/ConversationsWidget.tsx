@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as organizedPng from '@posthog/brand/hoggies/png/organized'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
@@ -42,7 +42,7 @@ import {
     type ConversationsWidgetTicket,
 } from './conversationsWidgetUtils'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogOrganized = pngHoggie(organizedPng)
 
 export type { ConversationsWidgetTicket } from './conversationsWidgetUtils'
 
@@ -276,7 +276,7 @@ export function ConversationsWidget({
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="conversations-widget-empty-state"
                     >
-                        <HedgehogMagnifyingGlass className="size-20 shrink-0" />
+                        <HedgehogOrganized className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">
                             {hasActiveFilters ? 'No tickets found' : 'No tickets yet'}
                         </p>

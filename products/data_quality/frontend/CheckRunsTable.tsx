@@ -3,10 +3,8 @@ import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import type { DataQualitySubjectType } from './checksApi'
-import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName } from './checksConstants'
+import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName, runResultCell } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
 
 type CheckRunColumn = LemonTableColumn<DataQualityCheckRunApi, keyof DataQualityCheckRunApi | undefined>
@@ -35,14 +33,18 @@ const OUTCOME_COLUMNS: CheckRunColumn[] = [
             run.duration_ms === null ? '-' : humanFriendlyDuration(run.duration_ms / 1000, { maxUnits: 2 }),
     },
     {
-        title: 'Observed value',
+        title: 'Result',
         key: 'observed_value',
-        render: (_, run) => (run.observed_value === null ? '-' : humanFriendlyNumber(run.observed_value)),
-    },
-    {
-        title: 'Failed rows',
-        key: 'failed_row_count',
-        render: (_, run) => (run.failed_row_count === null ? '-' : humanFriendlyNumber(run.failed_row_count)),
+        render: (_, run) => {
+            const { label, tooltip } = runResultCell(run)
+            return tooltip ? (
+                <Tooltip title={tooltip}>
+                    <span>{label}</span>
+                </Tooltip>
+            ) : (
+                label
+            )
+        },
     },
     {
         title: 'Error',
@@ -62,12 +64,9 @@ interface CheckRunsTableProps {
     runs: DataQualityCheckRunApi[]
     loading?: boolean
     showCheck?: boolean
-    subjectType?: DataQualitySubjectType
 }
 
-export function CheckRunsTable({ runs, loading, showCheck, subjectType }: CheckRunsTableProps): JSX.Element {
-    const outcomeColumns =
-        subjectType === 'metric' ? OUTCOME_COLUMNS.filter((column) => column.key !== 'observed_value') : OUTCOME_COLUMNS
+export function CheckRunsTable({ runs, loading, showCheck }: CheckRunsTableProps): JSX.Element {
     return (
         <LemonTable
             size="small"
@@ -75,7 +74,7 @@ export function CheckRunsTable({ runs, loading, showCheck, subjectType }: CheckR
             loading={loading}
             nouns={['run', 'runs']}
             emptyState="No runs yet"
-            columns={showCheck ? [CHECK_COLUMN, ...outcomeColumns] : outcomeColumns}
+            columns={showCheck ? [CHECK_COLUMN, ...OUTCOME_COLUMNS] : OUTCOME_COLUMNS}
         />
     )
 }

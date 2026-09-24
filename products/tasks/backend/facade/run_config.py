@@ -57,6 +57,7 @@ TaskArtifactStatus = _TaskArtifact.Status
 WARMABLE_ORIGIN_PRODUCTS: list[str] = [
     _Task.OriginProduct.USER_CREATED,
     _Task.OriginProduct.POSTHOG_AI,
+    _Task.OriginProduct.SIGNAL_REPORT,
 ]
 
 __all__ = [

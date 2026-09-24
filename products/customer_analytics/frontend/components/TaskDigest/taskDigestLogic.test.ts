@@ -42,40 +42,43 @@ describe('taskDigestLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('saves only the digest preferences, so pinned properties survive', async () => {
-        let submittedBody: unknown
-        useMocks({
-            get: { [CONFIG_URL]: buildConfig() },
-            patch: {
-                [CONFIG_URL]: async ({ request }) => {
-                    submittedBody = await request.json()
-                    return buildConfig({ task_digest: { enabled: true, send_time: '07:30', cadence: 'every_day' } })
+    it.each(['settings', 'tasks'] as const)(
+        'saves only digest preferences and tracks the %s source',
+        async (source) => {
+            let submittedBody: unknown
+            useMocks({
+                get: { [CONFIG_URL]: buildConfig() },
+                patch: {
+                    [CONFIG_URL]: async ({ request }) => {
+                        submittedBody = await request.json()
+                        return buildConfig({ task_digest: { enabled: true, send_time: '07:30', cadence: 'every_day' } })
+                    },
                 },
-            },
-        })
-        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        await mountLogic()
+            })
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            await mountLogic()
 
-        expect(logic.values.draft).toEqual({ enabled: false, send_time: '09:00', cadence: 'weekdays' })
-        expect(logic.values.hasChanges).toBe(false)
-        logic.actions.setDraft({ send_time: '' })
-        expect(logic.values.validSendTime).toBe(false)
+            expect(logic.values.draft).toEqual({ enabled: false, send_time: '09:00', cadence: 'weekdays' })
+            expect(logic.values.hasChanges).toBe(false)
+            logic.actions.setDraft({ send_time: '' })
+            expect(logic.values.validSendTime).toBe(false)
 
-        logic.actions.setDraft({ enabled: true, send_time: '07:30', cadence: 'every_day' })
-        expect(logic.values.hasChanges).toBe(true)
-        expect(logic.values.validSendTime).toBe(true)
+            logic.actions.setDraft({ enabled: true, send_time: '07:30', cadence: 'every_day' })
+            expect(logic.values.hasChanges).toBe(true)
+            expect(logic.values.validSendTime).toBe(true)
 
-        logic.actions.saveTaskDigest()
-        await expectLogic(logic).toDispatchActions(['saveTaskDigestSuccess']).toFinishAllListeners()
+            logic.actions.saveTaskDigest({ source })
+            await expectLogic(logic).toDispatchActions(['saveTaskDigestSuccess']).toFinishAllListeners()
 
-        expect(submittedBody).toEqual({ task_digest: { enabled: true, send_time: '07:30', cadence: 'every_day' } })
-        expect(logic.values.config?.pinned_properties).toEqual(PINNED_PROPERTIES)
-        expect(logic.values.hasChanges).toBe(false)
-        expect(captureSpy).toHaveBeenCalledWith(
-            AccountsEvents.TaskDigestPreferencesSaved,
-            expect.objectContaining({ enabled: true, send_time: '07:30', cadence: 'every_day' })
-        )
-    })
+            expect(submittedBody).toEqual({ task_digest: { enabled: true, send_time: '07:30', cadence: 'every_day' } })
+            expect(logic.values.config?.pinned_properties).toEqual(PINNED_PROPERTIES)
+            expect(logic.values.hasChanges).toBe(false)
+            expect(captureSpy).toHaveBeenCalledWith(
+                AccountsEvents.TaskDigestPreferencesSaved,
+                expect.objectContaining({ source, enabled: true, send_time: '07:30', cadence: 'every_day' })
+            )
+        }
+    )
 
     it('keeps the edits and notifies once when the save fails', async () => {
         silenceKeaLoadersErrors()

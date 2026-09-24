@@ -25,12 +25,14 @@ def sync_metric_to_dag(
     name: str,
     dependency_names: Sequence[str],
     database: Database | None = None,
-) -> None:
+) -> list[str]:
     """Create or update the node for a data catalog metric and rebuild its incoming edges.
 
     A metric is a leaf: it reads tables and views and nothing reads it, so nothing schedulable
     changes and no reconcile follows. A dependency name that resolves to no node is skipped and
     recorded on the node, because one renamed table should not cost the metric every other edge.
+    Those names are returned as well, so a caller reporting many metrics can separate a metric that
+    synced with every edge from one that is missing some.
 
     `database` lets a caller syncing many metrics for one team build the schema once.
     """
@@ -66,6 +68,8 @@ def sync_metric_to_dag(
         if unresolved:
             node.mark_lineage_unresolved(unresolved)
         node.save(update_fields=["name", "properties"])
+
+    return unresolved
 
 
 def mark_metric_node_degraded(team: "Team", metric_id: UUID, name: str, error: str) -> None:

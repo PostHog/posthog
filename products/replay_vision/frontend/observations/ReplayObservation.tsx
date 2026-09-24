@@ -45,6 +45,7 @@ import {
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
+import { ObservationThumbnail } from '../components/ObservationThumbnail'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ReplayObservationApi } from '../generated/api.schemas'
@@ -69,6 +70,7 @@ import { ObservationLabelControl } from './ObservationLabelControl'
 import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
+import { ObservationSignalReports } from './ObservationSignalReports'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -325,9 +327,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         aria-expanded={false}
                         data-attr="vision-observation-recording-toggle"
                     >
-                        <span className="flex items-center justify-center w-20 h-12 rounded bg-black shrink-0">
-                            <IconPlayFilled className="text-xl text-brand-red" />
-                        </span>
+                        <ObservationThumbnail observation={observation} className="w-20 shrink-0">
+                            <IconPlayFilled className="text-xl text-brand-red drop-shadow" />
+                        </ObservationThumbnail>
                         <span className="flex-1 min-w-0">
                             <h3 className="text-lg font-semibold m-0">Watch the recording</h3>
                             <span className="text-sm text-muted">Play the session this observation was made from</span>
@@ -439,6 +441,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                         $recording_observed
                                     </Link>
                                 </LabeledRow>
+                            )}
+                            {snapshot.emits_signals && (
+                                <ObservationSignalReports
+                                    observationId={observation.id}
+                                    signalsCount={observation.scanner_result?.signals_count ?? 0}
+                                />
                             )}
                             <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
                             <CalibrationEntryPoint observation={observation} />

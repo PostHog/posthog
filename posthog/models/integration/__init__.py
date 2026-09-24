@@ -123,9 +123,9 @@ from .refresh_tracking import (
 )
 from .slack import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
-    SLACK_CHANNELS_MAX_PAGES,
     SLACK_CHANNELS_PAGE_SIZE,
     SLACK_INTEGRATION_KINDS,
+    SLACK_LISTING_MAX_REQUESTS,
     SlackIntegration,
     SlackIntegrationError,
     SlackRequestSignature,
@@ -190,7 +190,7 @@ __all__ = [
     "SlackIntegrationError",
     "SLACK_INTEGRATION_KINDS",
     "SLACK_CHANNELS_PAGE_SIZE",
-    "SLACK_CHANNELS_MAX_PAGES",
+    "SLACK_LISTING_MAX_REQUESTS",
     "SlackIntegration",
     "SlackRequestSignature",
     "sign_slack_request",

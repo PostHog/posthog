@@ -1,11 +1,9 @@
 from django.contrib import admin, messages
-from django.db import transaction
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from posthog.models.utils import convert_legacy_metric
-
+from products.experiments.backend.legacy_migration import migrate_saved_metric
 from products.experiments.backend.models.experiment import ExperimentSavedMetric
 
 
@@ -81,27 +79,15 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
 
     def migrate_metric(self, request, object_id):
         try:
-            with transaction.atomic():
-                original = ExperimentSavedMetric.objects.select_for_update().get(pk=object_id)
+            # nosemgrep: idor-lookup-without-team (Django admin, staff-only)
+            original = ExperimentSavedMetric.objects.only("metadata", "team_id").get(pk=object_id)
+            already_migrated = bool((original.metadata or {}).get("migrated_to"))
+            new_metric = migrate_saved_metric(int(object_id), original.team_id)
 
-                if original.metadata and original.metadata.get("migrated_to"):
-                    messages.warning(request, f"Metric already migrated to {original.metadata['migrated_to']}")
-                    return redirect("admin:experiments_experimentsavedmetric_change", original.metadata["migrated_to"])
-
-                new_metric = ExperimentSavedMetric()
-                new_metric.name = original.name
-                new_metric.team = original.team
-                new_metric.created_by = original.created_by
-                new_metric.query = convert_legacy_metric(original.query)
-                new_metric.metadata = {"migrated_from": original.id}
-                new_metric.save()
-
-                if original.metadata is None:
-                    original.metadata = {}
-                original.metadata["migrated_to"] = new_metric.id
-                original.save(update_fields=["metadata"])
-
-            messages.success(request, "Metric migrated successfully")
+            if already_migrated:
+                messages.warning(request, f"Metric already migrated to {new_metric.id}")
+            else:
+                messages.success(request, "Metric migrated successfully")
             return redirect("admin:experiments_experimentsavedmetric_change", new_metric.pk)
         except ExperimentSavedMetric.DoesNotExist:
             messages.error(request, "Metric not found")

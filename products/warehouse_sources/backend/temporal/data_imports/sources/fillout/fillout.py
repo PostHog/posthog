@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 
 from requests import Request, Response
@@ -50,14 +50,15 @@ def _validated_api_base_url(api_base_url: str | None) -> str:
 def _format_fillout_datetime(value: Any) -> str:
     """Format the incremental watermark for Fillout's `afterDate` filter.
 
-    Truncates to whole seconds, which rounds the lower bound *down* — so a sync
+    Truncates to whole milliseconds, matching the precision Fillout itself reports
+    `submissionTime` at. Truncating rounds the lower bound *down* — so a sync
     re-fetches at most a few boundary rows (the merge dedupes them) rather than
     skipping any.
     """
     normalized_value = coerce_datetime_to_utc(value)
     if normalized_value is None:
         return str(value)
-    return normalized_value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"{normalized_value.strftime('%Y-%m-%dT%H:%M:%S')}.{normalized_value.microsecond // 1000:03d}Z"
 
 
 def _fillout_incremental_window(cursor_path: str) -> IncrementalConfig:
@@ -66,11 +67,23 @@ def _fillout_incremental_window(cursor_path: str) -> IncrementalConfig:
     return {
         "cursor_path": cursor_path,
         "start_param": "afterDate",
-        # Not `...T00:00:00Z`: Fillout's API rejects an `afterDate` of exactly the Unix epoch
-        # with a 400 "Invalid date", so the first (pre-watermark) sync uses one second past it.
-        "initial_value": "1970-01-01T00:00:01Z",
         "convert": _format_fillout_datetime,
     }
+
+
+def _no_incremental_window(cursor_path: str) -> IncrementalConfig | None:
+    # Fillout has no `afterDate` value meaning "since the beginning of time", and the endpoint
+    # returns every submission when the param is absent. So a sync with no watermark yet sends
+    # no `afterDate` at all rather than a sentinel date the API can reject.
+    return None
+
+
+def _incremental_window_factory(
+    db_incremental_field_last_value: Optional[Any],
+) -> Callable[[str], IncrementalConfig | None]:
+    if db_incremental_field_last_value is None:
+        return _no_incremental_window
+    return _fillout_incremental_window
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
@@ -88,10 +101,11 @@ def _rest_api_client_config(base_api_url: str, api_key: str) -> ClientConfig:
 class FilloutSubmissionsPaginator(OffsetPaginator):
     """Limit/offset paginator for `/forms/{formId}/submissions`.
 
-    Pins `sort=asc` (oldest-first, matching the ascending incremental watermark) and
-    `status=finished` (Fillout's default; we don't want in-progress drafts). `totalResponses`
-    reflects the `afterDate`-filtered count, so the walk stops at the watermark on incremental
-    syncs rather than re-reading each form's full history.
+    Pins `sort=asc`, oldest-first, matching the ascending incremental watermark. No `status`
+    param: `finished` is already Fillout's default, so sending it only added a way for the
+    request to be rejected. `totalResponses` reflects the `afterDate`-filtered count, so the
+    walk stops at the watermark on incremental syncs rather than re-reading each form's full
+    history.
     """
 
     def __init__(self, limit: int) -> None:
@@ -105,7 +119,6 @@ class FilloutSubmissionsPaginator(OffsetPaginator):
     def init_request(self, request: Request) -> None:
         super().init_request(request)
         request.params.setdefault("sort", "asc")
-        request.params.setdefault("status", "finished")
 
 
 def validate_credentials(
@@ -241,7 +254,7 @@ def fillout_source(
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
-                incremental_config_factory=_fillout_incremental_window,
+                incremental_config_factory=_incremental_window_factory(db_incremental_field_last_value),
                 page_size_param="limit",
                 parent_endpoint_extra={
                     "paginator": SinglePagePaginator(),

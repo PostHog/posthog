@@ -23,8 +23,11 @@ import os
 import sys
 import json
 import time
+import plistlib
+import functools
+import subprocess
 import webbrowser
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +46,7 @@ _CHROMIUM_PROFILE_ROOTS: dict[str, list[Path]] = {
     "arc": [_HOME / "Library/Application Support/Arc/User Data"],
     "dia": [_HOME / "Library/Application Support/Dia/User Data"],
 }
+_FIREFOX_ROOT: Path = _HOME / "Library/Application Support/Firefox"
 
 REGIONS: dict[str, str] = {
     "us": "metabase.prod-us.posthog.dev",
@@ -58,6 +62,15 @@ REQUIRED_COOKIES: tuple[str, ...] = (
 SUPPORTED_BROWSERS: tuple[str, ...] = ("chrome", "chromium", "brave", "arc", "dia", "firefox", "safari")
 CACHE_DIR: Path = Path.home() / ".config" / "posthog" / "metabase"
 
+_HTTPS_HANDLER_BUNDLE_IDS: dict[str, str] = {
+    "org.mozilla.firefox": "firefox",
+    "com.google.chrome": "chrome",
+    "org.chromium.chromium": "chromium",
+    "com.brave.browser": "brave",
+    "company.thebrowser.browser": "arc",
+    "com.apple.safari": "safari",
+}
+
 
 def _cookie_path(region: str) -> Path:
     return CACHE_DIR / f"cookie-{region}"
@@ -65,6 +78,53 @@ def _cookie_path(region: str) -> Path:
 
 def _format_cookie_header(cookies: dict[str, str]) -> str:
     return "; ".join(f"{name}={value}" for name, value in cookies.items())
+
+
+@functools.lru_cache(maxsize=1)
+def _default_https_browser() -> str | None:
+    """Return the supported browser name registered as the system's https handler.
+
+    Only implemented for macOS, via LaunchServices. Any failure to run or parse
+    `defaults export` — missing binary, unreadable plist, unknown bundle id — falls
+    back to `None` so the caller keeps today's fixed browser order. Getting the
+    default wrong only costs one extra decrypt; it never blocks login.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["defaults", "export", "com.apple.LaunchServices/com.apple.launchservices.secure", "-"],
+            capture_output=True,
+            check=True,
+            timeout=5.0,
+        )
+        handlers = plistlib.loads(result.stdout).get("LSHandlers", [])
+    except Exception:
+        return None
+
+    for handler in handlers:
+        if not isinstance(handler, dict) or handler.get("LSHandlerURLScheme") != "https":
+            continue
+        bundle_id = handler.get("LSHandlerRoleAll") or handler.get("LSHandlerRoleViewer")
+        if isinstance(bundle_id, str):
+            return _HTTPS_HANDLER_BUNDLE_IDS.get(bundle_id.lower())
+    return None
+
+
+def _ordered_browsers(browser: str | None) -> tuple[str, ...]:
+    """Browsers to scan for cookies, default https handler first when known.
+
+    Without this, a machine with several browsers installed decrypts (and
+    Keychain-prompts for) every one of them in a fixed order before reaching
+    whichever browser actually holds the Metabase session. Only reorders —
+    every supported browser is still tried if the default one comes up empty.
+    """
+    if browser is not None:
+        return (browser,)
+    default = _default_https_browser()
+    if default is None or default not in SUPPORTED_BROWSERS:
+        return SUPPORTED_BROWSERS
+    return (default, *(name for name in SUPPORTED_BROWSERS if name != default))
 
 
 def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
@@ -78,8 +138,7 @@ def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
     Firefox and Safari fall back to the default `browser_cookie3` loader.
     """
     targets: list[tuple[str, Path]] = []
-    selected = SUPPORTED_BROWSERS if browser is None else (browser,)
-    for name in selected:
+    for name in _ordered_browsers(browser):
         if name in _CHROMIUM_PROFILE_ROOTS:
             for root in _CHROMIUM_PROFILE_ROOTS[name]:
                 if not root.exists():
@@ -91,11 +150,24 @@ def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
     return targets
 
 
-def _load_cookies_from_browser(domain: str, browser: str | None) -> dict[str, str]:
-    """Read cookies for `domain` from the user's system browser cookie store.
+def _iter_cookie_candidates(
+    domain: str,
+    browser: str | None,
+    seen_warnings: set[str] | None = None,
+) -> Iterator[dict[str, str]]:
+    """Yield one complete REQUIRED_COOKIES set per readable browser profile, in scan order.
+
+    A profile that doesn't hold every required cookie is skipped rather than
+    merged with another profile's set — cookie values from two different
+    logins don't add up to a valid session. This is a generator, so a caller
+    that stops once an earlier candidate validates never decrypts (or
+    Keychain-prompts for) a later profile.
 
     Decrypting Chromium cookies on macOS triggers a one-time Keychain prompt
     per profile; users who pick "Always allow" won't see it again.
+
+    `seen_warnings`, when passed, dedupes load errors across repeated calls
+    (a polling loop) so the same warning doesn't reprint every interval.
     """
     try:
         import browser_cookie3
@@ -120,7 +192,7 @@ def _load_cookies_from_browser(domain: str, browser: str | None) -> dict[str, st
         ).load()
 
     targets = _enumerate_cookie_files(browser)
-    found: dict[str, str] = {}
+    found_candidate = False
     errors: list[str] = []
     for loader_name, cookie_file in targets:
         loader = dia if loader_name == "dia" else getattr(browser_cookie3, loader_name, None)
@@ -134,13 +206,50 @@ def _load_cookies_from_browser(domain: str, browser: str | None) -> dict[str, st
         except Exception as exc:
             errors.append(f"{loader_name} ({cookie_file or 'default'}): {exc}")
             continue
+        source_cookies: dict[str, str] = {}
         for cookie in jar:
             if cookie.name in REQUIRED_COOKIES and cookie.value:
-                found[cookie.name] = cookie.value
+                source_cookies[cookie.name] = cookie.value
+        if all(name in source_cookies for name in REQUIRED_COOKIES):
+            found_candidate = True
+            yield source_cookies
 
-    if not found and errors:
-        click.echo("\n".join(f"  warn: {e}" for e in errors), err=True)
-    return found
+    if not found_candidate and errors:
+        new_errors = errors if seen_warnings is None else [e for e in errors if e not in seen_warnings]
+        if seen_warnings is not None:
+            seen_warnings.update(errors)
+        if new_errors:
+            click.echo("\n".join(f"  warn: {e}" for e in new_errors), err=True)
+
+
+def _find_valid_candidate(
+    domain: str,
+    browser: str | None,
+    seen_warnings: set[str] | None = None,
+    rejected_headers: set[str] | None = None,
+) -> tuple[str | None, bool]:
+    """Try each cookie candidate against Metabase in order; return (header, any_candidate).
+
+    `header` is the first candidate's cookie header the server accepts, or
+    `None` if none did. `rejected_headers`, when passed, skips re-checking a
+    header the server already outright rejected, without stopping the scan —
+    an expired session in an earlier profile must not block a valid one in a
+    later profile, on this call or a repeated one. A header the server hasn't
+    confirmed or rejected (a network blip, a 5xx from the load balancer) is
+    never added to `rejected_headers`, so it gets retried on the next call.
+    """
+    any_candidate = False
+    for candidate in _iter_cookie_candidates(domain, browser, seen_warnings):
+        any_candidate = True
+        header = _format_cookie_header(candidate)
+        if rejected_headers is not None and header in rejected_headers:
+            continue
+        result = _probe_cookie(domain, header)
+        if result is True:
+            return header, any_candidate
+        if result is False and rejected_headers is not None:
+            rejected_headers.add(header)
+    return None, any_candidate
 
 
 def _secure_write(path: Path, content: str) -> None:
@@ -172,8 +281,15 @@ def _read_cookie_file(region: str) -> str | None:
     return path.read_text().strip()
 
 
-def _check_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool:
-    """Hit /api/user/current to confirm the cookie is still valid."""
+def _probe_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool | None:
+    """Hit /api/user/current and classify the response into three states.
+
+    `True`: the session is valid. `False`: the server rejected it outright (a
+    redirect back to SSO, 401, 403) — this cookie will not become valid
+    later. `None`: a transport failure or a transient status (5xx, 429,
+    anything else unexpected) — inconclusive, so a caller should retry
+    rather than treat the cookie as dead.
+    """
     import requests
 
     try:
@@ -184,8 +300,112 @@ def _check_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool
             allow_redirects=False,
         )
     except requests.RequestException:
+        return None
+
+    if response.status_code == 200:
+        return True
+    if response.status_code in (401, 403) or 300 <= response.status_code < 400:
         return False
-    return response.status_code == 200
+    return None
+
+
+def _check_cookie(domain: str, cookie_header: str, timeout: float = 5.0) -> bool:
+    """Confirm the cookie is currently valid. `None` (inconclusive) reads as not valid."""
+    return _probe_cookie(domain, cookie_header, timeout) is True
+
+
+def _is_directory_blocked(root: Path) -> bool:
+    """True if `root` exists but this process can't read its contents.
+
+    macOS's Full Disk Access restriction doesn't clear a directory's unix
+    permission bits, so `os.access` alone can say "readable" while every real
+    read raises `PermissionError`. Check both: `os.access` catches the
+    ordinary case, the read attempt catches TCC's silent block.
+    """
+    if not root.exists():
+        return False
+    if not os.access(root, os.R_OK):
+        return True
+    try:
+        with os.scandir(root) as entries:
+            next(entries, None)
+    except PermissionError:
+        return True
+    return False
+
+
+def _detect_blocked_browsers(browser: str | None) -> list[str]:
+    """Browser names whose cookie-data directory exists but can't be read.
+
+    Covers the Chromium-family roots and the Firefox root — the two cases
+    where macOS blocks a directory listing outright before browser_cookie3
+    gets a chance to say anything useful. Safari doesn't scan a directory
+    (its cookie store is a single file), so its own load error covers it.
+    """
+    selected = SUPPORTED_BROWSERS if browser is None else (browser,)
+    blocked: list[str] = []
+    for name in selected:
+        if name in _CHROMIUM_PROFILE_ROOTS:
+            roots = _CHROMIUM_PROFILE_ROOTS[name]
+        elif name == "firefox":
+            roots = [_FIREFOX_ROOT]
+        else:
+            continue
+        if any(_is_directory_blocked(root) for root in roots):
+            blocked.append(name)
+    return blocked
+
+
+def _all_readable_browsers_blocked(browser: str | None, blocked: list[str]) -> bool:
+    """True when every installed, directory-checkable candidate is blocked.
+
+    An uninstalled browser is neither blocked nor a reason to keep polling, so
+    only an installed Chromium/Firefox root that isn't blocked counts as a
+    reason a valid session could still show up. Safari isn't directory-checked
+    at all, so a detected Safari default (or an explicit --browser safari)
+    always counts as a live candidate — this check otherwise has no way to
+    see it.
+    """
+    if browser == "safari" or (browser is None and _default_https_browser() == "safari"):
+        return False
+    selected = SUPPORTED_BROWSERS if browser is None else (browser,)
+    for name in selected:
+        if name in _CHROMIUM_PROFILE_ROOTS:
+            roots = _CHROMIUM_PROFILE_ROOTS[name]
+        elif name == "firefox":
+            roots = [_FIREFOX_ROOT]
+        else:
+            continue
+        if name not in blocked and any(root.exists() for root in roots):
+            return False
+    return True
+
+
+def _full_disk_access_hint() -> str:
+    """macOS-specific remediation text; empty string on every other platform."""
+    if sys.platform != "darwin":
+        return ""
+    return (
+        " On macOS: grant your terminal app Full Disk Access under System Settings > "
+        "Privacy & Security > Full Disk Access, restart the terminal, then run this command again."
+    )
+
+
+def _blocked_browser_note(blocked: list[str]) -> str:
+    """One-line, printed once, while polling continues because another browser worked."""
+    return f"note: {', '.join(blocked)} cookie data can't be read; skipping." + _full_disk_access_hint()
+
+
+def _blocked_browser_message(blocked: list[str]) -> str:
+    """`ClickException` text for when no cookies at all were found and a browser is blocked.
+
+    Waiting out the timeout wouldn't help here — the browser holding the
+    session may never become readable without the Full Disk Access grant.
+    """
+    return (
+        f"No cookies found, and {', '.join(blocked)} cookie data can't be read "
+        "(the OS is blocking this terminal from it)." + _full_disk_access_hint()
+    )
 
 
 def _wait_for_valid_cookie(
@@ -197,26 +417,35 @@ def _wait_for_valid_cookie(
     """Poll the browser cookie store until a valid Metabase session appears.
 
     Returns the cookie header on success. Raises `click.ClickException` after
-    `timeout` seconds without finding a valid session.
+    `timeout` seconds without finding a valid session — or immediately if no
+    cookie candidate at all can be read and every installed candidate browser
+    is blocked, since waiting out the timeout would never help in that case.
+    A still-readable candidate might just need more time to complete SSO, so
+    that case keeps polling as before.
     """
+    blocked = _detect_blocked_browsers(browser)
+    hopeless = bool(blocked) and _all_readable_browsers_blocked(browser, blocked)
     deadline = time.monotonic() + timeout
     last_status = ""
-    last_header: str | None = None
+    seen_warnings: set[str] = set()
+    rejected_headers: set[str] = set()
+    blocked_note_printed = False
     while True:
-        cookies = _load_cookies_from_browser(domain, browser)
-        missing = [name for name in REQUIRED_COOKIES if name not in cookies]
-        if not missing:
-            cookie_header = _format_cookie_header(cookies)
-            # Avoid pinging /api/user/current with the same header repeatedly
-            # when the user already had a stale cookie set on disk.
-            if cookie_header != last_header:
-                last_header = cookie_header
-                if _check_cookie(domain, cookie_header):
-                    return cookie_header
-            status = "Cookies present but session not yet valid; still waiting..."
-        else:
-            status = f"Waiting for cookies: missing {missing}..."
+        header, any_candidate = _find_valid_candidate(domain, browser, seen_warnings, rejected_headers)
+        if header is not None:
+            return header
 
+        if not any_candidate and hopeless:
+            raise click.ClickException(_blocked_browser_message(blocked))
+        if blocked and not blocked_note_printed:
+            click.echo(_blocked_browser_note(blocked))
+            blocked_note_printed = True
+
+        status = (
+            "Cookies present but session not yet valid; still waiting..."
+            if any_candidate
+            else "Waiting for cookies: no browser profile has the full set yet..."
+        )
         if status != last_status:
             click.echo(status)
             last_status = status
@@ -234,13 +463,11 @@ def _login_region(region: str, browser: str | None, no_open: bool, timeout: floa
     """Authenticate one region: fast-path if already logged in, else open browser and wait."""
     domain = REGIONS[region]
 
-    cookies = _load_cookies_from_browser(domain, browser)
-    if all(name in cookies for name in REQUIRED_COOKIES):
-        header = _format_cookie_header(cookies)
-        if _check_cookie(domain, header):
-            path = _write_cookie_file(region, header)
-            click.echo(f"[{region}] already logged in; saved cookie to {path}")
-            return
+    header, _ = _find_valid_candidate(domain, browser)
+    if header is not None:
+        path = _write_cookie_file(region, header)
+        click.echo(f"[{region}] already logged in; saved cookie to {path}")
+        return
 
     if not no_open:
         click.echo(f"[{region}] opening https://{domain} in your default browser.")
@@ -263,7 +490,7 @@ def _login_region(region: str, browser: str | None, no_open: bool, timeout: floa
     "--browser",
     type=click.Choice(SUPPORTED_BROWSERS),
     default=None,
-    help="Read cookies from this browser only (default: scan all supported browsers)",
+    help="Read cookies from this browser only (default: try the system default browser first, then scan the rest)",
 )
 @click.option("--no-open", is_flag=True, help="Skip opening the browser; just capture cookies")
 @click.option(

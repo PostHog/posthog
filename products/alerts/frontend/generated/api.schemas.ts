@@ -560,6 +560,22 @@ export interface EnsembleDetectorConfigApi {
     type: EnsembleDetectorConfigApiType
 }
 
+export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
+
+export const LLMDetectorConfigApiType = {
+    Llm: 'llm',
+} as const
+
+export interface LLMDetectorConfigApi {
+    /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+    instructions?: string | null
+    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+    threshold?: number | null
+    type: LLMDetectorConfigApiType
+    /** How many recent points the model is shown (default: 90) */
+    window?: number | null
+}
+
 /**
  * Detector configuration types
  */
@@ -577,6 +593,7 @@ export type DetectorConfigApi =
     | LOFDetectorConfigApi
     | OCSVMDetectorConfigApi
     | PCADetectorConfigApi
+    | LLMDetectorConfigApi
 
 /**
  * * `real_time` - real_time
@@ -638,6 +655,11 @@ export interface AlertApi {
     readonly insight_short_id: string
     /** Display name of the insight monitored by this alert. */
     readonly insight_display_name: string
+    /**
+     * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+     * @nullable
+     */
+    readonly llm_detector_available: boolean | null
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -732,6 +754,11 @@ export interface PatchedAlertApi {
     readonly insight_short_id?: string
     /** Display name of the insight monitored by this alert. */
     readonly insight_display_name?: string
+    /**
+     * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+     * @nullable
+     */
+    readonly llm_detector_available?: boolean | null
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -910,7 +937,7 @@ export interface AlertSimulateResponseApi {
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Anomaly score for each point (null if insufficient data). */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]

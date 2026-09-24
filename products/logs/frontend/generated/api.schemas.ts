@@ -1359,16 +1359,16 @@ export interface LogsSeriesBandBucketApi {
     /** Log count observed in this bucket. */
     observed: number
     /**
-     * Lower edge of the expected band. Null while no validated band is available for this series.
+     * Lower edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.
      * @nullable
      */
     lower: number | null
     /**
-     * Upper edge of the expected band. Null while no validated band is available for this series.
+     * Upper edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.
      * @nullable
      */
     upper: number | null
-    /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+    /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready. An out-of-range bucket is not a confirmed incident or an alert.
      *
      * * `above` - Above the band
      * * `below` - Below the band */
@@ -1384,12 +1384,12 @@ export interface LogsSeriesBandSeriesApi {
     severity: string
     /** Total observed log count over the window. Series are ordered by this, descending. */
     total_count: number
-    /** Full weeks of history behind the band, 0 to 5. History depth alone does not enable a band; a validated readiness policy is also required. */
+    /** Full weeks of history behind the band, 0 to 5. Four complete weeks are required: at least two for fitting and two separate weeks for calibration. */
     baseline_weeks: number
     /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
     history_start: string
     /**
-     * When this series gains its band under a validated readiness policy. Null when the band is ready or no validated readiness date is available. Check the buckets' lower and upper values to determine whether a band is present.
+     * Earliest end of a rolling window of this length with four complete preceding weeks. Null when the band is ready. A fixed historical window does not gain history by waiting. Check the buckets' lower and upper values to determine whether a band is present.
      * @nullable
      */
     band_ready_at: string | null

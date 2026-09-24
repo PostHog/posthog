@@ -1,5 +1,7 @@
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { stripInjectedBlocks } from "@posthog/core/editor/injectedBlocks";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
+import type { SpacePullRequest } from "@posthog/ui/features/canvas/components/work/useSpacePullRequests";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 
 const incompleteContextBlock =
@@ -16,16 +18,65 @@ export function stripContextBlocks(text: string): string {
 // tagged with the timestamp used to interleave them.
 export type FeedEntry =
   | { kind: "task"; id: string; createdAt: string; task: Task }
+  | {
+      kind: "canvas";
+      id: string;
+      createdAt: string;
+      canvas: DashboardRecord;
+    }
   | { kind: "report"; id: string; createdAt: string; report: SignalReport }
+  | {
+      kind: "pr";
+      id: string;
+      createdAt: string;
+      pullRequest: SpacePullRequest;
+    }
   | {
       kind: "system";
       id: string;
       createdAt: string;
       message: ChannelFeedSystemMessage;
-    };
+    }
+  | { kind: "pending"; id: string; createdAt: string; prompt: string };
 
 /** Which entry kinds the feed shows. Sessions cover tasks and their system rows. */
 export type FeedKindFilter = "all" | "sessions" | "reports";
+
+export type SpaceActivityType = "task" | "canvas" | "report" | "pr";
+
+export const ALL_SPACE_ACTIVITY_TYPES: readonly SpaceActivityType[] = [
+  "task",
+  "canvas",
+  "report",
+  "pr",
+];
+
+export function feedEntryMatchesTypes(
+  entry: FeedEntry,
+  types: readonly SpaceActivityType[],
+): boolean {
+  if (entry.kind === "system" || entry.kind === "pending") {
+    return types.includes("task");
+  }
+  return types.includes(entry.kind);
+}
+
+export function entryKey(entry: FeedEntry): string | null {
+  if (entry.kind === "task") return `task:${entry.task.id}`;
+  if (entry.kind === "canvas") return `canvas:${entry.canvas.id}`;
+  return null;
+}
+
+export function keepFilteredEntries(
+  entries: readonly FeedEntry[],
+  allowedKeys: ReadonlySet<string> | null,
+): readonly FeedEntry[] {
+  if (!allowedKeys) return entries;
+  return entries.filter((entry) => {
+    const key = entryKey(entry);
+    return key === null || allowedKeys.has(key);
+  });
+}
 
 export function feedEntryMatchesKind(
   entry: FeedEntry,
@@ -45,6 +96,8 @@ export function mergeFeedEntries(
   tasks: Task[],
   systemMessages: ChannelFeedSystemMessage[],
   reports: SignalReport[] = [],
+  canvases: readonly DashboardRecord[] = [],
+  pullRequests: readonly SpacePullRequest[] = [],
 ): FeedEntry[] {
   const merged: FeedEntry[] = [
     ...tasks.map((task) => ({
@@ -58,6 +111,18 @@ export function mergeFeedEntries(
       id: report.id,
       createdAt: report.created_at,
       report,
+    })),
+    ...canvases.map((canvas) => ({
+      kind: "canvas" as const,
+      id: `canvas:${canvas.id}`,
+      createdAt: new Date(canvas.createdAt).toISOString(),
+      canvas,
+    })),
+    ...pullRequests.map((pullRequest) => ({
+      kind: "pr" as const,
+      id: `pr:${pullRequest.url}`,
+      createdAt: pullRequest.task.updated_at,
+      pullRequest,
     })),
     ...systemMessages.map((message) => ({
       kind: "system" as const,
@@ -78,4 +143,47 @@ export function mergeFeedEntries(
             : 0),
   );
   return merged;
+}
+
+export interface FeedSection {
+  key: string;
+  label: string | null;
+  entries: FeedEntry[];
+}
+
+export function buildFeedSections(
+  entries: readonly FeedEntry[],
+  {
+    labelOf,
+    keyOf,
+  }: {
+    labelOf: (entry: FeedEntry) => string | null;
+    keyOf?: (entry: FeedEntry) => string;
+  },
+): FeedSection[] {
+  const sections: FeedSection[] = [];
+  const byKey = new Map<string, FeedSection>();
+  for (const entry of entries) {
+    const label = labelOf(entry);
+    if (label === null) {
+      const open = sections[0];
+      if (open && open.label === null) {
+        open.entries.push(entry);
+        continue;
+      }
+      const section = { key: "all", label: null, entries: [entry] };
+      sections.push(section);
+      continue;
+    }
+    const key = keyOf ? keyOf(entry) : label;
+    const open = byKey.get(key);
+    if (open) {
+      open.entries.push(entry);
+      continue;
+    }
+    const section = { key, label, entries: [entry] };
+    byKey.set(key, section);
+    sections.push(section);
+  }
+  return sections;
 }

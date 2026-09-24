@@ -10,7 +10,12 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCostLineParts, scoutCostWindowLabel } from '../../../utils/scoutCosts'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutGroupKey, scoutGroup } from '../../../utils/scoutGroups'
-import { filedOrAddedLabel, ScoutRollup, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import {
+    filedOrAddedLabel,
+    runStripEmptyLabel,
+    ScoutRollup,
+    SCOUT_RUNS_PER_SCOUT_LABEL,
+} from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
@@ -54,7 +59,7 @@ export function ScoutHealthStrip({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { scoutRunCosts, scoutCostRollups, expensiveRunCostThreshold, scoutRunsLoadedOnce } =
+    const { scoutRunCosts, scoutCostRollups, expensiveRunCostThreshold, scoutRunsLoadedOnce, scoutRunsCoverFleet } =
         useValues(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
@@ -111,8 +116,14 @@ export function ScoutHealthStrip({
                     </>
                 ) : (
                     // Until the runs request has landed once, an empty rollup means "not loaded",
-                    // not "never ran"; the poll retries a failed load on its own.
-                    <span className="text-muted">{scoutRunsLoadedOnce ? 'No runs yet' : '…'}</span>
+                    // not "never ran"; the poll retries a failed load on its own. Past the fleet the
+                    // response covers it means neither, so the strip says so instead of guessing.
+                    <span className="text-muted">
+                        {runStripEmptyLabel({
+                            loadedOnce: scoutRunsLoadedOnce,
+                            coversFleet: scoutRunsCoverFleet,
+                        })}
+                    </span>
                 )}
             </Segment>
 

@@ -13,7 +13,7 @@ class TestDispatchBatchExportFailureRealtime(BaseTest):
     @patch("products.batch_exports.backend.temporal.batch_exports.create_notification")
     def test_dispatches_for_failed_batch_export_run(self, mock_create_notification: MagicMock) -> None:
         destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_bucket"}
         )
         batch_export = BatchExport.objects.create(team=self.team, name="A batch export", destination=destination)
         now = dt.datetime.now()
@@ -39,7 +39,7 @@ class TestDispatchBatchExportFailureRealtime(BaseTest):
     )
     def test_swallows_per_recipient_exceptions(self, mock_create: MagicMock) -> None:
         destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_bucket"}
         )
         batch_export = BatchExport.objects.create(team=self.team, name="A batch export", destination=destination)
         now = dt.datetime.now()

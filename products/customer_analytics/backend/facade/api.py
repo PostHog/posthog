@@ -254,7 +254,7 @@ def _get_account_search_q(team_id: int, query: str, user_access_control: "UserAc
 
 
 def _account_tags(account: Account) -> list[str]:
-    return sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
+    return sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True))
 
 
 def _account_notes(account: Account) -> list[contracts.AccountNote]:
@@ -1347,15 +1347,19 @@ def list_custom_property_definitions(
     *,
     user_access_control: "UserAccessControl",
     exclude_group_targets: bool = False,
+    target_type: str | None = None,
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
     ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
     metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
-    without ``group`` read authorization."""
+    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
+    that wants a single target doesn't page over every definition to find it."""
     queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
+    if target_type is not None:
+        queryset = queryset.filter(target_type=target_type)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     workflow_references = _custom_property_references_by_definition_id(team_id)
@@ -3088,8 +3092,9 @@ def _apply_account_table_sort(
             queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
     elif sort.kind == contracts.AccountTableSortKind.TAGS:
         tag_values = (
-            TaggedItem.objects.filter(account_id=OuterRef("pk"), tag__team_id=team_id)
-            .values("account_id")
+            TaggedItem.objects.matching_outer(Account)
+            .filter(tag__team_id=team_id)
+            .values("object_uuid")
             .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
             .values("value")
         )
@@ -3296,9 +3301,9 @@ def query_accounts_table(
     tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
     if selection.include_tags:
         for account_id, tag_name in (
-            TaggedItem.objects.filter(account_id__in=account_ids)
+            TaggedItem.objects.for_objects(Account, account_ids)
             .order_by("tag__name")
-            .values_list("account_id", "tag__name")
+            .values_list("object_uuid", "tag__name")
         ):
             tags_by_account[account_id].append(tag_name)
 

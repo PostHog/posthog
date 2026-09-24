@@ -73,6 +73,11 @@ _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "string is spelled correctly."
 )
 
+_MONGO_SERVER_TOO_OLD_MESSAGE = (
+    "This MongoDB server runs a version PostHog no longer supports. Upgrade the cluster to "
+    "MongoDB 4.2 or newer, then try again."
+)
+
 # pymongo drops a server from the topology when its replica set name differs from the one the
 # connection string asks for, so the cluster the user named is never selectable. The name has to be
 # corrected before any sync can run.
@@ -137,6 +142,11 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, _DNS_TEMPORARY_
 # a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
 _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 
+# pymongo raises ConfigurationError from server selection when every server's wire version is
+# below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
+# address and version numbers; this fragment stays fixed.
+_SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -148,6 +158,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
             "The DNS query name does not exist": None,
+            _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -255,6 +266,18 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # paused" above, not a persistently unreachable cluster: it carries a host and configured
         # timeouts but no "Topology Description:" dump, and the next connection attempt (this one,
         # or a fresh one on the activity's Temporal retry) succeeds once the network recovers.
+        #
+        # pymongo wraps a bare ConnectionResetError in AutoReconnect the same way, when a socket a
+        # cursor is reading from gets an RST mid-sync (a load balancer or the server ending an idle
+        # connection) rather than timing out. Same recovery path as the timeout case above.
+        #
+        # OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout) fires when a
+        # getMore is killed by a cluster-enforced execution-time cap we never configure ourselves
+        # (mongo.py's _EXECUTION_TIMEOUT_ERROR_CODE) — notably Atlas free/shared/flex tiers. mongo.py
+        # already resumes from last_id when this happens mid-stream, and only re-raises when a
+        # getMore was killed before yielding anything (resuming immediately would hit the same cap
+        # in a tight loop). A fresh Temporal retry isn't bound by that same in-flight time budget, so
+        # it is self-recovering and must not flood error tracking on every no-progress getMore.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
@@ -262,6 +285,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "interrupted at shutdown",
             "Topology Description:",
             "timed out (configured timeouts:",
+            "Connection reset by peer",
+            "operation exceeded time limit",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -401,6 +426,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             message = str(e)
             if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if _SERVER_TOO_OLD_MARKER in message:
+                return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
             capture_exception(e)

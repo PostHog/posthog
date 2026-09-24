@@ -3,7 +3,8 @@
 from enum import Enum
 from uuid import uuid4
 
-from django.core.cache import cache
+from django.core.cache import caches
+from django.core.cache.backends.base import BaseCache
 
 import structlog
 
@@ -11,6 +12,11 @@ from posthog.dataclasses import frozen
 from posthog.ingress.dispatch.budget import delivery_budget_seconds
 
 logger = structlog.get_logger(__name__)
+
+# A cache alias with one client on the Redis primary. The default alias is replica aware when
+# REDIS_READER_URL is set, and the fence in `release()` needs the read and the delete to see the
+# same Redis.
+INGRESS_DEDUP_CACHE_ALIAS = "ingress_dedup"
 
 DELIVERY_DEDUP_TTL_SECONDS = 24 * 60 * 60
 
@@ -34,23 +40,6 @@ def _holder_key(key: str) -> str:
     worker can still fail.
     """
     return f"{key}:holder"
-
-
-def _read_lease(key: str, holder_key: str) -> dict[str, object]:
-    """Read the mark and its holder token together, from the cache's primary.
-
-    The default cache is django_redis, which is replica aware when REDIS_READER_URL is set: it
-    serves a read from a replica and sends a delete to the primary. A fence that reads a replica
-    can act on a token the primary already replaced, and then `release()` deletes a mark this run
-    does not hold. Ask the write client so that the read and the delete see the same Redis.
-
-    A backend with no replica-aware client, such as the LocMemCache the tests run on, has a
-    single cache to answer from.
-    """
-    client = getattr(cache, "client", None)
-    if client is None or not hasattr(client, "get_client"):
-        return cache.get_many([key, holder_key])
-    return client.get_many([key, holder_key], client=client.get_client(write=True))
 
 
 def delivery_claim_lease_seconds() -> float:
@@ -112,19 +101,21 @@ class DeliveryDedup:
     def key(*, provider: str, consumer: str, delivery_id: str) -> str:
         return f"webhook_delivery:{provider}:{consumer}:{delivery_id}"
 
+    @property
+    def cache(self) -> BaseCache:
+        """Looked up per call, so overriding CACHES in a test reaches this."""
+        return caches[INGRESS_DEDUP_CACHE_ALIAS]
+
     def claim(self, *, provider: str, consumer: str, delivery_id: str) -> DeliveryClaimResult:
         """Take the mark for this consumer, or say what state the holder left it in.
 
         Fail-open on a cache error: dropping deliveries during a cache outage is worse than
         running a consumer twice, and consumers carry their own idempotency.
-
-        The follow-up read can be served by a replica, unlike the fenced read in `release()`. A
-        stale value there answers in progress where the mark is free, which costs the delivery one
-        redelivery and never a receipt the work did not earn.
         """
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
         token = uuid4().hex
         lease_seconds = delivery_claim_lease_seconds()
+        cache = self.cache
         try:
             for _ in range(2):
                 if cache.add(key, _IN_PROGRESS, timeout=lease_seconds):
@@ -171,7 +162,7 @@ class DeliveryDedup:
         mark of a run that outlived its lease, and let the provider redeliver finished work.
         """
         try:
-            cache.set(
+            self.cache.set(
                 self.key(provider=provider, consumer=consumer, delivery_id=delivery_id),
                 _DONE,
                 timeout=DELIVERY_DEDUP_TTL_SECONDS,
@@ -207,8 +198,9 @@ class DeliveryDedup:
             return
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
         holder_key = _holder_key(key)
+        cache = self.cache
         try:
-            held = _read_lease(key, holder_key)
+            held = cache.get_many([key, holder_key])
             if held.get(holder_key) != token or held.get(key) != _IN_PROGRESS:
                 return
             cache.delete_many([key, holder_key])

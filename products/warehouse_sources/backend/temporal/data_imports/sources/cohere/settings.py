@@ -3,11 +3,11 @@ from enum import Enum
 
 
 class CoherePagination(Enum):
-    # ?limit=&offset= — used by /datasets and /connectors. Terminate when a page returns
-    # fewer rows than the page size.
+    # ?limit=&offset= — used by /datasets. Terminate when a page returns fewer rows than the
+    # page size.
     OFFSET = "offset"
-    # ?page_size=&page_token= with a next_page_token in the body — used by /models and
-    # /finetuning/finetuned-models. Terminate when the response omits the token.
+    # ?page_size=&page_token= with a next_page_token in the body — used by /models. Terminate
+    # when the response omits the token.
     PAGE_TOKEN = "page_token"
     # Single unpaginated request returning every row — used by /embed-jobs.
     NONE = "none"
@@ -39,12 +39,6 @@ COHERE_ENDPOINTS: dict[str, CohereEndpointConfig] = {
         data_key="datasets",
         pagination=CoherePagination.OFFSET,
     ),
-    "connectors": CohereEndpointConfig(
-        name="connectors",
-        path="/connectors",
-        data_key="connectors",
-        pagination=CoherePagination.OFFSET,
-    ),
     # The model catalog has no per-model creation timestamp, so it can't be partitioned by one.
     "models": CohereEndpointConfig(
         name="models",
@@ -55,18 +49,29 @@ COHERE_ENDPOINTS: dict[str, CohereEndpointConfig] = {
         partition_key=None,
         page_size=1000,  # /models caps page_size at 1000
     ),
-    "finetuned_models": CohereEndpointConfig(
-        name="finetuned_models",
-        path="/finetuning/finetuned-models",
-        data_key="finetuned_models",
-        pagination=CoherePagination.PAGE_TOKEN,
-    ),
     "embed_jobs": CohereEndpointConfig(
         name="embed_jobs",
         path="/embed-jobs",
         data_key="embed_jobs",
         pagination=CoherePagination.NONE,
         primary_keys=["job_id"],
+    ),
+}
+
+# Tables whose Cohere endpoint no longer exists. Dropping the name from COHERE_ENDPOINTS is what
+# retires the table: schema discovery stops listing it, which disables syncing and leaves any
+# already-imported rows in place. The reason lives here so a job that starts before the next
+# discovery run explains itself rather than raising a KeyError.
+# https://docs.cohere.com/docs/deprecations — the 2025-09-15 announcement retires connectors and
+# all of fine-tuning across both the dashboard and the API. Both paths now answer 404.
+RETIRED_ENDPOINTS: dict[str, str] = {
+    "connectors": (
+        "Cohere retired its connectors API on September 15, 2025, so the connectors table can't "
+        "sync any more. Turn off syncing for this table."
+    ),
+    "finetuned_models": (
+        "Cohere retired fine-tuning on September 15, 2025, so the finetuned models table can't "
+        "sync any more. Turn off syncing for this table."
     ),
 }
 

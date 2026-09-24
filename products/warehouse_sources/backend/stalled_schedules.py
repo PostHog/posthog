@@ -17,8 +17,9 @@ periodic sweep that reports them and the management command that repairs them.
 
 from datetime import timedelta
 
-from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, QuerySet, Value
-from django.db.models.functions import Coalesce, Greatest
+from django.db.models import Case, DateTimeField, DurationField, ExpressionWrapper, F, QuerySet, Value, When
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce, Greatest
 from django.utils import timezone
 
 import structlog
@@ -52,6 +53,11 @@ SELF_REPORTING_STATUSES = (
     ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
     ExternalDataSchema.Status.PAUSED,
 )
+
+# `last_full_run_at` is free-form JSON. Postgres raises on a cast it cannot parse and reads a naive
+# stamp in the session zone, so only an ISO stamp with an offset is cast, as in
+# `ExternalDataSchema.last_full_run`.
+_AWARE_ISO_TIMESTAMP = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z)$"
 
 # Replaces the stale Running status on a repaired schema. The row keeps a visible record of the
 # gap, and the schema's own next tick clears it.
@@ -133,12 +139,25 @@ def stalled_schema_queryset(
     missed_intervals: int = DEFAULT_MISSED_INTERVALS,
     min_stall: timedelta = DEFAULT_MIN_STALL,
 ) -> QuerySet[ExternalDataSchema]:
-    """Schemas whose last successful sync is older than their own cadence allows.
+    """Schemas whose last run is older than their own cadence allows.
 
     The window scales with `sync_frequency_interval` because a fixed one cannot serve both a
     five-minute schema and a daily one. A daily schema therefore needs days of silence to
     qualify, which is the cost of not flagging every schema that merely ran slowly.
+
+    The window runs from the later of `last_synced_at` and `last_full_run_at`, because a run
+    that imports nothing advances only the second (see `ExternalDataSchema.last_run_at`).
     """
+    # NULL for a missing or unusable stamp. Postgres GREATEST skips NULLs, so `latest_run_at` then
+    # falls back to `last_synced_at`.
+    last_full_run = Case(
+        When(
+            sync_type_config__last_full_run_at__regex=_AWARE_ISO_TIMESTAMP,
+            then=Cast(KeyTextTransform("last_full_run_at", "sync_type_config"), DateTimeField()),
+        ),
+        default=None,
+        output_field=DateTimeField(),
+    )
     stall_window = ExpressionWrapper(
         Greatest(
             Coalesce(F("sync_frequency_interval"), Value(FALLBACK_SYNC_INTERVAL)) * missed_intervals,
@@ -166,9 +185,10 @@ def stalled_schema_queryset(
         # key evaluates to SQL NULL, and `.exclude()` compiles to `NOT (...)` — NOT NULL is NULL,
         # not TRUE, so Postgres drops the row from the result entirely instead of keeping it.
         # That silently wipes out every schema without the key, not just the ones carrying it.
+        .annotate(latest_run_at=Greatest(F("last_synced_at"), last_full_run, output_field=DateTimeField()))
         .annotate(
             stalled_after=ExpressionWrapper(
-                F("last_synced_at") + stall_window,
+                F("latest_run_at") + stall_window,
                 output_field=DateTimeField(),
             )
         )
@@ -190,7 +210,7 @@ def find_stalled_schemas(
     if source_type is not None:
         queryset = queryset.filter(source__source_type__iexact=source_type)
 
-    queryset = queryset.select_related("source").order_by("last_synced_at")
+    queryset = queryset.select_related("source").order_by("latest_run_at")
     if limit is not None:
         queryset = queryset[:limit]
 
@@ -210,10 +230,6 @@ def find_stalled_schemas(
     now = timezone.now()
     stalled = []
     for schema in schemas:
-        # The queryset already excludes a null stamp. The check is here because the column is
-        # nullable, so the subtraction below has no other way to know.
-        if schema.last_synced_at is None:
-            continue
         # Streaming CDC and cdc_halted are excluded here rather than in the queryset (see the
         # comment there): a paused per-schema schedule is streaming CDC's steady state, and
         # cdc_halted exists precisely to keep everything else off the schedule until repair_cdc
@@ -232,7 +248,7 @@ def find_stalled_schemas(
                 source_id=str(schema.source_id),
                 source_type=schema.source.source_type,
                 kind="stuck_job" if schema.id in schemas_with_running_jobs else "no_runs",
-                stalled_for=now - schema.last_synced_at,
+                stalled_for=now - schema.latest_run_at,  # type: ignore[attr-defined]
                 cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
                 admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
                 has_sync_interval=schema.sync_frequency_interval is not None,

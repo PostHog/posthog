@@ -1,16 +1,32 @@
-import { LogicWrapper, MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiConfig, ApiError } from 'lib/api'
+import { ApiError } from 'lib/api'
 
-import { apiErrorDetail } from './checksApi'
-import * as api from './generated/api'
+import { DataQualitySubjectRef, apiErrorDetail, checksApi } from './checksApi'
 import type { DataQualityCheckScheduleApi, PatchedDataQualityCheckScheduleUpdateApi } from './generated/api.schemas'
 
 const SCHEDULE_REFRESH_INTERVAL_MS = 30_000
 
-export interface DataQualityScheduleLogicProps {
-    metricId: string
+export interface DataQualityScheduleLogicProps extends DataQualitySubjectRef {
+    initialSchedule?: DataQualityCheckScheduleApi | null
+    poll?: boolean
+}
+
+function surfaceStillLoading(initialSchedule: DataQualityCheckScheduleApi | null | undefined): boolean {
+    return initialSchedule === null
 }
 
 export interface DataQualityScheduleError {
@@ -85,7 +101,7 @@ export type dataQualityScheduleLogicType = MakeLogicType<
 
 export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType> = kea<dataQualityScheduleLogicType>([
     props({} as DataQualityScheduleLogicProps),
-    key((props) => props.metricId),
+    key((props) => `${props.subjectType}:${props.subjectId}`),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityScheduleLogic', key]),
     actions({
         refreshSchedule: true,
@@ -95,26 +111,16 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
         schedule: [
             null as DataQualityCheckScheduleApi | null,
             {
-                loadSchedule: async () =>
-                    api.dataCatalogMetricsChecksScheduleRetrieve(String(ApiConfig.getCurrentTeamId()), props.metricId),
+                loadSchedule: async () => checksApi.schedule(props),
                 updateSchedule: async (patch: PatchedDataQualityCheckScheduleUpdateApi) => {
                     try {
-                        return await api.dataCatalogMetricsChecksSchedulePartialUpdate(
-                            String(ApiConfig.getCurrentTeamId()),
-                            props.metricId,
-                            patch
-                        )
+                        return await checksApi.updateSchedule(props, patch)
                     } catch (error) {
                         if (isDefinitiveRejection(error)) {
                             throw error
                         }
                         try {
-                            actions.loadScheduleSuccess(
-                                await api.dataCatalogMetricsChecksScheduleRetrieve(
-                                    String(ApiConfig.getCurrentTeamId()),
-                                    props.metricId
-                                )
-                            )
+                            actions.loadScheduleSuccess(await checksApi.schedule(props))
                         } catch {
                             // The edit can have committed even when neither response reaches us.
                         }
@@ -148,10 +154,7 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
             }
             const previousSchedule = values.schedule
             try {
-                const schedule = await api.dataCatalogMetricsChecksScheduleRetrieve(
-                    String(ApiConfig.getCurrentTeamId()),
-                    props.metricId
-                )
+                const schedule = await checksApi.schedule(props)
                 if (!values.scheduleLoading && values.schedule === previousSchedule) {
                     actions.refreshScheduleSuccess(schedule)
                 }
@@ -160,8 +163,24 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
-        actions.loadSchedule()
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (props.initialSchedule && props.initialSchedule !== oldProps.initialSchedule && !values.scheduleLoading) {
+            actions.refreshScheduleSuccess(props.initialSchedule)
+            return
+        }
+        if (surfaceStillLoading(oldProps.initialSchedule) && props.initialSchedule === undefined && !values.schedule) {
+            actions.loadSchedule()
+        }
+    }),
+    afterMount(({ actions, props, cache }) => {
+        if (props.initialSchedule) {
+            actions.refreshScheduleSuccess(props.initialSchedule)
+        } else if (!surfaceStillLoading(props.initialSchedule)) {
+            actions.loadSchedule()
+        }
+        if (props.poll === false) {
+            return
+        }
         cache.disposables.add(() => {
             const refreshTimer = window.setInterval(actions.refreshSchedule, SCHEDULE_REFRESH_INTERVAL_MS)
             return () => window.clearInterval(refreshTimer)

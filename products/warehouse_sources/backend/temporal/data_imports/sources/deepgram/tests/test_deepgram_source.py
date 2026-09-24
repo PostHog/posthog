@@ -38,12 +38,16 @@ class TestDeepgramSourceClass:
     @parameterized.expand(
         [
             ("requests_incremental", "requests", True),
+            ("usage_breakdown_incremental", "usage_breakdown", True),
+            ("billing_breakdown_incremental", "billing_breakdown", True),
             ("members_full_refresh", "members", False),
             ("balances_full_refresh", "balances", False),
             ("projects_full_refresh", "projects", False),
         ]
     )
-    def test_only_requests_supports_incremental(self, _name: str, endpoint: str, incremental: bool) -> None:
+    def test_incremental_support_matches_the_server_side_date_filter(
+        self, _name: str, endpoint: str, incremental: bool
+    ) -> None:
         schema = next(s for s in self.source.get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
         assert schema.supports_incremental is incremental
 
@@ -53,6 +57,9 @@ class TestDeepgramSourceClass:
         schemas = {s.name: s.detected_primary_keys for s in self.source.get_schemas(MagicMock(), team_id=1)}
         assert schemas["members"] == ["project_id", "member_id"]
         assert schemas["requests"] == ["project_id", "request_id"]
+        # An aggregate row is identified by its period plus the slice it covers, never by the period
+        # alone, because a grouped response returns several rows for the same period.
+        assert schemas["usage_breakdown"] == ["project_id", "start", "end", "grouping_key"]
 
     def test_get_schemas_filters_by_name(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["requests"])

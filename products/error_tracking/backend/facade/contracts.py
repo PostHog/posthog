@@ -69,6 +69,25 @@ class ErrorTrackingExternalReference:
     id: UUID
     integration: ErrorTrackingExternalReferenceIntegration
     external_url: str
+    external_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class GitHubExternalReferenceJob:
+    team_id: int
+    installation_id: str
+    repository_full_name: str
+    number: int
+    title: str
+    resource_type: Literal["issue", "pull_request"]
+    actor_login: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
 
 
 @dataclass(frozen=True)

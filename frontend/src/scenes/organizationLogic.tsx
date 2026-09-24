@@ -67,7 +67,6 @@ export type OrganizationUpdatePayload = Partial<
         | 'read_only_mcp_access'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
-        | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
         | 'default_anonymize_ips'

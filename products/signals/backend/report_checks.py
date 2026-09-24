@@ -9,11 +9,13 @@ The soak window is the check's own clock. A fix does not always arrive as a merg
 plenty land in the skills store with nothing to date the window from — so the author says when the
 check runs rather than the system reading it off a merge.
 
-An author who writes the check *before* the fix exists has no date to name at all. The research
-turn is the case: it writes its check while the report is still being authored. Such a check names
-a soak duration instead and is stored `pending`, and the report's own transition to `resolved`
-starts its clock — whatever caused the transition, a merged pull request, a manual resolve, or an
-MCP state write. See ``CheckSpec`` and ``report_check_authoring.arm_pending_checks``.
+A check on a report that has not resolved cannot name a useful date, because the fix it tests is
+not live yet. The research turn is the clearest case: it writes its check while the report is still
+being authored, so it names a soak duration instead. Such a check is stored `pending`, and the
+report's own transition to `resolved` starts its clock — whatever caused the transition, a merged
+pull request, a manual resolve, or an MCP state write. A scout that names a date on an open report
+gets the same treatment, with the gap it left as the soak. See ``CheckSpec`` and
+``report_check_authoring.arm_pending_checks``.
 
 This module stays Django-free and schema-free for the same reason as ``report_metrics``: model and
 Temporal payload modules import it during process setup.

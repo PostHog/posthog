@@ -499,42 +499,46 @@ describe("createPiConversationTranslator", () => {
     ]);
   });
 
-  it("translates compaction lifecycle into generic runtime statuses", () => {
-    const translator = createPiConversationTranslator();
-    translator.translateHistoryMessage(
-      assistant([{ type: "text", text: "complete" }]),
-    );
+  it.each([false, true])(
+    "translates compaction lifecycle into a completed runtime status when aborted is %s",
+    (aborted) => {
+      const translator = createPiConversationTranslator();
+      translator.translateHistoryMessage(
+        assistant([{ type: "text", text: "complete" }]),
+      );
 
-    expect(
-      translator.translateEvent({
-        type: "compaction_start",
-        reason: "manual",
-      }),
-    ).toEqual([
-      {
-        type: "runtime_status",
-        timestamp: 10,
-        status: "compacting",
-      },
-    ]);
+      expect(
+        translator.translateEvent({
+          type: "compaction_start",
+          reason: "manual",
+        }),
+      ).toEqual([
+        {
+          type: "runtime_status",
+          timestamp: 10,
+          status: "compacting",
+        },
+      ]);
 
-    expect(
-      translator.translateEvent({
-        type: "compaction_end",
-        reason: "manual",
-        result: undefined,
-        aborted: false,
-        willRetry: false,
-      }),
-    ).toEqual([
-      {
-        type: "runtime_status",
-        timestamp: 10,
-        status: "compacting",
-        isComplete: true,
-      },
-    ]);
-  });
+      expect(
+        translator.translateEvent({
+          type: "compaction_end",
+          reason: "manual",
+          result: undefined,
+          aborted,
+          willRetry: false,
+          ...(aborted ? { errorMessage: "Compaction cancelled" } : {}),
+        }),
+      ).toEqual([
+        {
+          type: "runtime_status",
+          timestamp: 10,
+          status: "compacting",
+          isComplete: true,
+        },
+      ]);
+    },
+  );
 
   it("emits the completed compaction summary without reloading history", () => {
     const translator = createPiConversationTranslator();

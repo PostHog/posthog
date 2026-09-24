@@ -10,13 +10,14 @@ import structlog
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import ScopedRateThrottle
 
+from posthog.exceptions_capture import capture_exception
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.forward import forward_to_secondary_region
+from posthog.ingress.dispatch.forward import forward_to_other_region
 from posthog.ingress.dispatch.loading import get_dispatcher
 from posthog.ingress.observability.metrics import observe_delivery
 from posthog.ingress.providers import InvalidPayload, WebhookProvider
 from posthog.ingress.verify.schemes import VerificationOutcome
-from posthog.regions import is_primary_region
+from posthog.regions import other_region_domain
 
 logger = structlog.get_logger(__name__)
 
@@ -91,7 +92,16 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
 
         verification = provider.verify(request)
         if verification.outcome is VerificationOutcome.NOT_CONFIGURED:
-            logger.error("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
+            # An incarnation that answers a 4xx may stay off until an operator configures it, and its
+            # URL is public meanwhile, so what reaches this line is probe traffic. A warning still
+            # reaches an operator, and at error level an anonymous prober would decide how much of
+            # the error budget this endpoint spends.
+            log = logger.warning if provider.unconfigured_status < 500 else logger.error
+            log("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
+            if provider.reports_unconfigured:
+                capture_exception(
+                    Exception(f"Inbound webhook {provider.provider}/{provider.app} has no secret configured")
+                )
             observe_delivery(provider=provider.provider, app=provider.app, outcome="not_configured")
             reason = "Webhook not configured" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.unconfigured_status)
@@ -107,12 +117,7 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             reason = "Invalid signature" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.invalid_signature_status)
 
-        # Parse after verification, and keep that order: a provider that reads a form body
-        # overrides `parse` and reads `request.POST`, and under ASGI that read consumes the
-        # stream, so `request.body` is no longer available to the signature check afterwards.
-        try:
-            payload = provider.parse(request)
-        except InvalidPayload as error:
+        def refuse_payload(error: InvalidPayload) -> HttpResponse:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="invalid_payload")
             logger.warning(
                 "ingress_delivery_invalid_payload",
@@ -122,13 +127,27 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             )
             return HttpResponse("Invalid JSON", status=400)
 
+        # Parse after verification, and keep that order: a provider that reads a form body
+        # overrides `parse` and reads `request.POST`, and under ASGI that read consumes the
+        # stream, so `request.body` is no longer available to the signature check afterwards.
+        try:
+            payload = provider.parse(request)
+        except InvalidPayload as error:
+            return refuse_payload(error)
+
         handshake = provider.pre_dispatch_response(request, payload)
         if handshake is not None:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="accepted")
             return handshake
 
         dispatcher = get_dispatcher()
-        deliveries = provider.deliveries(request, payload, verification.facts)
+        # `deliveries` refuses a body the same way `parse` does, because a provider can only
+        # hold the body to the verified claims once it has both. Teams does: an activity whose
+        # `serviceUrl` the token did not sign never becomes a delivery.
+        try:
+            deliveries = provider.deliveries(request, payload, verification.facts)
+        except InvalidPayload as error:
+            return refuse_payload(error)
         # One budget for the whole request, not one per delivery: PandaDoc turns a batched body
         # into many deliveries, and a budget each would hold the request open for the sum. It
         # starts before the ownership lookups, which read the database and forward on the same
@@ -151,10 +170,11 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             return _retry_refusal(provider, list(unanswered))
 
         if elsewhere:
-            if is_primary_region(request):
+            if request.get_host() == provider.receiving_region_domain():
                 # Once for the request, not once per delivery: what is replayed is the signed body.
-                forwarded = forward_to_secondary_region(
+                forwarded = forward_to_other_region(
                     request,
+                    target_domain=other_region_domain(provider.receiving_region_domain()),
                     provider=provider.provider,
                     app=provider.app,
                     timeout=provider.forward_timeout_seconds,
@@ -162,13 +182,24 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
                 if not forwarded and provider.retry_status is not None:
                     observe_delivery(provider=provider.provider, app=provider.app, outcome="forward_failed")
                     return HttpResponse(status=provider.retry_status)
-            else:
-                # A local miss on the secondary region is that consumer's unresolved routing, not
-                # proof that no region owns the delivery.
+            elif request.get_host() == other_region_domain(provider.receiving_region_domain()):
+                # This region is the one deliveries are forwarded to, so a local miss here is that
+                # consumer's unresolved routing, not proof that no region owns the delivery.
                 logger.warning(
                     "ingress_delivery_unowned_here",
                     provider=provider.provider,
                     app=provider.app,
+                    consumers=list(elsewhere),
+                )
+            else:
+                # Neither region answers on this host, so the forward is skipped and the delivery is
+                # receipted here whatever the consumer said. The likely cause is a callback URL
+                # registered against a hostname no region names, and nothing else reports it.
+                logger.warning(
+                    "ingress_delivery_host_matches_no_region",
+                    provider=provider.provider,
+                    app=provider.app,
+                    host=request.get_host(),
                     consumers=list(elsewhere),
                 )
 

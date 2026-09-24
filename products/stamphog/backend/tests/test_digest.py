@@ -12,14 +12,14 @@ from django.db.models import QuerySet
 from django.test import override_settings
 from django.utils import timezone
 
+from owners_yaml.schema import TeamEntry
 from parameterized import parameterized
-from posthog_owners.schema import TeamEntry
 from slack_sdk.errors import SlackApiError
 from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
-from posthog.team_notifications.slack import SlackChannel
+from posthog.slack.channels import SlackChannel
 
 from products.stamphog.backend.facade.enums import AudienceReason, ChannelResolutionSource, DigestRunStatus
 from products.stamphog.backend.logic.audiences import REPO_AUDIENCE_PREFIX

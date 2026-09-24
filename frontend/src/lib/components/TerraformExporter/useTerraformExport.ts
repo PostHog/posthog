@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { DashboardType, HogFunctionType, InsightModel } from '~/types'
 
 import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNotifications'
 import { AlertType } from 'products/alerts/frontend/types'
@@ -17,7 +17,7 @@ export type TerraformExportResult = DashboardExportResult | InsightExportResult
 
 export type TerraformExportResource =
     | { type: 'insight'; data: Partial<InsightModel> }
-    | { type: 'dashboard'; data: DashboardType<QueryBasedInsightModel> }
+    | { type: 'dashboard'; data: DashboardType }
 
 export interface TerraformExportState {
     loading: boolean
@@ -123,7 +123,7 @@ async function exportInsight(
 }
 
 async function exportDashboard(
-    dashboard: DashboardType<QueryBasedInsightModel>,
+    dashboard: DashboardType,
     checkStale: () => boolean,
     projectId: number
 ): Promise<DashboardExportResult> {
