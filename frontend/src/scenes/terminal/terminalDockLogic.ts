@@ -50,6 +50,10 @@ export type terminalDockLogicType = MakeLogicType<
     terminalDockLogicMeta
 >
 
+function isTerminalPage(): boolean {
+    return removeProjectIdIfPresent(router.values.location.pathname) === '/terminal'
+}
+
 export const terminalDockLogic = kea<terminalDockLogicType>([
     path(['scenes', 'terminal', 'terminalDockLogic']),
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
@@ -76,11 +80,15 @@ export const terminalDockLogic = kea<terminalDockLogicType>([
             if (!values.terminalEnabled) {
                 return
             }
+            // The full-page terminal hides the dock, so opening it there makes it appear on the next page.
+            if (!values.dockOpen && !isTerminalPage()) {
+                actions.setDockOpen(true)
+            }
+            // Opening the dock follows the current page's folder, so the folder request must come after it.
             actions.setRequestedFolder(folder)
-            actions.setDockOpen(true)
             // Menus restore focus to their trigger when they close.
             await breakpoint(100)
-            if (values.terminalEnabled && values.dockOpen) {
+            if (values.terminalEnabled && (values.dockOpen || isTerminalPage())) {
                 actions.focusTerminal()
             }
         },
