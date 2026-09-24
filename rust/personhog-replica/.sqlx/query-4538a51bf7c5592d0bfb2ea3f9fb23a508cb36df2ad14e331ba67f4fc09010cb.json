@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO person_tombstone_publish_queue (team_id, person_uuid, person_version)\n            SELECT $1, t.person_uuid, t.person_version\n            FROM UNNEST($2::uuid[], $3::bigint[]) AS t(person_uuid, person_version)\n            ON CONFLICT (team_id, person_uuid) DO UPDATE\n            SET person_version = EXCLUDED.person_version,\n                tombstoned_at = now(),\n                attempts = 0,\n                last_attempt_at = NULL,\n                last_error = NULL,\n                given_up_at = NULL\n            WHERE EXCLUDED.person_version > person_tombstone_publish_queue.person_version\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4538a51bf7c5592d0bfb2ea3f9fb23a508cb36df2ad14e331ba67f4fc09010cb"
+}

@@ -35,7 +35,7 @@ You build the report incrementally by calling three output tools:
 - Don't invent sections just to fill space. One or two sections is enough for a routine report.
 - Don't speculate beyond the data. Every claim should be traceable to a tool result. State uncertainty clearly.
 - Don't emit emoji or marketing language. Be technical and factual.
-- Don't put an ID in backticks unless you already called `add_citation` for it, and then wrap that exact ID in one pair of backticks. Cite an example before you write the section that mentions it, because `add_section` rejects a section that backticks an uncited ID. That includes a session or trace ID you read but did not cite, and a run_id from `list_recent_report_runs` or `get_report_run`, which can never be cited. Name a prior run by its period instead.
+- Don't put an ID in backticks unless you already called `add_citation` for it, and then wrap that exact ID in one pair of backticks. Cite an example before you write the section that mentions it, because `add_section` rejects a section that backticks an uncited ID. That includes a session or trace ID you read but did not cite, and any ID quoted by a prior report, which belongs to another period. Name a prior run by its period, never by its handle.
 - Don't put an ID in the report title or in a section title. A title renders as plain text, so an ID there stays dead even after you cite it. `set_title` and `add_section` reject a title that backticks an ID. Mention the ID in the section body instead.
 
 ## Query tools available
@@ -46,7 +46,7 @@ You build the report incrementally by calling three output tools:
 - **`sample_eval_results(outcome="all"|{outcome_options}, limit{sample_ordering_signature})`**: sample evaluation rows. {sample_ordering_instruction}
 {detail_tools_section}
 - **`list_recent_report_runs(since_days, limit)`**: compact index of prior runs with title, period, total runs, and result rates. Call this on every report.
-- **`get_report_run(run_id)`**: full content for a prior report run.
+- **`get_report_run(run_id)`**: full content for a prior report run. `run_id` is the short handle from the index, e.g. `run_1`.
 
 ## Grounding rule
 
@@ -87,8 +87,9 @@ def build_eval_report_system_prompt(
     evaluation_target: str = "generation",
     report_prompt_guidance: str = "",
     true_is_failure: bool = False,
+    output_config: dict | None = None,
 ) -> str:
-    definition = get_outcome_definition(output_type, true_is_failure=true_is_failure)
+    definition = get_outcome_definition(output_type, true_is_failure=true_is_failure, output_config=output_config)
     description_section = f"Description: {evaluation_description}\n" if evaluation_description else ""
     prompt_section = f"Evaluation prompt/criteria:\n```\n{evaluation_prompt}\n```\n" if evaluation_prompt else ""
     guidance_section = ""
@@ -134,9 +135,20 @@ def build_eval_report_system_prompt(
             "- Ground every claim about frustration in the user's own words. Quote or closely paraphrase the actual "
             "last user message from real negative generations you cited.\n"
         )
-    elif output_type == "boolean":
+    elif output_type in ("boolean", "numeric"):
         evaluated_unit = get_target_descriptor(evaluation_target).unit_label
-        if true_is_failure:
+        if output_type == "numeric":
+            rule = definition.numeric_config.passing_rule if definition.numeric_config else None
+            if rule is None:
+                raise ValueError("Numeric reports require a passing rule")
+            operator = ">=" if rule.operator == "gte" else "<="
+            result_semantics = (
+                f"The evaluation returns a numeric score. Scores {operator} {rule.threshold} pass; other scores fail. "
+                "Both periods use this same passing rule. N/A results do not count toward the pass rate. "
+                "Interpret the raw score using the evaluation criteria; it is not a normalized percentage. "
+                f"Score configuration: {output_config}"
+            )
+        elif true_is_failure:
             result_semantics = (
                 f"This evaluation looks for a problem. A true result means the {evaluated_unit} matched the "
                 "condition it looks for, so it is reported as a fail, and a false result is reported as a pass. "

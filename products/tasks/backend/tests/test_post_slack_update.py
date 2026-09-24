@@ -151,11 +151,11 @@ class TestPostSlackUpdate(TestCase):
             "Wait for this run's spend limit to reset before replying in the thread."
         )
 
-    @patch.object(SlackThreadHandler, "post_cancelled")
+    @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")
-    def test_cancelled_run_posts_cancelled_message(
-        self, mock_task_run_class, mock_update_reaction, mock_post_cancelled
+    def test_cancelled_run_clears_progress_without_posting(
+        self, mock_task_run_class, mock_update_reaction, mock_delete_progress
     ):
         mock_run = self._make_mock_run(mock_task_run_class.Status.CANCELLED)
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
@@ -163,7 +163,7 @@ class TestPostSlackUpdate(TestCase):
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
         mock_update_reaction.assert_called_once_with("hedgehog")
-        mock_post_cancelled.assert_called_once()
+        mock_delete_progress.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_or_update_progress")
     @patch("products.tasks.backend.models.TaskRun")
@@ -592,7 +592,6 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "post_or_update_progress")
     @patch.object(SlackThreadHandler, "post_error")
-    @patch.object(SlackThreadHandler, "post_cancelled")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")
@@ -601,7 +600,6 @@ class TestPostSlackUpdate(TestCase):
         mock_task_run_class,
         _mock_update_reaction,
         mock_post_pr_opened,
-        mock_post_cancelled,
         mock_post_error,
         mock_post_progress,
         mock_post_completion,
@@ -626,9 +624,6 @@ class TestPostSlackUpdate(TestCase):
 
         failed = self._make_mock_run(mock_task_run_class.Status.FAILED, error_message="boom")
         scenarios.append((failed, mock_post_error))
-
-        cancelled = self._make_mock_run(mock_task_run_class.Status.CANCELLED)
-        scenarios.append((cancelled, mock_post_cancelled))
 
         in_progress = self._make_mock_run(mock_task_run_class.Status.IN_PROGRESS, stage="Building")
         scenarios.append((in_progress, mock_post_progress))
@@ -683,9 +678,6 @@ class TestPostSlackUpdate(TestCase):
         mock_update_reaction,
         mock_post_pr_opened,
     ):
-        # A cancelled run that still produced a PR funnels through the same
-        # single template — the cancellation card only fires when no PR was
-        # opened.
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.CANCELLED,
             output={"pr_url": "https://github.com/org/repo/pull/2"},

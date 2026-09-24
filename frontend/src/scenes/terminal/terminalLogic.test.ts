@@ -7,18 +7,26 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { initKeaTests } from '~/test/init'
 
+import { PosthogFilesystem } from './posthogFilesystem'
+import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
 import { TerminalRuntime } from './terminalRuntime'
 
+const mockFolderFor = jest.fn<Promise<string | null>, []>()
+
 jest.mock('./terminalRuntime', () => ({
     TerminalRuntime: jest.fn().mockImplementation(() => ({
         start: jest.fn(async (_server, _signal, ready) => ready()),
+        write: jest.fn(),
+        displayInput: { release: jest.fn() },
         dispose: jest.fn(),
         resize: jest.fn(),
         syncClock: jest.fn(),
+        changeDirectory: jest.fn(() => true),
         read: jest.fn(() => ''),
     })),
 }))
@@ -27,22 +35,32 @@ jest.mock('./TerminalSession', () => ({
         attach: jest.fn(),
         detach: jest.fn(),
         dispose: jest.fn(),
-        view: { clear: jest.fn(), write: jest.fn(), cols: 80, rows: 24 },
+        view: { clear: jest.fn(), write: jest.fn(), cols: 80, rows: 24, focus: jest.fn() },
     })),
 }))
 jest.mock('./posthogFilesystem', () => ({
-    PosthogFilesystem: jest.fn().mockImplementation(() => ({ load: jest.fn(async () => {}) })),
+    PosthogFilesystem: jest.fn().mockImplementation(() => ({
+        load: jest.fn(async () => {}),
+        folderFor: mockFolderFor,
+        folderPath: (path: string) => '/posthog/files/' + path,
+    })),
 }))
 jest.mock('./posthogCommands', () => ({ PosthogCommands: jest.fn() }))
+jest.mock('./terminalAI', () => ({ TerminalAI: jest.fn() }))
 
 describe('terminal lifecycle', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        mockFolderFor.mockReset().mockResolvedValue(null)
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: true })
+        breadcrumbsLogic.mount()
+        jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue(null)
         terminalLogic.mount()
     })
+
+    afterEach(() => jest.restoreAllMocks())
 
     it('does not boot without the flag and stops an active session on revocation', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
@@ -51,11 +69,32 @@ describe('terminal lifecycle', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: true })
         terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        expect(jest.mocked(PosthogFilesystem).mock.results[0].value.load).not.toHaveBeenCalled()
         const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
         expect(runtime.dispose).toHaveBeenCalledTimes(1)
         expect(window.posthogTerminal).toBeUndefined()
         expect(terminalLogic.values.status).toBe('idle')
+    })
+
+    it('interrupts the foreground program when closing the display but keeps the terminal running', async () => {
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        terminalLogic.actions.setDisplayOpen(true)
+        terminalDockLogic.actions.setDockOpen(false)
+        terminalLogic.actions.setDisplayError('Display error')
+        terminalLogic.actions.closeDisplay()
+        expect(terminalDockLogic.values.dockOpen).toBe(true)
+        expect(terminalLogic.values.displayError).toBeNull()
+        expect(terminalLogic.values.displayOpen).toBe(false)
+        expect(runtime.write).toHaveBeenCalledWith('\x03')
+        expect(runtime.displayInput.release).toHaveBeenCalled()
+        expect(runtime.dispose).not.toHaveBeenCalled()
+        expect(terminalLogic.values.status).toBe('ready')
+        terminalLogic.actions.setDisplayOpen(true)
+        terminalLogic.actions.stop()
+        expect(terminalLogic.values.displayOpen).toBe(false)
     })
 
     it('preserves Stop across reattachment and project changes', async () => {
@@ -68,6 +107,26 @@ describe('terminal lifecycle', () => {
         expect(terminalLogic.values.runRequested).toBe(false)
     })
 
+    it('opens the selected folder on first boot and changes it in an existing terminal', async () => {
+        terminalDockLogic.actions.openInTerminal('Research')
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        expect(runtime.start).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.any(Function),
+            '/posthog/files/Research'
+        )
+        terminalDockLogic.actions.openInTerminal('Research/Reports')
+        await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Research/Reports'))
+        expect(TerminalRuntime).toHaveBeenCalledTimes(1)
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
+        terminalDockLogic.actions.openInTerminal('Hidden')
+        expect(terminalDockLogic.values.dockOpen).toBe(false)
+        expect(terminalDockLogic.values.requestedFolder).toBe(null)
+    })
+
     it('retries a requested start when the project arrives', async () => {
         teamLogic.actions.loadCurrentTeamSuccess(null)
         terminalLogic.actions.attach(document.createElement('div'))
@@ -75,6 +134,50 @@ describe('terminal lifecycle', () => {
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         expect(TerminalRuntime).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        ['lookup', 'request'],
+        ['lookup', 'navigation'],
+        ['boot', 'request'],
+        ['boot', 'navigation'],
+    ])('keeps a newer folder from %s during %s', async (phase, source) => {
+        let resolveFolder!: (folder: string) => void
+        mockFolderFor.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveFolder = resolve
+                })
+        )
+        const projectTreeRef = jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef')
+        projectTreeRef.mockReturnValue({ type: 'folder', ref: 'Original' })
+        terminalDockLogic.actions.setDockOpen(true)
+        terminalLogic.actions.attach(document.createElement('div'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        let ready!: () => void
+        runtime.start.mockImplementationOnce(async (_server: unknown, _signal: AbortSignal, onReady: () => void) => {
+            ready = onReady
+            if (phase === 'lookup') {
+                ready()
+            }
+        })
+        if (phase === 'boot') {
+            resolveFolder('/posthog/files/Original')
+            await waitFor(() => expect(runtime.start).toHaveBeenCalled())
+        }
+        if (source === 'request') {
+            terminalDockLogic.actions.openInTerminal('Latest')
+        } else {
+            projectTreeRef.mockReturnValue({ type: 'folder', ref: 'Latest' })
+            mockFolderFor.mockResolvedValue('/posthog/files/Latest')
+        }
+        if (phase === 'lookup') {
+            resolveFolder('/posthog/files/Original')
+        } else {
+            ready()
+        }
+        await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Latest'))
+        expect(terminalDockLogic.values.requestedFolder).toBeNull()
     })
 
     it('restores the command menu opener after the dialog element disappears', () => {
@@ -94,4 +197,41 @@ describe('terminal lifecycle', () => {
         expect(document.activeElement).toBe(opener)
         opener.remove()
     })
+
+    it.each(['cancel', 'stop', 'project', 'unmount', 'approve'] as const)(
+        'blocks input until a click and settles pending approval on %s',
+        async (finish) => {
+            terminalLogic.actions.attach(document.createElement('div'))
+            await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+            const confirm = jest.mocked(PosthogFilesystem).mock.calls[0][2]!
+            const request: TerminalConfirmation = {
+                title: 'Delete?',
+                description: 'Delete a notebook',
+                items: ['note1'],
+            }
+            const pending = confirm(request)
+            await waitFor(() => expect(terminalLogic.values.confirmation).toBe(request))
+            for (const key of ['Enter', ' ', 'Escape', '`']) {
+                const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+                document.dispatchEvent(event)
+                expect(event.defaultPrevented).toBe(true)
+            }
+            window.posthogTerminal!.write('rm -rf Research\n')
+            expect(jest.mocked(TerminalRuntime).mock.results[0].value.write).not.toHaveBeenCalled()
+            expect(terminalLogic.values.confirmation).toBe(request)
+            if (finish === 'stop') {
+                terminalLogic.actions.stop()
+            } else if (finish === 'project') {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
+            } else if (finish === 'unmount') {
+                terminalLogic.unmount()
+            } else {
+                terminalLogic.actions.answerConfirmation(request, finish === 'approve')
+            }
+            await expect(pending).resolves.toBe(finish === 'approve')
+            const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+            document.dispatchEvent(event)
+            expect(event.defaultPrevented).toBe(false)
+        }
+    )
 })

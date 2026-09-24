@@ -1,5 +1,6 @@
 import {
     evaluationOffersSessionTarget,
+    evaluationSupportsReportHistory,
     evaluationSupportsReports,
     evaluationSupportsRunOutcomes,
 } from './evaluationCapabilities'
@@ -18,17 +19,34 @@ describe('evaluationCapabilities', () => {
         ['sentiment', 'generation', true, false],
         // Sentiment is generation-only, so the aggregate targets report on boolean alone.
         // This pins the frontend twin of REPORTABLE_OUTPUT_TYPES_BY_TARGET.
-        ['boolean', 'trace', true, false],
+        ['boolean', 'trace', true, true],
         ['sentiment', 'trace', false, false],
-        ['boolean', 'session', true, false],
+        ['boolean', 'session', true, true],
         ['sentiment', 'session', false, false],
+        ['numeric', 'generation', false, false],
+        ['numeric', 'trace', false, false],
+        ['numeric', 'session', false, false],
     ])(
         'supports the expected capabilities for %s %s evaluations',
         (outputType, target, supportsReports, supportsRunOutcomes) => {
             const evaluation = { output_type: outputType, target }
 
             expect(evaluationSupportsReports(evaluation)).toBe(supportsReports)
+            expect(evaluationSupportsReportHistory(evaluation)).toBe(supportsReports || outputType === 'numeric')
             expect(evaluationSupportsRunOutcomes(evaluation)).toBe(supportsRunOutcomes)
+        }
+    )
+
+    it.each(['generation', 'trace', 'session'] as const)(
+        'supports numeric %s reports only with a passing rule',
+        (target) => {
+            const evaluation = {
+                target,
+                output_type: 'numeric' as const,
+                output_config: { passing_rule: { operator: 'gte' as const, threshold: 7 } },
+            }
+            expect(evaluationSupportsReports(evaluation)).toBe(true)
+            expect(evaluationSupportsRunOutcomes(evaluation)).toBe(true)
         }
     )
 
