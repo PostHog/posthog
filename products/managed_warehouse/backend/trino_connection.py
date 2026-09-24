@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import TYPE_CHECKING
@@ -16,10 +17,10 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
     ManagedWarehouseTrinoConnectionUnavailable,
     ServiceCredential,
+    ServiceCredentialTrinoConnect,
     ServiceCredentialUnavailable,
 )
 from products.managed_warehouse.backend.service_credentials import mint_service_credential, renew_service_credential
-from products.warehouse_sources.backend.facade import source_management
 
 if TYPE_CHECKING:
     from trino.dbapi import Connection
@@ -30,6 +31,15 @@ _CREDENTIAL_REQUEST_TIMEOUT_SECONDS = 10
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _is_hosted_service_target(host: str) -> bool:
+    # Tenant endpoints are trusted only when issued by the control plane, never from external-source configuration.
+    label, _, domain = host.lower().removesuffix(".").partition(".")
+    return (
+        domain in {"dw.us.postwh.com", "dw.dev.postwh.com"}
+        and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is not None
+    )
 
 
 def _connection_from_credential(credential: ServiceCredential) -> ManagedWarehouseTrinoConnection:
@@ -119,6 +129,18 @@ class _TrinoServiceSession(requests.Session):
                         credential_secret=connection.password,
                         timeout_seconds=_CREDENTIAL_REQUEST_TIMEOUT_SECONDS,
                     )
+                    if credential.trino_connect is None:
+                        # Readiness can hide dial targets during renewal without invalidating an existing query's grant.
+                        credential = replace(
+                            credential,
+                            trino_connect=ServiceCredentialTrinoConnect(
+                                host=connection.host,
+                                port=connection.port,
+                                catalog=connection.catalog,
+                                username=connection.username,
+                                http_scheme="https",
+                            ),
+                        )
                     refreshed = _connection_from_credential(credential)
                 except ServiceCredentialUnavailable as error:
                     raise ManagedWarehouseTrinoConnectionUnavailable(
@@ -157,7 +179,7 @@ def connect_managed_warehouse_trino(organization_id: str, *, principal: str = "p
 
     config = resolve_managed_warehouse_trino_connection(organization_id, principal=principal)
     with _TrinoServiceSession(organization_id, config) as http_session:
-        if source_management.is_posthog_managed_trino_host(config.host) and config.port == 443:
+        if _is_hosted_service_target(config.host) and config.port == 443:
             http_session.trust_env = False
         connection = connect(
             host=config.host,

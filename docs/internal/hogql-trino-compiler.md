@@ -79,7 +79,8 @@ The grant secret exists only in process memory; these paths never read `Duckgres
 The standalone `resolve_managed_warehouse_trino_connection(...)` helper returns a short-lived snapshot; callers executing queries must use the context manager to get refresh behavior.
 
 The connection uses HTTPS with certificate verification and a 60-second HTTP timeout.
-Its session bypasses environment proxies only for verified hosted Trino domains on port 443, using the same host check as direct Trino connections.
+Its session bypasses environment proxies only for control-plane-issued targets with a single hostname label under `dw.us.postwh.com` or `dw.dev.postwh.com`, on port 443.
+Customer-configured external sources retain the separate fixed-host allowlist (`trino.dw.us.postwh.com` and `trino.dw.dev.postwh.com`).
 The session checks and renews the same grant before sending POST, polling GET, or cancellation DELETE requests when less than two minutes remain.
 Mint and renewal calls have a ten-second timeout.
 Credential renewal is serialized so polling and cancellation share one renewal decision.
@@ -90,8 +91,10 @@ Existing Duckgres refresh calls retain their default secret-rotation behavior.
 A changed endpoint, catalog or username fails closed, as do redirects and polling URLs outside the issued HTTPS origin.
 The session closes when the connection scope exits.
 
-Deploy the service-grant validator, Trino authenticator, gateway namespace admission support, and their dedicated validation-token configuration before deploying this caller.
-The control plane must return a ready `trino_connect` block on both mint and renewal, with `secret_rotated=false` confirming renewal support.
+Deploy the service-grant validator, Trino authenticator, Gateway service-identity routing, and cell-specific validation tokens before deploying this caller.
+The control plane must return a ready `trino_connect` block on mint and `secret_rotated=false` on renewal.
+Renewal may omit `trino_connect` while readiness information is unavailable; the session retains its original target and requires the same grant identity and a usable renewed expiry.
+If renewal includes a target, it must match the original target.
 An older or unconfigured control plane can still serve Duckgres callers, but internal Trino callers fail before sending SQL.
 Trino revalidates grants on every HTTP request, including expiry and revocation, unlike Duckgres's handshake-only expiry.
 Revocation prevents subsequent polling and cancellation; it does not itself terminate an already running query.

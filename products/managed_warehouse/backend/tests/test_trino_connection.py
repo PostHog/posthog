@@ -99,11 +99,16 @@ def test_rejects_invalid_trino_targets(target: dict[str, object]) -> None:
             resolve_managed_warehouse_trino_connection("org-1")
 
 
-def test_polling_renews_the_grant_and_preserves_cancellation_ownership() -> None:
+@pytest.mark.parametrize("renewal_target", ["included", "omitted", "null"])
+def test_polling_renews_the_grant_and_preserves_cancellation_ownership(renewal_target: str) -> None:
     minted = _mint_response()
     refreshed = _mint_response()
     refreshed.data.pop("credential_secret")
     refreshed.data["secret_rotated"] = False
+    if renewal_target == "omitted":
+        refreshed.data.pop("trino_connect")
+    elif renewal_target == "null":
+        refreshed.data["trino_connect"] = None
     refreshed.data["expires_at"] = (datetime.now(UTC) + timedelta(minutes=29)).isoformat()
     issued_at = datetime.now(UTC)
     sent: list[requests.PreparedRequest] = []
@@ -157,7 +162,8 @@ def test_polling_renews_the_grant_and_preserves_cancellation_ownership() -> None
 
 
 @pytest.mark.parametrize(
-    "refresh_response", ["unavailable", "target_changed", "identity_changed", "old_control_plane", "rotated"]
+    "refresh_response",
+    ["unavailable", "target_changed", "identity_changed", "old_control_plane", "rotated", "expired", "naive_expiry"],
 )
 def test_failed_refresh_does_not_send_a_request(refresh_response: str) -> None:
     minted = _mint_response()
@@ -175,6 +181,9 @@ def test_failed_refresh_does_not_send_a_request(refresh_response: str) -> None:
         response.data["credential_secret"] = "unexpected-rotated-secret"
     elif refresh_response == "rotated":
         response.data["credential_secret"] = "unexpected-rotated-secret"
+    elif refresh_response in {"expired", "naive_expiry"}:
+        response.data.pop("trino_connect")
+        response.data["expires_at"] = "2000-01-01T00:00:00Z" if refresh_response == "expired" else "2099-01-01T00:00:00"
     else:
         response.data["credential_id"] = "svc_111111111111111111111111"
         response.data["trino_connect"]["username"] = response.data["credential_id"]
@@ -194,8 +203,12 @@ def test_failed_refresh_does_not_send_a_request(refresh_response: str) -> None:
     "host,port,bypass_proxy",
     [
         ("tenant.dw.us.postwh.com", 443, True),
+        ("TENANT.DW.DEV.POSTWH.COM.", 443, True),
         ("tenant.dw.us.postwh.com", 8443, False),
         ("trino.example.com", 443, False),
+        ("nested.tenant.dw.us.postwh.com", 443, False),
+        ("dw.us.postwh.com", 443, False),
+        ("tenant.dw.us.postwh.com.example.com", 443, False),
     ],
 )
 def test_connection_keeps_verified_tls_and_scoped_proxy_bypass(host: str, port: int, bypass_proxy: bool) -> None:
