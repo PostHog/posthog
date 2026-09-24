@@ -2178,11 +2178,11 @@ export interface runStreamLogicActions {
     setSdkSession: (session: SdkSession) => {
         session: SdkSession
     }
-    setTurnSuggestion: (suggestion: TurnSuggestion) => {
-        suggestion: TurnSuggestion
-    }
     setStreamHasEnded: (ended: boolean) => {
         ended: boolean
+    }
+    setTurnSuggestion: (suggestion: TurnSuggestion) => {
+        suggestion: TurnSuggestion
     }
     sseConnecting: () => {
         value: true
