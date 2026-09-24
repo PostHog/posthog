@@ -77,9 +77,13 @@ def _normalize_snapshot_sql(sql: str) -> str:
     return "\n".join(line.rstrip() for line in sql.splitlines())
 
 
+pytestmark = pytest.mark.django_db
+
+
 # A SimpleTestCase never asks for a database, so nothing here triggers django_db_setup
-# (posthog/conftest.py), which is what creates the ClickHouse test database. Module scope
-# runs it before setUpClass, which already queries ClickHouse.
+# (posthog/conftest.py), which is what creates the ClickHouse test database. The marker
+# points pytest-django at the test databases, and the fixture runs the setup before
+# setUpClass, which already queries ClickHouse.
 @pytest.fixture(scope="module", autouse=True)
 def _clickhouse_test_database(django_db_setup):
     pass
