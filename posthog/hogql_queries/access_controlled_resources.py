@@ -73,11 +73,9 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
 
 @frozen(frozen=False)
 class _WarehouseCatalog:
-    """Warehouse reads shared by one fingerprint and every view definition it walks.
+    """Shared warehouse catalog to avoid re-reading the team table catalog on nested views.
 
-    Without it each nested view re-reads the team's whole table catalog, and a view that several
-    other views read is walked once per path to it, so a dashboard over layered views spends
-    minutes here before it can read a single cached result."""
+    Caches so a view shared by others is walked once per fingerprint, not per path to it."""
 
     team_id: int
     table_names: Optional[set[str]] = None
@@ -92,15 +90,12 @@ class _WarehouseCatalog:
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
         if self.table_names is None:
-            # External tables are queryable under BOTH their raw name and the prefixed
-            # source_type.prefix.table key (see database.py schema build), so match either form —
-            # otherwise a denied user could read an allowed user's cached rows via the raw name.
+            # External tables queryable under both raw and prefixed names; filter both to prevent access violations.
             self.table_names = set()
             for table in (
                 DataWarehouseTable.objects.filter(team_id=self.team_id)
                 .exclude(deleted=True)
-                # clear the manager's created_by/schema eager-loads: select_related chains additively,
-                # so without this the .only() below raises FieldError (created_by deferred + traversed)
+                # Clear eager-loads to avoid FieldError when using .only() with deferred fields.
                 .select_related(None)
                 .prefetch_related(None)
                 .select_related("external_data_source")
