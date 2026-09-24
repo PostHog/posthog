@@ -51,7 +51,6 @@ import structlog
 from owners_yaml.resolver import Purpose, team_channel
 from owners_yaml.schema import Producer, TeamEntry
 
-from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration, SlackIntegration
@@ -78,6 +77,7 @@ from posthog.slack.channels import (
     post_with_join,
     section_block,
 )
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import human_list, pluralize
 
 from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
