@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    beforeUnmount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -209,4 +221,15 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             }
         },
     })),
+    // Unmounting cancels the pending autosave, so a note typed just before leaving the page saves here instead.
+    beforeUnmount(({ values, props }) => {
+        const label = values.label
+        const teamId = teamLogic.values.currentTeamId
+        if (label && teamId && normalizeFeedback(label.feedback) !== normalizeFeedback(values.feedbackDraft)) {
+            void visionObservationsLabelCreate(String(teamId), props.observationId, {
+                is_correct: label.is_correct,
+                feedback: values.feedbackDraft,
+            }).catch(() => lemonToast.error('Failed to save your note'))
+        }
+    }),
 ])
