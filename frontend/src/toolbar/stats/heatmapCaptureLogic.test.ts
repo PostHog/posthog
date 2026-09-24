@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -21,12 +23,12 @@ const { captureResponsiveScreenshots } = jest.requireMock('~/toolbar/utils/respo
 
 const jpeg = (): Blob => new Blob(['fake-image'], { type: 'image/jpeg' })
 
-const mockCaptureResponse = (): void => {
+const mockCaptureResponse = (targetWidths: number[] = []): void => {
     global.fetch = jest.fn(() =>
         Promise.resolve({
             ok: true,
             status: 201,
-            json: () => Promise.resolve({ id: 'uuid-1', short_id: 'hm123' }),
+            json: () => Promise.resolve({ id: 'uuid-1', short_id: 'hm123', target_widths: targetWidths }),
         } as any as Response)
     )
 }
@@ -36,9 +38,11 @@ describe('heatmapCaptureLogic', () => {
     afterAll(resumeKeaLoadersErrors)
 
     let logic: ReturnType<typeof heatmapCaptureLogic.build>
+    let successToast: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
+        successToast = jest.spyOn(lemonToast, 'success').mockReturnValue(undefined as never)
         window.innerWidth = 1440
         ;(captureResponsiveScreenshots as jest.Mock).mockReset()
         toolbarConfigLogic
@@ -97,5 +101,24 @@ describe('heatmapCaptureLogic', () => {
             expect(body.get('width')).toBe(expectedSingleWidth)
             expect(body.get('image') instanceof File).toBe(expectedSingleWidth !== null)
         })
+    })
+
+    it('reports the widths the server skipped instead of treating the save as complete', async () => {
+        ;(captureResponsiveScreenshots as jest.Mock).mockResolvedValue([
+            { width: 320, blob: jpeg() },
+            { width: 768, blob: jpeg() },
+            { width: 1440, blob: jpeg() },
+        ])
+        mockCaptureResponse([768, 1440])
+
+        await expectLogic(logic, () => {
+            logic.actions.saveToPostHog()
+        })
+            .delay(0)
+            .toDispatchActions(['saveToPostHog', 'saveToPostHogSuccess'])
+
+        expect(logic.values.captureResult?.skippedWidths).toEqual([320])
+        expect(successToast).toHaveBeenCalledTimes(1)
+        expect(successToast.mock.calls[0][0]).toContain('320px')
     })
 })

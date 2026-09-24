@@ -360,7 +360,7 @@ export const toolbarApi = {
         capture: (
             formData: FormData,
             options: ToolbarApiOptions
-        ): Promise<ToolbarApiResult<{ id: string; short_id: string }>> =>
+        ): Promise<ToolbarApiResult<{ id: string; short_id: string; target_widths: number[] }>> =>
             apiPost(`${PROJECT}/saved/capture/`, formData, options),
     },
 

@@ -20,6 +20,8 @@ import { captureElementScreenshot } from '~/toolbar/utils/screenshot'
 interface HeatmapCaptureResult {
     id: string
     short_id: string
+    // Widths the toolbar sent that the server refused to store.
+    skippedWidths: number[]
 }
 
 interface CaptureProgress {
@@ -50,16 +52,10 @@ export interface heatmapCaptureLogicActions {
         errorObject?: any
     }
     saveToPostHogSuccess: (
-        captureResult: {
-            id: string
-            short_id: string
-        },
+        captureResult: HeatmapCaptureResult,
         payload?: any
     ) => {
-        captureResult: {
-            id: string
-            short_id: string
-        }
+        captureResult: HeatmapCaptureResult
         payload?: any
     }
     setCaptureProgress: (progress: CaptureProgress | null) => {
@@ -127,10 +123,11 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
                     const captures = await captureResponsiveScreenshots(RESPONSIVE_CAPTURE_WIDTHS, (done, total) =>
                         actions.setCaptureProgress({ done, total })
                     )
-                    const formData =
-                        captures.length > 0
-                            ? buildMultiWidthFormData(values.href, values.wildcardHref, captures)
-                            : await buildSingleWidthFormData(values.href, values.wildcardHref, values.windowWidth)
+                    const isMultiWidth = captures.length > 0
+                    const formData = isMultiWidth
+                        ? buildMultiWidthFormData(values.href, values.wildcardHref, captures)
+                        : await buildSingleWidthFormData(values.href, values.wildcardHref, values.windowWidth)
+                    const sentWidths = isMultiWidth ? captures.map(({ width }) => width) : [values.windowWidth]
 
                     const result = await toolbarApi.savedHeatmaps.capture(formData, {
                         context: 'capture_heatmap',
@@ -139,7 +136,15 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
                     if (!result.ok) {
                         throw new ToolbarRequestError(result.error.detail, result.status)
                     }
-                    return result.data
+                    // An older backend answers without target_widths. Treat that as nothing skipped,
+                    // rather than reporting every width the toolbar sent as dropped.
+                    const savedWidths = result.data.target_widths
+                    return {
+                        ...result.data,
+                        skippedWidths: Array.isArray(savedWidths)
+                            ? sentWidths.filter((width) => !savedWidths.includes(width))
+                            : [],
+                    }
                 },
             },
         ],
@@ -150,7 +155,15 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
             if (!captureResult) {
                 return
             }
-            lemonToast.success('Heatmap saved', {
+            const { skippedWidths } = captureResult
+            // The response says which widths were stored, not why the rest were refused, so the
+            // message stays neutral about the cause.
+            const message = skippedWidths.length
+                ? `Heatmap saved, without ${skippedWidths.join('px, ')}px. ${
+                      skippedWidths.length === 1 ? 'That screenshot' : 'Those screenshots'
+                  } could not be stored.`
+                : 'Heatmap saved'
+            lemonToast.success(message, {
                 button: {
                     label: 'Open in PostHog',
                     action: () =>
@@ -160,7 +173,11 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
         },
         saveToPostHogFailure: ({ error }) => {
             actions.setCaptureProgress(null)
-            lemonToast.error(`Couldn't save this heatmap: ${error}`)
+            lemonToast.error(
+                error
+                    ? `Couldn't save this heatmap: ${error}`
+                    : "Couldn't save this heatmap. Try again, and if it keeps happening contact support."
+            )
         },
     })),
 ])
