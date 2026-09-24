@@ -44,3 +44,29 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         err = wrap_clickhouse_query_error(ServerException("Logical error: invariant violated", code=49))
         with self.assertRaises(InternalCHQueryError), unevaluable_filters_as_validation_errors():
             raise err
+
+    @parameterized.expand(
+        [
+            ("no_supertype", 386, "There is no supertype for types String, UInt8 because some of them are String"),
+            ("illegal_type_of_argument", 43, "Illegal type String of argument of function equals"),
+        ]
+    )
+    def test_clickhouse_engine_text_never_reaches_the_caller(self, _name, code, raw):
+        # These codes are user_safe, so they wrap to ExposedCHQueryError and used to put the
+        # ClickHouse message straight into the 400 body, which the release condition editor
+        # prints. Engine text names ClickHouse types and generated SQL, so it must be replaced.
+        err = wrap_clickhouse_query_error(ServerException(f"DB::Exception: {raw}", code=code))
+        with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
+            raise err
+        message = str(ctx.exception)
+        self.assertNotIn("String, UInt8", message)
+        self.assertNotIn("Illegal type", message)
+        self.assertIn("Check the property values", message)
+
+    def test_curated_clickhouse_message_is_kept(self):
+        # Code 70 carries PostHog-written copy in its ErrorCodeMeta, which replaces the engine
+        # message during wrapping. That copy is worth showing, so it must survive.
+        err = wrap_clickhouse_query_error(ServerException("DB::Exception: CANNOT_CONVERT_TYPE", code=70))
+        with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
+            raise err
+        self.assertIn("Cannot convert one type to another", str(ctx.exception))
