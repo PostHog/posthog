@@ -1,7 +1,7 @@
 import json
 import uuid
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
 from django.db.models import TextChoices
@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 if TYPE_CHECKING:
+    from products.signals.backend.billing import FirstBillablePrRun
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
@@ -1496,7 +1497,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 "Why refunding this report's PR would be rejected right now, or null when a refund "
                 "would be accepted. Shares the refund endpoint's eligibility decision, so the UI can "
                 "disable the Refund action instead of offering a request that would 400. One of: "
-                "already_refunded, billing_exempt, no_billable_pr, out_of_period."
+                "already_refunded, billing_exempt, no_billable_pr, out_of_period, pr_merged."
             ),
         )
     )
@@ -1506,15 +1507,19 @@ class SignalReportSerializer(serializers.ModelSerializer):
         # context nor the billable-moment annotation exists — the refund endpoint re-enforces.
         if period is None:
             return None
-        billable_run_at_map: dict[str, datetime] | None = self.context.get("first_billable_pr_run_at_map")
-        if billable_run_at_map is not None:
-            billable_run_at = billable_run_at_map.get(str(obj.id))
+        billable_run_map: dict[str, FirstBillablePrRun] | None = self.context.get("first_billable_pr_run_map")
+        if billable_run_map is not None:
+            billable_run = billable_run_map.get(str(obj.id))
+            billable_run_at = billable_run.created_at if billable_run else None
+            billable_pr_url = billable_run.pr_url if billable_run else None
         else:
             billable_run_at = getattr(obj, "first_billable_pr_run_at", None)
+            billable_pr_url = getattr(obj, "first_billable_pr_url", None)
         return refund_ineligibility_reason(
             has_refund=getattr(obj, "refund", None) is not None,
             billing_exempt=bool(obj.billing_exempt_reason),
             billable_run_at=billable_run_at,
+            pr_merged=any(pr.url == billable_pr_url and pr.merged for pr in self._get_pull_requests(obj)),
             period=period,
         )
 
