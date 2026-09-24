@@ -186,6 +186,8 @@ export function getPluginServerCapabilities(
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
         case PluginServerMode.ingestion_api:
             throw new Error(`Mode ${mode} is handled by IngestionApiServer, not PluginServer`)
+        case PluginServerMode.push_api:
+            throw new Error(`Mode ${mode} is handled by PushApiServer, not PluginServer`)
         case PluginServerMode.cdp_hogflow_scheduler:
             return {
                 cdpHogflowScheduler: true,

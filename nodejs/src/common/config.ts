@@ -68,6 +68,7 @@ export enum PluginServerMode {
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
     ingestion_api = 'ingestion-api',
+    push_api = 'push-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
