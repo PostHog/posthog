@@ -2065,6 +2065,7 @@ def _route_reaction_added(
     *,
     proxied: bool,
     other_domain: str,
+    is_ext_shared_channel: bool,
 ) -> str:
     """Turn a thumbs reaction on an agent reply into turn feedback, in the owning region.
 
@@ -2108,14 +2109,29 @@ def _route_reaction_added(
     if workspace_integration is None:
         return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
-    outcome = turn_feedback.handle_reaction_added(event, slack_team_id, workspace_integration)
-    if outcome == turn_feedback.REACTION_NOT_LOCAL:
+    handling = turn_feedback.handle_reaction_added(event, slack_team_id, workspace_integration)
+    if handling.outcome == turn_feedback.REACTION_NOT_LOCAL:
         if not proxied and cross_region_routing_enabled():
             return _proxy_event_and_return_route(request, other_domain)
         logger.warning(
             "slack_app_reaction_feedback_not_local",
             slack_team_id=slack_team_id,
             incoming_host=request.get_host(),
+        )
+    elif handling.confirmation is not None:
+        confirmation = handling.confirmation
+        route_posthog_code_event_to_relevant_region(
+            request,
+            {
+                "type": "message",
+                "channel": confirmation.channel,
+                "user": event.get("user"),
+                "ts": confirmation.event_ts,
+                "thread_ts": confirmation.thread_ts,
+                "text": "Yes, please.",
+            },
+            slack_team_id,
+            is_ext_shared_channel=is_ext_shared_channel,
         )
     return ROUTE_HANDLED_LOCALLY
 
@@ -2191,6 +2207,7 @@ def route_posthog_code_event_to_relevant_region(
             slack_team_id,
             proxied=proxied,
             other_domain=other_domain,
+            is_ext_shared_channel=is_ext_shared_channel,
         )
 
     # App Home tab: published per-user when they open the Home tab. The view is

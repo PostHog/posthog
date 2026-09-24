@@ -226,19 +226,22 @@ class TestTurnFeedback(TestCase):
         assert response.json()["response_action"] == "errors"
         self.mock_analytics.capture.assert_not_called()
 
-    def _react(self, reaction: str, item_user: str = "U_BOT"):
+    def _react(self, reaction: str, item_user: str = "U_BOT", event_ts: str | None = None):
+        event = {
+            "type": "reaction_added",
+            "user": "U_ALICE",
+            "reaction": reaction,
+            "item_user": item_user,
+            "item": {"type": "message", "channel": "C_SOURCE", "ts": "222.1"},
+        }
+        if event_ts is not None:
+            event["event_ts"] = event_ts
         body = json.dumps(
             {
                 "type": "event_callback",
                 "team_id": self.slack_team_id,
                 "event_id": "Ev123",
-                "event": {
-                    "type": "reaction_added",
-                    "user": "U_ALICE",
-                    "reaction": reaction,
-                    "item_user": item_user,
-                    "item": {"type": "message", "channel": "C_SOURCE", "ts": "222.1"},
-                },
+                "event": event,
             }
         ).encode()
         signed = sign_slack_request(body, self.signing_secret)
@@ -250,10 +253,11 @@ class TestTurnFeedback(TestCase):
             HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
-    def _reacted_message(self, blocks: list[dict]) -> None:
-        self.mock_slack.return_value.client.conversations_replies.return_value = {
-            "messages": [{"ts": "222.1", "blocks": blocks}]
-        }
+    def _reacted_message(self, blocks: list[dict], thread_ts: str | None = None) -> None:
+        message = {"ts": "222.1", "blocks": blocks}
+        if thread_ts is not None:
+            message["thread_ts"] = thread_ts
+        self.mock_slack.return_value.client.conversations_replies.return_value = {"messages": [message]}
 
     @parameterized.expand(
         [
@@ -300,6 +304,30 @@ class TestTurnFeedback(TestCase):
 
         assert response.status_code == 202
         assert self.mock_analytics.capture.call_args.kwargs["properties"]["$ai_trace_id"] == trace_id
+
+    def test_a_positive_reaction_reenters_the_thread_followup_flow(self):
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        self._reacted_message([turn_feedback_block(self.integration.id, str(self.task_run.id))], thread_ts="111.1")
+
+        with patch(
+            "products.slack_app.backend.api.route_posthog_code_event_to_relevant_region",
+            wraps=route_posthog_code_event_to_relevant_region,
+        ) as mock_route:
+            response = self._react("+1", event_ts="333.1")
+
+        assert response.status_code == 202
+        assert mock_route.call_count == 2
+        event = mock_route.call_args_list[1].args[1]
+        assert event == {
+            "type": "message",
+            "channel": "C_SOURCE",
+            "user": "U_ALICE",
+            "ts": "333.1",
+            "thread_ts": "111.1",
+            "text": "Yes, please.",
+        }
+        assert mock_route.call_args_list[1].args[2] == self.slack_team_id
 
     def test_a_non_thumb_reaction_costs_no_slack_fetch(self):
         response = self._react("eyes")

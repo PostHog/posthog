@@ -1,14 +1,14 @@
 """What a reader's rating of an agent answer becomes.
 
-Rating is analytics only: it changes nothing about the run, and a reader who picks the
-other rating later simply sends a second event. What a pick produces is the pair of
-events AI observability already understands, ``$ai_metric`` for the rating and
+What a pick produces is the pair of events AI observability already understands, ``$ai_metric`` for the rating and
 ``$ai_feedback`` for the reason, tagged with the same ``ai_product`` the run's own
 generations carry so Slack feedback sits beside the web and desktop clients' rather than
 in a surface of its own.
 
 A rating arrives two ways: a click on the reply's thumbs, or a thumbs emoji reacted onto
-the reply. Both become the same ``$ai_metric``, split by ``feedback_source``; only a
+the reply. Both become the same ``$ai_metric``, split by ``feedback_source``; a positive
+reaction also returns a confirmation for the event router to pass through the normal
+thread-follow-up flow. Only a
 clicked thumbs-down can ask for a reason, because a reaction carries no ``trigger_id`` to
 open a modal with.
 
@@ -74,6 +74,23 @@ _REACTION_SENTIMENTS: dict[str, str] = {
 ReactionOutcome = Literal["handled", "not_local"]
 REACTION_HANDLED: ReactionOutcome = "handled"
 REACTION_NOT_LOCAL: ReactionOutcome = "not_local"
+
+
+@frozen
+class ReactionConfirmation:
+    """A positive reaction that can answer the agent in the same Slack thread."""
+
+    channel: str
+    thread_ts: str
+    event_ts: str
+
+
+@frozen
+class ReactionHandling:
+    """The routing result and an optional confirmation from a positive reaction."""
+
+    outcome: ReactionOutcome
+    confirmation: ReactionConfirmation | None = None
 
 
 @frozen
@@ -497,7 +514,7 @@ def _feedback_value_from_message(message: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: Integration) -> ReactionOutcome:
+def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: Integration) -> ReactionHandling:
     """Record a thumbs reaction on an agent reply as a rating.
 
     ``workspace_integration`` is any of this region's integrations for the Slack team; its
@@ -519,7 +536,7 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
         or not isinstance(channel, str)
         or not isinstance(message_ts, str)
     ):
-        return REACTION_HANDLED
+        return ReactionHandling(outcome=REACTION_HANDLED)
 
     # Most thumbs in a channel land on human messages; the author check keeps those from
     # each costing a Slack fetch. `get_cached_bot_user_id` settles a cold cache itself, so
@@ -527,16 +544,16 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
     # analytics, so skip it then rather than pay a doomed fetch per reaction.
     bot_user_id = get_cached_bot_user_id(SlackIntegration(workspace_integration), workspace_integration)
     if bot_user_id is None or event.get("item_user") != bot_user_id:
-        return REACTION_HANDLED
+        return ReactionHandling(outcome=REACTION_HANDLED)
 
     message = _fetch_reacted_message(workspace_integration, channel, message_ts)
     value = _feedback_value_from_message(message) if message else {}
     if not isinstance(value.get("integration_id"), int):
-        return REACTION_HANDLED
+        return ReactionHandling(outcome=REACTION_HANDLED)
 
     integration = _local_integration(value.get("integration_id"), slack_team_id)
     if integration is None:
-        return REACTION_NOT_LOCAL
+        return ReactionHandling(outcome=REACTION_NOT_LOCAL)
 
     target = _resolve_target(
         value,
@@ -545,7 +562,7 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
         turn_id=message_ts,
     )
     if target is None:
-        return REACTION_HANDLED
+        return ReactionHandling(outcome=REACTION_HANDLED)
 
     _capture(
         target,
@@ -557,4 +574,11 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
             "reaction": _reaction_base(reaction),
         },
     )
-    return REACTION_HANDLED
+    thread_ts = message.get("thread_ts") if message else None
+    event_ts = event.get("event_ts")
+    confirmation = (
+        ReactionConfirmation(channel=channel, thread_ts=thread_ts, event_ts=event_ts)
+        if sentiment == "positive" and isinstance(thread_ts, str) and isinstance(event_ts, str)
+        else None
+    )
+    return ReactionHandling(outcome=REACTION_HANDLED, confirmation=confirmation)
