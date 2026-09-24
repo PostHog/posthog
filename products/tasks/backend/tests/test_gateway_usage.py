@@ -231,10 +231,12 @@ class TestGatewayUsage(BaseTest):
         assert set(run.state) == {"unprocessed_request_ids", "token_spend", "compute_spend"}
 
     @patch("aiohttp.ClientSession._request")
-    def test_accounting_after_completion_does_not_reemit_structured_results(self, get: Mock) -> None:
+    def test_accounting_after_completion_has_no_completion_side_effects(self, get: Mock) -> None:
         run = self._run(status=TaskRun.Status.COMPLETED)
         Task.objects.filter(id=run.task_id).update(json_schema={"type": "object"})
         TaskRun.objects.filter(id=run.id).update(output={"result": "done"})
+        run.refresh_from_db()
+        completed_updated_at = run.updated_at
         get.return_value = self._response("late-request", "0.02")
 
         with patch.object(TaskRun, "track_structured_result") as track_result:
@@ -243,3 +245,5 @@ class TestGatewayUsage(BaseTest):
             assert self._process(run).token_spend == 2
             assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 2
             track_result.assert_not_called()
+        run.refresh_from_db()
+        assert run.updated_at == completed_updated_at

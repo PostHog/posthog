@@ -61,8 +61,8 @@ def gateway_usage_enabled(run: TaskRun) -> bool:
 
 def _save_accounting_state(run: TaskRun) -> None:
     # Accounting can finish after completion; it must not emit completion signals again.
-    run.updated_at = timezone.now()
-    TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state, updated_at=run.updated_at)
+    # It also leaves `updated_at` alone, because recency gauges and stale-run sweeps read it.
+    TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state)
 
 
 def enable_gateway_usage(*, run_id: UUID, team_id: int) -> None:
