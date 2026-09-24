@@ -1,4 +1,4 @@
-import { CSS_ATTEMPT_TIMEOUT_MS, cssLoaderScript } from './cssLoader.mjs'
+import { BOOT_CSS_ATTRIBUTE, CSS_ATTEMPT_TIMEOUT_MS, cssLoaderScript } from './cssLoader.mjs'
 
 const CSS_FILE = 'index-ABCD1234.css'
 const CSS_FALLBACK = 'index.css?t=99'
@@ -28,9 +28,11 @@ function runLoader({ cssFileFallback = CSS_FALLBACK, apiKey = 'phc_test' as stri
     ready: Promise<boolean>
     links: FakeLink[]
     beacons: Record<string, any>[]
+    bootAttribute: () => string | null
 } {
     const links: FakeLink[] = []
     const beacons: Record<string, any>[] = []
+    const attributes: Record<string, string> = {}
     const win: Record<string, any> = {
         JS_URL: 'https://cdn.example.com',
         JS_POSTHOG_API_KEY: apiKey,
@@ -42,6 +44,14 @@ function runLoader({ cssFileFallback = CSS_FALLBACK, apiKey = 'phc_test' as stri
     const doc = {
         createElement: (): FakeLink => makeLink(),
         head: { appendChild: (link: FakeLink) => links.push(link) },
+        documentElement: {
+            setAttribute: (name: string, value: string) => {
+                attributes[name] = value
+            },
+            removeAttribute: (name: string) => {
+                delete attributes[name]
+            },
+        },
     }
     const nav = {
         sendBeacon: (_url: string, body: string) => {
@@ -50,15 +60,14 @@ function runLoader({ cssFileFallback = CSS_FALLBACK, apiKey = 'phc_test' as stri
         },
     }
     // The inline loader runs in the page as a classic script: these are all globals there.
-    new Function(
-        'window',
-        'document',
-        'navigator',
-        'console',
-        'fetch',
-        cssLoaderScript(CSS_FILE, cssFileFallback)
-    )(win, doc, nav, { error: () => {} }, () => Promise.resolve())
-    return { ready: win.ESBUILD_CSS_READY, links, beacons }
+    new Function('window', 'document', 'navigator', 'console', 'fetch', cssLoaderScript(CSS_FILE, cssFileFallback))(
+        win,
+        doc,
+        nav,
+        { error: () => {} },
+        () => Promise.resolve()
+    )
+    return { ready: win.ESBUILD_CSS_READY, links, beacons, bootAttribute: () => attributes[BOOT_CSS_ATTRIBUTE] ?? null }
 }
 
 /** A stylesheet that really applied has a `sheet`; a response that is not CSS fires `load` without one. */
@@ -72,13 +81,16 @@ describe('css loader script', () => {
     afterEach(() => jest.useRealTimers())
 
     it('attaches the hashed stylesheet for CORS and reports ready once it applies', async () => {
-        const { ready, links, beacons } = runLoader()
+        const { ready, links, beacons, bootAttribute } = runLoader()
         expect(links).toHaveLength(1)
         expect(links[0]).toMatchObject({ rel: 'stylesheet', crossOrigin: 'anonymous', href: `${STATIC}${CSS_FILE}` })
+        // Held while the page has no stylesheet, so the critical CSS can size the raw markup.
+        expect(bootAttribute()).toBe('pending')
 
         applyStylesheet(links[0])
 
         await expect(ready).resolves.toBe(true)
+        expect(bootAttribute()).toBeNull()
         expect(beacons).toHaveLength(0)
     })
 
@@ -108,7 +120,7 @@ describe('css loader script', () => {
     })
 
     it('retries with a fresh query, then reports the page unstyled once every attempt fails', async () => {
-        const { ready, links, beacons } = runLoader()
+        const { ready, links, beacons, bootAttribute } = runLoader()
         for (let attempt = 0; attempt < 3; attempt++) {
             jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS)
         }
@@ -119,6 +131,8 @@ describe('css loader script', () => {
         expect(links[2].href).toMatch(new RegExp(`^${STATIC}index\\.css\\?t=99&retry=\\d+$`))
 
         await expect(ready).resolves.toBe(false)
+        // Only an applied stylesheet clears the mark, so the critical CSS keeps its fallbacks.
+        expect(bootAttribute()).toBe('pending')
         expect(beacons).toHaveLength(3)
         expect(beacons[2].properties.$exception_level).toBe('fatal')
     })

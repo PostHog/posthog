@@ -10,6 +10,10 @@
         {# app never styles <body> background itself, so an unscoped rule here would persist after #}
         {# boot and bleed through the themed app. These selectors stop matching once React renders #}
         {# real content. #}
+        {# The icon rule is the one exception: it styles the app itself, so it is scoped to #}
+        {# data-boot-css=pending, which cssLoader.mjs clears as soon as a stylesheet applies. #}
+        {# @posthog/icons renders `width="100%"` with no height, so an icon fills its containing #}
+        {# block until icons.scss arrives. index.tsx renders anyway if that takes more than 5s. #}
         <style>
             html,body,#root{height:100%;margin:0;padding:0}
             *,:after,:before{box-sizing:border-box}
@@ -20,6 +24,7 @@
             .Preloader__inner{width:25px;height:25px;border:5px solid rgba(245,78,0,.333);border-top-color:#f54e00;border-radius:50%;animation:preloader-spin 1s linear infinite}
             .Preloader button{border:0;padding:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
             @keyframes preloader-spin{to{transform:rotate(360deg)}}
+            [data-boot-css=pending] .LemonIcon{width:1em}
         </style>
         {# Resource hints so the boot chain (font, CSS, entry -> App chunks) is fetched in parallel #}
         {# instead of discovered as a waterfall. Empty in dev mode and when no build manifest exists. #}
