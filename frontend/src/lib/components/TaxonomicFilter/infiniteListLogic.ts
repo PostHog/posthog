@@ -2294,6 +2294,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         selectSelected: () => {
             if (values.isExpandableButtonSelected) {
                 actions.expand()
+            } else if (values.showNonCapturedEventOption && values.group) {
+                actions.selectItem(
+                    values.group,
+                    values.trimmedSearchQuery,
+                    { name: values.trimmedSearchQuery, isNonCaptured: true },
+                    { position: 0 }
+                )
             } else {
                 const selectedItem = values.selectedItem
                 const itemGroup = getItemGroup(selectedItem, values.taxonomicGroups, values.group)
