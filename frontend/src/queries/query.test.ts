@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { inFlightRequestsLogic } from 'lib/logic/inFlightRequestsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
@@ -280,6 +281,22 @@ describe('query', () => {
             })
 
             await expect(promise).resolves.toMatchObject({ complete: true, results: ['ok'] })
+        })
+
+        it('holds one in-flight request across the gaps between polls', async () => {
+            const actions = { requestStarted: jest.fn(), requestFinished: jest.fn() }
+            jest.spyOn(inFlightRequestsLogic, 'findMounted').mockReturnValue({ actions } as any)
+            jest.spyOn(api.queryStatus, 'get')
+                .mockResolvedValueOnce({ query_status: { complete: false } } as any)
+                .mockResolvedValueOnce({ query_status: { complete: true, results: ['ok'] } } as any)
+
+            const promise = pollForResults('test-query-id', undefined, () => {
+                expect(actions.requestStarted).toHaveBeenCalledTimes(1)
+                expect(actions.requestFinished).not.toHaveBeenCalled()
+            })
+
+            await expect(promise).resolves.toMatchObject({ complete: true })
+            expect(actions.requestFinished).toHaveBeenCalledWith(false)
         })
     })
 

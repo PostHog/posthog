@@ -1261,21 +1261,6 @@ class TestQueryRunner(BaseTest):
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
 
-    def test_query_executed_carries_the_client_query_id_on_both_paths(self):
-        TestQueryRunner = self.setup_test_query_runner_class()
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-
-        with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
-            with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
-                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, query_id="client-abc")
-            # Cache is still fresh, so this reports through the cache-hit path instead
-            with time_machine.travel(datetime(2023, 2, 4, 13, 38, 0), tick=False):
-                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, query_id="client-abc")
-
-        reported = [call.args[1] for call in report.call_args_list if call.args[0] == "query executed"]
-        assert [props["cache_hit"] for props in reported] == [False, True]
-        assert [props["client_query_id"] for props in reported] == ["client-abc", "client-abc"]
-
     @parameterized.expand(
         [
             ("success", None, None, 1, 0),

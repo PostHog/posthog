@@ -1,10 +1,11 @@
+import { deepEqual } from 'fast-equals'
 import { combineUrl } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
-import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Error404 as Error404Component } from '~/layout/Error404'
@@ -19,6 +20,27 @@ import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayT
 import { BillingSectionId } from './billing/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
+
+export interface ScenePage {
+    sceneId: string
+    sceneKey: string | undefined
+    params: SceneParams
+}
+
+export function isSameScenePath(last: Partial<ScenePage>, next: ScenePage): boolean {
+    return (
+        last.sceneId === next.sceneId &&
+        last.sceneKey === next.sceneKey &&
+        deepEqual(last.params?.params, next.params.params)
+    )
+}
+
+export function isSameScenePage(last: Partial<ScenePage>, next: ScenePage): boolean {
+    return (
+        isSameScenePath(last, next) &&
+        JSON.stringify(last.params?.searchParams) === JSON.stringify(next.params.searchParams) // `equal` crashes here
+    )
+}
 
 export const preloadedScenes: Record<string, SceneExport> = {
     [Scene.Error404]: {

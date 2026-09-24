@@ -8,7 +8,6 @@ import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
 
-import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { hogqlQuery } from '~/queries/query'
 import {
     BreakdownFilter,
@@ -527,7 +526,7 @@ export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): Br
 
 export const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
 
-export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = pageCollectionId('web-analytics')
+export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
 
 export const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
 export const INITIAL_DATE_FROM = '-7d' as string | null

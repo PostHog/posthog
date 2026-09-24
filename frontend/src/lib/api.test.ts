@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { inFlightRequestsLogic } from 'lib/logic/inFlightRequestsLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -31,6 +32,45 @@ describe('API helper', () => {
         })
         jest.spyOn(posthog, 'get_session_id').mockReturnValue('fake-session-id')
         ApiConfig.setCurrentTeamId(2)
+    })
+
+    const trackInFlightRequests = (): { requestStarted: jest.Mock; requestFinished: jest.Mock } => {
+        const actions = { requestStarted: jest.fn(), requestFinished: jest.fn() }
+        jest.spyOn(inFlightRequestsLogic, 'findMounted').mockReturnValue({ actions } as any)
+        return actions
+    }
+
+    describe('in-flight request tracking', () => {
+        it.each([
+            ['a success', () => fakeFetch, false],
+            [
+                'a server error',
+                () =>
+                    fakeFetch.mockResolvedValueOnce({
+                        ok: false,
+                        status: 500,
+                        statusText: '',
+                        headers: new Headers(),
+                        json: () => Promise.resolve({}),
+                    }),
+                true,
+            ],
+            [
+                'an aborted request',
+                () => fakeFetch.mockRejectedValueOnce(new DOMException('The user aborted a request.', 'AbortError')),
+                false,
+            ],
+        ])('counts %s through handleFetch', async (_, mockFetch, failed) => {
+            const { requestStarted, requestFinished } = trackInFlightRequests()
+            mockFetch()
+
+            await api.get('api/environments/2/insights').catch(() => null)
+
+            expect(requestStarted).toHaveBeenCalledTimes(1)
+            expect(requestFinished).toHaveBeenCalledTimes(1)
+            expect(requestFinished).toHaveBeenCalledWith(failed)
+            jest.mocked(inFlightRequestsLogic.findMounted).mockRestore()
+        })
     })
 
     describe('events', () => {
@@ -95,6 +135,28 @@ describe('API helper', () => {
             expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status, code: expectedCode }))
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
+        })
+
+        it('counts the stream as one in-flight request until it ends', async () => {
+            const { requestStarted, requestFinished } = trackInFlightRequests()
+            let endStream = (): void => {}
+            const fetchEventSourceSpy = jest.spyOn(fetchEventSourceModule, 'fetchEventSource').mockReturnValueOnce(
+                new Promise<void>((resolve) => {
+                    endStream = resolve
+                })
+            )
+
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), jest.fn())
+            expect(requestStarted).toHaveBeenCalledTimes(1)
+            expect(requestFinished).not.toHaveBeenCalled()
+
+            fetchEventSourceSpy.mock.calls[0][1].onmessage?.({ data: JSON.stringify({ type: 'complete' }) } as any)
+            endStream()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(requestFinished).toHaveBeenCalledWith(false)
+            fetchEventSourceSpy.mockRestore()
+            jest.mocked(inFlightRequestsLogic.findMounted).mockRestore()
         })
 
         it('reports connection failures and ignores intentional aborts', async () => {

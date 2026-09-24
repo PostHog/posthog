@@ -1,4 +1,5 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
+import { startTrackedRequest } from 'lib/logic/inFlightRequestsLogic'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -116,6 +117,19 @@ export function queryExportContext<N extends DataNode>(
 }
 
 export async function pollForResults(
+    queryId: string,
+    methodOptions?: ApiMethodOptions,
+    onPoll?: (response: QueryStatus) => void
+): Promise<QueryStatus> {
+    const finishRequest = startTrackedRequest()
+    try {
+        return await pollUntilComplete(queryId, methodOptions, onPoll)
+    } finally {
+        finishRequest(false)
+    }
+}
+
+async function pollUntilComplete(
     queryId: string,
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void

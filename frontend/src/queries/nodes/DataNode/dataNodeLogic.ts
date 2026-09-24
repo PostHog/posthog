@@ -342,12 +342,8 @@ export interface dataNodeLogicActions {
     collectionNodeLoadDataFailure: (id: string) => {
         id: string
     } // dataNodeCollectionLogic
-    collectionNodeLoadDataSuccess: (
-        id: string,
-        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
-    ) => {
+    collectionNodeLoadDataSuccess: (id: string) => {
         id: string
-        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     mountDataNode: (
         id: string,
@@ -2094,9 +2090,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
-            actions.collectionNodeLoadDataSuccess(props.key, {
-                isCached: !!response && typeof response === 'object' && 'is_cached' in response && !!response.is_cached,
-            })
+            actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
@@ -2190,16 +2184,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     })),
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
-
-        // Registering has to come first: loading below marks this node loading in the collection, and
-        // registering afterwards would clear that, hiding the node from `areAnyLoading`.
         actions.mountDataNode(props.key, {
             id: props.key,
             loadData: actions.loadData,
             cancelQuery: actions.cancelQuery,
-            kind: props.query?.kind,
         })
-
         if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
