@@ -81,13 +81,14 @@ _SHOW_OFFER = NoulQuestion(
             "The turn ran no PostHog tools, for example advice, brainstorming or planning.",
             "The answer asks the user a question or offers options to pick from.",
             "The question satisfies a one-time curiosity: a breakdown such as top pages, referrers, browsers, countries or the device split, a list of users or accounts, or a search for recordings, even when the answer points out something in them. Numbers in the answer do not make it recurring.",
-            "The question is a basic count with no filters and no digging, such as how many events, people, users or daily active users there are.",
+            "The question is a basic count of the whole product with no filters and no digging, such as how many events, people, users or daily active users there are. A count for one flow or feature, such as how many people finished onboarding, is not a basic count.",
             "The question is a generic overview of the whole product, such as the most common error or the busiest page, and the user gives no sign they will ask again.",
             "The turn found nothing worth keeping, and the user gives no sign they will want the answer again.",
             "The question is a small clarification of an earlier answer, or small talk.",
             "The turn explained documentation or a concept, or answered a how-to question.",
             "The turn fixed or wrote a query the user asked for help with, such as a SQL error.",
             "The turn created or changed something, such as a feature flag, survey or dashboard, and nothing about it needs watching.",
+            "The user asked to rename, reformat or fix something that already exists, such as a dashboard name or a chart axis, and the answer only confirms the change.",
         ],
     },
     criteria_true="An offer clearly helps the user at this point in the conversation.",
@@ -108,12 +109,13 @@ _INTENT = ChoiceQuestion(
 _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
     OfferKind.SCOUT: {
         "what": "A scheduled agent that reruns this analysis with the same PostHog tools and posts a short report to Slack.",
-        "fits": "A metric the user digs into with specific filters, segments or a flow and will follow over time, a concern about a number, a check on one area of the product for a period (such as errors or drop-off in onboarding this week) that the user will want every period, a review of what changed on a dashboard or metric this period, several metrics from this conversation, or an investigation worth repeating when the metric dips.",
-        "not_for": "A basic count with no filters, such as how many events, people or daily active users. A generic overview of the whole product, such as the most common errors this week. An investigation whose cause was a one-time event, such as a release, an email or a migration. A turn about performance. A notebook keeps those last two better.",
+        "fits": "The user asks how a metric is doing now, today, this week, or over a recent window, and will ask again next period. A metric the user digs into with specific filters, segments or a flow and will follow over time, a concern about a number, a check on one area of the product for a period (such as errors or drop-off in onboarding this week) that the user will want every period, a review of what changed on a dashboard or metric this period, several metrics from this conversation, or an investigation worth repeating when the metric dips.",
+        "not_for": "A question about why something happened, once the answer explains it. A basic count with no filters, such as how many events, people or daily active users. A generic overview of the whole product, such as the most common errors this week. An investigation whose cause was a one-time event, such as a release, an email or a migration. A turn about performance. A notebook keeps those last two better.",
     },
     OfferKind.ALERT: {
         "what": "A threshold alert on a saved insight from `saved_insights`, sent to Slack when the number moves.",
         "fits": "The user wants to know when this number changes and a saved insight tracks it. Prefer it over a scheduled agent in that case.",
+        "not_for": "A turn that built insights or a dashboard, unless the user also asked to hear when a number moves.",
     },
     OfferKind.SUBSCRIPTION: {
         "what": "The chart of a saved insight from `saved_insights`, sent to Slack on a schedule.",
@@ -121,7 +123,7 @@ _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
     },
     OfferKind.NOTEBOOK: {
         "what": "The investigation saved as a notebook, with its queries as cells the user can rerun.",
-        "fits": "A diagnostic turn that found something worth keeping or sharing with the team, even when it will not happen again. Rank it first for any turn about performance, such as p95 or p99 latency, load times, web vitals or durations in milliseconds, since the notebook keeps the numbers and the queries behind them.",
+        "fits": "The user asks why something happened, and the answer names a cause. A diagnostic turn that found something worth keeping or sharing with the team, even when it will not happen again. Rank it first for any turn about performance, such as p95 or p99 latency, load times, web vitals or durations in milliseconds, since the notebook keeps the numbers and the queries behind them.",
         "not_for": "A turn that built a new insight, funnel or dashboard, which is already saved. A check of a metric over a window, such as a rate by hour or by day, that looked for no cause. A scheduled agent fits that better.",
     },
     OfferKind.ERROR_ALERT: {
