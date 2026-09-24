@@ -18,6 +18,7 @@ import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
 import { ResponsiveLayouts } from 'react-grid-layout'
@@ -403,7 +404,7 @@ export interface dashboardLogicValues {
     } | null
     urlVariables: Record<string, HogQLVariable>
     variablesDirty: boolean
-    widgetFreshnessTick: number
+    refreshEligibilityTick: number
     widgetRefreshStatus: Record<
         number,
         {
@@ -981,7 +982,7 @@ export interface dashboardLogicActions {
     toggleTileDescription: (tileId: number) => {
         tileId: number
     }
-    recheckWidgetFreshness: () => {
+    recheckRefreshEligibility: () => {
         value: true
     }
     triggerDashboardRefresh: () => {
@@ -1222,7 +1223,7 @@ export interface dashboardLogicMeta {
             nextAllowedDashboardRefresh: Dayjs | null,
             widgetTiles: DashboardTile[],
             widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
-            widgetFreshnessTick: number,
+            refreshEligibilityTick: number,
             dashboardWidgetsEnabled: boolean,
             placement: DashboardPlacement,
             pageVisibility: boolean
@@ -1454,7 +1455,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveLayout: true,
         resetUrlFilters: () => true,
         resetUrlVariables: true,
-        recheckWidgetFreshness: true,
+        recheckRefreshEligibility: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
@@ -2604,7 +2605,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        widgetFreshnessTick: [0, { recheckWidgetFreshness: (state) => state + 1 }],
+        refreshEligibilityTick: [0, { recheckRefreshEligibility: (state) => state + 1 }],
         addWidgetTileLoading: [
             false,
             {
@@ -3127,7 +3128,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 s.nextAllowedDashboardRefresh,
                 s.widgetTiles,
                 s.widgetRefreshStatus,
-                s.widgetFreshnessTick,
+                s.refreshEligibilityTick,
                 s.dashboardWidgetsEnabled,
                 s.placement,
                 s.pageVisibility,
@@ -3136,7 +3137,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 nextAllowedDashboardRefresh: Dayjs,
                 widgetTiles: DashboardTile[],
                 widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
-                _widgetFreshnessTick: number,
+                _refreshEligibilityTick: number,
                 dashboardWidgetsEnabled: boolean,
                 placement: DashboardPlacement
             ) => {
@@ -3403,6 +3404,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return [createMaxContextHelpers.dashboard(dashboard)]
             },
         ],
+    })),
+    subscriptions(({ actions, cache }) => ({
+        nextAllowedDashboardRefresh: (deadline: Dayjs | null) => {
+            cache.disposables.dispose('dashboardRefreshTimer')
+            if (!deadline || !deadline.isAfter(now())) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timerId = setTimeout(actions.recheckRefreshEligibility, Math.max(0, deadline.diff(now())) + 100)
+                return () => clearTimeout(timerId)
+            }, 'dashboardRefreshTimer')
+        },
+        nextWidgetStaleAt: (deadline: number | null) => {
+            cache.disposables.dispose('widgetFreshnessTimer')
+            if (!deadline) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timerId = setTimeout(actions.recheckRefreshEligibility, Math.max(0, deadline - Date.now()) + 100)
+                return () => clearTimeout(timerId)
+            }, 'widgetFreshnessTimer')
+        },
     })),
     events(({ actions, props, values, cache }) => ({
         afterMount: () => {

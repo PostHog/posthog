@@ -2671,15 +2671,23 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
-            it('allows another manual dashboard refresh after five minutes', () => {
-                const recentRefresh = now().subtract(4, 'minutes')
-                logic.actions.updateDashboardLastRefresh(recentRefresh)
-                expect(logic.values.blockRefresh).toBe(true)
+            it('allows another manual dashboard refresh after five minutes', async () => {
+                jest.useFakeTimers()
+                try {
+                    const recentRefresh = now().subtract(4, 'minutes')
+                    logic.actions.updateDashboardLastRefresh(recentRefresh)
+                    expect(logic.values.blockRefresh).toBe(true)
 
-                const lastRefresh = now().subtract(6, 'minutes')
-                logic.actions.updateDashboardLastRefresh(lastRefresh)
-                expect(logic.values.nextAllowedDashboardRefresh?.isSame(lastRefresh.add(5, 'minutes'))).toBe(true)
-                expect(logic.values.blockRefresh).toBe(false)
+                    await jest.advanceTimersByTimeAsync(60_100)
+                    expect(logic.values.blockRefresh).toBe(false)
+
+                    const lastRefresh = now().subtract(6, 'minutes')
+                    logic.actions.updateDashboardLastRefresh(lastRefresh)
+                    expect(logic.values.nextAllowedDashboardRefresh?.isSame(lastRefresh.add(5, 'minutes'))).toBe(true)
+                    expect(logic.values.blockRefresh).toBe(false)
+                } finally {
+                    jest.useRealTimers()
+                }
             })
 
             it('manual refresh reloads all insights', async () => {
@@ -4055,20 +4063,18 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const currentTime = Date.now()
-            const clockSpy = jest.spyOn(Date, 'now')
+            jest.useFakeTimers()
             try {
-                clockSpy.mockReturnValue(currentTime - 4 * 60_000)
+                jest.setSystemTime(currentTime - 4 * 60_000)
                 logic.actions.setWidgetRefreshStatuses([WIDGET_TILE.id], false)
-                clockSpy.mockReturnValue(currentTime)
+                await jest.advanceTimersByTimeAsync(4 * 60_000)
                 logic.actions.updateDashboardLastRefresh(dayjs())
                 expect(logic.values.blockRefresh).toBe(true)
 
-                expect(logic.values.nextWidgetStaleAt).toBe(currentTime + 60_000)
-                clockSpy.mockReturnValue(currentTime + 60_000)
-                logic.actions.recheckWidgetFreshness()
+                await jest.advanceTimersByTimeAsync(60_100)
                 expect(logic.values.blockRefresh).toBe(false)
             } finally {
-                clockSpy.mockRestore()
+                jest.useRealTimers()
             }
         })
 

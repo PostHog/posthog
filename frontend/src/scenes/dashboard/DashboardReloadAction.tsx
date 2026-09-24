@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { IconRefresh } from '@posthog/icons'
@@ -66,15 +65,9 @@ const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
 }))
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh, nextWidgetStaleAt } =
-        useValues(dashboardLogic)
-    const {
-        triggerDashboardRefresh,
-        setAutoRefresh,
-        setPageVisibility,
-        cancelDashboardRefresh,
-        recheckWidgetFreshness,
-    } = useActions(dashboardLogic)
+    const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } = useValues(dashboardLogic)
+    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
+        useActions(dashboardLogic)
 
     usePageVisibilityCb(setPageVisibility)
 
@@ -85,29 +78,6 @@ export function DashboardReloadAction(): JSX.Element {
         dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
             ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
             : ''
-
-    // Force a re-render when nextAllowedDashboardRefresh is reached, since the blockRefresh
-    // selector uses now() which isn't reactive - it only recomputes on dependency changes
-    const [, setRenderTrigger] = useState(0)
-    useEffect(() => {
-        if (nextAllowedDashboardRefresh) {
-            const msUntilRefreshAllowed = dayjs(nextAllowedDashboardRefresh).diff(dayjs())
-            if (msUntilRefreshAllowed > 0) {
-                const timeoutId = setTimeout(() => setRenderTrigger((n) => n + 1), msUntilRefreshAllowed + 100)
-                return () => clearTimeout(timeoutId)
-            }
-        }
-    }, [nextAllowedDashboardRefresh])
-
-    useEffect(() => {
-        if (nextWidgetStaleAt) {
-            const delay = nextWidgetStaleAt - Date.now()
-            if (delay > 0) {
-                const timeoutId = setTimeout(recheckWidgetFreshness, delay + 100)
-                return () => clearTimeout(timeoutId)
-            }
-        }
-    }, [nextWidgetStaleAt, recheckWidgetFreshness])
 
     const options = INTERVAL_OPTIONS.map((option) => {
         return {
