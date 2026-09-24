@@ -22,10 +22,6 @@
 <!-- Describe steps to reproduce and verify the changes, and what the expected behavior is. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State what the agent wasn't able to do and list only the automated tests you (the agent) actually ran. -->
-
-- [ ] New events schema check complete: this PR is unrelated, or the `test-new-events-schema` label was added before the final push or ready-for-review transition.
-
-<!-- Add the label when a change affects event ingestion, event property handling, event-table SQL, or schema-specific query snapshots. Label events do not start Backend CI, so a later label needs another push. -->
 <!-- Added or changed tests? Name the regression each group catches that no existing test did — if you can't name it, it probably shouldn't be in this PR. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
 <!-- Don't recite pass counts for suites CI runs; the checks report those with more authority. Link the evidence instead (run, permalink, error tracking issue), and say what you did not check. Long transcripts go in a <details> block. -->
 
@@ -64,6 +60,7 @@
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
+     - New events schema: classify the diff before opening the PR. Add `test-new-events-schema` for event ingestion or cleaning, event or property reads, generated event-table SQL, and schema-specific snapshots. Apply it while draft before ready-for-review. If the PR must open ready, apply it immediately and push another commit because label events do not start Backend CI. State the result under "How did you test this code?".
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
 

@@ -388,18 +388,6 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
-### Run native-JSON events-table tests on every backend CI run
-
-**Verdict: reverted** · Sep 2026 · [#104783](https://github.com/PostHog/posthog/pull/104783)
-
-The change ran every selected backend test against both event schemas on every pull request, merge-queue run, and scheduled run.
-This more than doubled the affected test matrix because every legacy-schema job gained a native-JSON copy, including changes unrelated to event storage or queries.
-
-The native-JSON copies now run on pull requests with the `test-new-events-schema` label, manual dispatches, and two scheduled master runs each day.
-Use the label for changes to event ingestion, event property handling, event-table SQL, or schema-specific query snapshots.
-
-_Also asked as:_ always test both event schemas, run events_json on every PR, make native-JSON tests blocking everywhere
-
 The required Docker image workflow runs only when a pull request opens or changes.
 A separate non-required workflow handles `hobby-preview` and `no-depot-docker-cache` label additions, while Hobby label events still handle preview cleanup.
 
