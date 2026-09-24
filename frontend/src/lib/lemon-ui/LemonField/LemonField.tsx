@@ -43,6 +43,24 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
+/**
+ * Give the field's input an id the label can point at, so a click on the label focuses the input.
+ * An explicit `htmlFor` wins, then an id the child already has, then the generated fallback.
+ */
+const linkLabelToInput = (
+    children: React.ReactNode,
+    htmlFor: string | undefined,
+    fallbackId: string
+): { inputId: string; children: React.ReactNode } => {
+    const childElement = isValidElement(children) ? (children as React.ReactElement<{ id?: string }>) : null
+    const existingId = childElement?.props.id
+    const inputId = htmlFor ?? existingId ?? fallbackId
+    return {
+        inputId,
+        children: childElement && existingId !== inputId ? cloneElement(childElement, { id: inputId }) : children,
+    }
+}
+
 const LemonPureField = ({
     label,
     info,
@@ -59,6 +77,10 @@ const LemonPureField = ({
     labelClassName,
     premiumFeature,
 }: LemonPureFieldProps): JSX.Element => {
+    const fallbackId = useId()
+    const { inputId, children: labelledChildren } = label
+        ? linkLabelToInput(children, htmlFor, fallbackId)
+        : { inputId: htmlFor, children }
     return (
         <div
             onClick={onClick}
@@ -78,13 +100,13 @@ const LemonPureField = ({
                     className={clsx(labelClassName, {
                         'cursor-pointer': !!onClick,
                     })}
-                    htmlFor={htmlFor}
+                    htmlFor={inputId}
                     premiumFeature={premiumFeature}
                 >
                     {label}
                 </LemonLabel>
             ) : null}
-            {children}
+            {labelledChildren}
             {help ? <div className="text-secondary text-xs">{help}</div> : null}
             {typeof error === 'string' ? renderError ? renderError(error) : <LemonFieldError error={error} /> : null}
         </div>
@@ -107,14 +129,7 @@ export const LemonField = ({
     htmlFor,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
-    // Stable fallback id so clicking the label focuses the wrapped input. Used when neither the
-    // caller nor kea-forms (function-as-child case) put an id on the rendered input.
-    const generatedId = useId()
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
-        const kidsElement = isValidElement(kids) ? (kids as React.ReactElement<{ id?: string }>) : null
-        const existingId = kidsElement?.props.id
-        const inputId = htmlFor ?? existingId ?? generatedId
-        const renderedKids = kidsElement && existingId !== inputId ? cloneElement(kidsElement, { id: inputId }) : kids
         return (
             <LemonPureField
                 label={label}
@@ -127,9 +142,9 @@ export const LemonField = ({
                 renderError={renderError}
                 labelClassName={labelClassName}
                 premiumFeature={premiumFeature}
-                htmlFor={inputId}
+                htmlFor={htmlFor}
             >
-                {renderedKids as React.ReactNode}
+                {kids as React.ReactNode}
             </LemonPureField>
         )
     }

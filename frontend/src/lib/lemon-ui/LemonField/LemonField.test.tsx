@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MakeLogicType, kea, path } from 'kea'
 import { Form, forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
@@ -121,16 +122,32 @@ describe('LemonField', () => {
         cleanup()
     })
 
-    it('Pure field wires the explicit htmlFor onto the label', () => {
-        render(
-            <LemonField.Pure label="Email" htmlFor="email-input">
-                <input id="email-input" />
-            </LemonField.Pure>
-        )
+    it.each([
+        {
+            desc: 'explicit htmlFor',
+            label: 'Email',
+            field: (
+                <LemonField.Pure label="Email" htmlFor="email-input">
+                    <input id="email-input" />
+                </LemonField.Pure>
+            ),
+        },
+        {
+            desc: 'no htmlFor, so the field falls back to a generated id (the survey dead-click pattern)',
+            label: 'CSS selector matches',
+            field: (
+                <LemonField.Pure label="CSS selector matches">
+                    <LemonInput />
+                </LemonField.Pure>
+            ),
+        },
+    ])('clicking a pure field label focuses the wrapped input — $desc', async ({ label, field }) => {
+        render(field)
 
-        // getByLabelText only resolves when the label is correctly associated with the input,
-        // so it's both the assertion and the proof of correct wiring.
-        expect(screen.getByLabelText('Email')).toBe(document.getElementById('email-input'))
+        // The browser only forwards a label click to a control that label[for] names,
+        // so a moved focus is the proof that the field linked the two.
+        await userEvent.click(screen.getByText(label))
+        expect(document.activeElement).toBe(screen.getByLabelText(label))
     })
 
     it.each([
