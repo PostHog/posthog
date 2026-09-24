@@ -18,6 +18,7 @@ import {
 import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
+import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -135,6 +136,7 @@ await buildInParallel(
                         ),
                         eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
                     })
+                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
                 }
                 writeIndexHtml(chunks, entrypoints, stable)
             }
@@ -142,6 +144,7 @@ await buildInParallel(
             if (config.name === 'Exporter') {
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/exporter/index.tsx')
                 }
                 writeExporterHtml(chunks, entrypoints)
             }
