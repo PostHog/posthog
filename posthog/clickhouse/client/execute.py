@@ -23,6 +23,7 @@ from posthog.hogql import query_stats
 
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
+    MAX_QUERY_SIZE_BYTES,
     ClickHouseUser,
     QuerySummary,
     Workload,
@@ -312,9 +313,7 @@ def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
-        # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
-        # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
-        "max_query_size": 1048576,
+        "max_query_size": MAX_QUERY_SIZE_BYTES,
     }
 
 

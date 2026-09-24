@@ -184,6 +184,8 @@ export enum Scene {
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
     Tracing = 'Tracing',
+    TracingRetentionNew = 'TracingRetentionNew',
+    TracingRetentionDetail = 'TracingRetentionDetail',
     Metrics = 'Metrics',
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',

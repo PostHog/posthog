@@ -58,7 +58,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import (
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+    MAX_RUN_NOTE_CHARS,
+    STALE_RUN_CUTOFF_S,
+)
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
@@ -3847,7 +3851,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.output_destinations["slack"]["thread_reports"] is False
 
-    _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
+    _CAP_PATCH = "products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM"
 
     def test_create_disabled_config_is_allowed_at_team_cap(self) -> None:
         self._make_skill("signals-scout-first")
@@ -3882,6 +3886,84 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "enabled scouts" in response.json()["detail"]
+        second.refresh_from_db()
+        assert second.enabled is False
+
+    @parameterized.expand(
+        [
+            # A project given more capacity in the flag may enable past the code fallback.
+            ("raised", {"max_enabled_scouts": 2}, status.HTTP_200_OK, True),
+            # Lowering it below current usage blocks the next enable without touching what runs.
+            ("lowered", {"max_enabled_scouts": 1}, status.HTTP_400_BAD_REQUEST, False),
+        ]
+    )
+    def test_enable_is_gated_by_the_flag_configured_cap(
+        self, _name: str, team_config: dict, expected_status: int, expected_enabled: bool
+    ) -> None:
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=False)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"team_configs": {str(self.team.id): team_config}}):
+            response = self.client.patch(self._detail_url(str(second.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == expected_status
+        second.refresh_from_db()
+        assert second.enabled is expected_enabled
+        # A lowered cap never pauses what is already running.
+        first.refresh_from_db()
+        assert first.enabled is True
+
+    def test_cap_rejection_names_the_resolved_cap(self) -> None:
+        # The number a person reads must be the number enforcement used, or the message sends
+        # them looking for scouts that are not there.
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-second", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already has 1 enabled scouts" in response.json()["detail"]
+
+    def test_cap_rejection_above_a_lowered_cap_names_the_count_and_the_scouts_to_disable(self) -> None:
+        # A lowered cap leaves every running scout enabled, so the count can sit above the cap.
+        # Reporting the cap as the count, or asking for one disable, leaves the next enable refused.
+        for name in ("signals-scout-first", "signals-scout-second", "signals-scout-third"):
+            self._make_skill(name)
+            SignalScoutConfig.objects.create(team=self.team, skill_name=name, enabled=True)
+        self._make_skill("signals-scout-fourth")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fourth", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "This project already has 3 enabled scouts, and its limit is 1. Disable 3 scouts before you enable another."
+        )
+
+    def test_disabling_and_editing_stay_allowed_below_a_lowered_cap(self) -> None:
+        # Lowering the cap must leave a project able to dig itself out: disabling frees a slot,
+        # and tuning an enabled scout is not a net-new enable.
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=True)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            tuned = self.client.patch(
+                self._detail_url(str(first.id)), data={"run_interval_minutes": 120}, format="json"
+            )
+            disabled = self.client.patch(self._detail_url(str(second.id)), data={"enabled": False}, format="json")
+
+        assert tuned.status_code == status.HTTP_200_OK
+        assert disabled.status_code == status.HTTP_200_OK
         second.refresh_from_db()
         assert second.enabled is False
 
@@ -4029,7 +4111,33 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
             "max_runs_per_day",
             "runs_today",
             "runs_remaining_today",
+            "max_enabled_scouts",
         }
+
+    @parameterized.expand(
+        [
+            ("no_override", {}, MAX_ENABLED_SCOUTS_PER_TEAM),
+            ("fleet_default", {"default_team_config": {"max_enabled_scouts": 400}}, 400),
+            (
+                "project_override_wins",
+                {
+                    "default_team_config": {"max_enabled_scouts": 400},
+                    "team_configs": {"__team__": {"max_enabled_scouts": 500}},
+                },
+                500,
+            ),
+        ]
+    )
+    def test_metadata_reports_the_enforced_enabled_cap(self, _name: str, extra: dict, expected: int) -> None:
+        # The endpoint exists to show the enforced number, so the cap it reports must be the one
+        # the write surfaces apply — the same three layers, resolved the same way.
+        payload = {"guaranteed_team_ids": [self.team.id], **extra}
+        if "team_configs" in payload:
+            payload["team_configs"] = {str(self.team.id): payload["team_configs"]["__team__"]}
+
+        body = self._get(payload).json()
+
+        assert body["limits"]["max_enabled_scouts"] == expected
 
     @parameterized.expand([("listed", True), ("not_listed", False)])
     def test_enrolled_reflects_guaranteed_team_ids(self, _name: str, listed: bool) -> None:

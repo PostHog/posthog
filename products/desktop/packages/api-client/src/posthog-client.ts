@@ -3221,6 +3221,7 @@ export class PostHogAPIClient {
         channel?: string | null;
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
+        initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
       },
@@ -4243,6 +4244,7 @@ export class PostHogAPIClient {
     runtime_adapter?: string | null;
     model?: string | null;
     reasoning_effort?: string | null;
+    initial_permission_mode?: ExecutionMode | null;
     context_window?: "200k" | "1m" | null;
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
@@ -4265,6 +4267,7 @@ export class PostHogAPIClient {
             runtime_adapter: options.runtime_adapter ?? null,
             model: options.model ?? null,
             reasoning_effort: options.reasoning_effort ?? null,
+            initial_permission_mode: options.initial_permission_mode ?? null,
             ...(options.context_window
               ? { context_window: options.context_window }
               : {}),

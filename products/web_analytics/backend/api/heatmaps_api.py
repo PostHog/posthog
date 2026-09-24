@@ -1465,8 +1465,14 @@ class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
     )
     url = serializers.CharField(
         max_length=2000,
-        help_text="Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both "
-        "the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.",
+        help_text="Exact page URL the screenshot was captured on. Wildcards are not allowed.",
+    )
+    data_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. "
+        "Defaults to the captured page URL when omitted or empty.",
     )
     name = serializers.CharField(
         required=False,
@@ -1773,7 +1779,8 @@ class SavedHeatmapViewSet(
         "the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+"
         "'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page "
         "at each width and captures it, matching the widths the server renders). The image bytes are stored and "
-        "served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.",
+        "served only through the authenticated content endpoint. The optional data URL selects which pages supply "
+        "the overlay data and defaults to the captured URL.",
     )
     @action(
         methods=["POST"],
@@ -1810,6 +1817,7 @@ class SavedHeatmapViewSet(
             snapshot_bytes.append((width, image_bytes))
 
         url = validated["url"]
+        data_url = validated.get("data_url") or url
         name = validated.get("name") or url
         target_widths = list(dict.fromkeys(width for width, _ in snapshot_bytes))
 
@@ -1818,7 +1826,7 @@ class SavedHeatmapViewSet(
                 team=self.team,
                 name=name,
                 url=url,
-                data_url=url,
+                data_url=data_url,
                 target_widths=target_widths,
                 type=SavedHeatmap.Type.SCREENSHOT,
                 source=SavedHeatmap.Source.TOOLBAR,
@@ -1981,13 +1989,8 @@ class SavedHeatmapViewSet(
 
         if obj.source == SavedHeatmap.Source.TOOLBAR:
             validated = serializer.validated_data
-            render_input_changing = (
-                ("url" in validated and validated["url"] != obj.url)
-                or ("data_url" in validated and validated["data_url"] != obj.data_url)
-                or (
-                    "block_consent_modals" in validated
-                    and validated["block_consent_modals"] != obj.block_consent_modals
-                )
+            render_input_changing = ("url" in validated and validated["url"] != obj.url) or (
+                "block_consent_modals" in validated and validated["block_consent_modals"] != obj.block_consent_modals
             )
             if render_input_changing:
                 raise ValidationError(
