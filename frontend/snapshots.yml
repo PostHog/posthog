@@ -5492,6 +5492,42 @@ snapshots:
         hash: v1.k794b7964.892b971ab555f6d1ca2e0fa85f9a9866e3e5b8fd2843db239963ee69d0557810.JMoDrmwxxF3X_fUQL4s76kPCprGp3yU0oyOPqLf8Smw
     marketing-analytics-dashboard-metric-cards--narrow--light:
         hash: v1.k794b7964.19970bb1bed82447960aefd0360d530aacf7953ad0aed733f9e3cbb2136dd4c8.qWkLBIG4xUN4Qp39pJnDkjC8z0-DunhMLPxYC-o5KZA
+    marketing-analytics-dashboard-metric-chart--empty--dark:
+        hash: v1.k794b7964.7b6020b3d1d18ce093240b91f693ea2c2c26fbf3c013ebffaa4e3f2166da25e5.TjRc-gGEpBCZP3Ite7qHlDW6JcZce1gJIHH1BGuWieI
+    marketing-analytics-dashboard-metric-chart--empty--light:
+        hash: v1.k794b7964.689218e3c187ef67f2cac86867da5df5c74c49c4448f0b530c949d9005499c23.egxucJAOTaVMEwYkNmtJQJJrA6ci-2H_qHVsMCndcT4
+    marketing-analytics-dashboard-metric-chart--error--dark:
+        hash: v1.k794b7964.e809ea038ca7c8a676941744aa8b828d583bcec82c8e4c13d8c9aa2e617fe81b.JPk5U6T9QqNAsvpIipO0tmNX73qRqlEe2uVr4ac41nI
+    marketing-analytics-dashboard-metric-chart--error--light:
+        hash: v1.k794b7964.62715b403c1f9cf81295fffcfc17f428f4f8a5f67b2a650f5f01098f28500b52.qbBoEKB7pcYmr-n4M7-zMhwTBAk9l4Xnc6TMU8hIbvY
+    marketing-analytics-dashboard-metric-chart--interactive--dark:
+        hash: v1.k794b7964.1171481aac8e380c23b35ed7201df782d2e6c8320c37dcef046a344c3607bed9._SCYVG0_Yn3FeknY8CUBX45M9_lkkWMXSWAEDuMlz94
+    marketing-analytics-dashboard-metric-chart--interactive--light:
+        hash: v1.k794b7964.052a39648417d77f897ef2ba52c53dbe07e44e07dd0ba83f7fea3b4a36dcb70d.FEcw-a3jVZx-DwrFh5_XvytVpWJYTxi_5nj5w1CxITo
+    marketing-analytics-dashboard-metric-chart--loading--dark:
+        hash: v1.k794b7964.82a9b4e0a2f369d89ee7161b4537b3e97e5c461a157fc1803a5f5c2dcb063dce.PxIAHr4mRzPTF-iVmryTjLtm_00h7CGmOm5za0rmy4E
+    marketing-analytics-dashboard-metric-chart--loading--light:
+        hash: v1.k794b7964.9372cf54ba7c2309858e4e2f649c4fc589ceda9bb6118629a0ad4f5ea2c71d40.xZvN9hfVD7NxhecYQqOfjKgTPEFhYb9hBFu8nVntduw
+    marketing-analytics-dashboard-metric-chart--narrow--dark:
+        hash: v1.k794b7964.ca8dd72bb4556f2452c8d88b6fdd878f153a1a228f0f2d24f5d2cc7cb383448a.mCPDTBOzBKsDDRGXVRc0LMdGJ7smRTNBls8nqCjNX60
+    marketing-analytics-dashboard-metric-chart--narrow--light:
+        hash: v1.k794b7964.4892e85e55ec70c9406fcc562761b8a6496ae857af380bc2709958e7e82b4f67.QxiuaCdQdagzXPNXwmNsdBL19e286pDHiZpUyOBuXD0
+    marketing-analytics-dashboard-metric-chart--narrow-error--dark:
+        hash: v1.k794b7964.a56a21ce4c7d5c492b9cb7c8b6291a1347a99ed7e8e14f2adca9c1a2613d499b.rSLMTKIeWVoinQ_Pvf5hpM6vcHQzXI8hh_zwZ7JYgfk
+    marketing-analytics-dashboard-metric-chart--narrow-error--light:
+        hash: v1.k794b7964.476d3187f9bcf929140f6b5169584bee7985c5a9fd692d152ce711ef2711f932.TL33eGlCu1UyWiYc8UQuopK4F91ttLIWlWUplEQfJy8
+    marketing-analytics-dashboard-metric-chart--percentage--dark:
+        hash: v1.k794b7964.6fb50145654e53e748fe132435c760a8624d512d455daffb4fac1beee43b9f26.W9IYyo2xYX7QTa4Lxi2S2Mch4jtOAFeaXx4CzHf9C1U
+    marketing-analytics-dashboard-metric-chart--percentage--light:
+        hash: v1.k794b7964.7f355743c54a5d245b96469658060692079f2bba19a4dafc9e56bd4cf772e5b6.sQTvJVJVPV-1VZSJiBpjlOzHUkpHh2D9CG77rUblwTY
+    marketing-analytics-dashboard-metric-chart--refreshing--dark:
+        hash: v1.k794b7964.10de1f1ee3cabcd375230e26384b61ef01e0587ce6927c68fd5db1ff76aee496.i1r8fbZwXkwZ-fvg7bW1YelQKnskxIw7WhQvvMkTLEg
+    marketing-analytics-dashboard-metric-chart--refreshing--light:
+        hash: v1.k794b7964.38afa435aa16e9a38e6513446d2d2876f8fbba5fa9bf5bc6178135598d9f1a8b.-pUeEvoZxSPMjlsReWUE-IDYliHwcGXilv_CbN-S0LY
+    marketing-analytics-dashboard-metric-chart--total--dark:
+        hash: v1.k794b7964.b534f4ca547e10b9fae117c7ad42100972cb5863d76592c5a2db74351020b4bb.K5pm_IZiAgcMUETOyn4mPrPPscHPLJtvj-UX97XC_ic
+    marketing-analytics-dashboard-metric-chart--total--light:
+        hash: v1.k794b7964.b2249c43b08031cff84d2333c09b1dfafda2bbb321249afc6cfce04af1966028.C7JFm6S2QcyHxJZu1Pebh7Idaevdqlbn0gFdukxHGVI
     marketing-analytics-failed-queries--attribution-query-failure--dark:
         hash: v1.k794b7964.b84b7a281d0a4bf86c5d9e87d75e3a6e360b56afbc434addf7c5e32ac21b8803.lf_xTXYsVyVEYRWZlwoM7aaBgv6HpRrINhoriSoE0Us
     marketing-analytics-failed-queries--attribution-query-failure--light:
