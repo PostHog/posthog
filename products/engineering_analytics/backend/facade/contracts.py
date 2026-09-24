@@ -248,6 +248,32 @@ class GitHubSource:
 
 
 @dataclass(frozen=True)
+class GitHubTeamMembership:
+    """One person's membership of one GitHub org team, read from the synced roster snapshot."""
+
+    # The member's GitHub login, lowercased so a reader can match it against a stored identity.
+    member_handle: str
+    team_slug: str
+    team_name: str
+    # False whenever the snapshot cannot say otherwise: GitHub omits the role column on some syncs.
+    is_maintainer: bool
+
+
+@dataclass(frozen=True)
+class GitHubTeamRoster:
+    """Every synced org team membership, and whether there was a snapshot to read at all.
+
+    ``synced`` is false when no connected source carries the membership endpoint. It is off by
+    default and needs the org Members grant, so a caller must be able to say "the roster isn't
+    synced here" rather than read an empty result as "that team has nobody on it". The snapshot is
+    also only as fresh as the source's last sync, so it can lag the live team.
+    """
+
+    memberships: tuple[GitHubTeamMembership, ...]
+    synced: bool
+
+
+@dataclass(frozen=True)
 class ExpectedWarehouseView:
     """A code-generated warehouse view this product exposes as a team-scoped DataWarehouse saved
     query. data_modeling adapts it into its own ``ExpectedView`` without importing this product's

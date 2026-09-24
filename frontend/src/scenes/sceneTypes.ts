@@ -51,6 +51,7 @@ export enum Scene {
     DebugHog = 'DebugHog',
     ProjectFiles = 'ProjectFiles',
     DebugQuery = 'DebugQuery',
+    Terminal = 'Terminal',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     Error404 = '404',
     ErrorAccessDenied = 'AccessDenied',
@@ -209,6 +210,7 @@ export enum Scene {
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
+    Broadcasts = 'Broadcasts',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
     Wizard = 'Wizard',
@@ -425,6 +427,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
 

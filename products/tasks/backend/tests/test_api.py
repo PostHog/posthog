@@ -2064,6 +2064,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.TASK_ANALYSIS,),
             (Task.OriginProduct.REVIEW_HOG,),
             (Task.OriginProduct.SLACK,),
+            (Task.OriginProduct.SPACE_SETUP,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -4166,7 +4167,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_run_endpoint_persists_agent_toggle(self, field, value, mock_workflow):
         task = self.create_task()
 
-        response = self.client.post(
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {field: value},
             format="json",
@@ -4176,6 +4177,30 @@ class TestTaskAPI(BaseTaskAPITest):
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert task_run.state[field] == value
         mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_claude_plan_from_personal_api_key(self, mock_workflow):
+        task = self.create_task()
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Task script",
+            secure_value=hash_key_value(api_key_value),
+            scopes=["task:write"],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"claude_model_access": "own-subscription"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "claude_model_access"
+        assert not task.runs.exists()
+        mock_workflow.assert_not_called()
 
     @parameterized.expand([("rtk_enabled",), ("benjamin_enabled",), ("claude_model_access",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -4967,7 +4992,9 @@ class TestTaskAPI(BaseTaskAPITest):
         if requested is not None:
             payload["claude_model_access"] = requested
 
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json"
+        )
 
         if expected is None:
             assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -6441,6 +6468,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "inactivity_timeout_seconds": 600,
                 "use_modal_directory_resume_snapshots": True,
                 "use_modal_vm_sandbox": False,
+                "sandbox_template": "default_base",
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
                 "agent_proxy_keep_stream_open": False,
@@ -6511,6 +6539,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "wizard_config": {},
                     "use_modal_directory_resume_snapshots": False,
                     "use_modal_vm_sandbox": True,
+                    # a VM template here would boot a Docker-capable box past the VM gate
+                    "sandbox_template": "vm_base",
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
                     "agent_proxy_keep_stream_open": True,
@@ -6585,6 +6615,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
         assert run.state["use_modal_directory_resume_snapshots"] is True
         assert run.state["use_modal_vm_sandbox"] is False
+        assert run.state["sandbox_template"] == "default_base"
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
         assert run.state["agent_proxy_keep_stream_open"] is False

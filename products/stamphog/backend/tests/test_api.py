@@ -593,7 +593,8 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["results"] == []
 
-    def test_output_excludes_raw_repo_content(self) -> None:
+    @parameterized.expand([("retrieve",), ("list",)])
+    def test_output_excludes_raw_repo_content(self, endpoint: str) -> None:
         # run.output holds the full PR payload, changed-file patches, default-branch policy files, and
         # raw reviewer stdout. A project member without repo access can read this endpoint, so the API
         # must expose only the allowlisted, content-free summary — never the raw repo content.
@@ -608,9 +609,14 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         }
         run.save(update_fields=["output"])
 
-        response = self.client.get(f"{self.url}{run.id}/")
-        assert response.status_code == status.HTTP_200_OK
-        output = response.json()["output"]
+        if endpoint == "retrieve":
+            response = self.client.get(f"{self.url}{run.id}/")
+            assert response.status_code == status.HTTP_200_OK
+            output = response.json()["output"]
+        else:
+            response = self.client.get(self.url)
+            assert response.status_code == status.HTTP_200_OK
+            output = response.json()["results"][0]["output"]
         assert output == {"stamphog_version": "test-1.0.0", "reviewer_exit_code": 0}
         for leaked in ("reviewer_raw", "pr", "files", "policy_files"):
             assert leaked not in output

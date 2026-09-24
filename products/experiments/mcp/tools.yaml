@@ -966,8 +966,6 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
-        feature_flag: experiment-migrate-mcp-tool
-        feature_flag_behavior: enable
     experiment-pause:
         operation: experiments_pause_create
         enabled: true

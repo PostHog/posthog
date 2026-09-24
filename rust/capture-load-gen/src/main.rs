@@ -393,7 +393,7 @@ async fn main() -> Result<()> {
 
     // A missing verify prerequisite must fail here, not after the load.
     let verify_cfg = if should_verify {
-        Some(verify_config(&cli)?)
+        Some(verify_config(&cli, duration)?)
     } else {
         None
     };
@@ -485,8 +485,10 @@ fn spawn_metrics_server(port: u16) {
     });
 }
 
-/// The verify flags as a config, failing on the one without a default.
-fn verify_config(cli: &Cli) -> Result<verify::VerifyConfig> {
+/// The verify flags as a config, failing on the one without a default. A
+/// rate run's deadline is at least its own length plus the merge delay,
+/// so a long run is not cut off while its last claims still land.
+fn verify_config(cli: &Cli, duration: Option<Duration>) -> Result<verify::VerifyConfig> {
     let database_url = cli
         .database_url
         .clone()
@@ -497,7 +499,11 @@ fn verify_config(cli: &Cli) -> Result<verify::VerifyConfig> {
         team_id,
         tmp_person_table: cli.tmp_person_table.clone(),
         tmp_pdi_table: cli.tmp_pdi_table.clone(),
-        deadline: cli.verify_timeout,
+        deadline: duration.map_or(cli.verify_timeout, |run| {
+            cli.verify_timeout.max(run + cli.person_merge_delay)
+        }),
+        probe_interval: verify::PROBE_INTERVAL,
+        compare_interval: verify::COMPARE_INTERVAL,
     })
 }
 
@@ -544,6 +550,31 @@ mod tests {
     }
 
     #[test]
+    fn verify_deadline_outlasts_a_long_run() {
+        let cli = Cli::parse_from([
+            "loadgen",
+            "--token",
+            "t",
+            "--database-url",
+            "d",
+            "--team-id",
+            "1",
+            "--rate",
+            "1",
+            "--duration",
+            "20m",
+            "--verify-timeout",
+            "5m",
+            "--person-merge-delay",
+            "10s",
+        ]);
+        let long_run = verify_config(&cli, Some(Duration::from_secs(20 * 60))).unwrap();
+        assert_eq!(long_run.deadline, Duration::from_secs(20 * 60 + 10));
+        let short_run = verify_config(&cli, Some(Duration::from_secs(60))).unwrap();
+        assert_eq!(short_run.deadline, Duration::from_secs(5 * 60));
+    }
+
+    #[test]
     fn verify_config_requires_a_team_id() {
         let cli = Cli::parse_from([
             "loadgen",
@@ -554,7 +585,7 @@ mod tests {
             "--count",
             "0",
         ]);
-        assert!(verify_config(&cli).is_err());
+        assert!(verify_config(&cli, None).is_err());
     }
 
     #[test]
