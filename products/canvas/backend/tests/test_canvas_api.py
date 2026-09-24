@@ -753,6 +753,19 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert body["current_version_id"] == version_id
         assert body["project"]["files"]["src/extra.ts"] == "export const x = 1"
 
+        def finish_build(queued: CanvasBuild) -> CanvasBuild:
+            CanvasBuild.objects.unscoped().filter(id=queued.id).update(status=CanvasBuild.STATUS_READY)
+            Canvas.objects.unscoped().filter(id=queued.canvas_id).update(published_build_id=queued.id)
+            return CanvasBuild.objects.unscoped().get(id=queued.id)
+
+        with patch.object(build_service, "wait_for_build_result", side_effect=finish_build):
+            second = self._publish(
+                canvas_id,
+                self._project("export default function C() { return 2 }"),
+                expected_current_version_id=version_id,
+            )
+        assert second.json()["canvas"]["published_build_id"] == second.json()["build"]["id"]
+
     @parameterized.expand([("member", False), ("sandbox", True)])
     def test_public_members_can_edit_and_publish_but_not_rename(self, _name: str, sandbox: bool) -> None:
         canvas_id = self._create_canvas()
@@ -841,6 +854,19 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert body["code"] == "version_conflict"
         assert body["current_version_id"] == first.json()["current_version_id"]
         assert len(self.storage.objects) == 1
+
+        stale_edit = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+            {
+                "operations": [
+                    {"op": "str_replace", "path": "src/canvas.tsx", "old_string": "return 2", "new_string": "return 3"}
+                ],
+                "expected_current_version_id": None,
+            },
+            format="json",
+        )
+        assert stale_edit.status_code == status.HTTP_409_CONFLICT
+        assert stale_edit.json()["current_version_id"] == first.json()["current_version_id"]
 
     def test_validation_errors_reject_publish(self):
         canvas_id = self._create_canvas()
@@ -945,17 +971,26 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert properties["error_codes"] == ["edit_target_missing"]
         assert properties["delete_operation_count"] == 1
 
-    def test_edit_str_replace_without_new_string_400s(self):
+    @parameterized.expand(
+        [
+            ("str_replace_without_new_string", {"op": "str_replace", "old_string": "export"}),
+            ("new_string_without_op_or_old_string", {"new_string": "export const x = 2"}),
+        ]
+    )
+    def test_incomplete_replacement_400s_and_keeps_the_file(self, _name: str, fields: dict[str, str]) -> None:
         canvas_id = self._create_canvas()
+        project = self._project()
+        project["files"]["src/extra.ts"] = "export const x = 1"
+        version_id = self._publish(canvas_id, project, expected_current_version_id=None).json()["current_version_id"]
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
-            {
-                "operations": [{"op": "str_replace", "path": "src/canvas.tsx", "old_string": "return null"}],
-                "expected_current_version_id": None,
-            },
+            {"operations": [{"path": "src/extra.ts", **fields}], "expected_current_version_id": version_id},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
+        assert source["project"]["files"]["src/extra.ts"] == "export const x = 1"
 
     def test_publish_clears_legacy_code(self):
         canvas_id = self._create_canvas()

@@ -147,8 +147,8 @@ tools:
             again; if a replacement fails twice, `write` the whole file instead. `expected_current_version_id` is
             REQUIRED (from canvas-source-retrieve, or the `current_version_id` a previous edit returned; null only for a
             never-published canvas). A stale base is rejected with 409 version_conflict: re-read the source and edit
-            again. The edited project is validated, published, and built like canvas-publish-create. The response's `build` carries the build status: `ready` means the canvas is live, so do not call
-            canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
+            again. The edited project is validated, published, and built like canvas-publish-create. The response's `build` carries the build status: `ready` means the build finished, and the canvas shows it
+            when `canvas.published_build_id` is its id, so do not call canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
             `queued` or `building`. Stage a draft with
             canvas-draft-create only when the user asked for a draft or a review step.
         param_overrides:
@@ -315,8 +315,8 @@ tools:
             project that shows PostHog data must make every figure verifiable before publishing: an insight-backed
             metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
             exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk —
-            this tool is what saves it. The response's `build` carries the build status: `ready` means the canvas is live, so do not call
-            canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
+            this tool is what saves it. The response's `build` carries the build status: `ready` means the build finished, and the canvas shows it
+            when `canvas.published_build_id` is its id, so do not call canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
             `queued` or `building`.
         param_overrides:
             id:

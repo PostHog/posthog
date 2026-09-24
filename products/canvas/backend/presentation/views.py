@@ -972,12 +972,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
 
         try:
-            project, _ = build_service.current_source_project(canvas)
+            project, head_version_id = build_service.current_source_project(canvas)
         except ObjectStorageError:
             return Response(
                 {"detail": "The canvas's source is temporarily unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+        if (payload.validated_data["expected_current_version_id"] or None) != head_version_id:
+            return _conflict_response(build_service.CanvasVersionConflict(head_version_id))
         operations = payload.validated_data["operations"]
         project, diagnostics = apply_source_edits(project, operations)
         if "capabilities" in payload.validated_data:
@@ -1073,13 +1075,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         )
 
         build = build_service.wait_for_build_result(build)
+        canvas.refresh_from_db()
         return Response(
-            {
-                "canvas": CanvasSummarySerializer(canvas).data,
-                "current_version_id": str(version.id),
-                "diagnostics": diagnostics,
-                "build": {"id": str(build.id), "build_status": build.status, "diagnostics": build.diagnostics},
-            }
+            CanvasSourcePublishResponseSerializer(
+                {"canvas": canvas, "current_version_id": str(version.id), "diagnostics": diagnostics, "build": build}
+            ).data
         )
 
     @extend_schema(
