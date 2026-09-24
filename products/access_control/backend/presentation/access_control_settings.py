@@ -862,7 +862,6 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if not property_definition_id:
             raise exceptions.ValidationError("resource_id is required for a property rule.")
         check_can_write_property_rules(team, user_access_control)
-        check_can_write_role_rule(team, role_id=role.id if role else None)
         levels = [level.value for level in PropertyAccessLevel]
         if access_level is not None and access_level not in levels:
             raise exceptions.ValidationError(f"Invalid access level. Must be one of: {', '.join(levels)}")
@@ -884,6 +883,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     # Nothing to clear, including a rule a concurrent clear removed first
                     pass
                 return Response(status=status.HTTP_204_NO_CONTENT)
+            check_can_write_role_rule(team, role_id=role_id)
             rule = access_control_api.upsert_property_access_control(
                 team_id=team.id,
                 created_by_id=self.request.user.pk if self.request.user.is_authenticated else None,

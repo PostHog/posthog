@@ -50,9 +50,11 @@ def check_can_write_property_rules(team: Team, user_access_control: UserAccessCo
 
 
 def check_can_write_role_rule(team: Team, *, role_id: UUID | None) -> None:
-    """A role rule needs the role-based access feature, the same gate AccessControlSerializer
-    applies to role rules on every other scope. Without it a role rule grants nobody anything,
-    because role memberships are not resolved at all."""
+    """Creating or changing a role rule needs the role-based access feature, the same gate
+    AccessControlSerializer applies to role rules on every other scope. Removing one does not,
+    so an organization that loses the feature can still clean up. That matters for property
+    rules: property enforcement resolves role memberships without the feature, so a leftover
+    role rule stays in force."""
     if role_id is not None and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
         raise PermissionDenied("Role-based access controls require the Role-based access feature.")
 
@@ -183,7 +185,6 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer = PropertyAccessControlDeleteSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        check_can_write_role_rule(self.team, role_id=data.get("role"))
 
         try:
             api.delete_property_access_control(

@@ -298,6 +298,22 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         role = Role.objects.create(name="Analyst", organization=self.organization)
         response = self._post({"access_level": PropertyAccessLevel.READ.value, "role": str(role.id)})
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_delete_role_rule_allowed_without_role_based_access_feature(self):
+        from products.access_control.backend.models.role import Role
+
+        role = Role.objects.create(name="Analyst", organization=self.organization)
+        self._grant_role_based_access()
+        response = self._post({"access_level": PropertyAccessLevel.READ.value, "role": str(role.id)})
+        assert response.status_code == status.HTTP_200_OK
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        response = self.client.delete(f"{self.url}?property_definition_id={self.prop_def.id}&role={role.id}")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not PropertyAccessControl.objects.filter(property_definition=self.prop_def).exists()
         assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 0
 
     def test_delete_forbidden_without_property_access_control_feature(self):
