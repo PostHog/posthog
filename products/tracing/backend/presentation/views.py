@@ -48,6 +48,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.permissions import posthog_feature_flag_enabled
 
 from ..facade.api import (
     FACET_COLUMNS,
@@ -77,6 +78,9 @@ from ..logic import (
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
+
+# Matches FEATURE_FLAGS.TRACING_AI_EVENTS in the frontend.
+TRACING_AI_EVENTS_FEATURE_FLAG = "tracing-ai-events"
 
 
 def _serialize_compare_rows(compare_rows: list | None) -> list[dict] | None:
@@ -1918,6 +1922,16 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         The spans and the AI events live on different ClickHouse clusters, so one query cannot join
         them; this returns the events half and the caller places them by time.
         """
+        # The same flag gates the waterfall rows in the frontend, so the endpoint stays dark for
+        # everyone the drawer would not show them to.
+        if not posthog_feature_flag_enabled(
+            TRACING_AI_EVENTS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("AI events in traces are not enabled for this user.")
+
         if not self.user_access_control.check_access_level_for_resource("llm_analytics", "viewer"):
             raise PermissionDenied("You do not have access to LLM analytics.")
 

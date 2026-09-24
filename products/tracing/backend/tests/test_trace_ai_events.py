@@ -3,6 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.http import HttpResponse
 
@@ -27,6 +28,12 @@ PARENT_SPAN = "00f067aa0ba902b7"
 
 
 class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
     def _post(self, trace_id: str, **body: Any) -> HttpResponse:
         return self.client.post(
             f"/api/projects/{self.team.id}/tracing/spans/trace/{trace_id}/ai_events/",
@@ -161,6 +168,12 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         response = self._post(trace_id, **body)
 
         assert response.status_code == expected, response.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_requires_the_feature_flag(self, _flag: Any) -> None:
+        response = self._post(TRACE_A)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
     @parameterized.expand([("viewer", status.HTTP_200_OK), ("none", status.HTTP_403_FORBIDDEN)])
     def test_requires_llm_analytics_viewer_access(self, access_level: str, expected_status: int) -> None:
