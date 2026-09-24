@@ -116,7 +116,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
                 loadDevUsers: async (_, breakpoint) => {
                     breakpoint()
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.get<{ users: DevUser[] }>('api/login/dev')
                         breakpoint()
                         return response.users
@@ -154,7 +154,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
             const { loginLogic, redirectAfterLogin } = await import('scenes/authentication/login/loginLogic')
             loginLogic.actions.clearGeneralError()
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create<any>('api/login/dev', { email })
             } catch (e) {
                 const { code, detail } = e as Record<string, any>
@@ -165,7 +165,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
         },
         createFreshAccount: async () => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create<any>('api/login/dev', { create_fresh_account: true })
             } catch (e) {
                 actions.createFreshAccountFailure((e as Record<string, any>).detail || 'Failed to create account')

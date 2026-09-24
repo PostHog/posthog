@@ -867,7 +867,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
@@ -1062,7 +1062,7 @@ export const billingLogic = kea<billingLogicType>([
             [] as BillingProductV2Type[],
             {
                 loadProducts: async () => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get('api/billing/available_products')
                     return response
                 },

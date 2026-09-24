@@ -96,7 +96,7 @@ export const savedInsightsTagFilterLogic = kea<savedInsightsTagFilterLogicType>(
                         return { results: [], next: null }
                     }
                     const params = new URLSearchParams({ search, limit: String(TAGS_PER_PAGE), offset: String(offset) })
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const tagPage: PaginatedResponse<string> = await api.get(
                         `api/projects/${values.currentTeamId}/tags?${params.toString()}`
                     )

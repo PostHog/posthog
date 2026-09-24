@@ -1069,7 +1069,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             ? `access_control_roles?role_id=${subject.subjectId}`
                             : `access_control_members?member_id=${subject.subjectId}`
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.get<{ results: AccessControlSettingsEntry[] }>(
                             `api/projects/${props.projectId}/${query}`
                         )

@@ -219,7 +219,7 @@ export const projectLogic = kea<projectLogicType>([
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         return await api.get('api/projects/@current')
                     } catch {
                         return values.currentProject
@@ -263,7 +263,7 @@ export const projectLogic = kea<projectLogicType>([
                     // Let failures (e.g. a 403 for non-admins) propagate: kea-loaders surfaces the API
                     // error toast and clears the loading state, and createProjectSuccess never fires — so we
                     // don't switch into a project that wasn't created or leave the modal stuck open.
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create('api/projects/', { name })
                 },
                 cancelProjectDeletion: async () => {

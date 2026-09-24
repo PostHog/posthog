@@ -302,10 +302,10 @@ export const organizationLogic = kea<organizationLogicType>([
                     return updatedOrganization
                 },
                 completeOnboarding: async () =>
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/onboarding/`, {}),
                 migrateAccessControlVersion: async () => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/migrate_access_control/`, {})
                     window.location.reload()
                     return values.currentOrganization // Return current organization state since the page will reload anyway

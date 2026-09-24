@@ -384,7 +384,7 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         return await api.get('api/projects/@current')
                     } catch {
                         return values.currentTeam
@@ -392,7 +392,7 @@ export const teamLogic = kea<teamLogicType>([
                 },
                 refreshCurrentTeam: async () => {
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const team = await api.get('api/projects/@current')
                         return team?.id === values.currentTeam?.id ? team : values.currentTeam
                     } catch {
@@ -501,7 +501,7 @@ export const teamLogic = kea<teamLogicType>([
                             'Environment could not be created, because the parent project has not been loaded yet!'
                         )
                     }
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
                 // Project API Token

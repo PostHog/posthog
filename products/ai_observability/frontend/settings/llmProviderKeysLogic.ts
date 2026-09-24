@@ -514,7 +514,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         if (api_version) {
                             body.api_version = api_version
                         }
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsProviderKeyValidationsCreate() from 'products/ai_observability/frontend/generated/api' instead.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeyValidationsCreate() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.create(
                             `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
                             body

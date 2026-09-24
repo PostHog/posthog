@@ -252,7 +252,7 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
         },
         snoozeIssue: async ({ id, duration }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.update(`api/projects/${values.currentTeamIdStrict}/health_issues/${id}/`, {
                     snoozed_until: duration,
                 })
@@ -264,7 +264,7 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
         },
         dismissIssue: async ({ id }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.update(`api/projects/${values.currentTeamIdStrict}/health_issues/${id}/`, {
                     dismissed: true,
                 })
@@ -276,7 +276,7 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
         },
         undismissIssue: async ({ id }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.update(`api/projects/${values.currentTeamIdStrict}/health_issues/${id}/`, {
                     dismissed: false,
                 })
