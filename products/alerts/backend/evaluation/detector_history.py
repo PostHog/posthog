@@ -75,7 +75,12 @@ def _shadow_compare(
     rate = settings.ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE
     if not rate or random.random() >= rate:
         return {}
-    full_rows, _ = run_query()
+    try:
+        full_rows, _ = run_query()
+    except Exception:
+        # Observe-only means a failing comparison scan can never fail a check that already
+        # has valid cache-served rows.
+        return {"shadow_compared": False, "shadow_query_failed": True}
     full = _parse_rows(full_rows, team)
     if full is None:
         return {"shadow_compared": True, "shadow_parse_failed": True}
@@ -186,7 +191,9 @@ def detector_rows_from_history(
         watermark=None if probed is None else now - timedelta(hours=_CLOCK_SKEW_HOURS),
     )
 
-    merged: _Buckets = {bucket: (bucket, value) for bucket, value in cached.items()}
+    # Cached cells are stored as UTC instants, but the query returns team-local datetimes, and
+    # the assembled rows must render exactly as a full scan's would.
+    merged: _Buckets = {bucket: (bucket.astimezone(team.timezone_info), value) for bucket, value in cached.items()}
     for bucket in list(merged):
         if bucket in scan_set:
             del merged[bucket]

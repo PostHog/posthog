@@ -316,6 +316,24 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
         assert "now()" not in narrowed_sql
         assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
 
+    def test_a_non_utc_team_serves_cells_rendered_like_the_full_scan(self) -> None:
+        # Cached buckets are stored as UTC instants; the query returns team-local datetimes.
+        # Instant equality would hide the difference, so the rendered label is what's pinned.
+        self.team.timezone = "Europe/Berlin"
+        self.team.save(update_fields=["timezone"])
+        with time_machine.travel("2026-09-22T12:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                incremental = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+        assert str(incremental.series[0].label) == str(full.series[0].label)
+
     def test_a_late_insert_beyond_the_margin_is_probed_and_folded_in(self) -> None:
         # Frozen near the real clock: the probe compares real insert times against the
         # watermark, and a frozen future instant would hide every insert from it.

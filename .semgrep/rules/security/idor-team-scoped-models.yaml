@@ -81,6 +81,8 @@ rules:
                               |Alert
                               |AlertConfiguration
                               |AlertSeriesPoint
+                        |AlertSeriesState
+                              |AlertSeriesState
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -518,6 +520,7 @@ rules:
                         |Alert
                         |AlertConfiguration
                         |AlertSeriesPoint
+                        |AlertSeriesState
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
