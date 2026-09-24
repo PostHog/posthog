@@ -11,8 +11,9 @@ from uuid import UUID
 import structlog
 from slack_sdk import WebClient
 
-from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
-from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
+from posthog.comment.formatting import rich_content_to_slack_payload
+from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.identity import resolve_slack_avatar_by_email
 
 logger = structlog.get_logger(__name__)
 

@@ -464,8 +464,7 @@ def render_home_view(
     blocks.extend(_personal_section_blocks(run_defaults))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
-    # threads you started reach PostHog on their own. Absent when the workspace
-    # hasn't been opted into untagged follow-ups at all.
+    # threads you started reach PostHog on their own.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
@@ -894,8 +893,7 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
 def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
     """Picker for how untagged replies land in the threads you started.
 
-    Off until picked, so the card doubles as the only way to turn the behaviour
-    on for your own threads. The choice covers every reply in those threads,
+    Ask until picked. The choice covers every reply in those threads,
     including the ones you write yourself.
     """
     options = [
