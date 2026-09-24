@@ -782,15 +782,11 @@ class TestEvaluateAlert:
         short_budget = dataclasses.replace(alert_timeouts(None), activity_schedule_to_close=timedelta(seconds=0.3))
         query_running = threading.Event()
         let_the_thread_go = threading.Event()
-        query_thread_done = threading.Event()
 
         def _query_that_ignores_the_kill(evaluated_alert, *, evaluation_id):
             query_running.set()
-            try:
-                let_the_thread_go.wait(timeout=5)
-                raise CHQueryErrorQueryWasCancelled("killed", code=394)
-            finally:
-                query_thread_done.set()
+            let_the_thread_go.wait(timeout=5)
+            return AlertEvaluationResult(value=5.0, breaches=None)
 
         env = ActivityEnvironment()
         with (
@@ -812,7 +808,12 @@ class TestEvaluateAlert:
             assert kill.called
             assert str(alert.id) in inflight_alert_ids()
             let_the_thread_go.set()
-            await asyncio.to_thread(query_thread_done.wait, 5)
+            # The thread's task is the only work left on the loop. Once it ends, the abandoned
+            # thread has woken up with a result that its cancelled attempt must not record.
+            leftover = asyncio.all_tasks() - {asyncio.current_task()}
+            _done, pending = await asyncio.wait(leftover, timeout=5)
+            assert not pending
+        assert await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)() is False
 
     @pytest.mark.parametrize("how_the_slot_is_lost", ["taken_over", "redis_unreachable"])
     async def test_evaluate_stops_its_query_once_it_can_no_longer_hold_its_slot(

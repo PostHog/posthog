@@ -2,6 +2,7 @@ import json
 import time
 import asyncio
 import hashlib
+import threading
 import traceback
 import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -262,6 +263,10 @@ def _has_active_destinations(alert: AlertConfiguration) -> bool:
 _SLOT_POLL_SECONDS = 5.0
 
 _SLOT_LOST_ERROR_TYPE = "EvaluationSlotLost"
+
+
+class _EvaluationStopped(Exception):
+    """Raised in the evaluation thread once its attempt's cancellation began, so it records nothing."""
 
 
 async def _hold_evaluation_slot_before_running(alert_id: str, *, lease_seconds: float) -> float:
@@ -584,8 +589,17 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
     info = temporalio.activity.info()
     evaluation_id = f"{info.workflow_run_id}:{info.activity_id}"
+    # Set once cancellation begins. A kill misses a query that has not started or that finishes
+    # between two kills, and a thread abandoned after the kill budget can wake up later, so the
+    # thread itself checks this before it queries and before it records.
+    stopping = threading.Event()
+
+    def _stop_if_cancelled() -> None:
+        if stopping.is_set():
+            raise _EvaluationStopped()
 
     def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
+        _stop_if_cancelled()
         evaluated_alert = alert
         evaluated_fingerprint = _evaluation_fingerprint(alert)
         # CH workload management keys off these tags to isolate alert queries from other tenants.
@@ -674,6 +688,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         should_start_investigation = False
         should_gate_notification = False
         should_run_metrics_investigation = False
+        _stop_if_cancelled()
         with transaction.atomic():
             current_alert = _lock_evaluation_alert(
                 alert_id=inputs.alert_id, team_id=evaluated_alert.team_id, insight_id=evaluated_alert.insight_id
@@ -754,7 +769,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     def _log_thread_outcome(finished: asyncio.Future[EvaluateAlertResult]) -> None:
         # Retrieve the error the thread ended on, so asyncio does not log it as never retrieved.
         error = None if finished.cancelled() else finished.exception()
-        if error is not None and not isinstance(error, CHQueryErrorQueryWasCancelled):
+        if error is not None and not isinstance(error, (CHQueryErrorQueryWasCancelled, _EvaluationStopped)):
             logger.warning("alerts.evaluate.stopped_thread_failed", alert_id=inputs.alert_id, exc_info=error)
 
     async def _stop_work() -> bool:
@@ -764,6 +779,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # it is repeated until the thread has exited on the killed query's error. A thread that
         # outlives a whole evaluation budget after that is stuck on something no kill reaches, such
         # as a node that stopped answering, and is abandoned so the slot it kept lapses instead.
+        stopping.set()
         if thread is None or team_id is None:
             return True
         thread.add_done_callback(_log_thread_outcome)
