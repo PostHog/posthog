@@ -13,6 +13,8 @@ logger.setLevel(logging.INFO)
 
 EXPORT_NAME = "PostHog HTTP Migration"
 HTTP_DESTINATION_TYPE = "HTTP"
+# A backfill in one of these statuses can stop before it exports anything.
+FAILED_BACKFILL_STATUSES = {"Cancelled", "Failed", "FailedRetryable", "Terminated", "TimedOut"}
 VALID_INTERVALS = set(batch_exports_api.list_supported_intervals())
 REGION_URLS = {
     "us": "https://app.posthog.com/batch",
@@ -177,12 +179,13 @@ def display_existing(*, existing_export: BatchExportDetail, verbose: bool):
 
         if most_recent_completed_run:
             # A later backfill can cover a narrower range than the one the command started, so
-            # the migrated data begins at the earliest start of any backfill.
+            # the migrated data begins at the earliest start of any backfill that did not fail.
             data_start_at = min(
                 (
                     start
                     for backfill in existing_backfills
-                    if (start := backfill.adjusted_start_at or backfill.start_at) is not None
+                    if backfill.status not in FAILED_BACKFILL_STATUSES
+                    and (start := backfill.adjusted_start_at or backfill.start_at) is not None
                 ),
                 default=None,
             )
