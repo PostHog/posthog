@@ -211,11 +211,9 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
- * The one UI-app call per completed turn that stands alone, keyed by the turn's (stable)
- * context object. A turn can call several chart-producing tools; only the last one is worth
- * leaving open, so earlier ones fold back into their run instead of walling the thread with
- * open charts. A live (incomplete) turn contributes no entry, so nothing stands alone — and
- * no chart pops in and back out — until the turn's answer finishes and the winner is final.
+ * Only the turn's last renderable call stays open; earlier ones in the same turn fold back
+ * into their run so a busy turn doesn't wall the thread with open charts. Nothing counts until
+ * the turn completes, so the winner can't flip as more calls stream in.
  */
 function lastRenderableIdsByTurn(
   items: ConversationItem[],
