@@ -58,11 +58,11 @@ const value = '{event.properties.value ?? event.properties.revenue ?? event.prop
 const singleContentIds =
     '{not empty(event.properties.sku) ? [event.properties.sku] : (not empty(event.properties.product_id) ? [event.properties.product_id] : [])}'
 const singleContents =
-    "{not empty(event.properties.sku) or not empty(event.properties.product_id) ? [{'id': event.properties.sku ?? event.properties.product_id, 'item_price': event.properties.price, 'quantity': event.properties.quantity, 'item_name': event.properties.name, 'item_brand': event.properties.brand, 'item_category': event.properties.category}] : []}"
+    "{not empty(event.properties.sku) or not empty(event.properties.product_id) ? [{'id': not empty(event.properties.sku) ? event.properties.sku : event.properties.product_id, 'item_price': event.properties.price, 'quantity': event.properties.quantity, 'item_name': event.properties.name, 'item_brand': event.properties.brand, 'item_category': event.properties.category}] : []}"
 const multiContentIds =
-    '{arrayMap(x -> x.sku ?? x.product_id, arrayFilter(x -> not empty(x.sku) or not empty(x.product_id), event.properties.products ?? []))}'
+    '{arrayMap(x -> not empty(x.sku) ? x.sku : x.product_id, arrayFilter(x -> not empty(x.sku) or not empty(x.product_id), event.properties.products ?? []))}'
 const multiContents =
-    "{arrayMap(x -> ({'id': x.sku ?? x.product_id, 'item_price': x.price, 'quantity': x.quantity, 'item_name': x.name, 'item_brand': x.brand, 'item_category': x.category}), arrayFilter(x -> not empty(x.sku) or not empty(x.product_id), event.properties.products ?? []))}"
+    "{arrayMap(x -> ({'id': not empty(x.sku) ? x.sku : x.product_id, 'item_price': x.price, 'quantity': x.quantity, 'item_name': x.name, 'item_brand': x.brand, 'item_category': x.category}), arrayFilter(x -> not empty(x.sku) or not empty(x.product_id), event.properties.products ?? []))}"
 const multiNumItems =
     '{not empty(event.properties.products) ? arrayReduce((acc, curr) -> acc + toInt(curr.quantity ?? 1), event.properties.products, 0) : null}'
 

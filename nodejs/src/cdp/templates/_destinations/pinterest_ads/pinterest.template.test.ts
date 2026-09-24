@@ -89,6 +89,7 @@ describe('pinterest template', () => {
                         products: [
                             { sku: '18499-12', price: 30, quantity: 1 },
                             { product_id: 101, price: 15 },
+                            { sku: '', product_id: 'p-3' },
                             { name: 'no id' },
                         ],
                     },
@@ -105,12 +106,13 @@ describe('pinterest template', () => {
             custom_data: {
                 value: '0',
                 order_id: 'order-1',
-                content_ids: ['18499-12', '101'],
+                content_ids: ['18499-12', '101', 'p-3'],
                 contents: [
                     { id: '18499-12', item_price: '30', quantity: 1 },
                     { id: '101', item_price: '15' },
+                    { id: 'p-3' },
                 ],
-                num_items: 3,
+                num_items: 4,
             },
         })
     })
