@@ -126,12 +126,6 @@ class TestGetSelectedTeamIds:
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
 
-    @parameterized.expand([("cloud", True, [2]), ("self_hosted", False, [])])
-    def test_unset_defaults_to_rollout_teams_on_cloud_only(self, _name, cloud, expected):
-        with patch.dict(os.environ, {}, clear=False), patch(_IS_CLOUD, return_value=cloud):
-            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == expected
-
 
 class TestConversionWarming(APIBaseTest):
     """Touchpoints + conversions orchestration; ensure_precomputed is patched so no ClickHouse traffic."""
@@ -143,6 +137,28 @@ class TestConversionWarming(APIBaseTest):
             team.marketing_analytics_config.conversion_goals = goals
             team.marketing_analytics_config.save()
         return team
+
+    @parameterized.expand([("cloud", True), ("self_hosted", False)])
+    def test_unset_audience_is_goal_teams_with_the_read_flag(self, _name, cloud):
+        # Reads are precompute-only for flagged teams, so the default audience must follow the flag.
+        flagged = self._make_team("flagged", goals=[_PRECOMPUTABLE_GOAL])
+        unflagged = self._make_team("unflagged", goals=[_PRECOMPUTABLE_GOAL])
+        flagged_no_goals = self._make_team("flagged_no_goals", goals=[])
+        flagged_uuids = {str(flagged.uuid), str(flagged_no_goals.uuid)}
+
+        def read_flag(flag, distinct_id, *args, **kwargs):
+            return flag == "marketing-analytics-precomputation" and distinct_id in flagged_uuids
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch(_IS_CLOUD, return_value=cloud),
+            patch(_FF, side_effect=read_flag),
+        ):
+            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
+            selected = get_selected_team_ids()
+
+        assert selected == ([flagged.pk] if cloud else [])
+        assert unflagged.pk not in selected
 
     def test_auto_audience_is_recently_active_teams_with_goals(self):
         # The rolling warm set is bounded to the active population: a team must both have a conversion goal
