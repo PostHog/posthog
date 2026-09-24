@@ -70,9 +70,9 @@ export interface EmitOptions {
 /**
  * One secret that emit resolved, named by where it landed in the definition.
  *
- * A diff against PostHog excludes these keys on both sides, because a read returns the
- * placeholder `{"secret": true}` rather than the value, so a workflow holding a secret
- * would otherwise never compare equal and every push would report a change.
+ * A diff against PostHog compares only whether each of these keys holds a value, because
+ * a read returns the placeholder `{"secret": true}` rather than the value. A new value
+ * behind a stored secret therefore reads as unchanged.
  */
 export interface SecretInput {
     /** The action that holds the input. */
