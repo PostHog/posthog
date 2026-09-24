@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
 MAX_REVIEWER_REASON_LENGTH = 500
+# `SignalReportSuggestedReviewer.github_login` indexes a login in a 255-character column. A longer
+# value is not a GitHub login, and writing one would fail the whole index rewrite.
+MAX_REVIEWER_LOGIN_LENGTH = 255
 
 RECENCY_FULL_WEIGHT_DAYS = 30
 RECENCY_DECAY_FLOOR = 0.3
@@ -383,6 +386,35 @@ def normalized_user_uuids_from_reviewer_payloads(rows: Iterable[object]) -> froz
         if normalized:
             uuids.add(normalized)
     return frozenset(uuids)
+
+
+@frozen
+class ReviewerIdentity:
+    """The person one reviewer payload names, in the form readers match on. Both fields are
+    optional and at least one is set: an entry written before `user_uuid` existed carries a login
+    alone, and a teammate with no linked GitHub account carries a uuid alone.
+    """
+
+    user_uuid: str | None
+    github_login: str | None
+
+
+def reviewer_identities_from_payloads(rows: Iterable[object]) -> list[ReviewerIdentity]:
+    """The identity each payload names, in the order the payloads name them. A payload that
+    identifies nobody is skipped. A login too long for the index column is dropped, so an entry
+    that also carries a uuid keeps routing by uuid.
+    """
+    identities: list[ReviewerIdentity] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        user_uuid = _normalized_reviewer_user_uuid(row.get("user_uuid"))
+        login = str(row.get("github_login") or "").strip().lower() or None
+        if login and len(login) > MAX_REVIEWER_LOGIN_LENGTH:
+            login = None
+        if user_uuid or login:
+            identities.append(ReviewerIdentity(user_uuid=user_uuid, github_login=login))
+    return identities
 
 
 def normalized_user_uuids_from_suggested_reviewer_artefacts(
