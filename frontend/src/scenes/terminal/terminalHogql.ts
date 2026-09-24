@@ -95,7 +95,8 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 execute_query() {
-    jq -cn --arg query "$1" --args '{query: $query, argv: $ARGS.positional}' -- "${'$'}{options[@]}" |
+    printf '%s' "$1" |
+        jq -cRs --args '{query: ., argv: $ARGS.positional}' -- "${'$'}{options[@]}" |
         ph hogql --json -
 }
 if "$has_query"; then

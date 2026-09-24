@@ -24,8 +24,12 @@ describe('terminal hogql wrapper', () => {
             encoding: 'utf8',
         })
 
-    it.each(['argument', 'stdin'])('preserves SQL quotes, newlines, and shell metacharacters from %s', (source) => {
-        const query = "select 'a\\b', '@file', '$(echo untouched)'\n-- another line"
+    it.each([
+        ['argument', 0],
+        ['stdin', 0],
+        ['stdin', 256 * 1024],
+    ])('preserves SQL quotes, newlines, and shell metacharacters from %s with %i padding bytes', (source, padding) => {
+        const query = "select 'a\\b', '@file', '$(echo untouched)'\n-- another line" + 'x'.repeat(padding)
         const options = ['--connection-id', 'example-connection', '--values', '{"value":"a b"}', '--csv']
         const result = source === 'argument' ? run([...options, query]) : run(options, query)
         expect(result.status).toBe(0)
