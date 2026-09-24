@@ -86412,6 +86412,38 @@ export namespace Schemas {
     }
 
     /**
+     * * `dismissed` - Dismissed
+     * * `accepted` - Accepted
+     */
+    export type TurnSuggestionResolutionEnum = typeof TurnSuggestionResolutionEnum[keyof typeof TurnSuggestionResolutionEnum];
+
+
+    export const TurnSuggestionResolutionEnum = {
+      Dismissed: 'dismissed',
+      Accepted: 'accepted',
+    } as const;
+
+    export interface ResolveTurnSuggestion {
+      /** ID of the PostHog AI conversation (task) the suggestion card belongs to. */
+      task_id: string;
+      /**
+         * Zero-based index of the conversation turn the suggestion card was shown under.
+         * @minimum 0
+         */
+      turn_index: number;
+      /** What the user did with the card: `dismissed` mutes suggestions for the rest of the conversation, `accepted` means the offered scout, notebook, alert or subscription was created.
+       *
+       * * `dismissed` - Dismissed
+       * * `accepted` - Accepted */
+      resolution: TurnSuggestionResolutionEnum;
+    }
+
+    export interface ResolveTurnSuggestionResponse {
+      /** Whether a suggestion card existed for that turn and this call recorded its outcome. A card keeps the first outcome recorded for it. */
+      recorded: boolean;
+    }
+
+    /**
      * Resolved training population filter. Pass as 'training_population' to autoresearch-create.
      */
     export type ResolvedTemplateTrainingPopulation = { [key: string]: unknown };
@@ -99619,6 +99651,16 @@ export namespace Schemas {
       truncated: boolean;
       /** Maximum tests returned, oldest quarantine first. */
       limit: number;
+    }
+
+    export interface TurnSuggestionState {
+      /** Whether the user dismissed a suggestion card in this conversation, which stops further cards. */
+      muted: boolean;
+      /**
+         * Zero-based indexes of the turns whose suggestion card the user already dismissed or accepted.
+         * @items.minimum 0
+         */
+      resolved_turns: number[];
     }
 
     export interface TwoFactorStatus {
@@ -116359,6 +116401,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TurnSuggestionsStateRetrieveParams = {
+    /**
+     * ID of the PostHog AI conversation (task) to read suggestion outcomes for.
+     */
+    task_id: string;
     };
 
     export type UploadedMediaListParams = {
