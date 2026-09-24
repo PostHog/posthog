@@ -22,6 +22,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
+import { withProjectCreationBlock } from '@/lib/project-creation'
 import {
     createExecTool,
     describeApiValidationError,
@@ -160,7 +161,10 @@ export class ToolExecutor {
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
-        const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
+        const filteredTools = withProjectCreationBlock(
+            this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name)),
+            state.projectCreationBlock
+        )
 
         return filteredTools.map((entry) => {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {

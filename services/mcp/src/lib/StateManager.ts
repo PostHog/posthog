@@ -10,6 +10,7 @@ import {
     wrapError,
 } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
+import { type ProjectCreationOrgFields, resolveProjectCreationBlock } from '@/lib/project-creation'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
@@ -499,6 +500,19 @@ export class StateManager {
 
     async getAiConsentGiven(): Promise<boolean | undefined> {
         return this.getOrgField((org) => !!org.is_ai_data_processing_approved)
+    }
+
+    /**
+     * A sentence for the agent when this session cannot create a project, or
+     * `undefined` when it can or when the org is unknown. Reads the same cached
+     * org as the consent check, so it costs no extra request.
+     */
+    async getProjectCreationBlock(): Promise<string | undefined> {
+        const [org, apiKey] = await Promise.all([
+            this.getOrgField((org) => org as unknown as ProjectCreationOrgFields),
+            this.getApiKey().catch(() => undefined),
+        ])
+        return resolveProjectCreationBlock({ org, scopedTeams: apiKey?.scoped_teams ?? [] })
     }
 
     async getAvailableFeatures(): Promise<string[] | undefined> {

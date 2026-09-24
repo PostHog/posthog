@@ -7,6 +7,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
+import { withProjectCreationBlock } from '@/lib/project-creation'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -46,6 +47,8 @@ export interface ResolvedState {
     requestContext: MCPRequestContext
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
+    /** Why this session cannot create a project, or `undefined` when it can. */
+    projectCreationBlock: string | undefined
     scopeGatedTools: ScopeGatedTool[]
     flagGatedTools: FlagGatedTool[]
     /**
@@ -206,6 +209,7 @@ export class RequestStateResolver {
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
         const availableFeatures = await context.stateManager.getAvailableFeatures()
+        const projectCreationBlock = await context.stateManager.getProjectCreationBlock()
         const isCloud = isCloudApi()
 
         const excludeTools = [
@@ -228,10 +232,13 @@ export class RequestStateResolver {
         }
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
-            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
-            () => context.stateManager.getUser()
+        const allTools = withProjectCreationBlock(
+            await filterStaffOnlyTools(
+                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                _apiKey ?? { scopes: [] },
+                () => context.stateManager.getUser()
+            ),
+            projectCreationBlock
         )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
@@ -251,6 +258,7 @@ export class RequestStateResolver {
             requestContext,
             sessionContext,
             allTools,
+            projectCreationBlock,
             scopeGatedTools,
             flagGatedTools,
             gatewayToolsEnabled:

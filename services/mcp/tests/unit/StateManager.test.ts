@@ -695,6 +695,40 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getProjectCreationBlock', () => {
+        it('reports the plan limit from the fetched org', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({
+                id: 'org-1',
+                name: 'Org 1',
+                available_product_features: [],
+                teams: [{ project_id: 1, is_demo: false }],
+                membership_level: 8,
+            } as any)
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                scopes: ['*'],
+                scoped_teams: [],
+                scoped_organizations: [],
+                is_impersonated: false,
+            })
+
+            expect(await stateManager.getProjectCreationBlock()).toContain('upgrade')
+        })
+
+        it('stays silent when the org cannot be read', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                scopes: ['*'],
+                scoped_teams: [],
+                scoped_organizations: [],
+                is_impersonated: false,
+            })
+
+            expect(await stateManager.getProjectCreationBlock()).toBeUndefined()
+        })
+    })
+
     describe('getAvailableFeatures', () => {
         it('returns available_product_features keys from the fetched org when the org is resolvable', async () => {
             vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({

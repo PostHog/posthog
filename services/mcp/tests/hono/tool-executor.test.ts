@@ -228,6 +228,16 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => t.name)).toEqual(subset.map((e) => e.name))
         })
 
+        it('warns in the project-create description when the session cannot create a project', async () => {
+            const state = makeToolExecutorState([{ name: 'project-create' }], {
+                projectCreationBlock: 'Project creation is unavailable in this session.',
+            })
+
+            const result = await executor.handleToolsList(state)
+
+            expect(result.tools[0]!.description).toContain('Project creation is unavailable in this session.')
+        })
+
         it('returns empty list when allTools is empty', async () => {
             const result = await executor.handleToolsList(makeToolExecutorState([]))
             expect(result.tools).toEqual([])

@@ -696,6 +696,7 @@ export function makeToolExecutorState(
         },
         sessionContext: null,
         allTools: tools as any,
+        projectCreationBlock: undefined,
         scopeGatedTools: [],
         flagGatedTools: [],
         gatewayToolsEnabled: false,

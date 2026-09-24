@@ -1,4 +1,5 @@
 import { hasScopes } from '@/lib/api'
+import { withProjectCreationBlock } from '@/lib/project-creation'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // AI observability
@@ -171,6 +172,8 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
+    // Reads the same cached org as the consent check above, so no extra request.
+    const projectCreationBlock = await context.stateManager.getProjectCreationBlock?.().catch(() => undefined)
     const effectiveMap = mergeToolFactories({ generated: GENERATED_TOOL_MAP, handwritten: TOOL_MAP })
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
@@ -197,7 +200,7 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    const candidates = tools.filter(
+    const candidates = withProjectCreationBlock(tools, projectCreationBlock).filter(
         (tool) =>
             hasScopes(scopes, tool.scopes) &&
             (!scopes.includes('internal_run:read') || !['tasks-run-create', 'tasks-create-and-run'].includes(tool.name))
