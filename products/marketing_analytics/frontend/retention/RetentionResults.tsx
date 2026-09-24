@@ -28,14 +28,14 @@ export function RetentionResults({
         key: 'MarketingRetention',
         dataNodeCollectionId: MARKETING_ANALYTICS_RETENTION_COLLECTION_ID,
     })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
     const { breakdownBy, onlyNewUsers } = useValues(marketingRetentionLogic)
     useAttachedLogic(logic, attachTo)
     const retentionResponse = response as MarketingAnalyticsRetentionQueryResponse | undefined
 
     if (responseError) {
-        return <InsightErrorState query={query} onRetry={loadData} />
+        return <InsightErrorState query={query} queryId={responseErrorObject?.queryId ?? queryId} onRetry={loadData} />
     }
 
     return (

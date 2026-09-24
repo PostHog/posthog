@@ -43,3 +43,32 @@ Users do not need to include items that already have a result to retry them.
 
 A provider rejection of an invalid token setting does not count as a truncated reply.
 The playground keeps the provider's explanation so users can correct the setting before trying again.
+
+## Result encoding
+
+Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
+Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
+`$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
+Sentiment evaluations keep their `$ai_sentiment_*` properties.
+N/A and skipped numeric runs omit the score, while zero remains a graded result.
+
+Separate properties preserve the existing boolean property's type and saved queries.
+The numeric property uses normal numeric inference and can be aggregated in Insights.
+Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
+No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.
+
+## Run history and reports
+
+The evaluation's Runs tab defaults to the last seven days.
+Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
+Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
+Backfilled results use the original generation's timestamp.
+
+Removing a numeric evaluation's passing rule stops new report generation and scheduled delivery.
+Existing reports remain accessible through the Reports tab and the report list, detail, and history API endpoints.
+
+## Browser compatibility
+
+The evaluations list keeps supported rows visible if the API returns an output type the browser cannot display.
+A refresh message explains that some evaluations are omitted.
+Deploy this compatibility behavior before enabling creation of a new evaluation output type.

@@ -4,7 +4,10 @@ from typing import cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest import skipIf
 from unittest.mock import patch
+
+from django.conf import settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -411,6 +414,10 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-after-activation"],
         )
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "the native-JSON events table keeps flags in the $feature_flags map, which HogQL does not read yet",
+    )
     def test_custom_exposure_event_defines_the_exposure_moment(self) -> None:
         experiment = self._create_experiment(
             exposure_criteria={
@@ -521,6 +528,10 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-test-evidence"],
         )
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "the native-JSON events table keeps flags in the $feature_flags map, which HogQL does not read yet",
+    )
     def test_in_session_reads_the_stamped_flag_property_when_the_exposure_event_was_never_session_linked(self) -> None:
         experiment = self._create_experiment()
         create_person(team=self.team, distinct_ids=["backend-exposed-user"])

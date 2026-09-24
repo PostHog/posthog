@@ -581,6 +581,21 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
 
 
 @with_team_scope(canonical=True)
+def list_live_documents_for_source(source_id: UUID, team_id: int) -> list[KnowledgeDocument] | None:
+    if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
+        return None
+    return list(
+        KnowledgeDocument.objects.filter(
+            team_id=team_id,
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .only("id", "url", "title", "safety_verdict")
+        .order_by("url", "id")
+    )
+
+
+@with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
     """Return concatenated document text for the source editor."""
 

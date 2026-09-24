@@ -11954,6 +11954,10 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -11976,6 +11980,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -12487,6 +12495,10 @@
                     "items": {},
                     "type": "array"
                 },
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -12518,6 +12530,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -19211,6 +19227,10 @@
                                     "items": {},
                                     "type": "array"
                                 },
+                                "dataComputedAt": {
+                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "type": "string"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -19231,6 +19251,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "precomputeNotReady": {
+                                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                                    "type": "boolean"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19295,6 +19319,10 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "dataComputedAt": {
+                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "type": "string"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -19306,6 +19334,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "precomputeNotReady": {
+                                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                                    "type": "boolean"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -21283,7 +21315,8 @@
                 "hbos",
                 "lof",
                 "ocsvm",
-                "pca"
+                "pca",
+                "llm"
             ],
             "type": "string"
         },
@@ -22217,7 +22250,7 @@
                 "detectors": {
                     "description": "Sub-detector configurations (minimum 2)",
                     "items": {
-                        "$ref": "#/definitions/SingleDetectorConfig"
+                        "$ref": "#/definitions/EnsembleSubDetectorConfig"
                     },
                     "type": "array"
                 },
@@ -22236,6 +22269,52 @@
         "EnsembleOperator": {
             "enum": ["and", "or"],
             "type": "string"
+        },
+        "EnsembleSubDetectorConfig": {
+            "description": "A single (leaf) detector config",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IQRDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ECODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/COPODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IsolationForestDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KNNDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/HBOSDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LOFDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/OCSVMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/PCADetectorConfig"
+                }
+            ],
+            "required": ["type"],
+            "type": "object"
         },
         "EntityNode": {
             "additionalProperties": false,
@@ -30369,6 +30448,35 @@
             "required": ["type"],
             "type": "object"
         },
+        "LLMDetectorConfig": {
+            "additionalProperties": false,
+            "description": "Hands the series to a model instead of a statistical test. Carries no preprocessing block: differencing or smoothing would hide from the model exactly what it is meant to read.",
+            "properties": {
+                "instructions": {
+                    "description": "What counts as unusual or interesting for this metric, in your own words. Optional.",
+                    "maxLength": 2000,
+                    "type": "string"
+                },
+                "threshold": {
+                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "type": {
+                    "const": "llm",
+                    "type": "string"
+                },
+                "window": {
+                    "description": "How many recent points the model is shown (default: 90)",
+                    "maximum": 400,
+                    "minimum": 5,
+                    "type": "integer"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "LLMSentimentMessage": {
             "additionalProperties": false,
             "properties": {
@@ -32660,6 +32768,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day."
@@ -32671,6 +32782,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolDailyStatsQueryResponse"
@@ -32776,6 +32893,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolDescriptionsQuery",
                     "type": "string"
@@ -32783,6 +32903,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolDescriptionsQueryResponse"
@@ -32957,6 +33083,9 @@
                     "description": "Raw $mcp_error_type bucket; \"unknown\" selects errored events without an error type.",
                     "type": "string"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolFailureOccurrencesQuery",
                     "type": "string"
@@ -32964,6 +33093,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolFailureOccurrencesQueryResponse"
@@ -33055,6 +33190,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolFailuresQuery",
                     "type": "string"
@@ -33062,6 +33200,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolFailuresQueryResponse"
@@ -33167,6 +33311,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolNeighborsQuery",
                     "type": "string"
@@ -33179,6 +33326,12 @@
                     "description": "Whether to count tools called immediately before or after the target tool.",
                     "enum": ["before", "after"],
                     "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolNeighborsQueryResponse"
@@ -33640,6 +33793,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolSampleIntentsQuery",
                     "type": "string"
@@ -33647,6 +33803,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolSampleIntentsQueryResponse"
@@ -33768,6 +33930,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolStatsQuery",
                     "type": "string"
@@ -33775,6 +33940,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolStatsQueryResponse"
@@ -33909,6 +34080,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolTopUsersQuery",
                     "type": "string"
@@ -33916,6 +34090,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolTopUsersQueryResponse"
@@ -34121,6 +34301,10 @@
         "MarketingAnalyticsAggregatedQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -34132,6 +34316,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -35331,6 +35519,10 @@
                     "items": {},
                     "type": "array"
                 },
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -35351,6 +35543,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -39407,10 +39603,18 @@
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
         },
+        "PredicateFixAction": {
+            "enum": ["edit_query", "edit_property_type", "materialize"],
+            "type": "string"
+        },
         "PredicateIndexUsage": {
             "additionalProperties": false,
             "description": "How one property filter in the query reads its data, decided before the query runs.",
             "properties": {
+                "ai_fix_prompt": {
+                    "description": "Instruction for an AI rewrite of the query, set when a query edit would help.",
+                    "type": "string"
+                },
                 "column_name": {
                     "type": "string"
                 },
@@ -39418,7 +39622,11 @@
                     "$ref": "#/definitions/integer"
                 },
                 "fix": {
+                    "description": "Prose advice for a reader.",
                     "type": "string"
+                },
+                "fix_action": {
+                    "$ref": "#/definitions/PredicateFixAction"
                 },
                 "message": {
                     "type": "string"
@@ -39433,6 +39641,10 @@
                 },
                 "property_name": {
                     "type": "string"
+                },
+                "quickfix": {
+                    "$ref": "#/definitions/PredicateQuickfix",
+                    "description": "A deterministic query edit that unblocks the index."
                 },
                 "scope": {
                     "$ref": "#/definitions/PredicateScope"
@@ -39475,6 +39687,25 @@
         "PredicateIndexVerdict": {
             "enum": ["indexed", "blocked", "unindexed_column", "unindexed_json", "operator_not_indexable"],
             "type": "string"
+        },
+        "PredicateQuickfix": {
+            "additionalProperties": false,
+            "properties": {
+                "end": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Character offset in the query where the replaced range ends."
+                },
+                "start": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Character offset in the query where the replaced range starts."
+                },
+                "text": {
+                    "description": "Replacement text, substituted for the range verbatim.",
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end", "text"],
+            "type": "object"
         },
         "PredicateScope": {
             "enum": ["event", "person", "group", "unknown"],
@@ -39668,6 +39899,7 @@
                 "Analytics",
                 "AI engineering",
                 "Behavior",
+                "Messaging",
                 "App monitoring",
                 "Features",
                 "Tools",
@@ -42600,6 +42832,10 @@
                             "items": {},
                             "type": "array"
                         },
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -42620,6 +42856,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42684,6 +42924,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -42695,6 +42939,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44105,6 +44353,10 @@
                             "items": {},
                             "type": "array"
                         },
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -44125,6 +44377,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44189,6 +44445,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -44200,6 +44460,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -51569,6 +51833,9 @@
                 },
                 {
                     "$ref": "#/definitions/PCADetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LLMDetectorConfig"
                 }
             ],
             "required": ["type"],

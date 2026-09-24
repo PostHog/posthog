@@ -262,6 +262,7 @@ rules:
                               |Loop
                               |LoopFire
                               |NotebookWidgetInstance
+                              |NotebookWidgetSnapshot
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -303,6 +304,11 @@ rules:
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
+                              |OfflineEvaluationResult
+                              |OfflineEvaluationResultPayload
+                              |OfflineExperiment
+                              |OfflineExperimentItem
+                              |OfflineExperimentItemPayload
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
@@ -411,6 +417,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
                               |UserInterview
@@ -684,6 +691,7 @@ rules:
                         |LoopFire
                         |LoopTrigger
                         |NotebookWidgetInstance
+                        |NotebookWidgetSnapshot
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptDependency
@@ -722,6 +730,11 @@ rules:
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
+                        |OfflineEvaluationResult
+                        |OfflineEvaluationResultPayload
+                        |OfflineExperiment
+                        |OfflineExperimentItem
+                        |OfflineExperimentItemPayload
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
@@ -829,6 +842,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
                         |UserInterview

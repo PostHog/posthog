@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
+    mark_schema_running_unless_halted,
     resolve_destinations,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -54,6 +55,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
+    CDC_SEQ_COLUMN,
     AnySource,
     RowFilterValidationError,
     SourceRegistry,
@@ -195,8 +197,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         )
         return
 
-    instance.status = ExternalDataSchema.Status.RUNNING
-    instance.save(update_fields=["status", "updated_at"])
+    mark_schema_running_unless_halted(instance)
 
 
 # A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
@@ -306,6 +307,20 @@ def _apply_primary_key_columns(
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
             "Provide primary_key_columns or refresh schema discovery to pick one up."
+        )
+
+
+def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
+    """Capture stamps each change with this column, so a source column of the same name would fail
+    the source's sync. Checked against the columns discovery recorded, which are the source's own."""
+    metadata = instance.schema_metadata or {}
+    columns = metadata.get("columns") if isinstance(metadata, dict) else None
+    if isinstance(columns, list) and any(
+        isinstance(column, dict) and column.get("name") == CDC_SEQ_COLUMN for column in columns
+    ):
+        raise ValidationError(
+            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
+            "Rename the column on your database, or choose another sync method for this table."
         )
 
 
@@ -1037,6 +1052,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
             _apply_primary_key_columns(data, payload, instance, "CDC")
+            if instance.sync_type != ExternalDataSchema.SyncType.CDC:
+                _refuse_reserved_cdc_column(instance)
 
             validated_data["sync_type_config"] = payload
         elif sync_type == ExternalDataSchema.SyncType.XMIN:
@@ -1812,8 +1829,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save()
+        mark_schema_running_unless_halted(instance)
         return Response(status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -1888,8 +1904,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save(update_fields=["status", "updated_at"])
+        mark_schema_running_unless_halted(instance)
 
         return Response(status=status.HTTP_200_OK)
 

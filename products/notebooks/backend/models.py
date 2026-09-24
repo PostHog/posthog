@@ -490,6 +490,20 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class NotebookWidgetSnapshot(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_snapshots")
+    node_id = models.CharField(max_length=MAX_WIDGET_NODE_ID_LENGTH)
+    version = models.ForeignKey("notebooks.GeneratedWidgetVersion", on_delete=models.CASCADE, related_name="snapshots")
+    input_bindings: JSONField = JSONField(default=dict)
+    source_runs: JSONField = JSONField(default=dict)
+    frames: JSONField = JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_notebook_widget_snapshot"
+
+
 class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         QUEUED = "queued", "queued"

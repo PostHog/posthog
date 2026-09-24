@@ -208,6 +208,7 @@ export const FEATURE_FLAGS = {
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
+    HEATMAPS_CAPTURE_ALLOWLIST_NOTICE: 'heatmaps-capture-allowlist-notice', // owner: #team-web-analytics, gates the pre-enforcement notice about heatmap capture URL rules
     HEATMAPS_CLICKMAP_DISCRIMINATORS: 'heatmaps-clickmap-discriminators', // owner: #team-web-analytics
     HEATMAPS_CLICKMAP_PAGINATION: 'heatmaps-clickmap-pagination', // owner: #team-web-analytics
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
@@ -256,6 +257,7 @@ export const FEATURE_FLAGS = {
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
+    ALERTS_LLM_DETECTOR: 'alerts-llm-detector', // owner: #team-analytics-platform, gates the AI anomaly detector for insight alerts
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     ANOMALY_ALERT_GUIDANCE_EXPERIMENT: 'anomaly-alert-guidance',
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
@@ -322,7 +324,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST: 'experiments-freeze-exposure-aa-test', // owner: @mp-hog #team-experiments multivariate=control,test, dogfood A/A used to validate the freeze-exposure lifecycle action
     EXPERIMENTS_LEGACY_DEPRECATION_NOTICE: 'experiments-legacy-deprecation-notice', // owner: @andehen #team-experiments, shows the legacy experiments deprecation banner
-    EXPERIMENTS_LIST_AA_TEST: 'experiments-list-aa-test', // owner: @andehen #team-experiments multivariate=control,test, dogfood A/A exposed on the experiments list page
     EXPERIMENTS_METRICS_RECALCULATION: 'experiments-metrics-recalculation', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
@@ -334,6 +335,8 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_REQUEST_USAGE: 'feature-flag-request-usage', // owner: #team-feature-flags
     FIELD_NOTES: 'field-notes', // owner: @adamleithp
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
+    FLAG_EVALUATIONS_HOGQL_TABLE: 'flag-evaluations-hogql-table', // owner: #team-feature-flags, also read by the backend to expose posthog.flag_evaluations
+    FLAG_EVALUATIONS_USAGE_TAB: 'flag-evaluations-usage-tab', // owner: #team-feature-flags, reads the Usage tab from flag_evaluations instead of events
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     FLAT_NAV: 'flat-nav', // owner: @rafaeelaudibert #team-growth multivariate=control,test, swaps the tree-based Browse tab for the flat sidebar, see FlatNavBrowse.tsx
     GITHUB_FIRST_SELF_DRIVING_ONBOARDING: 'github-first-self-driving-onboarding', // owner: #team-self-driving
@@ -359,6 +362,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EVAL_BACKFILLS: 'llm-analytics-eval-backfills', // owner: #team-ai-observability
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
+    LLM_ANALYTICS_NUMERIC_EVALS: 'llm-analytics-numeric-evaluations', // owner: #team-ai-observability
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
@@ -531,7 +535,10 @@ export const FEATURE_FLAGS = {
     TRACING_METRICS_TAB: 'tracing-metrics-tab', // owner: #team-apm — gates the Metrics tab (metrics correlated via exemplars) in the trace drawer
     TRACING_OPERATIONS_VIEW: 'tracing-operations-view', // owner: #team-apm — gates the Operations (per-operation aggregate) tab in tracing
     TRACING_SAVED_VIEWS: 'tracing-saved-views', // owner: #team-apm — gates saved views (saved filter sets) in tracing
+    TRACING_SCENE_TABS: 'tracing-scene-tabs', // owner: #team-apm — gates the Viewer and SQL tabs in the tracing scene
     TRACING_SESSION_PERSON_LINKS: 'tracing-session-person-links', // owner: #team-apm — gates span attribute links to session replay and persons, plus the tracing correlation settings
+    TRACING_SETTINGS_RETENTION: 'tracing-settings-retention', // owner: #team-apm — gates the traces retention setting; mirrored by `TRACES_RETENTION_FLAG` in posthog/api/team.py
+    TRACING_SETTINGS_RETENTION_RULES: 'tracing-settings-retention-rules', // owner: #team-apm — gates the span retention rules in tracing settings
     TRACING_SPAN_ERROR_BADGES: 'tracing-span-error-badges', // owner: #team-apm, badges span rows whose session hit errors and adds the Errors tab to the trace drawer
     TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics

@@ -170,4 +170,10 @@ WORKFLOW_RUN_COOLDOWN_S = 30 * 60
 # spend, not a routine limit (the canonical fleet is ~16 scouts). Enforced at the write
 # surfaces (config create/update) and in auto-registration, which falls back to registering
 # new scouts disabled once the team is at the cap.
+#
+# This is the LAST-RESORT default, like the run budgets beside it. The effective ceiling
+# resolves most-specific-first through `team_limits.resolve_max_enabled_scouts`: a project's
+# `team_configs` entry → the fleet-wide `default_team_config` → this constant, all under the
+# `max_enabled_scouts` key of the `signals-scout` flag payload. A project that needs more
+# capacity gets it in the flag UI, with no deploy.
 MAX_ENABLED_SCOUTS_PER_TEAM = 250

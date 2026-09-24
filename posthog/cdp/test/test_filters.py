@@ -105,6 +105,206 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
         assert execute_bytecode(bytecode, {}).result is True
 
+    @parameterized.expand(
+        [
+            (
+                "trigger_filter_matches_row",
+                {
+                    "source": "data-warehouse-view",
+                    "properties": [
+                        {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+                {"organization": "acme", "$source_table": "accounts"},
+                True,
+            ),
+            (
+                "trigger_filter_rejects_row",
+                {
+                    "source": "data-warehouse-view",
+                    "properties": [
+                        {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+                {"organization": "globex", "$source_table": "accounts"},
+                False,
+            ),
+            (
+                "destination_table_filter_matches_row",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        }
+                    ],
+                },
+                {"organization": "acme", "$source_table": "postgres.accounts"},
+                True,
+            ),
+            (
+                "destination_unfiltered_table_still_matches",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        },
+                        {"table_name": "postgres.orders"},
+                    ],
+                },
+                {"organization": "globex", "$source_table": "postgres.orders"},
+                True,
+            ),
+            (
+                "destination_unfiltered_table_does_not_bypass_filtered_table",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        },
+                        {"table_name": "postgres.orders"},
+                    ],
+                },
+                {"organization": "globex", "$source_table": "postgres.accounts"},
+                False,
+            ),
+        ]
+    )
+    def test_warehouse_row_filters_match_row_columns(self, _name: str, filters: dict, row: dict, expected: bool):
+        bytecode = self.filters_to_bytecode(filters=filters)
+        assert execute_bytecode(bytecode, {"properties": row}).result is expected
+
+    @parameterized.expand(
+        [
+            # The column hint lists bare names, so that is what people type into the SQL leaf.
+            ("bare_column", {"type": "hogql", "key": "organization = 'acme'"}),
+            # What an input template reads the row as.
+            ("record_alias", {"type": "hogql", "key": "record.organization = 'acme'"}),
+            # Already where the row is; must not become properties.properties.
+            ("qualified_column", {"type": "hogql", "key": "properties.organization = 'acme'"}),
+            # A lambda parameter is a local, not a column.
+            ("lambda_local", {"type": "hogql", "key": "arrayExists(x -> x = 'acme', [organization])"}),
+            # A lambda parameter named like the column shadows it inside the lambda only.
+            (
+                "lambda_shadows_column",
+                {
+                    "type": "hogql",
+                    "key": "arrayExists(organization -> organization = 'acme', ['acme']) and organization = 'acme'",
+                },
+            ),
+            # The same for the record alias.
+            (
+                "lambda_shadows_record",
+                {
+                    "type": "hogql",
+                    "key": "arrayExists(record -> record = 'acme', ['acme']) and record.organization = 'acme'",
+                },
+            ),
+        ]
+    )
+    def test_warehouse_sql_filters_read_columns_from_the_row(self, _name: str, prop: dict):
+        for filters in (
+            {"source": "data-warehouse-view", "properties": [prop]},
+            {"source": "data-warehouse-table", "data_warehouse": [{"table_name": "accounts", "properties": [prop]}]},
+        ):
+            response = compile_filters_bytecode(filters=filters, team=self.team)
+            assert "bytecode_error" not in response, response
+            row = {"$source_table": "accounts"}
+            assert (
+                execute_bytecode(response["bytecode"], {"properties": {**row, "organization": "acme"}}).result is True
+            )
+            assert (
+                execute_bytecode(response["bytecode"], {"properties": {**row, "organization": "globex"}}).result
+                is False
+            )
+
+    def test_warehouse_sql_filter_keeps_a_block_local_over_the_column(self):
+        # The `let` inside the lambda is a local named like the column; only the outer read is the column.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let organization := 'acme'; return organization = 'acme' }, [1]) and organization = 'globex'",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "globex"}}).result is True
+
+    def test_warehouse_filters_leave_the_team_test_account_filters_under_the_guard(self):
+        # The rewrite is for the row the destination filters on. The team's filters are written
+        # against events, so an unknown root there is still the team's mistake to fix.
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "filter_test_accounts": True,
+                "properties": [{"type": "hogql", "key": "organization = 'acme'"}],
+            },
+            team=self.team,
+        )
+        assert response["bytecode"] is None
+        assert "internal/test user filters read $virt_is_bot" in response["bytecode_error"]
+        assert "organization" not in response["bytecode_error"]
+
+    def test_warehouse_sql_filter_reads_the_column_until_a_let_shadows_it(self):
+        # `picked` reads the column, the `let` after it does not reach back.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let picked := organization; let organization := 'other'; return picked = 'acme' }, [1])",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "acme"}}).result is True
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "other"}}).result is False
+
+    def test_warehouse_sql_filter_keeps_a_recursive_lambda_local(self):
+        # The lambda calls its own name, which must stay the local and not become the column.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let organization := (n -> if(n = 'acme', true, organization('acme'))); return organization(x) }, ['zzz'])",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "other"}}).result is True
+
+    def test_event_filters_still_reject_a_bare_unknown_column(self):
+        # Only a warehouse row lives under properties; an event filter naming an unknown root is a typo.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "organization = 'acme'"}]}, team=self.team
+        )
+        assert "organization" in response["bytecode_error"]
+
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(
             filters={

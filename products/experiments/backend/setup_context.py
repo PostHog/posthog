@@ -9,6 +9,7 @@ recommendations, because every consumer applies its own policy to the same facts
 """
 
 import json
+import time
 import hashlib
 import logging
 import dataclasses
@@ -39,7 +40,7 @@ from posthog.exceptions import (
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.production_event_activation import MOBILE_SIDE_LIBS, SERVER_SIDE_LIBS
 from posthog.models.team.team import Team
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -273,6 +274,7 @@ class TargetSurface:
     unique_persons: int
     exposures_per_day_estimate: float
     libs: list[LibReach]
+    libs_truncated: bool
     anonymous_share: float | None
     device_id_share: float | None
 
@@ -415,12 +417,17 @@ class ExperimentSetupContext:
     shared_metrics: SetupContextSection[SharedMetrics]
 
 
+# A skipped section never runs a provider, so the observer never hears about it.
+SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
+
+
 def build_setup_context(
     *,
     team: Team,
     inputs: SetupContextInputs,
     experiments: QuerySet[Experiment],
     saved_metrics: QuerySet[ExperimentSavedMetric],
+    on_section: SectionObserver | None = None,
 ) -> ExperimentSetupContext:
     """Assemble every section of the setup context.
 
@@ -432,15 +439,15 @@ def build_setup_context(
     # on a first call for a team writes) team extension rows outside ClickHouse.
     skipped: SetupContextSection[Any] = SetupContextSection(status=SetupContextSectionStatus.SKIPPED)
     return ExperimentSetupContext(
-        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
-        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team)),
+        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team), on_section),
+        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team), on_section),
         target_surface=(
-            _run_section("target_surface", team, lambda: get_target_surface(team, inputs))
+            _run_section("target_surface", team, lambda: get_target_surface(team, inputs), on_section)
             if inputs.target_event
             else skipped
         ),
         candidate_metric=(
-            _run_section("candidate_metric", team, lambda: get_candidate_metric(team, inputs))
+            _run_section("candidate_metric", team, lambda: get_candidate_metric(team, inputs), on_section)
             if inputs.metric_event
             else skipped
         ),
@@ -448,6 +455,7 @@ def build_setup_context(
             "previous_experiments",
             team,
             lambda: get_previous_experiments(experiments, limit=inputs.previous_experiments_limit),
+            on_section,
         ),
         shared_metrics=_run_section(
             "shared_metrics",
@@ -459,11 +467,22 @@ def build_setup_context(
                 limit=inputs.shared_metrics_limit,
                 metric_event=inputs.metric_event,
             ),
+            on_section,
         ),
     )
 
 
-def _run_section(name: str, team: Team, provider: Callable[[], T]) -> SetupContextSection[T]:
+def _run_section(
+    name: str, team: Team, provider: Callable[[], T], on_section: SectionObserver | None = None
+) -> SetupContextSection[T]:
+    started = time.monotonic()
+    section = _read_section(name, team, provider)
+    if on_section is not None:
+        on_section(name, section.status, (time.monotonic() - started) * 1000)
+    return section
+
+
+def _read_section(name: str, team: Team, provider: Callable[[], T]) -> SetupContextSection[T]:
     try:
         return SetupContextSection(status=SetupContextSectionStatus.OK, data=provider())
     except _CLICKHOUSE_TOO_EXPENSIVE:
@@ -502,7 +521,7 @@ def _cache_key(team: Team, section: str, inputs: dict[str, Any]) -> str:
     # Bump the version whenever a cached dataclass changes shape: entries are pickled, so a deploy
     # would otherwise restore instances that miss the new fields.
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    return f"experiment_setup_context_v2_{team.pk}_{section}_{digest}"
+    return f"experiment_setup_context_v3_{team.pk}_{section}_{digest}"
 
 
 def _cached(key: str, ttl: int, compute: Callable[[], T]) -> T:
@@ -771,6 +790,21 @@ def _target_cache_inputs(team: Team, inputs: SetupContextInputs) -> dict[str, An
     }
 
 
+def clear_cached_sections(team: Team, inputs: SetupContextInputs) -> None:
+    """Drop the cached ClickHouse sections for this team and these inputs.
+
+    A caller that measures how long a section takes needs a cold read. The three cached sections
+    answer from the cache for hours, so a second measurement of the same team reports the cache.
+    """
+    target_inputs = _target_cache_inputs(team, inputs)
+    for section, key_inputs in (
+        ("sdk_profile", {}),
+        ("target_surface", target_inputs),
+        ("candidate_metric", target_inputs),
+    ):
+        safe_cache_delete(_cache_key(team, section, key_inputs))
+
+
 def get_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSurface:
     if not inputs.target_event:
         raise ValueError("target_event is required for the target surface")
@@ -842,7 +876,7 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
         """,
         {
             "where": _and(conditions),
-            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS),
+            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS + 1),
         },
     )
     unique_persons, events, device_id_events, anonymous_ids, identity_known_ids, top_libs = (
@@ -873,8 +907,9 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
                 lib_identity_known_ids,
                 lib_device_id_events,
                 lib_events,
-            ) in top_libs or []
+            ) in (top_libs or [])[:TARGET_SURFACE_MAX_LIBS]
         ],
+        libs_truncated=len(top_libs or []) > TARGET_SURFACE_MAX_LIBS,
         anonymous_share=_share(anonymous_ids, identity_known_ids),
         device_id_share=_share(device_id_events, events),
     )

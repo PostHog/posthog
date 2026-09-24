@@ -288,7 +288,7 @@ def s3_default_fields() -> list[BatchExportField]:
     Starting from the common default fields, we add and tweak some fields for
     backwards compatibility.
     """
-    batch_export_fields = default_fields()
+    batch_export_fields = [field for field in default_fields() if field["alias"] != "person_id"]
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
     batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 

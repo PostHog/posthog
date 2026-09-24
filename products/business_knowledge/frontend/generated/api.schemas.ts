@@ -296,6 +296,43 @@ export interface PatchedUpdateTextSourceApi {
     always_include?: boolean
 }
 
+/**
+ * * `unknown` - Unknown
+ * * `safe` - Safe
+ * * `unsafe` - Unsafe
+ */
+export type SafetyVerdictEnumApi = (typeof SafetyVerdictEnumApi)[keyof typeof SafetyVerdictEnumApi]
+
+export const SafetyVerdictEnumApi = {
+    Unknown: 'unknown',
+    Safe: 'safe',
+    Unsafe: 'unsafe',
+} as const
+
+export interface KnowledgeSourceDocumentApi {
+    /** Document id. */
+    readonly id: string
+    /** Fetched page URL after redirects. Empty for text and file documents. */
+    readonly url: string
+    /** Page title extracted while indexing. Falls back to empty when the page had none. */
+    readonly title: string
+    /** Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.
+     *
+     * * `unknown` - Unknown
+     * * `safe` - Safe
+     * * `unsafe` - Unsafe */
+    readonly safety_verdict: SafetyVerdictEnumApi
+}
+
+export interface PaginatedKnowledgeSourceDocumentListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: KnowledgeSourceDocumentApi[]
+}
+
 export type BusinessKnowledgeDocumentsWindowListParams = {
     /**
      * Zero-based chunk ordinal to center the window on (from a search result).
@@ -376,6 +413,17 @@ export const BusinessKnowledgeSourcesListSourceType = {
     Text: 'text',
     Url: 'url',
 } as const
+
+export type BusinessKnowledgeSourcesDocumentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type BusinessKnowledgeSourcesTextRetrieve200 = {
     text?: string
