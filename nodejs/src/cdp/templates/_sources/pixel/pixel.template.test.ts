@@ -89,6 +89,8 @@ describe('pixel template', () => {
         ['account[password]'],
         ['account[token]'],
         ['private_key'],
+        ['aws_secret_access_key'],
+        ['AWS-Secret-Access-Key'],
     ])('drops the credential key %s from the captured query', async (key) => {
         const response = await tester.invoke(
             { event: 'the event', distinct_id: 'hardcoded', properties: { query_params: '{request.query}' } },
