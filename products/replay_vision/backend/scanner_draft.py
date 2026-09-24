@@ -1868,8 +1868,14 @@ def draft_scanner_from_goal_v2(
         survey_events = set(injected)
         events = list(dict.fromkeys([*injected, *events]))
     # Measured here, not in `_events_for_goal`: that lookup is a name search, and only a session
-    # count tells the model which of the matching names is worth filtering on.
-    measured = _measured_events(team, events)
+    # count tells the model which of the matching names is worth filtering on. Event volume is an
+    # analytics read behind query:read, so a scoped token without it gets the names unmeasured —
+    # counts the briefing would show could otherwise reach the model's prompt and rationale.
+    measured = (
+        _measured_events(team, events)
+        if _scopes_allow_read(allowed_scopes, "query")
+        else [_CandidateEvent(name=name) for name in events]
+    )
     # The survey events are injected to carry a `$survey_id` filter, not because volume picked
     # them. A survey quiet for the window measures zero on all of them, and the filter can only
     # ride on an event the query carries, so dropping them would widen a one-survey scan to every

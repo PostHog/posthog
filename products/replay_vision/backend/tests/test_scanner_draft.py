@@ -1366,32 +1366,28 @@ class TestFinalizeV2:
         assert draft.query is not None
         assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
 
-    def test_an_all_match_draft_stops_at_the_and_cap(self):
-        # The third slot exists for the OR case. ANDed, three events need one session to do all of
-        # them, which is the over-constrained draft the cap is there to prevent.
+    @pytest.mark.parametrize(
+        "events_match,expected_events,expected_operand",
+        [
+            # The third slot exists for the OR case. ANDed, three events need one session to do all
+            # of them, which is the over-constrained draft the cap is there to prevent.
+            ("all", ["a", "b"], None),
+            # "created or edited" names three events that each mean the same thing, and ORed they
+            # cost nothing to carry: this is the case the wider cap was raised for.
+            ("any", ["a", "b", "c"], "OR"),
+        ],
+    )
+    def test_the_event_cap_follows_the_match_operand(self, events_match, expected_events, expected_operand):
         draft = _finalize_v2(
-            _draft_v2(filter_events=["a", "b", "c"], filter_events_match="all"),
+            _draft_v2(filter_events=["a", "b", "c"], filter_events_match=events_match),
             allowed_pages=[],
             allowed_events=["a", "b", "c"],
             team_id=1,
         )
 
         assert draft.query is not None
-        assert [e["id"] for e in draft.query["events"]] == ["a", "b"]
-
-    def test_an_any_match_draft_gets_the_extra_or_slot(self):
-        # "created or edited" names three events that each mean the same thing, and ORed they cost
-        # nothing to carry: this is the case the wider cap was raised for.
-        draft = _finalize_v2(
-            _draft_v2(filter_events=["a", "b", "c"], filter_events_match="any"),
-            allowed_pages=[],
-            allowed_events=["a", "b", "c"],
-            team_id=1,
-        )
-
-        assert draft.query is not None
-        assert [e["id"] for e in draft.query["events"]] == ["a", "b", "c"]
-        assert draft.query["operand"] == "OR"
+        assert [e["id"] for e in draft.query["events"]] == expected_events
+        assert draft.query.get("operand") == expected_operand
 
     def test_a_downgraded_any_match_keeps_one_event_rather_than_anding_them(self):
         # The page filter rules out the OR operand, but ANDing the alternatives would need one
@@ -1874,6 +1870,45 @@ class TestDraftV2(_VisionAPITestCase):
 
         assert draft.model == "gemini-3.8-flash"
         assert draft.credit_limit == 10_000
+
+    def _briefing_under_scopes(self, allowed_scopes):
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(f"{_MODULE}.recent_event_sessions", return_value={"billing_limit_set": 42}) as volume,
+            patch(_GENERATE_PATH, return_value=_draft_v2()) as generate,
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+                allowed_scopes=allowed_scopes,
+            )
+        return volume, generate.call_args.kwargs["user_content"]
+
+    def test_a_scoped_token_lacking_query_read_gets_unmeasured_events(self):
+        # Event volume is an analytics read: a token with only scanner and recording scopes must not
+        # receive counts, which the briefing would surface into the model's prompt and rationale.
+        # The names still go in, unmeasured, so grounding survives the gate.
+        volume, user_content = self._briefing_under_scopes(["replay_scanner:write", "session_recording:read"])
+
+        assert not volume.called
+        assert "billing_limit_set" in user_content
+        assert "billing_limit_set (" not in user_content
+
+    def test_query_read_scope_keeps_the_measured_counts(self):
+        volume, user_content = self._briefing_under_scopes(
+            ["replay_scanner:write", "session_recording:read", "query:read"]
+        )
+
+        assert volume.called
+        assert "billing_limit_set (42)" in user_content
 
 
 class TestDraftEndpointGoalFlow(_VisionAPITestCase):
