@@ -314,7 +314,7 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def snapshot_flow_content(flow: HogFlow) -> dict:
+def snapshot_flow_content(flow: HogFlow, template_cache: Optional["TemplateCache"] = None) -> dict:
     snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
     # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
     # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
@@ -324,8 +324,9 @@ def snapshot_flow_content(flow: HogFlow) -> dict:
             snapshot[field] = []
     # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
     # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
+    # secrets. New rows are already stripped, so this is a no-op for them. Every create takes a
+    # snapshot, so resolve each template once rather than once per action.
+    return strip_content_secrets(snapshot, {} if template_cache is None else template_cache)
 
 
 # --- Secret function-action inputs -------------------------------------------------------------
