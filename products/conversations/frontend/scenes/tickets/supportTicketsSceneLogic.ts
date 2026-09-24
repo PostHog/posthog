@@ -17,6 +17,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -892,12 +893,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 if (cache.latestViewShortId === shortId) {
                     actions.applyView(view)
                 }
-            } catch {
+            } catch (error) {
                 if (cache.latestViewShortId === shortId) {
                     if (restored) {
                         // The user did not ask for this view on this visit, so a deleted one
                         // is not an error. Drop the name and keep the filters on screen.
-                        actions.clearActiveView()
+                        // Any other failure can be transient, so keep the view for the next visit.
+                        if (error instanceof ApiError && error.status === 404) {
+                            actions.clearActiveView()
+                        }
                         actions.loadTickets()
                     } else {
                         lemonToast.error('Failed to load saved view')

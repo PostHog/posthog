@@ -303,6 +303,17 @@ describe('supportTicketsSceneLogic', () => {
             expect(router.values.searchParams.view).toBeUndefined()
         })
 
+        it('keeps a restored view when loading it fails for another reason', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [500, { detail: 'Error' }] },
+            })
+
+            await applyViewThenReopenAt(urls.supportTickets())
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+        })
+
         it('leaves another page alone when a scene there mounts the ticket list', async () => {
             // The ticket detail scene connects to this logic for its loadTickets action.
             useMocks({
