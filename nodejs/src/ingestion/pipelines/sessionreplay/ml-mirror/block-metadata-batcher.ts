@@ -31,6 +31,7 @@ export class BlockMetadataBatcher {
     private bufferedBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private lastFlushMs: number
+    private flushQueue: Promise<void> = Promise.resolve()
 
     constructor(
         private readonly store: BlockMetadataParquetStore,
@@ -118,26 +119,56 @@ export class BlockMetadataBatcher {
      * Writes the buffered rows (if any) as one Parquet object, then stores the consumed offsets.
      * Throws (without storing offsets) if the write fails, so the consumer replays the window (at-least-once).
      */
-    public async flush(nowMs: number): Promise<void> {
+    public flush(nowMs: number): Promise<void> {
+        // A later flush's offsets also cover rows that an earlier flush is still writing, so flushes run one at a time and in order.
+        const flushed = this.flushQueue.then(() => this.flushNow(nowMs))
+        this.flushQueue = flushed.catch(() => undefined)
+        return flushed
+    }
+
+    private async flushNow(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
-        const wroteObject = this.buffer.length > 0 || this.encrypted.length > 0
-        if (this.encryptedIndex.length > 0) {
-            await this.store.writeEncryptedReplayIndex(this.encryptedIndex)
-            this.encryptedIndex = []
-        }
-        if (this.encrypted.length > 0) {
-            await this.store.writeEncrypted(this.encrypted)
-            this.encrypted = []
-        }
-        if (this.buffer.length > 0) {
-            await this.store.write(this.buffer)
-            this.buffer = []
-        }
+        // The shutdown flush runs while the consumer loop still delivers batches, so a flush writes only the rows it takes here and stores only their offsets.
+        let encryptedIndex = this.encryptedIndex
+        let encrypted = this.encrypted
+        let rows = this.buffer
+        const offsets = this.pendingOffsets
+        const bytes = this.bufferedBytes
+        this.encryptedIndex = []
+        this.encrypted = []
+        this.buffer = []
+        this.pendingOffsets = new Map()
         this.bufferedBytes = 0
-        if (this.pendingOffsets.size > 0) {
+        const wroteObject = rows.length > 0 || encrypted.length > 0
+        try {
+            if (encryptedIndex.length > 0) {
+                await this.store.writeEncryptedReplayIndex(encryptedIndex)
+                encryptedIndex = []
+            }
+            if (encrypted.length > 0) {
+                await this.store.writeEncrypted(encrypted)
+                encrypted = []
+            }
+            if (rows.length > 0) {
+                await this.store.write(rows)
+                rows = []
+            }
+        } catch (error) {
+            this.encryptedIndex = encryptedIndex.concat(this.encryptedIndex)
+            this.encrypted = encrypted.concat(this.encrypted)
+            this.buffer = rows.concat(this.buffer)
+            this.bufferedBytes += bytes
+            for (const [partition, offset] of offsets) {
+                // A newer offset for the partition stays, because the next flush writes these rows together with the newer ones.
+                if (!this.pendingOffsets.has(partition)) {
+                    this.pendingOffsets.set(partition, offset)
+                }
+            }
+            throw error
+        }
+        if (offsets.size > 0) {
             // Commit after the write lands so a failed write replays; skipped-only batches still advance here.
-            this.offsetStore.offsetsStore([...this.pendingOffsets.values()])
-            this.pendingOffsets.clear()
+            this.offsetStore.offsetsStore([...offsets.values()])
             // 'empty' means we advanced past messages that produced no rows (all skipped/malformed): healthy
             // offset progress with zero Parquet output, the one state Kafka lag can't distinguish.
             MlParquetSinkMetrics.incFlush(wroteObject ? 'written' : 'empty')

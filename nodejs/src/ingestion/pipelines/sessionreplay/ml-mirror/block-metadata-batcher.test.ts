@@ -110,6 +110,65 @@ describe('BlockMetadataBatcher', () => {
         expect(offsets.offsetsStore).not.toHaveBeenCalled()
     })
 
+    describe('while a flush is writing', () => {
+        let firstWriteStarted: PromiseWithResolvers<void>
+        let firstWrite: PromiseWithResolvers<void>
+        let written: string[][]
+
+        beforeEach(() => {
+            firstWriteStarted = Promise.withResolvers<void>()
+            firstWrite = Promise.withResolvers<void>()
+            written = []
+            store.write.mockImplementation((rows) => {
+                written.push(rows.map((stored) => stored.session_id))
+                if (written.length > 1) {
+                    return Promise.resolve()
+                }
+                firstWriteStarted.resolve()
+                return firstWrite.promise
+            })
+        })
+
+        it('keeps a batch that arrives, and stores only the offsets of the rows it wrote', async () => {
+            const batcher = makeBatcher(60_000, 1_000)
+            await batcher.handleBatch([msg(0)], 0)
+
+            const shutdownFlush = batcher.flush(0)
+            await firstWriteStarted.promise
+            await batcher.handleBatch([msg(1)], 0)
+            firstWrite.resolve()
+            await shutdownFlush
+            expect(offsets.offsetsStore.mock.calls).toEqual([
+                [[{ topic: 'ml_block_metadata', partition: 0, offset: 1 }]],
+            ])
+
+            await batcher.flush(1)
+            expect(written).toEqual([['s0'], ['s1']])
+            expect(offsets.offsetsStore).toHaveBeenLastCalledWith([
+                { topic: 'ml_block_metadata', partition: 0, offset: 2 },
+            ])
+        })
+
+        it('holds a second flush until the first fails, then writes both batches and stores their offsets', async () => {
+            const batcher = makeBatcher(60_000, 2)
+            await batcher.handleBatch([msg(0)], 0)
+
+            const shutdownFlush = batcher.flush(0)
+            await firstWriteStarted.promise
+            const batchAtRowLimit = batcher.handleBatch([msg(1), msg(2)], 0)
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(offsets.offsetsStore).not.toHaveBeenCalled()
+
+            firstWrite.reject(new Error('s3 down'))
+            await expect(shutdownFlush).rejects.toThrow('s3 down')
+            await batchAtRowLimit
+            expect(written).toEqual([['s0'], ['s0', 's1', 's2']])
+            expect(offsets.offsetsStore.mock.calls).toEqual([
+                [[{ topic: 'ml_block_metadata', partition: 0, offset: 3 }]],
+            ])
+        })
+    })
+
     it('keeps v2 offsets pending until the encrypted eval index upload succeeds', async () => {
         await sodium.ready
         const sessionId = '01a0a4f0-3200-7000-8000-000000000001'
