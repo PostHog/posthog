@@ -28,6 +28,7 @@ from django.conf import settings
 from products.feature_flags.backend.facade.config_validation import (
     ConfigError,
     ConfigValidationError,
+    ValidatedConfig,
     ValidationLimits,
     validate_config,
 )
@@ -62,7 +63,7 @@ def v2_creation_enabled(team_id: int) -> bool:
 
     Closing the creation switch leaves existing rows updatable and enableable in admitted teams.
     """
-    return bool(settings.FEATURE_FLAG_RULES_V2_CREATION_ENABLED) and v2_write_limits(team_id) is not None
+    return bool(settings.FEATURE_FLAG_RULES_V2_CREATION_ENABLED) and team_id in settings.FEATURE_FLAG_RULES_V2_TEAM_IDS
 
 
 def reject_duplicate_json_keys(body: bytes) -> None:
@@ -185,24 +186,12 @@ def review_update(
 
     A stored document this milestone cannot validate is rejected rather than overwritten:
     replacing it with a generic admitted document would erase semantics no detector here
-    can judge.
+    can judge. An empty ``stored`` is a create, which has no current document to compare.
     """
-    try:
-        # Stored rows may predate lower byte caps; validate their semantics without
-        # preventing a replacement that brings them back within the write limits.
-        current = validate_config(
-            stored, limits=ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
-        )
-    except ConfigValidationError as exc:
-        raise ConfigValidationError(
-            [
-                ConfigError(
-                    code="unsupported",
-                    detail="This flag's stored configuration cannot be updated through this API.",
-                    attr="filters",
-                )
-            ]
-        ) from exc
+    # Stored rows may predate lower byte caps; validate their semantics without
+    # preventing a replacement that brings them back within the write limits.
+    unbounded = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
+    current = _validated_stored(stored, limits=unbounded, operation="updated") if stored else None
     return review_config(document, limits=limits, current=current).warnings
 
 
@@ -212,15 +201,12 @@ def validate_stored(stored: Mapping[str, Any], *, limits: ValidationLimits) -> N
     Enabling is what makes the document reachable by evaluation, so a row written under an
     older contract or a larger byte limit must be edited back into validity first.
     """
+    _validated_stored(stored, limits=limits, operation="enabled")
+
+
+def _validated_stored(stored: Mapping[str, Any], *, limits: ValidationLimits, operation: str) -> ValidatedConfig:
     try:
-        validate_config(stored, limits=limits)
+        return validate_config(stored, limits=limits)
     except ConfigValidationError as exc:
-        raise ConfigValidationError(
-            [
-                ConfigError(
-                    code="unsupported",
-                    detail="This flag's stored configuration cannot be enabled through this API.",
-                    attr="filters",
-                )
-            ]
-        ) from exc
+        detail = f"This flag's stored configuration cannot be {operation} through this API."
+        raise ConfigValidationError([ConfigError(code="unsupported", detail=detail, attr="filters")]) from exc

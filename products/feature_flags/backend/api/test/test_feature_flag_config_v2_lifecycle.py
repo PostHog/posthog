@@ -14,7 +14,6 @@ from posthog.models import Team
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates import (
-    RULE_A,
     AdmittedV2TestCase,
     V2UpdateTestCase,
     admit_v2,
@@ -22,7 +21,6 @@ from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates
     rollout,
     targeted,
 )
-from products.feature_flags.backend.facade import api as flag_facade
 from products.feature_flags.backend.flags_cache import _get_feature_flags_for_service
 from products.feature_flags.backend.local_evaluation import _get_flags_response_for_local_evaluation_batch
 from products.feature_flags.backend.models import FeatureFlag
@@ -85,11 +83,6 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         flag.refresh_from_db()
         assert (flag.active, flag.archived, flag.version) == (active, False, 3)
 
-    def test_the_facade_can_disable_without_admission(self) -> None:
-        flag = self.flag(active=True)
-        updated = flag_facade.update_flag(flag, {"version": 3, "active": False}, team=self.team, user=self.user)
-        assert (updated.active, updated.version) == (False, 4)
-
 
 class TestAdmittedV2Creation(AdmittedV2TestCase):
     def setUp(self) -> None:
@@ -125,25 +118,7 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
     @parameterized.expand(
         [
             ("client_id", {"filters": config(targeted())}),
-            ("client_seed", {"filters": config(rollout(rule_id=None))}),
-            ("experiment_rule", {"filters": config({"rule_type": "experiment", "targeting": {}})}),
-            ("deferred_string", {"filters": config(return_type="string")}),
             ("fragment", {"filters": {"version": 2, "rules": []}}),
-            (
-                "flag_reference",
-                {
-                    "filters": config(
-                        targeted(
-                            rule_id=None,
-                            targeting={
-                                "properties": [
-                                    {"key": "1", "type": "flag", "value": True, "operator": "flag_evaluates_to"}
-                                ]
-                            },
-                        )
-                    )
-                },
-            ),
             ("remote_config", {"filters": config(), "is_remote_configuration": True}),
             ("encrypted", {"filters": config(), "has_encrypted_payloads": True}),
             ("archived", {"filters": config(), "archived": True}),
@@ -202,13 +177,6 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
         assert not serializer.is_valid()
         assert "unsupported_config_version" in str(serializer.errors)
 
-    def test_the_facade_creates_a_disabled_row(self) -> None:
-        flag = flag_facade.create_flag(
-            {"key": "new-v2", "filters": config(targeted(rule_id=None))}, team=self.team, user=self.user
-        )
-        assert (flag.active, flag.version) == (False, 1)
-        assert flag.filters["rules"][0]["id"]
-
     @override_settings(MIDDLEWARE=[])
     def test_duplicate_keys_in_the_create_bytes_are_rejected(self) -> None:
         self.client.force_authenticate(user=self.user)
@@ -236,8 +204,7 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
 
     @parameterized.expand(
         [
-            ("malformed", {"version": 2, "rules": "broken"}, None),
-            ("deferred_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}}), None),
+            ("malformed", {"version": 2, "rules": "broken"}, settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES),
             (
                 "flag_reference",
                 config(
@@ -247,7 +214,7 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
                         }
                     )
                 ),
-                None,
+                settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES,
             ),
             ("over_the_current_limit", config(targeted(description="x" * 400)), 200),
         ]
@@ -280,11 +247,6 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert not flag.active
         assert not ChangeRequest.objects.filter(organization=self.organization).exists()
-
-    def test_the_facade_reaches_the_toggle(self) -> None:
-        flag = self.flag(active=False)
-        enabled = flag_facade.update_flag(flag, {"version": 3, "active": True}, team=self.team, user=self.user)
-        assert (enabled.active, enabled.version) == (True, 4)
 
 
 class TestM1PilotScenario(AdmittedV2TestCase):

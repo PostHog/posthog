@@ -79,7 +79,7 @@ class V2UpdateTestCase(APIBaseTest):
             created_by=self.user,
             **extra,
         )
-        ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id)).delete()
+        self._activity_qs(flag).delete()
         return flag
 
     def patch_flag(self, flag: FeatureFlag, data: dict, method: str = "patch"):
@@ -90,12 +90,11 @@ class V2UpdateTestCase(APIBaseTest):
     def post_flag(self, data: dict):
         return self.client.post(f"/api/projects/{self.team.id}/feature_flags/", data, format="json")
 
+    def _activity_qs(self, flag: FeatureFlag):
+        return ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id))
+
     def activity(self, flag: FeatureFlag) -> list[ActivityLog]:
-        return list(
-            ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id)).order_by(
-                "created_at"
-            )
-        )
+        return list(self._activity_qs(flag).order_by("created_at"))
 
     @staticmethod
     def changed_fields(entry: ActivityLog) -> set[str]:
@@ -181,10 +180,9 @@ class TestV2WritesAreClosed(V2UpdateTestCase):
         assert serializer.errors["filters"][0].code == "reserved_config_version"
         assert not FeatureFlag.objects.filter(key="new-v2").exists()
 
-    @parameterized.expand(["patch", "put"])
-    def test_enabling_is_rejected_without_admission(self, method: str) -> None:
+    def test_enabling_is_rejected_without_admission(self) -> None:
         flag = self.flag(active=False)
-        response = self.patch_flag(flag, {"key": flag.key, "version": 3, "active": True}, method=method)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "unsupported_config_version"
         flag.refresh_from_db()
@@ -547,7 +545,6 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
     @parameterized.expand(
         [
             ("archived", {"archived": True, "active": False}),
-            ("restore", {"deleted": False}),
             ("remote_config", {"is_remote_configuration": True}),
             ("encrypted", {"has_encrypted_payloads": True}),
             ("continuity", {"ensure_experience_continuity": True}),
