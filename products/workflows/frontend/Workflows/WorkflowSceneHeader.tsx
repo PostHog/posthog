@@ -250,7 +250,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             <IconScreen />
                                             Save as template
                                         </ButtonPrimitive>
-                                        {/* A code-managed workflow has this in the header instead. */}
                                         {!isCodeManaged && (
                                             <ButtonPrimitive
                                                 menuItem
@@ -314,8 +313,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             // which moved a different action under a pointer that had not left the
                             // button.
                             <>
-                                {/* Only a push saves a code-managed workflow, so copying the code for that
-                                    push takes the save button's place. */}
                                 {isCodeManaged ? (
                                     <span className="flex items-center gap-1">
                                         <LemonButton

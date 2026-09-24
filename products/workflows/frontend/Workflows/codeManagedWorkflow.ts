@@ -13,10 +13,6 @@ export function workflowSourceLabel(workflow: HogFlow | null | undefined): strin
     return workflow?.source_repository || workflow?.source_path || 'its repository'
 }
 
-/**
- * Why edits made in the editor are not saved and how to keep them, in the shape a `disabledReason`
- * and a tooltip both want.
- */
 export function codeManagedReason(workflow: HogFlow | null | undefined): string {
     return `This workflow is managed by code in ${workflowSourceLabel(workflow)}. Changes made here are not saved. To keep them, copy the code, commit it to the workflow's file, and push.`
 }

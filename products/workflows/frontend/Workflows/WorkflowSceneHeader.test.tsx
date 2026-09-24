@@ -70,7 +70,6 @@ describe('WorkflowSceneHeader', () => {
             },
         })
         initKeaTests()
-        // The "..." menu portals into the scene panel, which the scene layout registers.
         const scenePanel = document.createElement('div')
         document.body.appendChild(scenePanel)
         sceneLayoutLogic.mount()
