@@ -263,7 +263,7 @@ describe("NavRail", () => {
     ["/", "Home"],
     ["/activity", "Activity"],
     ["/inbox/pulls/$reportId", "Self-driving"],
-    ["/command-center", "Command Center"],
+    ["/command-center", "More"],
     ["/spaces", "Spaces"],
     ["/spaces/$channelId/loops", "Spaces"],
     ["/spaces/$channelId/context", "Spaces"],

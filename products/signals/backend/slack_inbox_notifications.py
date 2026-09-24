@@ -675,7 +675,7 @@ def _deliver_route_notification(
     }
     delivered = False
     try:
-        slack = SlackIntegration(route.integration)
+        slack = SlackIntegration(route.integration, source="signals_inbox")
         if route.is_direct_message and slack.get_user_by_id(channel_id) is None:
             # A member reachable when the target was saved can since have left or become a guest.
             logger.warning("Skipping signals inbox-item Slack DM to an ineligible member", extra=log_context)
