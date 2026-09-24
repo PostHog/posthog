@@ -12,7 +12,7 @@ import type { ChartAlternativesLogicProps } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { applyChartDisplay } from './chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
-import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview } from './chartPreviewData'
+import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview, hasPreviewData } from './chartPreviewData'
 
 export interface ChartPreview {
     option: ChartDisplayOption
@@ -282,7 +282,8 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                 const remaining = options.flatMap((group) =>
                     group.options.filter((option) => !suggestedDisplays.has(option.display))
                 )
-                const canDerive = !!freeResponse && !insightDataLoading
+                // A result with no matching data would render every tile as the same empty state.
+                const canDerive = !!freeResponse && !insightDataLoading && hasPreviewData(freeResponse)
                 const previews = [...alternatives, ...remaining].map((option) => {
                     const derived =
                         option.disabledReason || !canDerive

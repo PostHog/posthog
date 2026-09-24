@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import type { AnyResponseType, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
+import { hasTrendsChartData } from '../shared/hasTrendsChartData'
 import { breakdownProperties, hasTrendsFormula } from './chartDisplayOptions'
 import { sampleBoxPlotRows, sampleCalendarHeatmapRows, sampleWorldMapRows } from './chartPreviewSamples'
 
@@ -34,6 +35,10 @@ function resultsOf(response: AnyResponseType): TrendResult[] {
     const raw =
         (response as { result?: unknown; results?: unknown }).result ?? (response as { results?: unknown }).results
     return Array.isArray(raw) ? (raw as TrendResult[]) : []
+}
+
+export function hasPreviewData(response: AnyResponseType): boolean {
+    return hasTrendsChartData(resultsOf(response))
 }
 
 // insightDataLogic rebuilds `result` from `results`, so both keys must carry the derived rows.

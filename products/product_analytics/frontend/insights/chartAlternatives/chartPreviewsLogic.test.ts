@@ -18,7 +18,7 @@ import { chartPreviewsLogic } from './chartPreviewsLogic'
 import type { ChartPreview } from './chartPreviewsLogic'
 
 const insightProps = { dashboardItemId: 'chart-previews' as InsightShortId }
-const logicProps = { editMode: true, embedded: false, ...insightProps }
+const logicProps = { embedded: false, ...insightProps }
 const FIRST_REFRESH = '2026-01-01T00:00:00.000Z'
 const SECOND_REFRESH = '2026-01-01T00:01:00.000Z'
 
@@ -116,6 +116,15 @@ describe('chartPreviewsLogic', () => {
             expect(previews.filter((preview) => preview.suggested && !preview.response)).toEqual([])
         }
     )
+
+    it('shows blank tiles, and keeps the suggested row, when the result has no matching data', () => {
+        load(trendsQuery(ChartDisplayType.ActionsLineGraph), { ...timeSeriesRow, data: [0, 0, 0], count: 0 })
+
+        const previews = chartPreviewsLogic(logicProps).values.previews
+        expect(previews.length).toBeGreaterThan(0)
+        expect(previews.every((preview) => preview.response === null && !preview.sample)).toBe(true)
+        expect(previews.some((preview) => preview.suggested)).toBe(true)
+    })
 
     it('reuses the time series it saw before the chart became a total value, even when the total loaded later', async () => {
         load(trendsQuery(ChartDisplayType.ActionsLineGraph), timeSeriesRow)
