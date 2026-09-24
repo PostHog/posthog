@@ -267,24 +267,6 @@ export function isTurnCompleteNotification(message: unknown): boolean {
   );
 }
 
-/** Names `traceId` on a turn-complete notification that carries none. */
-export function withTurnTraceId(
-  message: unknown,
-  traceId: string | null,
-): unknown {
-  if (!traceId || typeof message !== "object" || message === null) {
-    return message;
-  }
-  const params = (message as { params?: unknown }).params;
-  if (typeof params !== "object" || params === null) {
-    return message;
-  }
-  if (typeof (params as { traceId?: unknown }).traceId === "string") {
-    return message;
-  }
-  return { ...message, params: { ...params, traceId } };
-}
-
 interface SseController {
   send: (data: unknown) => void;
   close: () => void;
@@ -2161,6 +2143,7 @@ export class AgentServer {
       eventIdSource: this.nextEventId,
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
+      stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
@@ -5618,21 +5601,17 @@ export class AgentServer {
       this.lastBudgetSnapshot = budget;
       this.persistBudgetSnapshotIfChanged(budget);
     }
-    let notification = message;
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {
         return;
       }
       this.adapterEmittedTurnComplete = true;
-      // The codex adapter mints this event itself and reports no trace id, so
-      // the Slack stream that reads it would rate a turn it cannot open.
-      notification = withTurnTraceId(message, this.stampedRunTraceId);
     }
     const event = {
       type: "notification",
       timestamp: new Date().toISOString(),
       ...(eventId ? { event_id: eventId } : {}),
-      notification,
+      notification: message,
     };
     if (!this.session) {
       this.preSessionEvents.push(event);

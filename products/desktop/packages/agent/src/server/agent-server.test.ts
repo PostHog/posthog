@@ -51,7 +51,6 @@ import {
   type PreparedInitialTaskMessage,
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
-  withTurnTraceId,
 } from "./agent-server";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
@@ -2683,37 +2682,6 @@ describe("AgentServer HTTP Mode", () => {
       ).toBe(false);
       expect(isTurnCompleteNotification(null)).toBe(false);
       expect(isTurnCompleteNotification("turn_complete")).toBe(false);
-    });
-
-    // A codex turn reports no trace id of its own, so the stamped run id is
-    // the only thing the Slack stream can rate against.
-    it.each([
-      [
-        "names the stamped run on a turn that reports none",
-        { params: { sessionId: "s", stopReason: "end_turn" } },
-        "run-1",
-        "run-1",
-      ],
-      [
-        "keeps the trace id the adapter reported",
-        { params: { sessionId: "s", traceId: "trace-abc" } },
-        "run-1",
-        "trace-abc",
-      ],
-      [
-        "names nothing when no header stamped the run",
-        { params: { sessionId: "s" } },
-        null,
-        undefined,
-      ],
-    ])("%s", (_name, message, stamped, expected) => {
-      const result = withTurnTraceId(
-        { jsonrpc: "2.0", method: "_posthog/turn_complete", ...message },
-        stamped as string | null,
-      ) as { params: { traceId?: string; sessionId: string } };
-
-      expect(result.params.traceId).toBe(expected);
-      expect(result.params.sessionId).toBe("s");
     });
   });
 
