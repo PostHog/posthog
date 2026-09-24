@@ -143,7 +143,7 @@ def app_csp_header_name(request: HttpRequest) -> str:
 
 # The app policy reports as v=2 through the endpoint above, and the shadow policy below as v=3.
 NARROWED_APP_POLICY_REPORT_VERSION = "3"
-_WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
+_WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com", "wss://*.modal.host/terminal"})
 
 
 def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
@@ -359,8 +359,9 @@ class CSPMiddleware:
                 frame_ancestors,
                 # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
                 # the rest of the API, and every other repository, out of reach of injected script.
-                # Terminal shells connect directly to authenticated Modal sandbox WebSockets.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ wss://*.modal.host",
+                # The terminal dock survives SPA navigation, so its connections need the document policy.
+                # Modal assigns opaque hosts; restrict the path and measure wildcard use in the shadow policy.
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ wss://*.modal.host/terminal",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

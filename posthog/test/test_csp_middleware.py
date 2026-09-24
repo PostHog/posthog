@@ -232,7 +232,7 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/admin/")
         assert "frame-ancestors 'none'" not in response["Content-Security-Policy"]
         assert "connect-src 'self'" in response["Content-Security-Policy-Report-Only"]
-        assert "wss://*.modal.host" in response["Content-Security-Policy-Report-Only"]
+        assert "wss://*.modal.host/terminal" in response["Content-Security-Policy-Report-Only"]
 
     @parameterized.expand(
         [
@@ -434,7 +434,7 @@ class TestNarrowedAppPolicy(SimpleTestCase):
             "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://*.posthog.com https://*.i.posthog.com https://js.stripe.com",
             "worker-src 'self' blob:",
             "img-src 'self' data: https://*.posthog.com",
-            "connect-src 'self' https://api.github.com https://*.posthog.com",
+            "connect-src 'self' https://api.github.com https://*.posthog.com wss://*.modal.host/terminal",
         ]
 
         narrowed = narrowed_app_policy(

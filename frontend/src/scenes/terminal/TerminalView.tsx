@@ -158,7 +158,7 @@ export function TerminalView({
                     icon={<IconStopFilled />}
                     aria-label="Stop"
                     tooltip="Stop"
-                    onClick={stop}
+                    onClick={() => stop()}
                     loading={status === 'stopping'}
                     disabledReason={
                         status === 'idle'
