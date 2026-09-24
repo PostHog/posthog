@@ -42,7 +42,7 @@ def post_pr_closed_slack_update(run_id: str, pr_url: str, *, merged: bool = Fals
     )
     if mapping is None:
         return False
-    if not task_run.task.claim_slack_pr_closed_notification(pr_url):
+    if not task_run.task.claim_slack_pr_closed_notification(pr_url, merged=merged):
         return False
 
     handler = SlackThreadHandler(

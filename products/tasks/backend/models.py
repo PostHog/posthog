@@ -318,7 +318,7 @@ def clear_channel_repositories_on_github_integration_delete(
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
-SLACK_NOTIFIED_PR_CLOSED_URL_STATE_KEY = "slack_notified_pr_closed_url"
+SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY = "slack_notified_pr_outcomes"
 PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
 PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
 PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
@@ -910,22 +910,22 @@ class Task(DeletedMetaFields, models.Model):
             task.save(update_fields=["state", "updated_at"])
         self.state = state
 
-    def claim_slack_pr_closed_notification(self, pr_url: str) -> bool:
+    def claim_slack_pr_closed_notification(self, pr_url: str, *, merged: bool) -> bool:
         """Record that the task's Slack thread is told ``pr_url`` merged or closed, and say whether to post.
 
-        A merge is a close on GitHub, so one key covers both outcomes. Returns False when the thread
-        never announced ``pr_url``, a newer PR replaced it, or the outcome is already announced.
-        Row-locked so a redelivered webhook cannot post twice.
+        Each outcome posts once per PR, so a PR closed, reopened, and then merged still gets its
+        merged card. Returns False when the thread never announced ``pr_url``, a newer PR replaced
+        it, or this outcome is already announced. Row-locked so a redelivered webhook cannot post twice.
         """
+        outcome = f"{'merged' if merged else 'closed'}:{pr_url}"
         with transaction.atomic():
             task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
             state = dict(task.state or {})
-            if (
-                state.get(SLACK_NOTIFIED_PR_URL_STATE_KEY) != pr_url
-                or state.get(SLACK_NOTIFIED_PR_CLOSED_URL_STATE_KEY) == pr_url
-            ):
+            notified = state.get(SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY)
+            notified = notified if isinstance(notified, list) else []
+            if state.get(SLACK_NOTIFIED_PR_URL_STATE_KEY) != pr_url or outcome in notified:
                 return False
-            state[SLACK_NOTIFIED_PR_CLOSED_URL_STATE_KEY] = pr_url
+            state[SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY] = [*notified, outcome]
             task.state = state
             task.save(update_fields=["state", "updated_at"])
         self.state = state

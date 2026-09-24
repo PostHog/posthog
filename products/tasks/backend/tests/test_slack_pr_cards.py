@@ -77,6 +77,18 @@ class TestPostPrClosedSlackUpdate(TestCase):
         assert posts == expected_posts
 
     @patch.object(SlackThreadHandler, "post_pr_closed")
+    def test_merge_after_reopen_still_posts(self, mock_post):
+        SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
+
+        sent = [
+            post_pr_closed_slack_update(str(self.task_run.id), PR_URL, merged=False),
+            post_pr_closed_slack_update(str(self.task_run.id), PR_URL, merged=True),
+        ]
+
+        assert sent == [True, True]
+        assert [c.kwargs["merged"] for c in mock_post.call_args_list] == [False, True]
+
+    @patch.object(SlackThreadHandler, "post_pr_closed")
     def test_tags_the_run_actor_and_passes_the_outcome(self, mock_post):
         SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
 
