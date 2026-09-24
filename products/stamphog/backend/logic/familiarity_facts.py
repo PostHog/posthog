@@ -208,9 +208,10 @@ class FamiliarityFactsCollector:
     def collect(self, considered: list[dict], deadline: float) -> dict | None:
         """The familiarity facts for the considered files, or None on any failure but a per-file blame one.
 
-        A file whose blame fails is left out, and the engine counts its lines as not owned, the
-        same as a failed `git blame`. A rate limit or a failed history query drops all facts,
-        because a partial history reads as an author with fewer prior PRs.
+        A file whose blame fails, or does not finish inside the budget, is left out, and the engine
+        counts its lines as not owned, the same as a failed `git blame`. A rate limit or a failed or
+        unfinished history query drops all facts, because a partial history reads as an author with
+        fewer prior PRs.
         """
         blame_targets: dict[str, list[int]] = {}
         for entry in considered:
@@ -235,16 +236,18 @@ class FamiliarityFactsCollector:
 
         executor = ThreadPoolExecutor(max_workers=_MAX_PARALLEL_REQUESTS, thread_name_prefix="stamphog-familiarity")
         try:
-            blame_futures = {path: executor.submit(self._blame, path) for path in blame_targets}
+            # History goes first, so up to thirty slow blame requests cannot hold it in the queue.
             history_futures = [executor.submit(self._history, paths, first, since) for paths, first in history_jobs]
-            futures: list[Future[Any]] = [*blame_futures.values(), *history_futures]
+            blame_futures = {path: executor.submit(self._blame, path) for path in blame_targets}
+            futures: list[Future[Any]] = [*history_futures, *blame_futures.values()]
             _done, pending = wait(futures, timeout=max(0.0, deadline - time.monotonic()))
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
-        if pending:
+        if any(future in pending for future in history_futures):
             logger.warning("stamphog_familiarity_facts_timed_out", repo=self.repo)
             return None
-        return self._assemble(blame_targets, blame_futures, history_futures, directories)
+        finished_blame = {path: future for path, future in blame_futures.items() if future not in pending}
+        return self._assemble(blame_targets, finished_blame, history_futures, directories)
 
     def _assemble(
         self,

@@ -227,13 +227,14 @@ class _FamiliarityClient:
         self.blame_error = blame_error
         self.history_error = history_error
         self.release = threading.Event()
-        self.block = False
+        self.block_blame = False
+        self.block_history = False
 
     def get_merge_base_sha(self, repo: str, base_sha: str, head_sha: str) -> str:
         return "mb"
 
     def get_blame_ranges(self, repo: str, oid: str, path: str, *, timeout: int) -> list[dict]:
-        if self.block:
+        if self.block_blame:
             self.release.wait(timeout=10)
         if self.blame_error is not None and path == "src/b.py":
             raise self.blame_error
@@ -243,6 +244,8 @@ class _FamiliarityClient:
         ]
 
     def get_author_history(self, repo: str, oid: str, author_node_id: str, paths: list[str], **_: object) -> dict:
+        if self.block_history:
+            self.release.wait(timeout=10)
         if self.history_error is not None:
             raise self.history_error
         return {path: [_graphql_commit("c-author", "author")] if path == "src" else [] for path in paths}
@@ -301,9 +304,9 @@ class FamiliarityFactsTests(SimpleTestCase):
         else:
             assert history.familiarity_facts is None
 
-    def test_a_slow_github_leaves_the_facts_out_instead_of_waiting(self) -> None:
+    def test_a_slow_history_leaves_the_facts_out_instead_of_waiting(self) -> None:
         client = _FamiliarityClient()
-        client.block = True
+        client.block_history = True
         try:
             with patch("products.stamphog.backend.logic.familiarity_facts._BUDGET_SECONDS", 0):
                 history = _fetch_history(client)
@@ -311,6 +314,20 @@ class FamiliarityFactsTests(SimpleTestCase):
             client.release.set()
 
         assert history.familiarity_facts is None
+
+    def test_a_slow_blame_leaves_only_its_file_out(self) -> None:
+        client = _FamiliarityClient()
+        client.block_blame = True
+        try:
+            with patch("products.stamphog.backend.logic.familiarity_facts._BUDGET_SECONDS", 0.5):
+                history = _fetch_history(client)
+        finally:
+            client.release.set()
+
+        facts = history.familiarity_facts
+        assert facts is not None
+        assert facts["blame"] == {}
+        assert facts["path_history"] == ["c-author"]
 
 
 class ReviewTriggerTests(SimpleTestCase):
@@ -726,6 +743,34 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
     ) -> None:
         self._call(minimize_failure, lambda c: c.dismiss_pr_review("acme/widgets", 5, 999, "stale"))
         assert self.requested_urls[-1] == "https://api.github.com/graphql"
+
+
+class CommitGraphqlTests(SimpleTestCase):
+    def _blame(self, response: fakes.FakeResponse) -> list[dict]:
+        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+            if url.endswith("/access_tokens"):
+                return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            return response
+
+        with (
+            override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+            patch(f"{_GH}.github_request", fake_request),
+            patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+            patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+        ):
+            return StamphogGitHubClient("123").get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5)
+
+    @parameterized.expand(
+        [
+            ("rate_limited", {"type": "RATE_LIMITED", "message": "API rate limit exceeded"}, GitHubRateLimitError),
+            ("other_error", {"type": "NOT_FOUND", "message": "no such path"}, StamphogGitHubError),
+        ]
+    )
+    def test_graphql_errors_keep_a_rate_limit_distinct(
+        self, _name: str, error: dict, expected: type[Exception]
+    ) -> None:
+        with pytest.raises(expected):
+            self._blame(fakes.FakeResponse(200, json_data={"errors": [error]}))
 
 
 class BuildAppJwtIssuerTests(SimpleTestCase):

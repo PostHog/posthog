@@ -22,6 +22,7 @@ import re
 import json
 import time
 import subprocess
+from bisect import bisect_right
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -501,11 +502,16 @@ class _AuthorIdentity:
         return pr_number is not None and pr_number in self.pr_numbers
 
 
-def _commit_for_line(line: int, blame_ranges: list[dict], commits: dict) -> dict | None:
-    for blame_range in blame_ranges:
-        if blame_range.get("start", 0) <= line <= blame_range.get("end", -1):
-            return commits.get(blame_range.get("oid"))
-    return None
+def _commit_for_line(line: int, blame_ranges: list[dict], starts: list[int], commits: dict) -> dict | None:
+    """The commit of the range covering ``line``, by binary search over ranges sorted by start.
+
+    Blame ranges never overlap, so the last range that starts at or before the line is the only
+    candidate.
+    """
+    index = bisect_right(starts, line) - 1
+    if index < 0 or line > blame_ranges[index].get("end", -1):
+        return None
+    return commits.get(blame_ranges[index].get("oid"))
 
 
 def _blame_overlap_from_facts(considered: list[_FileDiff], facts: dict, identity: _AuthorIdentity) -> _BlameOverlap:
@@ -532,10 +538,12 @@ def _blame_overlap_from_facts(considered: list[_FileDiff], facts: dict, identity
             total += line_count
             incomplete += 1
             continue
+        file_blame = sorted(blame[blame_path], key=lambda blame_range: blame_range.get("start", 0))
+        starts = [blame_range.get("start", 0) for blame_range in file_blame]
         for start, end in ranges:
             for line in range(start, end + 1):
                 total += 1
-                commit = _commit_for_line(line, blame[blame_path], commits)
+                commit = _commit_for_line(line, file_blame, starts, commits)
                 if commit is None:
                     continue
                 if identity.owns(commit):

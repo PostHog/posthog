@@ -24,7 +24,7 @@ import requests
 import structlog
 
 from posthog.egress.github.limiter import remember_observed_core_limit
-from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 
 from products.stamphog.backend.facade.contracts import StamphogGitHubError
@@ -1083,7 +1083,12 @@ class StamphogGitHubClient:
         if response.status_code != 200:
             raise StamphogGitHubError(f"GraphQL request failed on {repo}", status_code=response.status_code)
         data = self._json(response, "/graphql")
-        if not isinstance(data, dict) or data.get("errors"):
+        errors = data.get("errors") if isinstance(data, dict) else None
+        # GitHub answers an exhausted GraphQL rate limit with a 200 and a RATE_LIMITED error, which
+        # the transport's status check cannot see. Callers drop partial results on a rate limit only.
+        if isinstance(errors, list) and any(isinstance(e, dict) and e.get("type") == "RATE_LIMITED" for e in errors):
+            raise GitHubRateLimitError(f"GitHub GraphQL rate limit exceeded on {repo}")
+        if not isinstance(data, dict) or errors:
             raise StamphogGitHubError(f"GraphQL errors on {repo}")
         commit = ((data.get("data") or {}).get("repository") or {}).get("object")
         if not isinstance(commit, dict):
