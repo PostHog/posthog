@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from trino.exceptions import TrinoUserError
 
 from posthog.models import Team
 
@@ -50,8 +51,17 @@ class TestTrinoShadowMaterialization(BaseTest):
             source_query=self.query,
         )
 
-    @parameterized.expand([(False,), (True,)])
-    def test_executes_latest_current_conversion_with_bound_values(self, fail_write: bool) -> None:
+    @parameterized.expand(
+        [
+            ("success",),
+            ("write",),
+            ("write_schema_exists",),
+            ("schema_execute_exists",),
+            ("schema_fetch_exists",),
+            ("schema_permission",),
+        ]
+    )
+    def test_executes_latest_current_conversion_with_bound_values(self, failure: str) -> None:
         later_job = ManagedWarehouseViewTranslationJob.objects.create(organization=self.organization)
         assert self.translation.trino_sql is not None
         ManagedWarehouseViewTranslationResult.objects.for_team(self.team.pk).create(
@@ -64,14 +74,26 @@ class TestTrinoShadowMaterialization(BaseTest):
             trino_sql=self.translation.trino_sql + " LIMIT 12",
             trino_values=self.translation.trino_values,
         )
-        if fail_write:
+        schema_error = TrinoUserError({"errorName": "SCHEMA_ALREADY_EXISTS", "message": "Schema already exists"})
+        if failure == "write":
             self.cursor.fetchall.side_effect = [[], RuntimeError("Trino write failed")]
+        elif failure == "write_schema_exists":
+            self.cursor.fetchall.side_effect = [[], schema_error]
+        elif failure == "schema_execute_exists":
+            self.cursor.execute.side_effect = [schema_error, None]
+        elif failure == "schema_fetch_exists":
+            self.cursor.fetchall.side_effect = [schema_error, []]
+        elif failure == "schema_permission":
+            self.cursor.execute.side_effect = TrinoUserError({"errorName": "PERMISSION_DENIED", "message": "Denied"})
         with patch(
             "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
         ) as connect:
             connect.return_value.__enter__.return_value = self.connection
-            if fail_write:
+            if failure == "write":
                 with self.assertRaisesRegex(RuntimeError, "Trino write failed"):
+                    self.execute()
+            elif failure in {"schema_permission", "write_schema_exists"}:
+                with self.assertRaises(TrinoUserError):
                     self.execute()
             else:
                 result = self.execute()
@@ -83,13 +105,16 @@ class TestTrinoShadowMaterialization(BaseTest):
         assert self.cursor.execute.call_args_list[0].args == (
             f'CREATE SCHEMA IF NOT EXISTS "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"',
         )
+        self.cursor.close.assert_called_once()
+        connect.return_value.__exit__.assert_called_once()
+        if failure == "schema_permission":
+            assert self.cursor.execute.call_count == 1
+            return
         assert self.cursor.execute.call_args_list[1].args == (
             f'CREATE OR REPLACE TABLE "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}" '
             'AS SELECT name FROM "org_catalog"."imports"."orders" WHERE name = ? LIMIT 12',
             ["example' OR 1=1 --"],
         )
-        self.cursor.close.assert_called_once()
-        connect.return_value.__exit__.assert_called_once()
 
     @parameterized.expand([("edited",), ("failed",), ("empty",), ("organization",), ("team",), ("saved_query",)])
     def test_rejects_missing_current_conversion_before_connecting(self, reason: str) -> None:
