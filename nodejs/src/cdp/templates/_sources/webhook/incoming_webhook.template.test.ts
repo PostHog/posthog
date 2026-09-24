@@ -198,6 +198,8 @@ describe('incoming webhook template', () => {
                         utm_source: 'newsletter',
                         api_key: 'phc_secret',
                         Token: 'also-secret',
+                        'x-api-key': 'dashed-secret',
+                        client_secret: 'suffixed-secret',
                     },
                 },
             }
@@ -212,11 +214,10 @@ describe('incoming webhook template', () => {
             distinct_id: 'user-1',
             utm_source: 'newsletter',
         })
-        expect(JSON.stringify(properties)).not.toContain('phc_secret')
-        expect(JSON.stringify(properties)).not.toContain('also-secret')
+        expect(JSON.stringify(properties)).not.toContain('secret')
     })
 
-    it('should print the method, query names, header names and body if debug is true', async () => {
+    it('should print the method, query, header names and body without credentials if debug is true', async () => {
         const response = await tester.invoke(
             {
                 event: '{request.body.eventName}',
@@ -228,6 +229,7 @@ describe('incoming webhook template', () => {
                     method: 'POST',
                     body: {
                         eventName: 'the event',
+                        password: 'my-secret-password',
                     },
                     stringBody: '',
                     headers: {
@@ -236,13 +238,14 @@ describe('incoming webhook template', () => {
                     },
                     query: {
                         utm_source: 'newsletter',
+                        token: 'my-secret-query-token',
                     },
                 },
             }
         )
 
         expect(response.logs.map((x) => x.message)).toEqual([
-            `Incoming request:, POST, query names:, ["utm_source"], header names:, ["authorization","x-api-key"], body:, {"eventName":"the event"}`,
+            `Incoming request:, POST, query:, {"utm_source":"newsletter"}, header names:, ["authorization","x-api-key"], body:, {"eventName":"the event"}`,
             expect.stringContaining('Function completed'),
         ])
     })

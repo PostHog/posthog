@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { WITHOUT_CREDENTIALS_HOG } from '../without-credentials'
+
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'alpha',
@@ -10,11 +12,10 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/webhook.svg',
     category: ['Custom'],
     code_language: 'hog',
-    code: `
+    code: `${WITHOUT_CREDENTIALS_HOG}
 if(inputs.debug) {
-  // Names only for headers and query: either can carry a credential, and nothing masks it on the
-  // way to the logs. The names are what a GET request was missing, which is what this log is for.
-  print('Incoming request:', request.method, 'query names:', keys(request.query), 'header names:', keys(request.headers), 'body:', request.body)
+  // Header values are left out because nothing lists which headers carry a credential.
+  print('Incoming request:', request.method, 'query:', withoutCredentials(request.query), 'header names:', keys(request.headers), 'body:', withoutCredentials(request.body))
 }
 
 if(request.method != inputs.method) {
@@ -58,24 +59,9 @@ if(empty(inputs.distinct_id)) {
   }
 }
 
-// A query string often carries the caller's credential (?api_key=...), and the properties
-// mapping stores whatever arrives. Drop the keys that name one, one level into each mapped
-// object, so a token ends up neither on the event nor in the person's property list.
-let credentialNames := ['access_token', 'api_key', 'apikey', 'auth', 'authorization', 'key', 'password', 'secret', 'signature', 'token']
 let properties := {}
-
-for (let propertyKey, propertyValue in inputs.properties) {
-  if (typeof(propertyValue) == 'object') {
-    let kept := {}
-    for (let key, value in propertyValue) {
-      if (not (lower(key) in credentialNames)) {
-        kept[key] := value
-      }
-    }
-    properties[propertyKey] := kept
-  } else {
-    properties[propertyKey] := propertyValue
-  }
+for (let propertyKey, propertyValue in (inputs.properties ?? {})) {
+  properties[propertyKey] := withoutCredentials(propertyValue)
 }
 
 postHogCapture({
