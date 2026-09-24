@@ -97680,6 +97680,98 @@ export namespace Schemas {
       PooledSamples: 'pooled_samples',
     } as const;
 
+    /**
+     * Anthropic text, image, or tool content blocks.
+     */
+    export type TerminalAIMessageContent = string | {[key: string]: JsonValue}[];
+
+    export type TerminalAIMessageRoleEnum = typeof TerminalAIMessageRoleEnum[keyof typeof TerminalAIMessageRoleEnum];
+
+
+    export const TerminalAIMessageRoleEnum = {
+      User: 'user',
+      Assistant: 'assistant',
+    } as const;
+
+    export interface TerminalAIMessage {
+      /** Author of this conversation message. */
+      role: TerminalAIMessageRoleEnum;
+      /** Anthropic text, image, or tool content blocks. */
+      content: TerminalAIMessageContent;
+    }
+
+    export type TerminalAIModel = typeof TerminalAIModel[keyof typeof TerminalAIModel];
+
+
+    export const TerminalAIModel = {
+      ClaudeOpus5: 'claude-opus-5',
+      ClaudeSonnet5: 'claude-sonnet-5',
+      ClaudeSonnet46: 'claude-sonnet-4-6',
+      ClaudeHaiku45: 'claude-haiku-4-5',
+    } as const;
+
+    /**
+     * Agent instructions.
+     */
+    export type TerminalAIRequestSystem = string | {[key: string]: JsonValue}[] | null;
+
+    /**
+     * JSON schema for the tool's arguments.
+     */
+    export type TerminalAIToolInputSchema = {[key: string]: JsonValue};
+
+    /**
+     * Provider prompt cache settings.
+     */
+    export type TerminalAIToolCacheControl = {[key: string]: string} | null;
+
+    export interface TerminalAITool {
+      /**
+         * Name of a tool executed inside the terminal.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * What the tool does.
+         * @maxLength 20000
+         */
+      description?: string;
+      /** JSON schema for the tool's arguments. */
+      input_schema: TerminalAIToolInputSchema;
+      /** Provider prompt cache settings. */
+      cache_control?: TerminalAIToolCacheControl;
+      /** Stream tool arguments as they are generated. */
+      eager_input_streaming?: boolean | null;
+    }
+
+    export interface TerminalAIRequest {
+      /** Model served by the PostHog provider. */
+      model: TerminalAIModel;
+      /**
+         * Conversation and tool results.
+         * @minItems 1
+         * @maxItems 1000
+         */
+      messages: TerminalAIMessage[];
+      /**
+         * Maximum output tokens for this generation.
+         * @minimum 1
+         * @maximum 8192
+         */
+      max_tokens: number;
+      /** Always stream the model response. */
+      stream?: true;
+      /** Agent instructions. */
+      system?: TerminalAIRequestSystem;
+      /**
+         * Tools executed by pi.
+         * @maxItems 100
+         */
+      tools?: TerminalAITool[];
+      /** Sampling temperature. */
+      temperature?: number | null;
+    }
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogTargetConfig {
@@ -114361,6 +114453,18 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type TerminalAiCreateParams = {
+    format?: TerminalAiCreateFormat;
+    };
+
+    export type TerminalAiCreateFormat = typeof TerminalAiCreateFormat[keyof typeof TerminalAiCreateFormat];
+
+
+    export const TerminalAiCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
 
     export type TracingSpansAttributesRetrieveParams = {
     /**
