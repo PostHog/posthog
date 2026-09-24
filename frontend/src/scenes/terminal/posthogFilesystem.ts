@@ -174,6 +174,12 @@ mcview, mcedit, and mcdiff also run directly from the shell.
 tree lists folders and files. ncdu -r browses disk usage without allowing deletion.
 node (or nodejs) installs Node.js on first use. pi installs the pi coding harness
 and Node.js on first use. Try node --version or pi --help.
+For a break, try these commands. Each downloads on first use:
+  sl                 Run a steam train across the terminal
+  cmatrix            Watch Matrix-style falling text (q quits)
+  figlet PostHog     Print an ASCII banner; also accepts piped text
+  nyancat            Watch an animated rainbow cat (Ctrl+C quits)
+Ctrl+C also stops the train and Matrix animation.
 The browser downloads verified packages from GitHub and caches them when storage
 is available. Stopping the terminal discards the installed files and local sessions.
 pi runs offline: model calls, login, and package downloads need a network bridge.
