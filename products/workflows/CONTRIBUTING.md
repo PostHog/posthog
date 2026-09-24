@@ -401,13 +401,18 @@ The edits stay in the editor and are never sent to the API, because only a push 
 In `workflowLogic`:
 
 - `isCodeManaged` says whether a repository owns the workflow.
-- `workflowSaveDisabledReason` and `canSaveWorkflow` carry code ownership only. The auto-save, the schedule write, publish, discard and "Restore as draft" read them.
+- `workflowSaveDisabledReason` and `canSaveWorkflow` carry code ownership only. The auto-save, publish, discard and "Restore as draft" read them.
   The access level is not part of them. A viewer edits any workflow in the editor as before, and the API refuses the save.
   The `saveWorkflow` loader also throws before a content `PATCH` on a code-managed workflow, as a backstop for a path that does not check.
 
 Enable and disable still work, because they send a status-only `PATCH`.
 Unsaved edits do not block them on a code-managed workflow, and the edits stay in the form after the status save.
 When a push lands while someone has edits, the editor shows the reload or keep banner rather than reloading on its own.
+
+The schedule is the one part of a code-managed workflow that the editor saves.
+A manual save writes a staged schedule change for a workflow the app owns.
+A code-managed workflow has no manual save, so the schedule picker shows a "Save schedule" button that dispatches `saveSchedule`.
+That writes only the schedule, and edits to the graph stay in the form.
 
 On the workflow scene, a code-managed workflow has no save button and no draft actions.
 `CodeManagedTag` renders the badge beside the title and in the list.
