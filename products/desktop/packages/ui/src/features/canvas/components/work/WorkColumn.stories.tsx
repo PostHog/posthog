@@ -48,34 +48,6 @@ const TASKS: Task[] = TASK_TITLES.map((title, index) =>
   task(index + 1, title, index * 3),
 );
 
-const HISTORY_TITLES = [
-  "Show the branch name in the task header",
-  "Keep the scroll position when a list refreshes",
-  "Add a keyboard shortcut for the command menu",
-  "Explain an empty search in the canvas list",
-  "Retry a cloud run that lost its sandbox",
-  "Sort spaces by last activity",
-  "Show who started a session on hover",
-  "Load older sessions on scroll",
-  "Hide archived tasks from the activity feed",
-  "Stop the diff view from jumping on resize",
-  "Group sessions by repository",
-  "Warn before closing a tab with a draft",
-  "Match the badge colours in light mode",
-  "Open a pull request from the task menu",
-  "Show the model name on each turn",
-  "Collapse long tool output by default",
-  "Remember the last filter per space",
-  "Add a copy link button to canvases",
-];
-
-const LONG_HISTORY: Task[] = [
-  ...TASKS,
-  ...HISTORY_TITLES.map((title, index) =>
-    task(TASKS.length + index + 1, title, 42 + index * 4),
-  ),
-];
-
 function channel(
   name: string,
   overrides: Partial<TaskChannel> = {},
@@ -173,12 +145,7 @@ export const WithPinned: Story = {
 
 export const InTheApp: Story = {
   decorators: [
-    app(
-      seededClient({
-        pinnedTaskIds: ["task-2", "task-5", "task-9"],
-        tasks: LONG_HISTORY,
-      }),
-    ),
+    app(seededClient({ pinnedTaskIds: ["task-2", "task-5", "task-9"] })),
   ],
 };
 
