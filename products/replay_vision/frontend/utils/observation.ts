@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { type ReplayObservationApi, ScannerOriginEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { citedTextToPlainText, parseCitedSegments } from './citations'
@@ -122,6 +123,7 @@ export interface ObservationSeekbarMarkEntry {
     scannerName: string
     headline: string | null
     snippet: string | null
+    sentence: string | null
 }
 
 export interface ObservationSeekbarMark {
@@ -141,38 +143,51 @@ export function markBucketMs(timestampMs: number): number {
 }
 
 const SNIPPET_MAX_LENGTH = 160
-
-function lastSentence(text: string): string | null {
-    // Flattened first: a mark has room for one line, where a bullet marker reads as the sentence start.
-    const flat = flattenMarkdownToLine(text)
-    if (!flat) {
-        return null
-    }
-    // No lookbehind regex, it breaks chunk parsing on older browsers.
-    let start = 0
-    for (const match of flat.matchAll(/[.!?]+\s+/g)) {
-        start = match.index + match[0].length
-    }
-    const last = tidyClause(flat.slice(start))
-    if (!last) {
-        return null
-    }
-    return last.length > SNIPPET_MAX_LENGTH ? `${last.slice(0, SNIPPET_MAX_LENGTH - 1)}…` : last
-}
+const SNIPPET_MIN_WORDS = 2
+const CHIP_PLACEHOLDER = '\uE000'
+const CHIP_PLACEHOLDER_RE = /\uE000/g
+const DANGLING_TAIL_RE =
+    /\s+(a|an|the|and|or|but|as|at|in|on|to|of|for|by|with|from|into|onto|about|around|near|after|before|during|until|when|while|where|which|that|then|so)$/i
 
 /** Fragments left between chips, e.g. `) and the banner appeared` or `, then it failed (see`. */
 function tidyClause(fragment: string): string {
-    const clause = fragment
+    let clause = fragment
         .replace(/[.!?]+\s*$/, '')
         .replace(/^[^\p{L}\p{N}"'“‘([]+/u, '')
         .replace(/^(and|but|then|so)\b\s*/i, '')
         .replace(/\s*\([^)]*$/, '')
-        .replace(/[\s,;:\-–—]+$/, '')
-    return clause.charAt(0).toUpperCase() + clause.slice(1)
+    for (;;) {
+        const trimmed = clause.replace(/[\s,;:\-–—]+$/, '').replace(DANGLING_TAIL_RE, '')
+        if (trimmed === clause) {
+            return clause
+        }
+        clause = trimmed
+    }
 }
 
-/** Cited timestamps in a succeeded observation's output, each with the sentence that cites it. */
-function readCitations(obs: ReplayObservationApi): { timestampMs: number; snippet: string | null }[] {
+function wordCount(text: string): number {
+    return text.split(/\s+/).filter(Boolean).length
+}
+
+function tidySentence(text: string): string {
+    return text
+        .replace(/\s+([,.;:!?)])/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+}
+
+function truncate(text: string): string {
+    return text.length > SNIPPET_MAX_LENGTH ? `${text.slice(0, SNIPPET_MAX_LENGTH - 1)}…` : text
+}
+
+interface Citation {
+    timestampMs: number
+    snippet: string | null
+    sentence: string | null
+}
+
+/** Cited timestamps in a succeeded observation's output, each with the clause that cites it. */
+function readCitations(obs: ReplayObservationApi): Citation[] {
     const output = readModelOutput(obs)
     if (!output || obs.status !== 'succeeded') {
         return []
@@ -184,23 +199,79 @@ function readCitations(obs: ReplayObservationApi): { timestampMs: number; snippe
     if (typeof text !== 'string' || !text) {
         return []
     }
-    const parsed = parseCitedSegments(text, segments)
-    const snippetByTimestamp = new Map<number, string | null>()
-    parsed.forEach((segment, index) => {
-        if (segment.kind !== 'chip' || snippetByTimestamp.has(segment.timestamp_ms)) {
-            return
+    let flat = ''
+    const chips: { timestampMs: number; offset: number }[] = []
+    for (const segment of parseCitedSegments(text, segments)) {
+        if (segment.kind === 'chip') {
+            flat += flat ? ` ${CHIP_PLACEHOLDER}` : CHIP_PLACEHOLDER
+            chips.push({ timestampMs: segment.timestamp_ms, offset: flat.length - 1 })
+            continue
         }
-        let snippet: string | null = null
-        for (let i = index - 1; i >= 0; i--) {
-            const previous = parsed[i]
-            if (previous.kind === 'text') {
-                snippet = lastSentence(previous.value)
+        const piece = flattenMarkdownToLine(segment.value)
+        if (piece) {
+            flat += flat ? ` ${piece}` : piece
+        }
+    }
+    // No lookbehind regex, it breaks chunk parsing on older browsers.
+    const sentenceStarts = [0, ...[...flat.matchAll(/[.!?]+\s+/g)].map((m) => m.index + m[0].length)]
+    const sentenceStart = (offset: number): number => {
+        let start = 0
+        for (const s of sentenceStarts) {
+            if (s > offset) {
                 break
             }
+            start = s
         }
-        snippetByTimestamp.set(segment.timestamp_ms, snippet)
-    })
-    return [...snippetByTimestamp.entries()].map(([timestampMs, snippet]) => ({ timestampMs, snippet }))
+        return start
+    }
+    const hasText = (slice: string): boolean => slice.replace(CHIP_PLACEHOLDER_RE, '').trim() !== ''
+
+    const seen = new Set<number>()
+    const citations: Citation[] = []
+    for (const chip of chips) {
+        if (seen.has(chip.timestampMs)) {
+            continue
+        }
+        seen.add(chip.timestampMs)
+        let sStart = sentenceStart(chip.offset)
+        let sEnd = sentenceStarts.find((s) => s > chip.offset) ?? flat.length
+        if (sStart > 0 && !hasText(flat.slice(sStart, chip.offset))) {
+            sEnd = sStart
+            sStart = sentenceStart(sStart - 1)
+        }
+        const inSentence = chips.filter((c) => c.offset >= sStart && c.offset < sEnd)
+        const previous = inSentence.filter((c) => c.offset < chip.offset).pop()
+        const next = inSentence.find((c) => c.offset > chip.offset)
+        const from = previous ? previous.offset + 1 : sStart
+        const to = next ? next.offset : sEnd
+        let clause = tidyClause(flat.slice(from, Math.min(chip.offset, sEnd)))
+        if (wordCount(clause) < SNIPPET_MIN_WORDS) {
+            clause = tidyClause(tidySentence(flat.slice(from, to).replace(CHIP_PLACEHOLDER_RE, '')))
+        }
+        let midSentence = hasText(flat.slice(sStart, from))
+        if (wordCount(clause) < SNIPPET_MIN_WORDS) {
+            clause = tidyClause(tidySentence(flat.slice(sStart, sEnd).replace(CHIP_PLACEHOLDER_RE, '')))
+            midSentence = false
+        }
+        const times = inSentence.map((c) => c.timestampMs)
+        const raw = flat.slice(sStart, sEnd)
+        const sentence = hasText(raw)
+            ? tidySentence(
+                  raw.replace(
+                      CHIP_PLACEHOLDER_RE,
+                      () => `(${colonDelimitedDuration(Math.floor(times.shift()! / 1000), null)})`
+                  )
+              ).replace(/[\s.!?,;:]+$/, '')
+            : null
+        citations.push({
+            timestampMs: chip.timestampMs,
+            snippet: clause
+                ? truncate(midSentence ? `…${clause}` : clause.charAt(0).toUpperCase() + clause.slice(1))
+                : null,
+            sentence,
+        })
+    }
+    return citations
 }
 
 function observationHeadline(obs: ReplayObservationApi): string | null {
@@ -229,10 +300,10 @@ export function observationSeekbarMarks(observations: ReplayObservationApi[]): O
         const scannerName = scannerLabel(obs)
         const headline = observationHeadline(obs)
         const flagged = isFlaggedObservation(obs)
-        for (const { timestampMs, snippet } of readCitations(obs)) {
+        for (const { timestampMs, snippet, sentence } of readCitations(obs)) {
             const bucket = markBucketMs(timestampMs)
             const entries = entriesByTimestamp.get(bucket) ?? new Map<string, ObservationSeekbarMarkEntry>()
-            entries.set(JSON.stringify([scannerName, headline, snippet]), { scannerName, headline, snippet })
+            entries.set(JSON.stringify([scannerName, headline, snippet]), { scannerName, headline, snippet, sentence })
             entriesByTimestamp.set(bucket, entries)
             if (flagged) {
                 flaggedTimestamps.add(bucket)

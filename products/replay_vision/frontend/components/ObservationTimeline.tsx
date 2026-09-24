@@ -37,7 +37,6 @@ export function ObservationTimeline({
                 const isCurrent = index === currentIndex
                 const gapPx = index === 0 ? 0 : timelineGapPx(mark.timestampMs - marks[index - 1].timestampMs)
                 const lead = mark.entries[0]
-                const scanners = [...new Set(mark.entries.map((entry) => entry.scannerName))].join(' · ')
                 const railColor = passed ? 'bg-accent' : 'bg-border'
                 return (
                     <Fragment key={mark.timestampMs}>
@@ -93,15 +92,13 @@ export function ObservationTimeline({
                                     onClick={() => onSeek(mark.timestampMs)}
                                     data-attr="vision-timeline-moment"
                                 >
-                                    <span className="flex flex-col gap-0.5 min-w-0 text-left font-normal">
-                                        <span className={cn('text-sm truncate', mark.flagged && 'font-semibold')}>
-                                            {lead?.snippet ?? lead?.headline ?? scanners}
-                                        </span>
-                                        <span className="text-xs text-secondary truncate">
-                                            {[scanners, lead?.snippet ? lead.headline : null]
-                                                .filter(Boolean)
-                                                .join(' · ')}
-                                        </span>
+                                    <span
+                                        className={cn(
+                                            'text-sm truncate min-w-0 text-left',
+                                            mark.flagged ? 'font-semibold' : 'font-normal'
+                                        )}
+                                    >
+                                        {lead?.snippet ?? lead?.headline ?? lead?.scannerName}
                                     </span>
                                 </LemonButton>
                             </Tooltip>

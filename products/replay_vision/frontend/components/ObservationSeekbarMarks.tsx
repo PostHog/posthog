@@ -7,7 +7,7 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
-import type { ObservationSeekbarMark } from '../utils/observation'
+import type { ObservationSeekbarMark, ObservationSeekbarMarkEntry } from '../utils/observation'
 import { visionSurfaceShown } from '../utils/visionSurface'
 
 interface ObservationSeekbarMarksProps {
@@ -23,10 +23,30 @@ export function ObservationMarkTooltip({ mark }: { mark: ObservationSeekbarMark 
             {mark.entries.map((entry, i) => (
                 <div key={i} className="flex flex-col">
                     <span>{[entry.scannerName, entry.headline].filter(Boolean).join(' · ')}</span>
-                    {entry.snippet && <span className="text-xs opacity-75">{entry.snippet}</span>}
+                    {entry.sentence && (
+                        <span className="text-xs opacity-75">
+                            <CitedSentence entry={entry} />
+                        </span>
+                    )}
                 </div>
             ))}
         </div>
+    )
+}
+
+function CitedSentence({ entry }: { entry: ObservationSeekbarMarkEntry }): JSX.Element {
+    const sentence = entry.sentence ?? ''
+    const clause = entry.snippet?.replace(/^…|…$/g, '') ?? ''
+    const at = clause ? sentence.toLowerCase().indexOf(clause.toLowerCase()) : -1
+    if (at < 0) {
+        return <>{sentence}</>
+    }
+    return (
+        <>
+            {sentence.slice(0, at)}
+            <strong>{sentence.slice(at, at + clause.length)}</strong>
+            {sentence.slice(at + clause.length)}
+        </>
     )
 }
 

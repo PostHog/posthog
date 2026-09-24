@@ -441,7 +441,7 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
     const scanBlock = recordingScanBlock(sessionPlayerMetaData)
-    // A seek can land just short of its target, so step from the last jump while the playhead is still on it.
+    // A seek can land short of its target; step from the last jump while still on it.
     const nextFrom =
         lastJumpMs.current !== null && Math.abs(currentPlayerTime - lastJumpMs.current) < 1000
             ? lastJumpMs.current

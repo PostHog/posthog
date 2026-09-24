@@ -7,7 +7,12 @@ import {
     scannerLabel,
 } from './observation'
 
-const summarizerEntry = { scannerName: 'Session summarizer', headline: null, snippet: 'Rage clicked pay' }
+const summarizerEntry = {
+    scannerName: 'Session summarizer',
+    headline: null,
+    snippet: 'Rage clicked pay',
+    sentence: 'Rage clicked pay (02:41) (00:30) (02:41)',
+}
 const longSentence = 'X'.repeat(200)
 
 function makeObservation(
@@ -98,6 +103,7 @@ describe('observation utils', () => {
                                 scannerName: 'Error monitor',
                                 headline: 'Verdict: yes',
                                 snippet: 'Error toast shown',
+                                sentence: 'Error toast shown (00:42)',
                             },
                         ],
                     },
@@ -114,40 +120,14 @@ describe('observation utils', () => {
                         timestampMs: 42_000,
                         flagged: false,
                         entries: [
-                            { scannerName: 'Monitor A', headline: null, snippet: 'Saw it' },
-                            { scannerName: 'Scorer B', headline: 'Score: 3', snippet: 'Also saw it' },
+                            { scannerName: 'Monitor A', headline: null, snippet: 'Saw it', sentence: 'Saw it (00:42)' },
+                            {
+                                scannerName: 'Scorer B',
+                                headline: 'Score: 3',
+                                snippet: 'Also saw it',
+                                sentence: 'Also saw it (00:42)',
+                            },
                         ],
-                    },
-                ],
-            },
-            {
-                name: 'clauses between chips drop dangling punctuation, brackets and conjunctions',
-                observations: [
-                    makeObservation('monitor', {
-                        reasoning:
-                            'Opened the page (t 10), they searched (t 20), and hit an error (see (t 30)) so a banner appeared: (t 40).',
-                    }),
-                ],
-                expected: [
-                    {
-                        timestampMs: 10_000,
-                        flagged: false,
-                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'Opened the page' }],
-                    },
-                    {
-                        timestampMs: 20_000,
-                        flagged: false,
-                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'They searched' }],
-                    },
-                    {
-                        timestampMs: 30_000,
-                        flagged: false,
-                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'Hit an error' }],
-                    },
-                    {
-                        timestampMs: 40_000,
-                        flagged: false,
-                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'A banner appeared' }],
                     },
                 ],
             },
@@ -164,7 +144,12 @@ describe('observation utils', () => {
                         timestampMs: 42_000,
                         flagged: false,
                         entries: [
-                            { scannerName: 'Scanner', headline: null, snippet: `${longSentence.slice(0, 159)}…` },
+                            {
+                                scannerName: 'Scanner',
+                                headline: null,
+                                snippet: `${longSentence.slice(0, 159)}…`,
+                                sentence: `${longSentence} (00:42)`,
+                            },
                         ],
                     },
                 ],
@@ -191,7 +176,14 @@ describe('observation utils', () => {
                     {
                         timestampMs: 42_000,
                         flagged: false,
-                        entries: [{ scannerName: 'Quick summary', headline: null, snippet: 'Rage clicked pay' }],
+                        entries: [
+                            {
+                                scannerName: 'Quick summary',
+                                headline: null,
+                                snippet: 'Rage clicked pay',
+                                sentence: 'Rage clicked pay (00:42)',
+                            },
+                        ],
                     },
                 ],
             },
@@ -212,7 +204,7 @@ describe('observation utils', () => {
                     {
                         timestampMs: 42_000,
                         flagged: false,
-                        entries: [{ scannerName: 'Scanner', headline: null, snippet: null }],
+                        entries: [{ scannerName: 'Scanner', headline: null, snippet: null, sentence: null }],
                     },
                 ],
             },
@@ -243,14 +235,73 @@ describe('observation utils', () => {
                         timestampMs: 42_000,
                         flagged: true,
                         entries: [
-                            { scannerName: 'Session summarizer', headline: null, snippet: 'Paid' },
-                            { scannerName: 'Pay monitor', headline: 'Verdict: yes', snippet: 'Paid' },
+                            {
+                                scannerName: 'Session summarizer',
+                                headline: null,
+                                snippet: 'Paid',
+                                sentence: 'Paid (00:42)',
+                            },
+                            {
+                                scannerName: 'Pay monitor',
+                                headline: 'Verdict: yes',
+                                snippet: 'Paid',
+                                sentence: 'Paid (00:42)',
+                            },
                         ],
                     },
                 ],
             },
         ])('$name', ({ observations, expected }) => {
             expect(observationSeekbarMarks(observations)).toEqual(expected)
+        })
+
+        it.each<{ name: string; reasoning: string; snippets: (string | null)[]; sentences: string[] }>([
+            {
+                name: 'clauses between chips drop dangling punctuation, brackets and conjunctions',
+                reasoning:
+                    'Opened the page (t 10), they searched (t 20), and hit an error (see (t 30)) so a banner appeared: (t 40).',
+                snippets: ['Opened the page', '…they searched', '…hit an error', '…a banner appeared'],
+                sentences: Array(4).fill(
+                    'Opened the page (00:10), they searched (00:20), and hit an error (see (00:30)) so a banner appeared: (00:40)'
+                ),
+            },
+            {
+                name: 'a clause ending on a function word drops it',
+                reasoning: 'For instance, after selecting a recording at (t 49), buffering appeared (t 51).',
+                snippets: ['For instance, after selecting a recording', '…buffering appeared'],
+                sentences: Array(2).fill(
+                    'For instance, after selecting a recording at (00:49), buffering appeared (00:51)'
+                ),
+            },
+            {
+                name: 'a clause too short to read extends to the next chip, then to the whole sentence',
+                reasoning: 'First (t 5) the user paid (t 8). At (t 12) the page went blank. Then (t 20).',
+                snippets: ['First the user paid', '…the user paid', 'At the page went blank', null],
+                sentences: [
+                    'First (00:05) the user paid (00:08)',
+                    'First (00:05) the user paid (00:08)',
+                    'At (00:12) the page went blank',
+                    'Then (00:20)',
+                ],
+            },
+            {
+                name: 'a citation opening a sentence belongs to the sentence before it',
+                reasoning: 'The user paid. (t 8) The page went blank (t 12).',
+                snippets: ['The user paid', 'The page went blank'],
+                sentences: ['The user paid', '(00:08) The page went blank (00:12)'],
+            },
+            {
+                name: 'a citation opening the text does not make the clause after it mid-sentence',
+                reasoning: '(t 5) The user paid (t 8).',
+                snippets: ['The user paid', 'The user paid'],
+                sentences: Array(2).fill('(00:05) The user paid (00:08)'),
+            },
+        ])('$name', ({ reasoning, snippets, sentences }) => {
+            const entries = observationSeekbarMarks([makeObservation('monitor', { reasoning })]).map(
+                (mark) => mark.entries[0]
+            )
+            expect(entries.map((e) => e.snippet)).toEqual(snippets)
+            expect(entries.map((e) => e.sentence)).toEqual(sentences)
         })
     })
 
