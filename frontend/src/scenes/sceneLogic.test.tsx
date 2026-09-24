@@ -78,8 +78,8 @@ describe('sceneLogic', () => {
         })
     })
 
-    // A dashboard tile link to a scene that never mounts used to leave the address bar on the new
-    // scene with the old one still rendered, and emitted nothing error tracking could count.
+    // A scene that never mounts must not leave the address bar on it with the previous scene still
+    // rendered, and must leave something error tracking can count.
     describe('a scene that fails to load', () => {
         let captureSpy: jest.SpyInstance
         let captureExceptionSpy: jest.SpyInstance
@@ -95,18 +95,15 @@ describe('sceneLogic', () => {
         })
 
         it.each([
-            ['its code cannot be imported', () => urls.surveys(), 'import'],
-            ['its logic throws while mounting', () => urls.cohorts(), 'logic_mount'],
-        ])('shows the load error and reports it when %s', async (_desc, url, stage) => {
-            router.actions.push(url())
+            ['its code cannot be imported', urls.surveys(), Scene.Surveys, 'import'],
+            ['its logic throws while mounting', urls.cohorts(), Scene.Cohorts, 'logic_mount'],
+        ])('shows the load error and reports it when %s', async (_desc, url, sceneId, stage) => {
+            router.actions.push(url)
             await expectLogic(logic).delay(1)
 
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
             expect(captureExceptionSpy).toHaveBeenCalled()
-            expect(captureSpy).toHaveBeenCalledWith(
-                'scene load failed',
-                expect.objectContaining({ stage, scene_id: expect.any(String) })
-            )
+            expect(captureSpy).toHaveBeenCalledWith('scene load failed', { scene_id: sceneId, stage })
         })
     })
 
