@@ -8,13 +8,13 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
-from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
+from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
@@ -221,7 +221,7 @@ class DashboardSavedViewListQuerySerializer(serializers.Serializer):
     )
 
 
-class DashboardSavedViewPagination(CursorPagination):
+class DashboardSavedViewPagination(StableCursorPagination):
     page_size = 100
     page_size_query_param = "limit"
     max_page_size = 100

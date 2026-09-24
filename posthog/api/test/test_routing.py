@@ -18,9 +18,11 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.test import APIRequestFactory
 
-from posthog.api.pagination import stable_queryset_ordering
+from posthog.api.pagination import StableCursorPagination, stable_queryset_ordering
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
@@ -78,6 +80,30 @@ def test_stable_queryset_ordering_leaves_sliced_and_grouped_querysets_unchanged(
     grouped_queryset = Annotation.objects.values("team_id").annotate(count=Count("id")).order_by("team_id")
 
     assert stable_queryset_ordering(grouped_queryset).query.order_by == ("team_id",)
+
+
+@pytest.mark.parametrize(
+    "ordering,expected",
+    [
+        ("-created_at", ("-created_at", "-pk")),
+        ("date_marker", ("date_marker", "pk")),
+        (("date_marker", "-id"), ("date_marker", "-id")),
+    ],
+)
+def test_stable_cursor_pagination_adds_a_direction_consistent_primary_key_tiebreaker(
+    ordering: str | tuple[str, ...], expected: tuple[str, ...]
+) -> None:
+    paginator = StableCursorPagination()
+    paginator.ordering = ordering
+
+    assert paginator.get_ordering(None, Annotation.objects.all(), None) == expected
+
+
+def test_stable_pagination_leaves_non_queryset_results_unchanged() -> None:
+    viewset = OrderedFooViewSet()
+    viewset.request = Request(APIRequestFactory().get("/", {"limit": 2, "offset": 1}))
+
+    assert viewset.paginate_queryset(["a", "b", "c"]) == ["b", "c"]
 
 
 test_router = DefaultRouterPlusPlus()

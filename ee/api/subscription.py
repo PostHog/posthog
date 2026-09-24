@@ -25,13 +25,13 @@ from drf_spectacular.utils import (
 from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import SubscriptionAIContextLimit
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
@@ -2159,7 +2159,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         return data
 
 
-class SubscriptionDeliveryCursorPagination(CursorPagination):
+class SubscriptionDeliveryCursorPagination(StableCursorPagination):
     page_size = 50
     ordering = "-created_at"
 

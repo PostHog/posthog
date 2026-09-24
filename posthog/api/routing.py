@@ -1,7 +1,6 @@
 import sys
-from collections.abc import Sequence
 from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.db.models.query import QuerySet
@@ -9,11 +8,10 @@ from django.db.models.query import QuerySet
 from opentelemetry import trace
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
 from rest_framework_extensions.settings import extensions_api_settings
 
-from posthog.api.pagination import stable_queryset_ordering
+from posthog.api.pagination import StableOrderingPaginationMixin
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -49,11 +47,6 @@ from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-
-if TYPE_CHECKING:
-    _GenericViewSet = GenericViewSet
-else:
-    _GenericViewSet = object
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -135,7 +128,7 @@ class RouterRegistry:
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
-class TeamAndOrgViewSetMixin(_GenericViewSet):
+class TeamAndOrgViewSetMixin(StableOrderingPaginationMixin):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -370,11 +363,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return queryset
         finally:
             self._in_get_queryset = False
-
-    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
-        if self.paginator is not None and isinstance(queryset, QuerySet):
-            queryset = stable_queryset_ordering(queryset)
-        return super().paginate_queryset(queryset)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         if self.action != "list":

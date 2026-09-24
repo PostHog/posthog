@@ -11,12 +11,13 @@ from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import BasePagination, Cursor, CursorPagination, PageNumberPagination
+from rest_framework.pagination import BasePagination, Cursor, PageNumberPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
+from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
@@ -168,7 +169,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class TailFollowingCursorPagination(CursorPagination):
+class TailFollowingCursorPagination(StableCursorPagination):
     """Cursor pagination that can keep a forward cursor alive after the stream is exhausted.
 
     Stock DRF returns `next: null` on the final page, which leaves a polling client nothing to

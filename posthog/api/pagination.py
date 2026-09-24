@@ -1,8 +1,25 @@
-from typing import Any, Optional
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Optional
 
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 
-from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.pagination import CursorPagination, LimitOffsetPagination
+
+if TYPE_CHECKING:
+    from rest_framework.viewsets import GenericViewSet
+
+    _GenericViewSet = GenericViewSet
+else:
+    _GenericViewSet = object
+
+
+def _ordering_with_primary_key(ordering: Sequence[Any], model: type[Model]) -> tuple[Any, ...]:
+    primary_key = model._meta.pk.name
+    if any(str(term).lstrip("-") in {"pk", primary_key} for term in ordering):
+        return tuple(ordering)
+
+    direction = "-" if str(ordering[0]).startswith("-") else ""
+    return (*ordering, f"{direction}pk")
 
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
@@ -14,12 +31,35 @@ def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
     if not ordering:
         return queryset.order_by("pk")
 
-    primary_key = queryset.model._meta.pk.name
-    if any(str(term).lstrip("-") in {"pk", primary_key} for term in ordering):
+    stable_ordering = _ordering_with_primary_key(ordering, queryset.model)
+    if len(stable_ordering) == len(ordering):
         return queryset
+    return queryset.order_by(*stable_ordering)
 
-    direction = "-" if str(ordering[0]).startswith("-") else ""
-    return queryset.order_by(*ordering, f"{direction}pk")
+
+class StableOrderingPaginationMixin(_GenericViewSet):
+    """Add the primary key as a final ordering term to each queryset that the viewset pages.
+
+    TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+    """
+
+    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
+        if self.paginator is not None and isinstance(queryset, QuerySet):
+            queryset = stable_queryset_ordering(queryset)
+        return super().paginate_queryset(queryset)
+
+
+class StableCursorPagination(CursorPagination):
+    """Cursor pagination that adds the primary key as a final ordering term.
+
+    The paginator replaces the queryset ordering, so `stable_queryset_ordering` cannot reach it.
+    DRF positions a cursor on the first ordering field and skips the rows that tie on it by count.
+    That skip is correct only when tied rows come back in the same order on every request.
+    The cursor encodes only the first ordering field, so the tiebreaker does not change the cursor format.
+    """
+
+    def get_ordering(self, request, queryset, view) -> tuple[str, ...]:
+        return _ordering_with_primary_key(super().get_ordering(request, queryset, view), queryset.model)
 
 
 class PrecountedLimitOffsetPagination(LimitOffsetPagination):
