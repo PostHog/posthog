@@ -98,8 +98,8 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 export function toolResultAnalyticsProperties(response: ToolResultPayload): Record<string, unknown> {
     const built = builtResponseText.get(response)
     return {
-        ...(built?.discoveryHint ? { $mcp_discovery_hint: built.discoveryHint } : {}),
-        ...(built?.resultEmpty ? { $mcp_result_empty: true } : {}),
+        ...(built?.discoveryHint ? { mcp_discovery_hint: built.discoveryHint } : {}),
+        ...(built?.resultEmpty ? { mcp_result_empty: true } : {}),
     }
 }
 

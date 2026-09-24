@@ -603,8 +603,8 @@ export class ToolExecutor {
                         : {}),
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
-                    ...execCommandMetaProperties(execMetrics.commandMeta),
-                    ...(execMetrics.resultEmpty ? { $mcp_result_empty: true } : {}),
+                    ...execMetrics.commandMeta,
+                    ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
                     ...toolResultAnalyticsProperties(response),
                 },
                 analyticsMeta,
@@ -626,11 +626,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                {
-                    ...execShape,
-                    ...errorAnalyticsProperties(classification, error),
-                    ...execCommandMetaProperties(execMetrics.commandMeta),
-                },
+                { ...execShape, ...errorAnalyticsProperties(classification, error), ...execMetrics.commandMeta },
                 analyticsMeta,
                 this.servedToolDescription(metricTool)
             )
@@ -1059,14 +1055,6 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),
         ...(targetTool !== undefined ? { $mcp_exec_target_tool: targetTool } : {}),
     }
-}
-
-function execCommandMetaProperties(meta: ExecCommandMeta | undefined): Record<string, unknown> {
-    if (!meta) {
-        return {}
-    }
-    const { exec_learn_kind, ...reported } = meta
-    return { ...reported, ...(exec_learn_kind ? { $mcp_learn_kind: exec_learn_kind } : {}) }
 }
 
 /**

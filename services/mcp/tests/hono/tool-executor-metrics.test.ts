@@ -456,8 +456,8 @@ describe('ToolExecutor metrics', () => {
             )
 
             expect(trackToolCallExtras('query-error-tracking-issues-list')).toMatchObject({
-                $mcp_discovery_hint: 'empty_state',
-                $mcp_result_empty: true,
+                mcp_discovery_hint: 'empty_state',
+                mcp_result_empty: true,
             })
         })
 
@@ -503,7 +503,7 @@ describe('ToolExecutor metrics', () => {
                 'learn -s "funnel conversion"',
                 {
                     $mcp_exec_verb: 'learn',
-                    $mcp_learn_kind: 'search',
+                    exec_learn_kind: 'search',
                     exec_search_query: 'funnel conversion',
                     $mcp_error_code: 'unknown_command',
                 },
@@ -513,7 +513,6 @@ describe('ToolExecutor metrics', () => {
 
             const call = mockTrackToolCall.mock.calls.at(-1)
             expect(call?.[4]).toMatchObject(expected)
-            expect(call?.[4]).not.toHaveProperty('exec_learn_kind')
         })
 
         it.each([
@@ -527,8 +526,8 @@ describe('ToolExecutor metrics', () => {
             )
 
             const extras = mockTrackToolCall.mock.calls.at(-1)?.[4]
-            expect(extras?.$mcp_result_empty).toBe(empty ? true : undefined)
-            expect(extras).not.toHaveProperty('$mcp_discovery_hint')
+            expect(extras?.mcp_result_empty).toBe(empty ? true : undefined)
+            expect(extras).not.toHaveProperty('mcp_discovery_hint')
         })
 
         // A name a feature flag retired is one we own, so it is recordable like any

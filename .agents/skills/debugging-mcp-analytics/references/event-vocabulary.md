@@ -93,13 +93,13 @@ which keys the caller actually sent), and exec-mode calls carry `$mcp_exec_verb`
 verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). Those four are
 stamped in `tool-executor.ts` but are **not registered in `posthog/taxonomy/taxonomy.py`**, so they
 have no descriptions in the property picker — they still query fine.
-A `learn` call also carries `$mcp_learn_kind` (`search`, `load`, `list`, `describe`, `guide`),
+A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list`, `describe`, `guide`),
 stamped before the availability check so a rejected skill command still records its form, plus
 the raw `exec_search_query` for `search` and `exec_learn_target` (the qualified skill) for `load`.
 Every `$mcp_tool_call` carries `$feature/mcp-exec-skills` with the value the request resolver
 evaluated (absent when the flag was not evaluated), so a rejected `learn` splits by gate state.
-A successful call carries `$mcp_result_empty: true` when the handler returned zero rows, and
-`$mcp_discovery_hint` (`empty_state` or `related_capability`) when the response builder appended a
+A successful call carries `mcp_result_empty: true` when the handler returned zero rows, and
+`mcp_discovery_hint` (`empty_state` or `related_capability`) when the response builder appended a
 hint footer (`services/mcp/src/lib/discovery-hints.ts`). `execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 

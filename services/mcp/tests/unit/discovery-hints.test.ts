@@ -120,19 +120,19 @@ describe('buildToolResultPayload discovery hint footer', () => {
             'an empty result with a hint',
             { results: [] },
             {},
-            { $mcp_discovery_hint: 'empty_state', $mcp_result_empty: true },
+            { mcp_discovery_hint: 'empty_state', mcp_result_empty: true },
         ],
         [
             'a populated result with a hint',
             { results: [{ id: 'issue-1' }] },
             {},
-            { $mcp_discovery_hint: 'related_capability' },
+            { mcp_discovery_hint: 'related_capability' },
         ],
         [
             'an empty json result, where no footer fires',
             { results: [] },
             { output_format: 'json' },
-            { $mcp_result_empty: true },
+            { mcp_result_empty: true },
         ],
     ])(
         'records %s for the tool-call event, before and after the exec stamp',
