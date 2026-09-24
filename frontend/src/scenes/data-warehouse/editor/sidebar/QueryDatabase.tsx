@@ -95,7 +95,10 @@ export function getSidebarAddJoinSourceTableName(
  * The two escape helpers are not interchangeable: a table name can be dotted (`source.table`), so
  * each part is escaped on its own, while a view name is one identifier that keeps any dot in it.
  */
-export function getSidebarPreviewQuery(record: Record<string, any> | undefined, itemName: string): string | null {
+export function getSidebarPreviewQuery(
+    record: { type?: string; tableName?: string } | undefined,
+    itemName: string
+): string | null {
     switch (record?.type) {
         case 'table':
             return buildSelectAllQuery(itemName, 'LIMIT 100')

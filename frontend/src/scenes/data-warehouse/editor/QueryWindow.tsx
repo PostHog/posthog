@@ -253,11 +253,11 @@ export function QueryWindow({
             {showQueryPanel ? (
                 <div
                     className={cn(
-                        'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
+                        'flex flex-row flex-wrap justify-start align-center gap-y-1 w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
                         isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                     )}
                 >
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 gap-y-1">
                         <ExpandDatabaseTreeButton
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
