@@ -735,7 +735,7 @@ export const getAutoresearchArchiveCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved.
+ * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. Refused while a training run is in progress.
  * @summary Archive a pipeline
  */
 export const autoresearchArchiveCreate = async (
@@ -754,7 +754,7 @@ export const getAutoresearchPauseCreateUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Pause daily scoring and training. The pipeline can be resumed later.
+ * Pause daily scoring and training on a running pipeline. The pipeline can be resumed later.
  * @summary Pause a pipeline
  */
 export const autoresearchPauseCreate = async (
@@ -792,7 +792,7 @@ export const getAutoresearchScoreCreateUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user. Updates the predicted_p_<target> person property. In production this is triggered by the daily Temporal inference workflow.
+ * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user, and sets the pipeline's output_person_property on each scored person. In production this is triggered by the daily Temporal inference workflow.
  * @summary Run inference (score users)
  */
 export const autoresearchScoreCreate = async (
@@ -811,7 +811,7 @@ export const getAutoresearchTrainCreateUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed); no champion model exists until the run completes and server-side promotion runs.
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
  * @summary Start a training run
  */
 export const autoresearchTrainCreate = async (
@@ -829,7 +829,7 @@ export const autoresearchTrainCreate = async (
 }
 
 export const getAutoresearchValidateOnlineCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/autoresearch/${id}/validate-online/`
+    return `/api/projects/${projectId}/autoresearch/${id}/validate_online/`
 }
 
 /**

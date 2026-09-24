@@ -11,7 +11,7 @@ The `autoresearch-*` MCP tools that expose this API to the sandbox agent arrive 
 
 - `views/views.py`
   Five viewsets, registered in `../routes.py` under `project_autoresearch_*` basenames and nested pipeline-first.
-  - `AutoresearchPipelineViewSet` — full CRUD plus the lifecycle actions: `train`, `score`, `validate-online`, `archive`, `pause`, `resume`, and the pre-create helpers `templates`, `resolve-template`, `validate`.
+  - `AutoresearchPipelineViewSet` — full CRUD plus the lifecycle actions: `train`, `score`, `validate_online`, `archive`, `pause`, `resume`, and the pre-create helpers `templates`, `resolve-template`, `validate`.
   - `AutoresearchTrainingRunViewSet` — read plus create, and **the agent's entire write surface**: `iterations`, `materialize-features`, `complete`, `artifacts`, `artifacts/upload`, `artifacts/get`, `artifacts/delete`, plus `history`.
   - `AutoresearchModelViewSet`, `AutoresearchRunViewSet` — read-only.
   - `AutoresearchSuggestionViewSet` — human or agent hypotheses, plus `respond`.
@@ -52,7 +52,7 @@ Consequences worth internalizing:
 
 - **Routing** — `../routes.py` (`register_routes`), nested pipeline → models / runs / training_runs / suggestions.
 - **Frontend types** — generated into `../../frontend/generated/` via drf-spectacular + Orval. Never hand-edit those; change the serializer and regenerate with `hogli build:openapi`.
-- **Calls into** — `../training/` (train, complete), `../inference/` (score), `../evaluation/` (validate-online), `../dataset/` (validate, templates, `resolve_target`).
+- **Calls into** — `../training/` (train, complete), `../inference/` (score), `../evaluation/` (validate_online), `../dataset/` (validate, templates, `resolve_target`).
 
 ## Declare the response when it differs from the request
 

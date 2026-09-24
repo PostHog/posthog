@@ -199,10 +199,26 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp2.status_code == status.HTTP_200_OK
         assert resp2.json()["status"] == "running"
 
-    def test_resume_non_paused_pipeline_returns_400(self):
-        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
-        resp = self.client.post(f"{self.base_url}/{pipeline.id}/resume/")
+    @parameterized.expand(
+        [
+            ("resume_running", "resume", AutoresearchPipeline.Status.RUNNING, False),
+            ("pause_draft", "pause", AutoresearchPipeline.Status.DRAFT, False),
+            ("pause_bootstrapping", "pause", AutoresearchPipeline.Status.BOOTSTRAPPING, False),
+            ("archive_while_training", "archive", AutoresearchPipeline.Status.RUNNING, True),
+        ]
+    )
+    def test_refused_lifecycle_transition_returns_400(
+        self, _name: str, verb: str, start: AutoresearchPipeline.Status, live_run: bool
+    ):
+        pipeline = self._make_pipeline(status=start)
+        if live_run:
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=50
+            )
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/{verb}/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        pipeline.refresh_from_db()
+        assert pipeline.status == start
 
     def test_archive_pipeline(self):
         pipeline = self._make_pipeline()
@@ -346,6 +362,17 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         with_action = self.create_personal_api_key_with_scopes([*scopes, "action:read"])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
         assert self.client.post(f"{self.base_url}/{path}", body, format="json").status_code == ok_status
+
+    @parameterized.expand([("score",), ("validate_online",)])
+    def test_scoring_actions_need_the_query_scope(self, path: str):
+        missing = f"{self.base_url}/{uuid.uuid4()}/{path}/"
+        self.client.logout()
+        write_only = self.create_personal_api_key_with_scopes(["autoresearch:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {write_only}")
+        assert self.client.post(missing).status_code == status.HTTP_403_FORBIDDEN
+        with_query = self.create_personal_api_key_with_scopes(["autoresearch:write", "query:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_query}")
+        assert self.client.post(missing).status_code == status.HTTP_404_NOT_FOUND
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 

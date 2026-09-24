@@ -355,18 +355,50 @@ def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
     _pipeline_row(team_id, pipeline_id, live_only=True).delete()
 
 
+# Pause and resume only toggle a live pipeline. A pipeline that has no champion yet (draft,
+# bootstrapping) cannot pause, so resume can never mark an untrained pipeline live.
+_STATUS_TRANSITION_SOURCES: dict[str, frozenset[str]] = {
+    AutoresearchPipeline.Status.PAUSED: frozenset({AutoresearchPipeline.Status.RUNNING}),
+    AutoresearchPipeline.Status.RUNNING: frozenset({AutoresearchPipeline.Status.PAUSED}),
+}
+
+
 def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -> Pipeline:
     """Archive, pause, or resume a pipeline.
 
-    Resuming refuses anything that is not paused, so a caller cannot use it to revive an
-    archived pipeline or restart a converged one.
+    The row lock serializes this with a concurrent lifecycle change and with ``start_training``,
+    so a stale read cannot revive an archived pipeline, and archival cannot race a new run.
     """
-    row = _pipeline_row(team_id, pipeline_id, live_only=True)
-    if status == AutoresearchPipeline.Status.RUNNING and row.status != AutoresearchPipeline.Status.PAUSED:
-        raise AutoresearchConflict("Pipeline is not paused.")
-    row.status = status
-    row.save(update_fields=["status", "updated_at"])
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        raise PipelineNotFound("Pipeline not found.")
+    with transaction.atomic():
+        try:
+            row = (
+                AutoresearchPipeline.objects.for_team(team_id)
+                .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+                .select_for_update()
+                .get(pk=pipeline_uuid)
+            )
+        except AutoresearchPipeline.DoesNotExist:
+            raise PipelineNotFound("Pipeline not found.")
+        sources = _STATUS_TRANSITION_SOURCES.get(status)
+        if sources is not None and row.status not in sources:
+            raise AutoresearchConflict(f"Cannot change a {row.status} pipeline to {status}.")
+        if status == AutoresearchPipeline.Status.ARCHIVED and _has_live_training_run(team_id, row):
+            # Archival would leave the sandbox writing to, and promoting on, a pipeline nobody sees.
+            raise AutoresearchConflict("A training run is in progress. Wait for it to finish before archiving.")
+        row.status = status
+        row.save(update_fields=["status", "updated_at"])
     return _pipeline_with_champion(row)
+
+
+def _has_live_training_run(team_id: int, pipeline: AutoresearchPipeline) -> bool:
+    return (
+        AutoresearchTrainingRun.objects.for_team(team_id)
+        .filter(pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING)
+        .exists()
+    )
 
 
 def pipeline_has_models(team_id: int, pipeline_id: str | UUID) -> bool:
@@ -583,8 +615,6 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User) -> Run:
     from ..inference.scoring import run_inference_for_pipeline  # noqa: PLC0415
 
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
-    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-        raise AutoresearchConflict("Cannot score an archived pipeline.")
     champion = (
         AutoresearchModel.objects.for_team(team_id)
         .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -602,8 +632,6 @@ def validate_pipeline_online(team_id: int, pipeline_id: str | UUID, *, user: Use
     from ..evaluation.online_validation import run_online_validation_for_pipeline  # noqa: PLC0415
 
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
-    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-        raise AutoresearchConflict("Cannot validate an archived pipeline.")
     return [_run_to_contract(run) for run in run_online_validation_for_pipeline(pipeline=pipeline, user=user)]
 
 
@@ -637,21 +665,20 @@ def start_training(team_id: int, pipeline_id: str | UUID, *, iteration_budget: i
     ``run_training`` stays inside the lock so the new run row commits before a waiting
     request re-checks.
     """
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        raise PipelineNotFound("Pipeline not found.")
     with transaction.atomic():
         try:
             pipeline = (
                 AutoresearchPipeline.objects.for_team(team_id)
                 .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
                 .select_for_update()
-                .get(pk=str(pipeline_id))
+                .get(pk=pipeline_uuid)
             )
-        except (AutoresearchPipeline.DoesNotExist, ValueError, TypeError):
+        except AutoresearchPipeline.DoesNotExist:
             raise PipelineNotFound("Pipeline not found.")
-        if (
-            AutoresearchTrainingRun.objects.for_team(team_id)
-            .filter(pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING)
-            .exists()
-        ):
+        if _has_live_training_run(team_id, pipeline):
             raise AutoresearchConflict(
                 "A training run is already in progress for this pipeline. "
                 "Wait for it to finish, or check its status in the training runs list."

@@ -184,7 +184,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
-    # Both HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
+    # The HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
     scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
     scope_object_write_actions = [
         "create",
@@ -204,7 +204,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
-        if self.action in ("resolve_template", "validate_definition"):
+        if self.action in ("resolve_template", "validate_definition", "run_inference", "run_validation"):
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
 
@@ -380,16 +380,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         responses={
             200: OpenApiResponse(
                 response=AutoresearchTrainingRunSerializer,
-                description="The created training run. Poll status via the runs list endpoint.",
+                description="The created training run. Poll it through the training runs endpoint.",
             ),
-            400: OpenApiResponse(description="Pipeline is archived, or a training run is already in progress for it."),
+            400: OpenApiResponse(description="A training run is already in progress for this pipeline."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Start a training run",
         description=(
             "Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where "
             "the autoresearch agent iterates on features and models, and returns the run immediately with "
             "status 'running'. Poll the training run until it reaches a terminal status (completed or "
-            "failed); no champion model exists until the run completes and server-side promotion runs."
+            "failed). A pipeline's first run has no champion until it completes and promotion runs; on a "
+            "retrain the existing champion stays live and keeps scoring until a new one is promoted."
         ),
     )
     @action(detail=True, methods=["post"], url_path="train")
@@ -413,16 +415,17 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchRunSerializer,
                 description="The created inference run. Check rows_scored and status.",
             ),
-            400: OpenApiResponse(description="Pipeline has no champion model or is archived."),
+            400: OpenApiResponse(description="The pipeline has no champion model."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Run inference (score users)",
         description=(
             "Score the inference population using the champion model and emit autoresearch_prediction "
-            "events for each scored user. Updates the predicted_p_<target> person property. "
+            "events for each scored user, and sets the pipeline's output_person_property on each scored person. "
             "In production this is triggered by the daily Temporal inference workflow."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="score")
+    @action(detail=True, methods=["post"], url_path="score", required_scopes=["autoresearch:write", "query:read"])
     def run_inference(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             run = api.score_pipeline(self.team_id, self.kwargs["pk"], user=cast(User, request.user))
@@ -442,7 +445,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                     "Empty list when no prediction dates have matured yet."
                 ),
             ),
-            400: OpenApiResponse(description="Pipeline is archived."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Run online validation",
         description=(
@@ -456,7 +459,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     )
     # pagination_class=None so the generated client types the response as a bare array of runs
     # (matching what this returns) rather than a paginated envelope.
-    @action(detail=True, methods=["post"], url_path="validate-online", pagination_class=None)
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="validate_online",
+        pagination_class=None,
+        required_scopes=["autoresearch:write", "query:read"],
+    )
     def run_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             runs = api.validate_pipeline_online(self.team_id, self.kwargs["pk"], user=cast(User, request.user))
@@ -473,9 +482,14 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchPipelineSerializer,
                 description="The pipeline after archiving.",
             ),
+            400: OpenApiResponse(description="A training run is in progress for this pipeline."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Archive a pipeline",
-        description="Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved.",
+        description=(
+            "Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. "
+            "Refused while a training run is in progress."
+        ),
     )
     @action(detail=True, methods=["post"], url_path="archive")
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -488,9 +502,11 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchPipelineSerializer,
                 description="The pipeline after pausing.",
             ),
+            400: OpenApiResponse(description="The pipeline is not running."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Pause a pipeline",
-        description="Pause daily scoring and training. The pipeline can be resumed later.",
+        description="Pause daily scoring and training on a running pipeline. The pipeline can be resumed later.",
     )
     @action(detail=True, methods=["post"], url_path="pause")
     def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -503,6 +519,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchPipelineSerializer,
                 description="The pipeline after resuming.",
             ),
+            400: OpenApiResponse(description="The pipeline is not paused."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Resume a pipeline",
         description="Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.",
