@@ -355,9 +355,6 @@ export interface runInteractionLogicActions {
     queueDeliveryFailed: () => {
         value: true
     }
-    setQueueEditing: (editing: boolean) => {
-        editing: boolean
-    }
     removeQueuedMessage: (id: string) => {
         id: string
     }
@@ -417,6 +414,9 @@ export interface runInteractionLogicActions {
     }
     setModel: (model: string) => {
         model: string
+    }
+    setQueueEditing: (editing: boolean) => {
+        editing: boolean
     }
     setSending: (sending: boolean) => {
         sending: boolean
@@ -1212,6 +1212,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             updateQueuedMessage: () => {
                 if (!values.queuedMessages.length) {
                     actions.clearQueue()
+                }
+            },
+            // A turn that ended while a row was open skipped the drain, and an idle agent sends no further
+            // turn completion — so retry the drain once the editor closes.
+            setQueueEditing: ({ editing }) => {
+                if (!editing) {
+                    actions.flushQueue()
                 }
             },
 

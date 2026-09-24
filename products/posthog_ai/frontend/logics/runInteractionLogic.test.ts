@@ -906,13 +906,10 @@ describe('runInteractionLogic', () => {
         await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
 
-        logic.actions.setQueueEditing(false)
-        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
-        expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
-            jsonrpc: '2.0',
-            method: 'user_message',
-            params: { content: 'half-written', steer: true },
-        })
+        // Closing the editor drains on its own: no turn completion is coming, so nothing else would.
+        await expectLogic(logic, () => logic.actions.setQueueEditing(false)).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('half-written'))
+        expect(logic.values.queuedMessages).toEqual([])
     })
 
     it('edits and removes staged messages', async () => {
