@@ -504,6 +504,18 @@ def match_detector_series_query(query: object, *, column: str | None) -> Detecto
         matched = _HourlySeriesMatcher(parsed, column).match()
     if matched is None:
         return None
+    events_query = parsed
+    bucket_alias_allowed: str | None = matched.bucket_alias
+    if parsed.select_from is not None and isinstance(parsed.select_from.table, ast.SelectQuery):
+        events_query = parsed.select_from.table
+        bucket_alias_allowed = None
+    for expr in events_query.select or []:
+        # The narrowing predicates reference the timestamp column, and ClickHouse resolves
+        # select aliases inside WHERE, so a shadowing alias would bind them to the wrong
+        # expression. The bucket itself may carry the name: toStartOfHour is idempotent, so
+        # the predicate reads the same rows either way.
+        if isinstance(expr, ast.Alias) and expr.alias == "timestamp" and expr.alias != bucket_alias_allowed:
+            return None
     return DetectorSeriesQuery(
         window_hours=matched.window_hours,
         bucket_alias=matched.bucket_alias,
