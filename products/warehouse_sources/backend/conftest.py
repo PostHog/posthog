@@ -6,6 +6,14 @@ from collections.abc import Generator
 import pytest
 from posthog.test.base import reset_unusable_db_connections
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import isolated_job_context
+
+
+@pytest.fixture(autouse=True)
+def _isolate_job_context() -> Generator[None]:
+    with isolated_job_context():
+        yield
+
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
