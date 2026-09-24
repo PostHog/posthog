@@ -232,18 +232,18 @@ tools:
         title: Update data warehouse table schema sync config
         description: "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type
             (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full
-            refresh interval (full_refresh_interval_days), incremental field (plus type and lookback window), primary key
-            columns, CDC table mode, column selection
-            (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not
-            retroactively. Before changing incremental_field or sync_type, call
-            'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually
-            supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To
-            run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table
-            reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or
-            should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is
-            refused once data has synced, because rows already merged under the old key would repeat; delete the synced
-            data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That
-            field reports the last run's failure, so it clears once a run succeeds rather than when the update lands."
+            refresh interval (full_refresh_interval_days), incremental field (plus type and lookback window), primary
+            key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version.
+            Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type,
+            call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source
+            actually supports; before switching to cdc, validate with
+            'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use
+            'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved:
+            send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the
+            source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already
+            merged under the old key would repeat; delete the synced data first with
+            'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the
+            last run's failure, so it clears once a run succeeds rather than when the update lands."
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
@@ -304,12 +304,12 @@ tools:
         description: >
             Apply sync configuration to several of a source's table schemas at once: enable or disable syncing
             (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval
-            (full_refresh_interval_days), incremental field, and primary key columns.
-            Each entry needs the schema id plus the fields to change. Prefer this over looping
-            'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source,
-            such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before
-            anything is written, and a schema that fails is reported by name while the rest of the batch is saved.
-            Changes take effect on the next sync, not retroactively.
+            (full_refresh_interval_days), incremental field, and primary key columns. Each entry needs the schema id
+            plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when
+            reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync
+            incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that
+            fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not
+            retroactively.
     external-data-sources-cdc-status-retrieve:
         operation: external_data_sources_cdc_status_retrieve
         enabled: false
