@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
@@ -81,7 +81,7 @@ class _WarehouseCatalog:
 
     team_id: int
     table_names: Optional[set[str]] = None
-    view_queries: dict[str, Any] = field(default_factory=dict)
+    view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
 
@@ -115,7 +115,7 @@ class _WarehouseCatalog:
                 self.table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
         return self.table_names
 
-    def get_views(self, names: set[str]) -> list[tuple[str, Any]]:
+    def get_views(self, names: set[str]) -> list[tuple[str, object]]:
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
 
         unknown_names = names - self.looked_up_names
