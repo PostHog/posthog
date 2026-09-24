@@ -93,7 +93,7 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
                         active,
                         disabled: !!disabledReason,
                         className:
-                            'flex-1 min-w-0 -outline-offset-2 group-hover/app-row:pr-7 group-focus-within/app-row:pr-7',
+                            'flex-1 min-w-0 -outline-offset-2 group-hover/product-row:pr-7 group-focus-within/product-row:pr-7',
                     }}
                     data-attr="nav-apps-item"
                     onClick={() => {
@@ -121,7 +121,7 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
             {menuItems.length === 1 ? (
                 <LemonButton
                     size="xsmall"
-                    className="absolute right-0 opacity-0 group-hover/app-row:opacity-100 group-focus-within/app-row:opacity-100"
+                    className="absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-focus-within/product-row:opacity-100"
                     icon={starAction.icon}
                     tooltip={starAction.label}
                     aria-label={starAction.label}
@@ -133,7 +133,7 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
                 <LemonMenu placement="right-start" items={menuItems}>
                     <LemonButton
                         size="xsmall"
-                        className="absolute right-0 opacity-0 group-hover/app-row:opacity-100 group-focus-within/app-row:opacity-100"
+                        className="absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-focus-within/product-row:opacity-100"
                         icon={
                             hasProductMenu ? (
                                 item.path === 'Product analytics' ? (

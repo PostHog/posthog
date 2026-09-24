@@ -136,6 +136,14 @@ export interface accessControlsLogicValues {
     panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
     panelSubject: AccessDetailSubject | null
+    productsCollapse: {
+        canCollapse: boolean
+        collapsedCount: number
+        visibleResources: {
+            key: APIScopeObject
+            label: string
+        }[]
+    }
     resourceKeys: {
         key: APIScopeObject
         label: string
@@ -153,14 +161,6 @@ export interface accessControlsLogicValues {
     }[]
     searchText: string
     showAllProducts: boolean
-    productsCollapse: {
-        canCollapse: boolean
-        collapsedCount: number
-        visibleResources: {
-            key: APIScopeObject
-            label: string
-        }[]
-    }
     visibleResourceKeySet: Set<APIScopeObject>
 }
 

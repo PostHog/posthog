@@ -254,15 +254,15 @@ export interface signalSourcesLogicValues {
     linearIssuesConfig: SignalSourceConfig | null
     linearTeamsPicker: LinearTeamsPickerState | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
+    productDataEvents: Set<string> | null
+    productDataEventsFailed: boolean
+    productDataEventsLoading: boolean
+    productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
-    productDataEvents: Set<string> | null
-    productDataEventsFailed: boolean
-    productDataEventsLoading: boolean
-    productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
     visionScanners: ReplayScannerApi[] | null
     visionScannersLoading: boolean
     zendeskTicketsConfig: SignalSourceConfig | null
@@ -309,21 +309,6 @@ export interface signalSourcesLogicActions {
         ciSignalsConfig: CISignalsConfigApi
         payload?: any
     }
-    loadSourceConfigs: () => any
-    loadSourceConfigsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadSourceConfigsSuccess: (
-        sourceConfigs: SignalSourceConfig[],
-        payload?: any
-    ) => {
-        sourceConfigs: SignalSourceConfig[]
-        payload?: any
-    }
     loadProductDataEvents: () => any
     loadProductDataEventsFailure: (
         error: string,
@@ -337,6 +322,21 @@ export interface signalSourcesLogicActions {
         payload?: any
     ) => {
         productDataEvents: Set<string>
+        payload?: any
+    }
+    loadSourceConfigs: () => any
+    loadSourceConfigsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceConfigsSuccess: (
+        sourceConfigs: SignalSourceConfig[],
+        payload?: any
+    ) => {
+        sourceConfigs: SignalSourceConfig[]
         payload?: any
     }
     loadVisionScanners: () => any

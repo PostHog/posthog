@@ -252,6 +252,7 @@ export interface searchLogicValues {
     playlistItems: SearchItem[]
     playlistSearchResults: FileSystemEntry[]
     playlistSearchResultsLoading: boolean
+    productsItems: SearchItem[]
     recentItems: SearchItem[]
     search: string
     searchPending: boolean
@@ -263,7 +264,6 @@ export interface searchLogicValues {
     ticketItems: SearchItem[]
     ticketSearchResults: TicketApi[]
     ticketSearchResultsLoading: boolean
-    productsItems: SearchItem[]
     unifiedSearchItems: Record<string, SearchItem[]>
     unifiedSearchResults: SearchResponse | null
     unifiedSearchResultsLoading: boolean
