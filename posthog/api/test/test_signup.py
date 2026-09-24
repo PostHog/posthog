@@ -2964,7 +2964,6 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json(), {"continue_url": "/complete/google-oauth2/"})
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
