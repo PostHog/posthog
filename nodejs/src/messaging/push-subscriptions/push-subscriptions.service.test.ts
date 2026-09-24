@@ -55,12 +55,14 @@ describe('PushSubscriptionsService', () => {
 
     const capturedProperties = (): any => capture.capture.mock.calls[0][0].properties
 
-    it('stores the encrypted device token under the app id', async () => {
+    it('stores the encrypted device token under a key for the device, the key django writes', async () => {
         const result = await service.handle(request(valid))
 
         expect(result.status).toEqual(200)
         expect(result.body).toEqual({ distinct_id: 'user-1' })
-        expect(capturedProperties().$set).toEqual({ '$device_push_subscription_my-firebase-project': 'enc:device-1' })
+        expect(capturedProperties().$set).toEqual({
+            '$device_push_subscription_my-firebase-project:03204de92e11fc8c': 'enc:device-1',
+        })
     })
 
     it('reports a rejected capture rather than telling the SDK the token was stored', async () => {
@@ -101,13 +103,16 @@ describe('PushSubscriptionsService', () => {
         expect(capture.capture).not.toHaveBeenCalled()
     })
 
-    it('unsets the property on DELETE even when the channel is gone', async () => {
+    it('unsets the device and the app-wide key on DELETE even when the channel is gone', async () => {
         integrationRows = []
 
         const result = await service.handle(request(valid, 'DELETE'))
 
         expect(result.status).toEqual(200)
-        expect(capturedProperties().$unset).toEqual(['$device_push_subscription_my-firebase-project'])
+        expect(capturedProperties().$unset).toEqual([
+            '$device_push_subscription_my-firebase-project:03204de92e11fc8c',
+            '$device_push_subscription_my-firebase-project',
+        ])
     })
 
     const inflatesPastLimit = gzipSync(Buffer.from(JSON.stringify({ ...valid, pad: 'a'.repeat(64 * 1024) })))
@@ -323,7 +328,9 @@ describe('PushSubscriptionsService', () => {
             const result = await service.handle(request({ ...valid, app_id: appId }))
 
             expect(result.status).toEqual(200)
-            expect(capturedProperties().$set).toEqual({ [`$device_push_subscription_${appId}`]: 'enc:device-1' })
+            expect(capturedProperties().$set).toEqual({
+                [`$device_push_subscription_${appId}:03204de92e11fc8c`]: 'enc:device-1',
+            })
         })
 
         it('does not let a body define fields through the prototype', async () => {

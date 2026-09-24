@@ -2,6 +2,7 @@ import { createHmac } from 'crypto'
 import { LRUCache } from 'lru-cache'
 
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { DEVICE_SUBSCRIPTION_PREFIX, deviceSubscriptionKey } from '~/cdp/utils/push-subscription-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
 import { verifyPushIdentityToken } from './identity-token'
@@ -236,12 +237,14 @@ export class PushSubscriptionsService {
             }
         }
 
-        const propertyKey = `$device_push_subscription_${appId}`
-        // $unset of an absent property is a no-op, so DELETE is idempotent.
+        const propertyKey = deviceSubscriptionKey(appId, deviceToken)
+        // $unset of an absent property is a no-op, so DELETE is idempotent. Logout also clears the
+        // app-wide key: a device cannot tell whether that key holds its own token, and leaving it
+        // would keep a logged-out device receiving notifications.
         const properties =
             request.method === 'POST'
                 ? { $set: { [propertyKey]: this.encryptedFields.encrypt(deviceToken) } }
-                : { $unset: [propertyKey] }
+                : { $unset: [propertyKey, `${DEVICE_SUBSCRIPTION_PREFIX}${appId}`] }
 
         try {
             // An SDK told the registration was stored stops re-sending it, so a capture that did
