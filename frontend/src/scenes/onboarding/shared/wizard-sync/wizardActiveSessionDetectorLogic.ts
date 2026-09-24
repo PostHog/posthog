@@ -378,10 +378,12 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             )
             if (denials.length > 0 && denials.length === results.length) {
                 const denial = denials[0] as ApiError
-                posthog.captureException(denial, {
-                    tags: { feature: 'wizard-active-session-detector', reason: 'permanently_disabled' },
-                    extra: { status: denial.status },
-                })
+                if (shouldReportApiFailure(denial)) {
+                    posthog.captureException(denial, {
+                        tags: { feature: 'wizard-active-session-detector', reason: 'permanently_disabled' },
+                        extra: { status: denial.status },
+                    })
+                }
                 actions.setLastError(`wizard latest-session endpoint returned ${denial.status} — disabling detector`)
                 actions.markPermanentlyDisabled()
                 cache.disposables.dispose('rest-poll')
