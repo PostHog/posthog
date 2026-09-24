@@ -6182,6 +6182,38 @@ export namespace Schemas {
       GithubPr: 'github_pr',
     } as const;
 
+    export type NotebookWidgetAddRequestOpenApiWidgetType = typeof NotebookWidgetAddRequestOpenApiWidgetType[keyof typeof NotebookWidgetAddRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetAddRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetConfig {
+      /** Source notebook short ID. */
+      notebookShortId?: string | null;
+      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+      snapshotId?: string | null;
+    }
+
+    export interface NotebookWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _TileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: NotebookWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the notebook widget widget. */
+      config: NotebookWidgetConfig;
+    }
+
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -6676,14 +6708,14 @@ export namespace Schemas {
       config: ConversationsRecentTicketsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
+    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -9619,7 +9651,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -24421,6 +24453,7 @@ export namespace Schemas {
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results
      */
@@ -24434,6 +24467,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
     } as const;
@@ -24449,6 +24483,7 @@ export namespace Schemas {
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
        * * `logs_list` - logs_list
+       * * `notebook_widget` - notebook_widget
        * * `session_replay_list` - session_replay_list
        * * `survey_results` - survey_results */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
@@ -60231,6 +60266,8 @@ export namespace Schemas {
     }
 
     export interface NotebookRunStartRequest {
+      /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+      include_prepared_insights?: boolean;
       /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
       variables?: NotebookVariable[];
     }
@@ -60460,6 +60497,60 @@ export namespace Schemas {
       variables: NotebookVariable[];
       /** Every cell in document order, with its dependency edges and derived run state. */
       cells: NotebookCellState[];
+    }
+
+    export type NotebookWidgetCatalogEntryOpenApiWidgetType = typeof NotebookWidgetCatalogEntryOpenApiWidgetType[keyof typeof NotebookWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const NotebookWidgetCatalogEntryOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetCatalogEntryOpenApi {
+      widget_type: NotebookWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: NotebookWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `notebook_widget` - notebook_widget
+     */
+    export type NotebookWidgetTypeEnum = typeof NotebookWidgetTypeEnum[keyof typeof NotebookWidgetTypeEnum];
+
+
+    export const NotebookWidgetTypeEnum = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export type NotebookWidgetUpdateRequestOpenApiWidgetType = typeof NotebookWidgetUpdateRequestOpenApiWidgetType[keyof typeof NotebookWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetUpdateRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: NotebookWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the notebook widget widget. Omit to leave unchanged. */
+      config?: NotebookWidgetConfig;
     }
 
     /**
@@ -77627,7 +77718,7 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -100206,7 +100297,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -100351,6 +100442,86 @@ export namespace Schemas {
       version_id: string;
       /** Current version used for optimistic concurrency. */
       expected_current_version_id: string;
+    }
+
+    /**
+     * Frozen input mappings and Hog transforms.
+     */
+    export type WidgetSnapshotInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
+
+    export interface WidgetSnapshot {
+      /** Immutable snapshot containing the widget's saved dataframe results. */
+      id: string;
+      /** Source widget node in the notebook. */
+      node_id: string;
+      /** Pinned generated widget version. */
+      version_id: string;
+      /** When all dataframe results were saved. */
+      created_at: string;
+      /** Allowed dataframe slots. */
+      frame_names: string[];
+      /** Frozen input mappings and Hog transforms. */
+      input_bindings: WidgetSnapshotInputBindings;
+      /** Pinned widget input schemas. */
+      input_contract: WidgetInputContractItem[];
+      /**
+         * Short-lived URL for the pinned widget build.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /**
+         * Exact build hash used for execution consent.
+         * @nullable
+         */
+      build_hash: string | null;
+      /** Review of the pinned widget source. */
+      security_review: WidgetSecurityReview | null;
+    }
+
+    export interface WidgetSnapshotPublish {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
+      /**
+         * Dashboard to add the widget to.
+         * @minimum 1
+         */
+      dashboard_id?: number;
+      /**
+         * Existing dashboard tile to refresh.
+         * @minimum 1
+         */
+      tile_id?: number;
+      /**
+         * Title for a new dashboard widget.
+         * @maxLength 400
+         */
+      name?: string;
+    }
+
+    export interface WidgetSnapshotRequest {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
     }
 
     export interface WidgetSource {
@@ -112839,6 +113010,28 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotebooksWidgetSnapshotFrameParams = {
+    /**
+     * Maximum rows in this page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Completed run selected by the first page request.
+     */
+    run_id?: string;
+    /**
+     * Version requesting the data.
+     */
+    version_id?: string;
     };
 
     export type NotebooksWidgetFrameParams = {
