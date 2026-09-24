@@ -526,4 +526,4 @@ class TestAuditFlagFilters(BaseTest):
         assert report["scanned"] == 2
         assert report["skipped_unsupported_config_format"] == 1
         assert report["flags_with_violations"] == 1
-        assert [entry["key"] for entry in report["unknown_keys"]] == []
+        assert report["unknown_keys"] == []

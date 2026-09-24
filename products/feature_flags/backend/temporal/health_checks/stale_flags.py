@@ -144,7 +144,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # boundary be selected by one of them and then classified against the other.
         stale_threshold = stale_flag_threshold()
 
-        stale_candidates = _v1_flags(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
+        stale_rows = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
+        stale_candidates = _v1_flags(stale_rows)
         # Only a never-called stale flag can come back from the rollout query too: a usage-stale
         # flag's last call predates the cutoff, which fails the call-recency filter below. Excluding
         # those ids beats fetching the rows again and dropping them in Python, and
@@ -152,7 +153,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
-        overlap_ids = {flag.id for flag in stale_candidates if flag.last_called_at is None}
+        overlap_ids = {flag.id for flag in stale_rows if flag.last_called_at is None}
         # The prefilter reads configuration only and returns a superset, so the policy that makes
         # one of those flags a cleanup candidate is applied here, and the checker settles each
         # remaining row. A flag created after the cutoff is too new for a constant configuration to

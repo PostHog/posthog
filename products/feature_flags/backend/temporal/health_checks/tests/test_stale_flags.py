@@ -660,7 +660,6 @@ class TestStaleFlagsDetect(BaseTest):
             key="v2-flag",
             created_by=self.user,
             active=True,
-            last_called_at=timezone.now() - timedelta(days=45),
             created_at=timezone.now() - timedelta(days=60),
             filters={"version": 2, **FULL_ROLLOUT_FILTERS},
         )
@@ -672,7 +671,7 @@ class TestStaleFlagsDetect(BaseTest):
         assert set(results) == {self.team.id}
         assert [result.payload["flag_key"] for result in results[self.team.id]] == ["v1-stale"]
         skips = [log for log in logs if log["event"] == "stale_feature_flags_skipped_unsupported_config"]
-        assert {(log["flag_id"], log["team_id"]) for log in skips} == {(unsupported.id, other_team.id)}
+        assert [(log["flag_id"], log["team_id"]) for log in skips] == [(unsupported.id, other_team.id)]
 
     def test_query_count_does_not_grow_with_candidates_or_teams(self) -> None:
         self._create_flag("baseline", **stale_by_usage())

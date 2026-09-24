@@ -350,7 +350,7 @@ class Command(BaseCommand):
         # stored flags with empty groups are valid state and must never show up in this report.
         for flag in _iter_flag_rows(queryset, limit=limit):
             scanned += 1
-            if detect_config_format(flag.filters if isinstance(flag.filters, dict) else None).kind != "v1":
+            if isinstance(flag.filters, dict) and detect_config_format(flag.filters).kind != "v1":
                 skipped_unsupported += 1
                 continue
             try:

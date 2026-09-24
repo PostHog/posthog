@@ -3,6 +3,7 @@ import copy
 from django.core.management.base import BaseCommand
 
 from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.flag_status import jsonb_array_or_empty
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # Valid property types for feature flags (from validate_filters in api/feature_flag.py)
@@ -14,15 +15,11 @@ TYPE_FIXES = {
 }
 
 # Raw SQL to find flags with invalid property types (used as a subquery filter)
-# `jsonb_array_elements` raises on a non-array value and aborts the whole scan, so `CASE` reads one
-# as an empty array first (the planner may reorder `AND` arms, `CASE` it may not).
-INVALID_FLAGS_SQL = """
-    SELECT 1 FROM jsonb_array_elements(
-                      CASE WHEN jsonb_typeof(posthog_featureflag.filters->'groups') = 'array'
-                           THEN posthog_featureflag.filters->'groups' ELSE '[]'::jsonb END) as grp,
-                  jsonb_array_elements(
-                      CASE WHEN jsonb_typeof(grp->'properties') = 'array'
-                           THEN grp->'properties' ELSE '[]'::jsonb END) as prop
+_GROUPS_ARRAY = jsonb_array_or_empty("posthog_featureflag.filters->'groups'")
+_PROPERTIES_ARRAY = jsonb_array_or_empty("grp->'properties'")
+INVALID_FLAGS_SQL = f"""
+    SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) as grp,
+                  jsonb_array_elements({_PROPERTIES_ARRAY}) as prop
     WHERE prop->>'type' NOT IN ('person', 'cohort', 'group', 'flag')
       AND prop->>'type' IS NOT NULL
 """
@@ -55,16 +52,12 @@ class Command(BaseCommand):
         saved_count = 0
 
         for flag in flags.iterator():
+            label = f"  Flag id={flag.id} team_id={flag.team_id} key='{flag.key}'"
             if detect_config_format(flag.filters).kind != "v1":
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"  Flag id={flag.id} team_id={flag.team_id} key='{flag.key}': config format is not 1, skipped"
-                    )
-                )
+                self.stdout.write(self.style.WARNING(f"{label}: config format is not 1, skipped"))
                 skipped_count += 1
                 continue
-            filters = flag.filters or {}
-            snapshot = copy.deepcopy(filters)
+            filters = copy.deepcopy(flag.filters or {})
             groups = filters.get("groups") or []
             modified = False
 
@@ -77,8 +70,7 @@ class Command(BaseCommand):
                         if prop_type in TYPE_FIXES:
                             new_type = TYPE_FIXES[prop_type]
                             self.stdout.write(
-                                f"  Flag id={flag.id} team_id={flag.team_id} key='{flag.key}': "
-                                f"group[{group_idx}].properties[{prop_idx}].type '{prop_type}' -> '{new_type}'"
+                                f"{label}: group[{group_idx}].properties[{prop_idx}].type '{prop_type}' -> '{new_type}'"
                             )
                             prop["type"] = new_type
                             modified = True
@@ -86,24 +78,18 @@ class Command(BaseCommand):
                         else:
                             self.stdout.write(
                                 self.style.WARNING(
-                                    f"  Flag id={flag.id} team_id={flag.team_id} key='{flag.key}': "
-                                    f"group[{group_idx}].properties[{prop_idx}].type '{prop_type}' has no known fix"
+                                    f"{label}: group[{group_idx}].properties[{prop_idx}].type '{prop_type}' has no known fix"
                                 )
                             )
                             unfixable_count += 1
 
-            if not (modified and live_run):
-                continue
-            # Compare-and-swap on the scanned document: a row edited since the scan keeps its new value.
-            if FeatureFlag.objects.filter(pk=flag.pk, filters=snapshot).update(filters=filters):
-                saved_count += 1
-            else:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"  Flag id={flag.id} team_id={flag.team_id} key='{flag.key}': changed during the run, not saved"
-                    )
-                )
-                skipped_count += 1
+            if modified and live_run:
+                # Compare-and-swap on the scanned document: a row edited since the scan keeps its new value.
+                if FeatureFlag.objects.filter(pk=flag.pk, filters=flag.filters).update(filters=filters):
+                    saved_count += 1
+                else:
+                    self.stdout.write(self.style.WARNING(f"{label}: changed during the run, not saved"))
+                    skipped_count += 1
 
         if live_run:
             self.stdout.write(self.style.SUCCESS(f"  Saved {saved_count} flags"))
