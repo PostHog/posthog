@@ -235,6 +235,46 @@ describe("groupToolRuns", () => {
     expect(out.map((row) => row.type)).toEqual(["tool_group"]);
   });
 
+  it("stands a chart alone once its turn errors out, even without turnComplete", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: false,
+    };
+    const chartCall = toolItem("chart-1", { toolCallId: "chart-1" });
+    chartCall.turnContext = turnContext;
+    turnContext.toolCalls.set("chart-1", {
+      toolCallId: "chart-1",
+      title: "chart-1",
+      kind: "execute",
+      status: "completed",
+      rawOutput: {
+        _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+      },
+    });
+    const inTurn = (id: string) => {
+      const item = toolItem(id);
+      item.turnContext = turnContext;
+      return item;
+    };
+    const errorItem: SessionUpdateItem = {
+      type: "session_update",
+      id: "error",
+      update: { sessionUpdate: "error", errorType: "runtime", message: "boom" },
+      turnContext,
+    };
+
+    const out = groupToolRuns([inTurn("before"), chartCall, errorItem]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "session_update",
+      "session_update",
+      "session_update",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart-1" });
+  });
+
   it("still groups an MCP tool call whose result has no UI app", () => {
     const execCall = toolItem("exec", {
       toolCallId: "exec",

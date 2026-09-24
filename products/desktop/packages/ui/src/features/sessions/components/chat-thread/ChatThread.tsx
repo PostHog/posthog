@@ -210,13 +210,29 @@ function isThoughtItem(item: ConversationItem): boolean {
   );
 }
 
+function isTurnDecided(
+  turnContext: TurnContext,
+  erroredTurns: Set<TurnContext>,
+): boolean {
+  // A cloud turn that errors out never gets a `turn_completed` event, so `turnComplete`
+  // alone would leave a finished chart stuck collapsed forever.
+  return turnContext.turnComplete || erroredTurns.has(turnContext);
+}
+
 function lastRenderableIdsByTurn(
   items: ConversationItem[],
 ): Map<TurnContext, string> {
+  const erroredTurns = new Set<TurnContext>();
+  for (const item of items) {
+    if (isSessionUpdateItem(item) && item.update.sessionUpdate === "error") {
+      erroredTurns.add(item.turnContext);
+    }
+  }
+
   const out = new Map<TurnContext, string>();
   for (const item of items) {
     if (!isToolCallItem(item)) continue;
-    if (!item.turnContext.turnComplete) continue;
+    if (!isTurnDecided(item.turnContext, erroredTurns)) continue;
     if (!hasUiAppResult(item)) continue;
     out.set(item.turnContext, item.id);
   }
