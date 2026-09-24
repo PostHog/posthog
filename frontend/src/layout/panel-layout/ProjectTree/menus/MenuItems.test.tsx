@@ -53,7 +53,7 @@ describe('MenuItems', () => {
                 </DropdownMenuContent>
             </DropdownMenu>
         )
-        fireEvent.click(await screen.findByRole('menuitem', { name: 'Open in terminal' }))
+        fireEvent.click(await screen.findByText('Open in terminal'))
         expect(terminalDockLogic.values.requestedFolder).toBe(expectedFolder)
         expect(terminalDockLogic.values.dockOpen).toBe(true)
     })
@@ -89,7 +89,7 @@ describe('MenuItems', () => {
                 </DropdownMenu>
             )
             await screen.findByRole('menu')
-            expect(screen.queryByRole('menuitem', { name: 'Open in terminal' }) !== null).toBe(visible)
+            expect(screen.queryByText('Open in terminal') !== null).toBe(visible)
         }
     )
 
