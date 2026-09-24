@@ -52,7 +52,10 @@ describe('MemberSelect', () => {
     function renderSelect(props: Partial<Parameters<typeof MemberSelect>[0]> = {}): void {
         render(
             <Provider>
-                <MemberSelect value={null} onChange={onChange} {...props} />
+                <>
+                    <MemberSelect value={null} onChange={onChange} {...props} />
+                    <button type="button">Outside</button>
+                </>
             </Provider>
         )
     }
@@ -139,8 +142,14 @@ describe('MemberSelect', () => {
         expect(screen.queryByText(MOCK_SECOND_BASIC_USER.first_name)).not.toBeInTheDocument()
         await userEvent.type(screen.getByPlaceholderText('Search'), 'Alex')
         expect(onSearch).toHaveBeenLastCalledWith('Alex')
+        await userEvent.click(screen.getByText('Outside'))
+        await waitFor(() => expect(screen.queryByPlaceholderText('Search')).not.toBeInTheDocument())
+        await userEvent.click(screen.getByText('Entire project'))
+        expect(screen.getByPlaceholderText('Search')).toHaveValue('Alex')
+        expect(onSearch).toHaveBeenLastCalledWith('Alex')
         await userEvent.click(screen.getByText('Alex'))
         expect(onSelectOption).toHaveBeenCalledWith('reviewer-1', 'Alex')
+        expect(onSearch).toHaveBeenLastCalledWith('')
 
         await userEvent.click(screen.getByText('Entire project'))
         expect(screen.getByPlaceholderText('Search')).toHaveValue('')

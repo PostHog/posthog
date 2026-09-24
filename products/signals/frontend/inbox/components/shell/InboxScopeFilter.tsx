@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { userLogic } from 'scenes/userLogic'
 
-import { isTeammateInboxScope, parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
+import { parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
 
@@ -29,7 +29,7 @@ export function InboxScopeFilter(): JSX.Element {
     const [knownTeammate, setKnownTeammate] = useState<{ uuid: string; label: string } | null>(null)
 
     const isForYou = scope === INBOX_SCOPE_FOR_YOU
-    const selectedTeammateUuid = isTeammateInboxScope(scope) ? parseTeammateInboxScope(scope) : null
+    const selectedTeammateUuid = parseTeammateInboxScope(scope)
     const selectedTeammate = reviewers.find((r) => r.user_uuid === selectedTeammateUuid)
     const selectedTeammateLabel = selectedTeammate ? selectedTeammate.name || selectedTeammate.email : null
 

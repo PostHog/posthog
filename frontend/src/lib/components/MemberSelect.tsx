@@ -66,7 +66,7 @@ export function MemberSelect({
 
     const handleVisibilityChange = (visible: boolean): void => {
         setShowPopover(visible)
-        if (searchValue) {
+        if (searchValue && !options) {
             changeSearch('')
         }
         if (visible && !options) {
@@ -74,8 +74,15 @@ export function MemberSelect({
         }
     }
 
-    const _onChange = (value: UserBasicType | null): void => {
+    const closeAfterSelection = (): void => {
+        if (options && searchValue) {
+            changeSearch('')
+        }
         handleVisibilityChange(false)
+    }
+
+    const _onChange = (value: UserBasicType | null): void => {
+        closeAfterSelection()
         onChange(value)
     }
 
@@ -114,7 +121,7 @@ export function MemberSelect({
                                         role="menuitem"
                                         size="small"
                                         onClick={() => {
-                                            handleVisibilityChange(false)
+                                            closeAfterSelection()
                                             option.onClick()
                                         }}
                                     >
@@ -152,7 +159,7 @@ export function MemberSelect({
                                             />
                                         }
                                         onClick={() => {
-                                            handleVisibilityChange(false)
+                                            closeAfterSelection()
                                             onSelectOption?.(option.uuid, option.name || option.email)
                                         }}
                                     >
