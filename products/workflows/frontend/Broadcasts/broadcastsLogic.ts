@@ -24,6 +24,14 @@ export interface BroadcastRowDetails {
     totals: Record<string, number>
 }
 
+/** An ordinary workflow shaped like a broadcast. It opens in the workflow editor, since the wizard would rewrite its graph. */
+/** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
+export const BROADCASTS_PAGE_SIZE = 100
+
+export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
+    return flow.origin_product !== 'broadcasts'
+}
+
 export function getBroadcastStatus(
     broadcast: HogFlowMinimalApi,
     details: BroadcastRowDetails | undefined
@@ -74,6 +82,7 @@ export interface broadcastsLogicValues {
     broadcasts: PaginatedHogFlowMinimalListApi
     broadcastsLoading: boolean
     hasLoadedBroadcasts: boolean
+    page: number
     rowDetailsById: Record<string, BroadcastRowDetails>
 }
 
@@ -100,6 +109,9 @@ export interface broadcastsLogicActions {
             value: true
         }
     }
+    setPage: (page: number) => {
+        page: number
+    }
     setRowDetails: (
         id: string,
         details: BroadcastRowDetails
@@ -118,6 +130,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     })),
     actions({
         loadBroadcasts: true,
+        setPage: (page: number) => ({ page }),
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
     }),
     loaders(({ values }) => ({
@@ -129,8 +142,11 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         return values.broadcasts
                     }
                     return await hogFlowsList(String(values.currentProjectId), {
-                        type: 'broadcast',
-                        limit: 100,
+                        // Broadcasts plus the ordinary workflows already shaped like one (a batch
+                        // trigger and a single email), so existing sends show up here too.
+                        broadcast_eligible: true,
+                        limit: BROADCASTS_PAGE_SIZE,
+                        offset: (values.page - 1) * BROADCASTS_PAGE_SIZE,
                     })
                 },
             },
@@ -147,6 +163,12 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             false as boolean,
             {
                 loadBroadcastsSuccess: () => true,
+            },
+        ],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
             },
         ],
     }),
@@ -177,6 +199,9 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     }
                 })()
             }
+        },
+        setPage: () => {
+            actions.loadBroadcasts()
         },
         loadBroadcastsFailure: () => {
             lemonToast.error("Couldn't load broadcasts. Refresh the page to try again.")
