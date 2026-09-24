@@ -133,6 +133,12 @@ step({
     name: 'Send a secret text',
     config: { template_id: 'template-twilio', inputs: { message: secret('SMS_MESSAGE') } },
 })
+step({
+    type: 'function_sms',
+    name: 'Send a text with a misplaced secret',
+    // @ts-expect-error - a secret is accepted only as a whole entry of config.inputs
+    config: { template_id: 'template-twilio', auth: { token: secret('SMS_TOKEN') } },
+})
 
 workflow({
     key: 'manual-start',

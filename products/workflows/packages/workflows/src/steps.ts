@@ -13,15 +13,19 @@ import type {
 } from './definition.js'
 import { WorkflowError } from './errors.js'
 
+declare const secretRefBrand: unique symbol
+
 /**
  * A named environment variable, standing in for a value the repository must not hold.
  *
- * Build one with `secret`. Pass it as the value of a whole input of `fn` or as
- * `signingSecret` on `webhook`. `emit` reads the variable and sends the value, so
- * PostHog never has to recover a secret it was not sent.
+ * Build one with `secret`. Pass it as the value of a whole input of `fn`, as a whole
+ * entry of `config.inputs` on `step`, or as `signingSecret` on `webhook`. `emit` reads
+ * the variable and sends the value, so PostHog never has to recover a secret it was not
+ * sent. The type is branded, so a JSON-only field does not accept one.
  */
 export interface SecretRef {
     readonly __secret: string
+    readonly [secretRefBrand]: true
 }
 
 /**
@@ -30,13 +34,15 @@ export interface SecretRef {
  * The name travels in the source file and the value never does. `emit` reads the
  * variable from the deployer's environment and always sends the resolved value, so a
  * rotation reaches PostHog on the next push. Pass the result as the value of a whole
- * input. A secret inside a larger value is a refusal, because only the name of the
- * variable would reach PostHog.
+ * input. A secret anywhere else is a refusal, because only the name of the variable
+ * would reach PostHog, stored as plain config. That covers a secret inside a larger
+ * value, in a pass-through config key other than `inputs`, in `filters` or
+ * `output_variable`, and in a trigger's config.
  *
  * @param envName - The environment variable to read, for example `CRM_WEBHOOK_SECRET`.
  * @returns A secret reference to use as an input value.
  * @throws {WorkflowError} At emit, `missing_secret` when the variable is unset or
- * empty, and `nested_secret` when the reference sits inside a larger value.
+ * empty, and `nested_secret` when the reference sits anywhere but a whole input.
  * @example
  * ```ts
  * import { secret, webhook } from '@posthog/workflows'
@@ -49,7 +55,7 @@ export interface SecretRef {
  * ```
  */
 export function secret(envName: string): SecretRef {
-    return Object.freeze({ __secret: envName })
+    return Object.freeze({ __secret: envName }) as SecretRef
 }
 
 /**
@@ -107,6 +113,15 @@ interface ActionFieldOptions {
 export type PassThroughActionConfig = {
     readonly [key: string]: JsonValue | Readonly<Record<string, JsonValue | SecretRef>> | undefined
     readonly inputs?: Readonly<Record<string, JsonValue | SecretRef>>
+}
+
+/**
+ * Narrows a pass-through config so a `secret` is accepted only as a whole entry of
+ * `inputs`. The index signature of `PassThroughActionConfig` has to admit the type of
+ * `inputs`, so alone it admits a secret one level down in any key.
+ */
+export type SecretInputsOnly<C> = {
+    readonly [K in keyof C]: K extends 'inputs' ? Readonly<Record<string, JsonValue | SecretRef>> : JsonValue
 }
 
 /** The options `step` takes. */
@@ -486,8 +501,8 @@ export function branch(options: {
  * as `function_sms`, `wait_until_condition`, `wait_until_time_window`, `random_cohort_branch`
  * or a `delay` shape the typed `delay` helper does not cover. The `config` is emitted
  * verbatim, except that a `secret` passed as a whole entry of `config.inputs` resolves
- * the same way it does for `fn`. A secret inside an input value is a refusal. When
- * `config.inputs` is absent, this helper does not resolve secrets.
+ * the same way it does for `fn`. A secret anywhere else is a refusal: inside an input
+ * value, in any other config key, in `filters` or in `output_variable`.
  *
  * Set `branches` for action types whose branch edges are part of the graph, for example
  * `random_cohort_branch` or `wait_until_condition`. The SDK emits one branch edge to
@@ -507,7 +522,7 @@ export function branch(options: {
  * @returns A step value to place with `path`.
  * @throws {WorkflowError} `reserved_action_type` when `type` is `trigger` or `exit`; at
  * emit, `missing_secret` when a whole input names an unset variable, and `nested_secret`
- * when a secret sits inside a larger input value.
+ * when a secret sits anywhere but a whole entry of `config.inputs`.
  * @example
  * ```ts
  * import { path, step } from '@posthog/workflows'
@@ -529,7 +544,9 @@ export function branch(options: {
  * })
  * ```
  */
-export function step(options: PassThroughStepOptions): Step {
+export function step<C extends PassThroughActionConfig>(
+    options: PassThroughStepOptions & { readonly config: C & SecretInputsOnly<C> }
+): Step {
     if (options.type === 'trigger' || options.type === 'exit') {
         throw new WorkflowError({
             status: 'reserved_action_type',

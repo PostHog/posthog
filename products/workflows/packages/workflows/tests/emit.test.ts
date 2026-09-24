@@ -592,29 +592,73 @@ describe('@posthog/workflows', () => {
         })
     }
 
-    for (const [label, step] of [
+    const misplaced = secret('CRM_TOKEN') as unknown as string
+    for (const [label, flow] of [
         [
             'nested inside a function input',
-            fn({
-                name: 'Call the API',
-                templateId: 'template-webhook',
-                inputs: { headers: { Authorization: secret('CRM_TOKEN') as unknown as string } },
-            }),
+            around(
+                path(
+                    fn({
+                        name: 'Call the API',
+                        templateId: 'template-webhook',
+                        inputs: { headers: { Authorization: misplaced } },
+                    })
+                )
+            ),
         ],
         [
             'on an email field',
-            email({
-                name: 'Welcome',
-                from: { integrationIds: [12] },
-                to: 'someone@example.com',
-                subject: secret('CRM_TOKEN') as unknown as string,
-                text: 'Hello',
-                html: '<p>Hello</p>',
+            around(
+                path(
+                    email({
+                        name: 'Welcome',
+                        from: { integrationIds: [12] },
+                        to: 'someone@example.com',
+                        subject: misplaced,
+                        text: 'Hello',
+                        html: '<p>Hello</p>',
+                    })
+                )
+            ),
+        ],
+        [
+            'in a pass-through config key other than inputs',
+            around(
+                path(
+                    step({
+                        type: 'function_sms',
+                        name: 'Send a text',
+                        config: { template_id: 'template-twilio', api_key: misplaced },
+                    })
+                )
+            ),
+        ],
+        [
+            'in pass-through filters',
+            around(
+                path(
+                    step({
+                        type: 'function_sms',
+                        name: 'Send a text',
+                        config: {},
+                        filters: { properties: [misplaced] },
+                    })
+                )
+            ),
+        ],
+        [
+            'in a trigger config',
+            workflow({
+                key: 'under-test',
+                name: 'Under test',
+                on: trigger({ type: 'webhook', template_id: 'template-source-webhook', auth_header: misplaced }),
+                steps: path(delay('1d', { name: 'Wait' })),
+                exit: { reason: 'Done' },
             }),
         ],
     ] as const) {
         test(`refuses a secret ${label}, which would send the variable name`, () => {
-            assert.strictEqual(refusal(around(path(step)).emit).status, 'nested_secret')
+            assert.strictEqual(refusal(() => flow.emit({ env })).status, 'nested_secret')
         })
     }
 

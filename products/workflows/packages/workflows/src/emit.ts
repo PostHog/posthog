@@ -346,20 +346,26 @@ function checkVariables(variables: readonly WorkflowVariable[]): void {
 
 // Walks a value rather than searching its JSON, so a string holding `__secret` is not
 // a false match.
-function holdsSecret(value: unknown, seen = new Set<unknown>()): boolean {
+function secretPath(value: unknown, seen = new Set<unknown>()): string[] | undefined {
     if (isSecretRef(value)) {
-        return true
+        return []
     }
     if (typeof value !== 'object' || value === null || seen.has(value)) {
-        return false
+        return undefined
     }
     seen.add(value)
-    return Object.values(value).some((entry) => holdsSecret(entry, seen))
+    for (const [key, entry] of Object.entries(value)) {
+        const rest = secretPath(entry, seen)
+        if (rest !== undefined) {
+            return [key, ...rest]
+        }
+    }
+    return undefined
 }
 
 // A secret inside a value would reach PostHog as the name of the variable, not its value.
 function refuseNestedSecret(value: unknown, key: string, step: Step): void {
-    if (!holdsSecret(value)) {
+    if (secretPath(value) === undefined) {
         return
     }
     throw new WorkflowError({
@@ -367,6 +373,20 @@ function refuseNestedSecret(value: unknown, key: string, step: Step): void {
         message: `Step "${step.name}" puts a secret inside "${key}".`,
         why: 'Only a whole input can be a secret. Inside a value the name of the environment variable, not its value, would reach PostHog.',
         fix: `Pass secret('NAME') as the value of "${key}" itself, or move that part of the value into its own input.`,
+    })
+}
+
+function refuseUnresolvedSecret(action: Action): void {
+    const at = secretPath(action)
+    if (at === undefined) {
+        return
+    }
+    const where = at.join('.')
+    throw new WorkflowError({
+        status: 'nested_secret',
+        message: `${action.type === 'trigger' ? 'The trigger' : `Step "${action.name}"`} puts a secret at "${where}".`,
+        why: 'Only a whole entry of inputs can be a secret. Anywhere else the name of the environment variable, not its value, would reach PostHog, and PostHog would store it as plain config.',
+        fix: `Remove the secret from "${where}". If the value is a credential, pass secret('NAME') as a whole entry of inputs instead.`,
     })
 }
 
@@ -669,6 +689,7 @@ export function compile(options: CompileOptions, emitOptions: EmitOptions = {}):
         type: 'exit',
         config: { reason: options.exit.reason },
     })
+    context.actions.forEach(refuseUnresolvedSecret)
 
     // Copied on the way out, so a caller that edits the definition cannot reach back into
     // the step values the file exports and change what a second emit produces.
