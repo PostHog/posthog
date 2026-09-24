@@ -568,15 +568,16 @@ class EndpointViewSet(
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _field_errors(exc: PydanticValidationError) -> dict[str, str]:
+        """Flatten a pydantic error into field-level errors instead of its raw error dump."""
+        return {".".join(str(part) for part in error["loc"]) or "body": error["msg"] for error in exc.errors()}
+
+    @staticmethod
     def _parse_run_request(request: Request) -> EndpointRunRequest:
-        """Parse the run body into field-level errors instead of pydantic's raw error dump."""
         try:
             return EndpointRunRequest.model_validate(request.data)
         except PydanticValidationError as exc:
-            field_errors = {
-                ".".join(str(part) for part in error["loc"]) or "body": error["msg"] for error in exc.errors()
-            }
-            raise ValidationError(field_errors) from exc
+            raise ValidationError(EndpointViewSet._field_errors(exc)) from exc
 
     @staticmethod
     def _rejection_reason(response: Response) -> str:
@@ -653,27 +654,29 @@ class EndpointViewSet(
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
-            names = data.names
-            if not names:
-                return Response(
-                    QueryStatusResponse(
-                        query_status=QueryStatus(id="", team_id=self.team.pk, complete=True)
-                    ).model_dump(),
-                    status=200,
-                )
+        except PydanticValidationError as exc:
+            raise ValidationError(self._field_errors(exc)) from exc
 
-            for name in names:
-                if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
-                    raise ValidationError({"names": f"Invalid endpoint name: {name}"})
+        names = data.names
+        if not names:
+            return Response(
+                QueryStatusResponse(query_status=QueryStatus(id="", team_id=self.team.pk, complete=True)).model_dump(),
+                status=200,
+            )
 
+        for name in names:
+            if not re.fullmatch(ENDPOINT_NAME_REGEX, name):
+                raise ValidationError({"names": f"Invalid endpoint name: {name}"})
+
+        try:
             results = [[name, ts.isoformat()] for name, ts in get_last_execution_times(self.team.pk, names)]
-
-            query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=results)
-
-            return Response(QueryStatusResponse(query_status=query_status).model_dump(), status=200)
         except Exception as e:
             capture_exception(e, {"product": Product.ENDPOINTS, "team_id": self.team_id})
             raise
+
+        query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=results)
+
+        return Response(QueryStatusResponse(query_status=query_status).model_dump(), status=200)
 
     # ------------------------------------------------------------------
     # Versions + materialization

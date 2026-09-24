@@ -794,6 +794,21 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNone(query_status["results"], query_status)
 
+    @parameterized.expand(
+        [
+            ("missing_names", {}),
+            ("extra_key", {"names": ["valid_name"], "unexpected": 1}),
+            ("names_not_a_list", {"names": "valid_name"}),
+            ("name_not_a_string", {"names": [1]}),
+        ]
+    )
+    def test_get_last_execution_times_rejects_malformed_body(self, _name: str, data: dict[str, Any]):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
     def test_get_last_execution_times_after_endpoint_execution(self):
         """Test getting last execution times with endpoint names after they have been executed."""
         create_endpoint_with_version(
