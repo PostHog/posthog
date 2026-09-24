@@ -53,6 +53,7 @@ cat "$temporary/request" > /posthog/.ph/request
 response=$(cat /posthog/.ph/response)
 flock -u 9
 if printf '%s' "$response" | jq -e '.ok' >/dev/null; then
+    printf '%s' "$response" | jq -r '.warnings[]? | "Warning: " + .' >&2
     printf '%s' "$response" | jq -r '.result'
 else
     printf '%s' "$response" | jq -r '.error' >&2
@@ -95,6 +96,7 @@ Examples:
 
 Use /tmp for exports.
 Query errors go to stderr and exit nonzero.
+Query warnings go to stderr in every output format.
 `
 
 const RUN_SCRIPT = String.raw`#!/bin/sh
@@ -137,53 +139,97 @@ target=$(readlink -f -- "$file")
 exec ph run "$target" "@$target" "$format"
 `
 
+export interface TerminalCommandContext {
+    signal?: AbortSignal
+    onWarning?: (message: string) => void
+}
+
 export class TerminalCommands {
-    constructor(filesystem: TerminalFilesystem, execute: (argv: string[], cwd: string) => Promise<unknown>) {
+    constructor(
+        filesystem: TerminalFilesystem,
+        execute: (argv: string[], cwd: string, context: TerminalCommandContext) => Promise<unknown>
+    ) {
         const encoder = new TextEncoder()
         const decoder = new TextDecoder('utf-8', { fatal: true })
         const envelope = (value: object): Uint8Array => encoder.encode(JSON.stringify(value))
         let response = envelope({ ok: false, error: 'Run a ph command first.' })
+        let pending: { controller: AbortController; result: Promise<void> } | undefined
         const directory = filesystem.directory('.ph', filesystem.root)
-        const responseNode = filesystem.file('response', directory, async () => ({ bytes: response }))
+        const responseNode = filesystem.file('response', directory, async (signal) => {
+            const command = pending
+            if (command) {
+                const abort = (): void => command.controller.abort()
+                if (signal?.aborted) {
+                    abort()
+                }
+                signal?.addEventListener('abort', abort, { once: true })
+                try {
+                    await command.result
+                } finally {
+                    signal?.removeEventListener('abort', abort)
+                }
+            }
+            return { bytes: response }
+        })
         filesystem.file(
             'request',
             directory,
             async () => ({
                 bytes: new Uint8Array(),
                 save: async (bytes) => {
-                    try {
-                        const request = JSON.parse(decoder.decode(bytes))
-                        if (
-                            !request ||
-                            !Array.isArray(request.argv) ||
-                            request.argv.length > 1000 ||
-                            !request.argv.every((value: unknown) => typeof value === 'string') ||
-                            typeof request.cwd !== 'string'
-                        ) {
-                            throw new Error('Invalid command request. Run ph help for usage.')
+                    pending?.controller.abort()
+                    await pending?.result
+                    const controller = new AbortController()
+                    const warnings: string[] = []
+                    let query = false
+                    const run = async (): Promise<void> => {
+                        try {
+                            const request = JSON.parse(decoder.decode(bytes))
+                            if (
+                                !request ||
+                                !Array.isArray(request.argv) ||
+                                request.argv.length > 1000 ||
+                                !request.argv.every((value: unknown) => typeof value === 'string') ||
+                                typeof request.cwd !== 'string'
+                            ) {
+                                throw new Error('Invalid command request. Run ph help for usage.')
+                            }
+                            query = ['hogql', 'run'].includes(request.argv[0])
+                            const result = await execute(request.argv, request.cwd, {
+                                signal: controller.signal,
+                                onWarning: (message) => warnings.push(message),
+                            })
+                            const encoded = envelope({
+                                ok: true,
+                                result: result ?? null,
+                                ...(warnings.length ? { warnings } : {}),
+                            })
+                            if (encoded.length > MAX_TERMINAL_FILE_BYTES) {
+                                throw new Error('The result exceeds 4 MiB. Reduce the limit or narrow the query.')
+                            }
+                            response = encoded
+                        } catch (error) {
+                            // A failed tool can put its whole payload in the message, and the guest reads
+                            // this file into a shell variable inside the virtual machine.
+                            const encoded = envelope({
+                                ok: false,
+                                error: error instanceof Error ? error.message : 'The command failed. Try ph help.',
+                            })
+                            response =
+                                encoded.length > MAX_TERMINAL_FILE_BYTES
+                                    ? envelope({
+                                          ok: false,
+                                          error: 'The command failed, and its error exceeds 4 MiB. Check the tool that returned it.',
+                                      })
+                                    : encoded
                         }
-                        const result = await execute(request.argv, request.cwd)
-                        const encoded = envelope({ ok: true, result: result ?? null })
-                        if (encoded.length > MAX_TERMINAL_FILE_BYTES) {
-                            throw new Error('The result exceeds 4 MiB. Reduce the limit or narrow the query.')
-                        }
-                        response = encoded
-                    } catch (error) {
-                        // A failed tool can put its whole payload in the message, and the guest reads
-                        // this file into a shell variable inside the virtual machine.
-                        const encoded = envelope({
-                            ok: false,
-                            error: error instanceof Error ? error.message : 'The command failed. Try ph help.',
-                        })
-                        response =
-                            encoded.length > MAX_TERMINAL_FILE_BYTES
-                                ? envelope({
-                                      ok: false,
-                                      error: 'The command failed, and its error exceeds 4 MiB. Check the tool that returned it.',
-                                  })
-                                : encoded
+                        responseNode.size = response.length
                     }
-                    responseNode.size = response.length
+                    pending = { controller, result: run() }
+                    // Linux does not flush Tclunk on Ctrl+C. Query waits belong in the interruptible response open.
+                    if (!query) {
+                        await pending.result
+                    }
                 },
             }),
             true

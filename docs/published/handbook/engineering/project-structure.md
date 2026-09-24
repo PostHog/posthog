@@ -54,6 +54,7 @@ Saving SQL preserves the insight's other query options, and JSON saves send only
 `hogql "select 1"` executes SQL directly, `echo "select 1" | hogql` reads a query from stdin, and `hogql` opens an interactive prompt that executes one query per line.
 `hogql --help` lists output formats, `--connection-id`, JSON query options, and additional fields supplied with `--field name=JSON`.
 CSV and TSV exports escape text that spreadsheets could interpret as formulas.
+Query warnings go to stderr without changing exported tables. Ctrl+C cancels a running query.
 Use `--json` to inspect result metadata, including `hasMore`, and `/tmp` for export files.
 The interactive Bash shell completes `ph` command names, aliases, connected tools, and argument names with Tab.
 The terminal follows the current resource's folder while its prompt is empty.

@@ -1,8 +1,11 @@
 import { z } from 'zod'
 
+import { ApiRequest } from 'lib/api'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { performQuery } from '~/queries/query'
+import type { HogQLQuery, HogQLQueryResponse } from '~/queries/schema/schema-general'
 
 import { dashboardsList, dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
 import { featureFlagsList, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
@@ -20,7 +23,7 @@ import { NotebooksPartialUpdateBody } from 'products/notebooks/frontend/generate
 import { insightsList, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
 import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
-import { RUN_HELP, TerminalCommands } from './terminalCommands'
+import { RUN_HELP, TerminalCommandContext, TerminalCommands } from './terminalCommands'
 import { HOGQL_FLAGS, HOGQL_HELP, terminalHogqlQuery } from './terminalHogql'
 import { parseRemovalArguments, RM_SCRIPT } from './terminalRemove'
 import { terminalQueryTable } from './terminalSql'
@@ -266,7 +269,7 @@ export class PosthogCommands {
         for (const tool of builtins) {
             this.register(tool)
         }
-        new TerminalCommands(filesystem, (argv, cwd) => this.execute(argv, cwd))
+        new TerminalCommands(filesystem, (argv, cwd, context) => this.execute(argv, cwd, context))
         filesystem.text('rm', filesystem.directory('bin', filesystem.root), RM_SCRIPT)
     }
 
@@ -375,7 +378,34 @@ export class PosthogCommands {
         return args
     }
 
-    async execute(argv: string[], cwd: string): Promise<unknown> {
+    private async executeQuery(query: HogQLQuery, context: TerminalCommandContext): Promise<HogQLQueryResponse> {
+        if (this.signal.aborted || context.signal?.aborted) {
+            throw new DOMException('Query cancelled', 'AbortError')
+        }
+        const controller = new AbortController()
+        const queryId = uuid()
+        const cancel = (): void => {
+            if (controller.signal.aborted) {
+                return
+            }
+            controller.abort()
+            // Aborting the HTTP request does not stop the ClickHouse query.
+            void new ApiRequest()
+                .queryCancel(queryId, Number(this.projectId))
+                .delete()
+                .catch(() => {})
+        }
+        this.signal.addEventListener('abort', cancel, { once: true })
+        context.signal?.addEventListener('abort', cancel, { once: true })
+        try {
+            return await performQuery(query, { signal: controller.signal }, 'force_blocking', queryId)
+        } finally {
+            this.signal.removeEventListener('abort', cancel)
+            context.signal?.removeEventListener('abort', cancel)
+        }
+    }
+
+    async execute(argv: string[], cwd: string, context: TerminalCommandContext = {}): Promise<unknown> {
         const [name = 'help', ...rest] = argv
         if (name === 'hogql') {
             if (rest.length === 1 && ['--help', '-h'].includes(rest[0])) {
@@ -392,7 +422,8 @@ export class PosthogCommands {
             if (teamLogic.values.currentTeamId !== Number(this.projectId) || this.signal.aborted) {
                 throw new Error('The current project changed. Restart the terminal before running SQL.')
             }
-            const result = await performQuery(query, { signal: this.signal }, 'force_blocking')
+            const result = await this.executeQuery(query, context)
+            result.warnings?.forEach((warning) => context.onWarning?.(warning.message))
             // With `explain` or `modifiers.debug`, a failed query returns `error` instead of throwing.
             // JSON output shows that field, but a table would hide it behind an empty result.
             if (format !== 'json' && result.error) {
@@ -463,13 +494,15 @@ export class PosthogCommands {
             if (teamLogic.values.currentTeamId !== Number(this.projectId) || this.signal.aborted) {
                 throw new Error('The current project changed. Restart the terminal before running SQL.')
             }
-            const result = await performQuery(query, { signal: this.signal }, 'force_blocking')
+            const result = await this.executeQuery(query, context)
+            result.warnings?.forEach((warning) => context.onWarning?.(warning.message))
             if (format === '--json') {
                 return {
                     columns: result.columns,
                     types: result.types,
                     results: result.results,
                     hasMore: result.hasMore,
+                    ...(result.warnings?.length ? { warnings: result.warnings } : {}),
                 }
             }
             return terminalQueryTable(result, format === '--csv' ? 'csv' : format === '--tsv' ? 'tsv' : 'markdown')

@@ -32,6 +32,7 @@ Options apply to every query in an interactive session. Use LIMIT and OFFSET
 in SQL to page through results. --json includes hasMore when more rows exist.
 CSV and TSV quote special characters; null values become empty fields.
 Errors go to stderr and exit nonzero outside interactive mode.
+Warnings go to stderr in every output format. Ctrl+C cancels the current query.
 
 Examples:
   hogql "select 1"

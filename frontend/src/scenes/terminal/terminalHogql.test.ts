@@ -60,13 +60,25 @@ describe('terminal hogql wrapper', () => {
             join(directory, 'ph'),
             '#!/bin/sh\nrequest=$(cat)\ncase "$request" in *missing*) echo "Query failed" >&2; exit 1 ;; esac\nprintf "%s\\n" "$request"\n'
         )
-        // util-linux script runs the wrapper on a pseudo-terminal, which the interactive branch requires.
-        const result = spawnSync('script', ['-qec', `bash ${join(directory, 'hogql')} --csv`, '/dev/null'], {
+        // A real PTY exercises Bash readline on both macOS and Linux.
+        const driver = `
+import os, pty, sys
+sent = False
+def read(fd: int) -> bytes:
+    global sent
+    if not sent:
+        os.write(fd, b'select missing\\nselect 1\\nexit\\n')
+        sent = True
+    return os.read(fd, 65536)
+sys.exit(os.waitstatus_to_exitcode(pty.spawn(['bash', sys.argv[1], '--csv'], read)))
+`
+        const result = spawnSync('python3', ['-c', driver, join(directory, 'hogql')], {
             env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
-            input: 'select missing\nselect 1\nexit\n',
+            input: '',
             encoding: 'utf8',
             timeout: 10000,
         })
+        expect(result.stderr).toBe('')
         expect(result.status).toBe(0)
         expect(result.stdout).toContain('Query failed')
         expect(result.stdout).toContain(JSON.stringify({ query: 'select 1', argv: ['--csv'] }))
