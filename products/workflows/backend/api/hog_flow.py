@@ -2914,7 +2914,9 @@ class HogFlowCodeVariableSerializer(serializers.Serializer):
         help_text="string, number or boolean. A variable of another type is left out of the code with a warning."
     )
     default = serializers.JSONField(required=False, allow_null=True, help_text="The value the variable starts with.")
-    label = serializers.CharField(required=False, allow_blank=True, help_text="Display name of the variable.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False, allow_blank=True, help_text="Display name of the variable."
+    )
 
 
 @extend_schema_field(serializers.ListField(child=HogFlowCodeVariableSerializer()))
