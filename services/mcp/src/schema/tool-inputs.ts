@@ -49,6 +49,14 @@ export const DashboardTileCreateSchema = z.object({
         .describe(
             'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
         ),
+    agent_context: z
+        .string()
+        .max(10000)
+        .nullable()
+        .optional()
+        .describe(
+            'Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer and user-facing explanations in body.'
+        ),
     layouts: z
         .object({
             sm: DashboardTileLayoutSchema.optional(),

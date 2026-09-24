@@ -2976,7 +2976,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_create_from_template_json_can_provide_text_tile(self) -> None:
         template: dict = {
             **valid_template,
-            "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}}],
+            "tiles": [
+                {
+                    "type": "TEXT",
+                    "body": "hello world",
+                    "agent_context": "Use completed checkout events for this metric.",
+                    "layouts": {},
+                }
+            ],
         }
 
         response = self.client.post(
@@ -3000,6 +3007,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "show_description": None,
                 "widget": None,
                 "text": {
+                    "agent_context": "Use completed checkout events for this metric.",
                     "body": "hello world",
                     "created_by": None,
                     "dashboard_tiles": [
@@ -4335,12 +4343,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     )
     def test_create_text_tile_accepts_tile_types(self, _name: str, tile_type: str, tile_body: str) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        agent_context = "Use completed checkout events for this metric."
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
             {
                 "type": tile_type,
                 "body": tile_body,
+                "agent_context": agent_context,
                 "layouts": {"sm": {"x": 0, "y": 0, "w": 12, "h": 1}},
             },
             content_type="application/json",
@@ -4350,6 +4360,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(body["id"])
         self.assertIsNone(body["insight"])
         self.assertEqual(body["text"]["body"], tile_body)
+        self.assertEqual(body["text"]["agent_context"], agent_context)
         self.assertEqual(body["layouts"]["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
 
         dashboard_response = self.client.get(f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/")
@@ -4357,6 +4368,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tiles = dashboard_response.json()["tiles"]
         self.assertEqual(len(tiles), 1)
         self.assertEqual(tiles[0]["text"]["body"], tile_body)
+        self.assertEqual(tiles[0]["text"]["agent_context"], agent_context)
 
     def test_create_text_tile_without_layouts_uses_default(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
@@ -4395,7 +4407,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_update_text_tile_updates_body_and_layout(self):
+    def test_update_text_tile_updates_body_context_and_layout(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         text = Text.objects.create(body="original", team=self.team, created_by=self.user)
         tile = DashboardTile.objects.create(
@@ -4409,6 +4421,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "tile_id": tile.pk,
                 "body": "## Updated heading",
+                "agent_context": "Use paid plan events for this metric.",
                 "layouts": {"sm": {"x": 0, "y": 5, "w": 12, "h": 2}},
             },
             content_type="application/json",
@@ -4416,17 +4429,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertEqual(body["text"]["body"], "## Updated heading")
+        self.assertEqual(body["text"]["agent_context"], "Use paid plan events for this metric.")
         self.assertEqual(body["layouts"]["sm"], {"x": 0, "y": 5, "w": 12, "h": 2})
 
         text.refresh_from_db()
         tile.refresh_from_db()
         self.assertEqual(text.body, "## Updated heading")
+        self.assertEqual(text.agent_context, "Use paid plan events for this metric.")
         self.assertEqual(text.last_modified_by, self.user)
         self.assertEqual(tile.layouts["sm"], {"x": 0, "y": 5, "w": 12, "h": 2})
 
     def test_update_text_tile_leaves_omitted_fields_unchanged(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
-        text = Text.objects.create(body="original", team=self.team)
+        text = Text.objects.create(body="original", agent_context="Keep this context", team=self.team)
         tile = DashboardTile.objects.create(
             dashboard=dashboard,
             text=text,
@@ -4444,6 +4459,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(tile.layouts["sm"], {"x": 1, "y": 2, "w": 6, "h": 1})
         text.refresh_from_db()
         self.assertEqual(text.body, "new body")
+        self.assertEqual(text.agent_context, "Keep this context")
+
+    def test_create_text_tile_rejects_agent_context_over_max_length(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
+            {"body": "Valid body", "agent_context": "x" * 10001},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @parameterized.expand(
         [

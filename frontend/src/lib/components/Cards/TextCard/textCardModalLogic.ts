@@ -14,6 +14,7 @@ import { textCardConverter } from './textCardMarkdown'
 
 export interface TextTileForm {
     body: string
+    agent_context: string
     transparent_background: boolean
 }
 
@@ -27,11 +28,13 @@ export interface TextCardModalProps {
 }
 
 const MAX_TEXT_CARD_BODY_LENGTH = 4000
+const MAX_AGENT_CONTEXT_LENGTH = 10000
 
 const getExistingTextTile = (dashboard: DashboardType, textTileId: number): TextTileForm => {
     const tile = dashboard.tiles?.find((tt) => tt.id === textTileId)
     return {
         body: tile?.text?.body || '',
+        agent_context: tile?.text?.agent_context || '',
         transparent_background: tile?.transparent_background ?? false,
     }
 }
@@ -132,9 +135,18 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         ? normalizedErrors.text.body[0]
                         : normalizedErrors?.text?.body) ||
                     null
+                const formAgentContextError = values.textTileValidationErrors.agent_context as string | null
+                const apiAgentContextError =
+                    (Array.isArray(normalizedErrors?.agent_context)
+                        ? normalizedErrors.agent_context[0]
+                        : normalizedErrors?.agent_context) ||
+                    (Array.isArray(normalizedErrors?.text?.agent_context)
+                        ? normalizedErrors.text.agent_context[0]
+                        : normalizedErrors?.text?.agent_context) ||
+                    null
 
                 // Expected validation errors are shown inline on the form.
-                if (formBodyError || apiBodyError) {
+                if (formBodyError || apiBodyError || formAgentContextError || apiAgentContextError) {
                     return
                 }
 
@@ -150,6 +162,8 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                 text_tile_id: props.textTileId,
                 is_new: props.textTileId === null,
                 body_length: textTile.body.length,
+                agent_context_length: textTile.agent_context.length,
+                has_agent_context: textTile.agent_context.trim().length > 0,
                 content_type: getImageOnlyTextCardImage(textCardConverter, textTile.body) ? 'image' : 'text',
             })
         },
@@ -158,14 +172,18 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
         textTile: {
             defaults: (props.textTileId !== null
                 ? getExistingTextTile(props.dashboard, props.textTileId)
-                : { body: '', transparent_background: props.tileType === 'image' }) as TextTileForm,
-            errors: ({ body }) => {
+                : { body: '', agent_context: '', transparent_background: props.tileType === 'image' }) as TextTileForm,
+            errors: ({ body, agent_context }) => {
                 return {
                     body: !body.trim()
                         ? 'This card would be empty! Type something first'
                         : body.length > MAX_TEXT_CARD_BODY_LENGTH
                           ? `Text is too long (${MAX_TEXT_CARD_BODY_LENGTH} characters max)`
                           : null,
+                    agent_context:
+                        agent_context.length > MAX_AGENT_CONTEXT_LENGTH
+                            ? `Agent context is too long (${MAX_AGENT_CONTEXT_LENGTH} characters max)`
+                            : null,
                 }
             },
             submit: (formValues) => {
@@ -181,7 +199,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         id: props.dashboard.id,
                         tiles: [
                             {
-                                text: { body: formValues.body },
+                                text: { body: formValues.body, agent_context: formValues.agent_context },
                                 transparent_background: formValues.transparent_background,
                             },
                         ],
@@ -190,6 +208,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                     const updatedTiles = [...textTiles].reduce((acc, tile) => {
                         if (tile.id === props.textTileId && tile.text) {
                             tile.text.body = formValues.body
+                            tile.text.agent_context = formValues.agent_context
                             ;(tile as Partial<DashboardTile>).transparent_background = formValues.transparent_background
                             acc.push(tile)
                         }

@@ -66,6 +66,7 @@ export function dashboardToSaveableTemplate(
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
+                        agent_context: tile.text.agent_context,
                         layouts: tile.layouts,
                         color: tile.color,
                         transparent_background: tile.transparent_background,

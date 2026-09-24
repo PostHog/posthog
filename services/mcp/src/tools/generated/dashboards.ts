@@ -677,6 +677,9 @@ const dashboardUpdateTextTile = (): ToolBase<
         if (params.body !== undefined) {
             body['body'] = params.body
         }
+        if (params.agent_context !== undefined) {
+            body['agent_context'] = params.agent_context
+        }
         if (params.layouts !== undefined) {
             body['layouts'] = params.layouts
         }

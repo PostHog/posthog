@@ -532,6 +532,7 @@ def create_from_template(
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
                 body=template_tile.get("body"),
+                agent_context=template_tile.get("agent_context"),
                 transparent_background=template_tile.get("transparent_background"),
             )
         elif tile_type == "BUTTON":
@@ -566,11 +567,13 @@ def _create_tile_for_text(
     body: str,
     layouts: dict,
     color: Optional[str],
+    agent_context: str | None = None,
     transparent_background: Optional[bool] = None,
 ) -> None:
     text = Text.objects.create(
         team=dashboard.team,
         body=body,
+        agent_context=agent_context,
     )
     DashboardTile.objects.create(
         text=text,

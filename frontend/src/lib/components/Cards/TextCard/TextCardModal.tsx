@@ -8,6 +8,7 @@ import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalL
 import type { TextCardModalProps } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
@@ -30,11 +31,25 @@ export function TextCardModal({
     // Form `body` + validation drive updates while typing; splitting useValues does not reduce rerenders.
     const { isTextTileSubmitting, textTileValidationErrors, textTile } = useValues(modalLogic)
     const { resetTextTile } = useActions(modalLogic)
-    const [initialBody] = useState(() =>
-        textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text?.body || '' : ''
-    )
-    const shouldUseLegacyMarkdownEditor = !textCardConverter.isRoundTripSafe(initialBody)
-    const hasUnsavedInput = (textTile?.body || '') !== initialBody
+    const [initialTextTile] = useState(() => {
+        const existingText =
+            textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text : undefined
+        return {
+            body: existingText?.body || '',
+            agent_context: existingText?.agent_context || '',
+            transparent_background:
+                textTileId !== null
+                    ? (dashboard.tiles?.find((tile) => tile.id === textTileId)?.transparent_background ?? false)
+                    : false,
+        }
+    })
+    const shouldUseLegacyMarkdownEditor = !textCardConverter.isRoundTripSafe(initialTextTile.body)
+    const hasUnsavedInput =
+        (textTile?.body || '') !== initialTextTile.body ||
+        (textTile?.agent_context || '') !== initialTextTile.agent_context ||
+        !!textTile?.transparent_background !== initialTextTile.transparent_background
+    const saveDisabledReason =
+        (textTileValidationErrors.body as string | null) || (textTileValidationErrors.agent_context as string | null)
 
     const handleClose = useCallback((): void => {
         resetTextTile()
@@ -47,7 +62,7 @@ export function TextCardModal({
             onOpenChange={(open) => !open && handleClose()}
             disablePointerDismissal={hasUnsavedInput}
             className={cn(
-                'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100vh-4rem)] supports-[max-height:1dvh]:max-h-[calc(100dvh-4rem)] top-8',
+                'w-[min(100vw-3rem,72rem)] max-h-[calc(100vh-4rem)] supports-[max-height:1dvh]:max-h-[calc(100dvh-4rem)] top-8',
                 'bg-surface-primary',
                 // DialogPrimitive defaults to z above --z-popover; rich editor toolbars portal to body at
                 // --z-popover and would sit under the panel. Sit the dialog just below that layer instead.
@@ -70,13 +85,31 @@ export function TextCardModal({
                         enableFormOnSubmit
                     >
                         <div className="flex flex-col gap-4">
-                            <Field name="body" label="">
+                            <Field name="body" label="Dashboard text">
                                 {({ value, onChange }) => (
                                     <TextCardModalBodyField
                                         shouldUseLegacyMarkdownEditor={shouldUseLegacyMarkdownEditor}
                                         value={value}
                                         onChange={onChange}
                                     />
+                                )}
+                            </Field>
+                            <Field name="agent_context" label="Agent context">
+                                {({ value, onChange }) => (
+                                    <div className="flex flex-col gap-2">
+                                        <p className="m-0 text-secondary">
+                                            Reference semantic layer metrics. Add data sources, caveats, or editing
+                                            guidance for AI agents.
+                                        </p>
+                                        <LemonTextArea
+                                            value={value}
+                                            onChange={onChange}
+                                            maxLength={10000}
+                                            minRows={6}
+                                            maxRows={36}
+                                            data-attr="text-card-agent-context-edit-area"
+                                        />
+                                    </div>
                                 )}
                             </Field>
                             <Field name="transparent_background" label="">
@@ -101,7 +134,7 @@ export function TextCardModal({
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        disabledReason={textTileValidationErrors.body as string | null}
+                        disabledReason={saveDisabledReason}
                         loading={isTextTileSubmitting}
                         form="text-tile-form"
                         htmlType="submit"

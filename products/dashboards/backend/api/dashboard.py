@@ -643,6 +643,18 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
             "max_length": "Tile body cannot exceed 4000 characters",
         },
     )
+    agent_context = serializers.CharField(
+        max_length=10000,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "Optional context for AI agents, such as semantic-layer metric references, data sources, tile-specific "
+            "query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. "
+            "This is returned by dashboard-get but is not shown on shared or exported dashboards. Max 10000 characters."
+        ),
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     layouts = TileLayoutsSerializer(
         required=False,
         help_text=(
@@ -676,6 +688,17 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
             "min_length": "Text body cannot be empty",
             "max_length": "Text body cannot exceed 4000 characters",
         },
+    )
+    agent_context = serializers.CharField(
+        max_length=10000,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "New context for AI agents. Use an empty string or null to clear it. Omit to leave it unchanged. "
+            "Max 10000 characters."
+        ),
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
     )
     layouts = TileLayoutsSerializer(
         required=False,
@@ -871,6 +894,18 @@ class TextSerializer(serializers.ModelSerializer):
         allow_null=True,
         error_messages={"max_length": "Text body cannot exceed 4000 characters"},
     )
+    agent_context = serializers.CharField(
+        max_length=10000,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query "
+            "assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. "
+            "This field is omitted from shared and exported dashboards."
+        ),
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:
@@ -880,6 +915,8 @@ class TextSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Text) -> dict[str, Any]:
         representation = super().to_representation(instance)
+        if self.context.get("is_shared"):
+            representation.pop("agent_context", None)
         _hide_extra_details(self.context, representation)
         return representation
 
@@ -3129,6 +3166,7 @@ class DashboardsViewSet(
         with transaction.atomic():
             text = Text.objects.create(
                 body=validated["body"],
+                agent_context=validated.get("agent_context"),
                 team=dashboard.team,
                 created_by=user,
                 last_modified_at=now(),
@@ -3176,6 +3214,8 @@ class DashboardsViewSet(
             text = tile.text
             if "body" in validated:
                 text.body = validated["body"]
+            if "agent_context" in validated:
+                text.agent_context = validated["agent_context"]
             text.last_modified_by = user
             text.last_modified_at = now()
             text.save()
