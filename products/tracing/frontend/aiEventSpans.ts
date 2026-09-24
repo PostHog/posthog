@@ -54,6 +54,42 @@ function findParentSpan(event: TraceAiEvent, spans: Span[], interval: Interval):
     return best
 }
 
+/**
+ * Map each AI event to the loaded AI event its `ai_parent_id` names, when no real span has that id.
+ * OpenTelemetry AI ingestion writes a wrapper span such as `ai.generateText` as an `$ai_span`
+ * event, and the model call under it names that event's span id as its parent.
+ */
+function findAiParents(events: TraceAiEvent[], realSpanIds: Set<string>): Map<string, string> {
+    const uuidBySpanId = new Map<string, string>()
+    for (const event of events) {
+        if (event.ai_span_id) {
+            uuidBySpanId.set(event.ai_span_id.toLowerCase(), event.uuid)
+        }
+    }
+    const parents = new Map<string, string>()
+    for (const event of events) {
+        const parentId = event.ai_parent_id?.toLowerCase()
+        const parentUuid = parentId && !realSpanIds.has(parentId) ? uuidBySpanId.get(parentId) : undefined
+        if (parentUuid) {
+            parents.set(event.uuid, parentUuid)
+        }
+    }
+    // The waterfall drops every row on a parent loop, so a self-parented or cyclic event falls back to
+    // time containment instead.
+    return new Map([...parents].filter(([uuid]) => !isOnCycle(uuid, parents)))
+}
+
+function isOnCycle(uuid: string, parents: Map<string, string>): boolean {
+    const seen = new Set<string>()
+    for (let current = parents.get(uuid); current !== undefined && !seen.has(current); current = parents.get(current)) {
+        if (current === uuid) {
+            return true
+        }
+        seen.add(current)
+    }
+    return false
+}
+
 function eventName(event: TraceAiEvent): string {
     if (event.event === '$ai_span') {
         return event.span_name ?? 'span'
@@ -82,9 +118,9 @@ function eventAttributes(event: TraceAiEvent): Record<string, string> {
 }
 
 /**
- * Turn a trace's AI events into spans the waterfall can draw next to the real ones. Each row is
- * placed by time and parented to the real span that contains it, because the two datasets share
- * a trace id but no span ids.
+ * Turn a trace's AI events into spans the waterfall can draw next to the real ones. Each row sits
+ * under the real span or AI event its parent id names, or else under the real span that contains
+ * it in time, because the two datasets share a trace id but often no span ids.
  */
 export function buildAiEventSpans(events: TraceAiEvent[], spans: Span[]): Span[] {
     if (events.length === 0 || spans.length === 0) {
@@ -92,14 +128,18 @@ export function buildAiEventSpans(events: TraceAiEvent[], spans: Span[]): Span[]
     }
     const traceId = spans[0].trace_id
     const realSpans = spans.filter((span) => !isAiEventSpan(span))
+    const aiParents = findAiParents(events, new Set(realSpans.map((span) => span.span_id.toLowerCase())))
     return events.map((event): Span => {
         const interval = aiEventInterval(event)
-        const parent = findParentSpan(event, realSpans, interval)
+        const aiParentUuid = aiParents.get(event.uuid)
+        const parentSpanId = aiParentUuid
+            ? `${AI_SPAN_ID_PREFIX}${aiParentUuid}`
+            : (findParentSpan(event, realSpans, interval)?.span_id ?? '')
         return {
             uuid: event.uuid,
             trace_id: traceId,
             span_id: `${AI_SPAN_ID_PREFIX}${event.uuid}`,
-            parent_span_id: parent?.span_id ?? '',
+            parent_span_id: parentSpanId,
             name: eventName(event),
             kind: SPAN_KIND_CLIENT,
             service_name: AI_EVENT_SERVICE_NAME,

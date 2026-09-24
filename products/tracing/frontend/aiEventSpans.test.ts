@@ -78,6 +78,43 @@ describe('buildAiEventSpans', () => {
         expect(result.parent_span_id).toBe(expectedParent)
     })
 
+    // OTel AI ingestion writes a wrapper span as an `$ai_span` event that the model call names as its
+    // parent, and a parent loop would make the waterfall drop the rows on it.
+    it.each([
+        [
+            'under the loaded AI event its parent id names',
+            [
+                { uuid: 'wrap', event: '$ai_span', ai_span_id: 'wrap', latency_seconds: 4 },
+                { uuid: 'gen', ai_parent_id: 'wrap' },
+            ],
+            ['TURN', 'ai:wrap'],
+        ],
+        [
+            'under the real span when a real span and an AI event share the named id',
+            [
+                { uuid: 'wrap', event: '$ai_span', ai_span_id: 'tool', latency_seconds: 4 },
+                { uuid: 'gen', ai_parent_id: 'tool' },
+            ],
+            ['TURN', 'TOOL'],
+        ],
+        ['a self-parented event by time', [{ uuid: 'a', ai_span_id: 'a', ai_parent_id: 'a' }], ['TURN']],
+        [
+            'events that name each other by time',
+            [
+                { uuid: 'a', ai_span_id: 'a', ai_parent_id: 'b' },
+                { uuid: 'b', ai_span_id: 'b', ai_parent_id: 'a' },
+            ],
+            ['TURN', 'TURN'],
+        ],
+    ])('places %s', (_name, overrides, expectedParents) => {
+        const results = buildAiEventSpans(
+            overrides.map((override) => aiEvent({ timestamp: '2026-06-02T08:00:06.000Z', ...override })),
+            SPANS
+        )
+
+        expect(results.map((r) => r.parent_span_id)).toEqual(expectedParents)
+    })
+
     it('marks a failed call as an error and names an $ai_span by its span name', () => {
         const results = buildAiEventSpans(
             [
