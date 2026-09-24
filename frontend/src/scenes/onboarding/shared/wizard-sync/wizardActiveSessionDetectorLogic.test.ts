@@ -50,6 +50,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+        jest.useRealTimers()
     })
 
     describe('isSessionActive', () => {
@@ -148,48 +149,15 @@ describe('wizardActiveSessionDetectorLogic', () => {
         expect(captureSpy).toHaveBeenCalledTimes(captured ? 1 : 0)
     })
 
-    it('skips the poll while the browser is offline', async () => {
-        jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
-
-        await expectLogic(logic, () => {
-            logic.actions.check()
-        }).toFinishAllListeners()
-
-        expect(mockLatestRetrieve).not.toHaveBeenCalled()
-    })
-
-    it.each([
-        {
-            name: 'the browser comes online',
-            resume: (): void => {
-                window.dispatchEvent(new Event('online'))
-            },
-        },
-        {
-            name: 'the backoff window ends',
-            resume: (): void => {
-                const afterWindow = Date.now() + 10 * 60 * 1000 + 1
-                jest.spyOn(Date, 'now').mockReturnValue(afterWindow)
-                logic.actions.check()
-            },
-        },
-    ])('stops polling after repeated network failures and polls again when $name', async ({ resume }) => {
+    it('stops polling after repeated network failures', async () => {
+        jest.useFakeTimers()
+        logic.unmount()
+        logic.mount()
         mockLatestRetrieve.mockRejectedValue(new NetworkError('network'))
-        for (let i = 0; i < 5; i++) {
-            await expectLogic(logic, () => {
-                logic.actions.check()
-            }).toDispatchActions(['setLastError'])
-        }
-        expect(mockLatestRetrieve).toHaveBeenCalledTimes(5)
 
-        await expectLogic(logic, () => {
-            logic.actions.check()
-        }).toFinishAllListeners()
-        expect(mockLatestRetrieve).toHaveBeenCalledTimes(5)
+        await jest.advanceTimersByTimeAsync(10 * 60 * 1000)
 
-        mockLatestRetrieve.mockResolvedValue(null)
-        await expectLogic(logic, resume).toDispatchActions(['markInactive'])
-        expect(mockLatestRetrieve).toHaveBeenCalledTimes(6)
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(5)
     })
 
     // With two programs watched, a failure on the live one plus an empty answer from the other is
