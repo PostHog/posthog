@@ -993,7 +993,7 @@ class TestDashboardTemplates(APIBaseTest):
             template_name="Shared org template",
             dashboard_description="",
             dashboard_filters={},
-            tiles=variable_template["tiles"],
+            tiles=[{"type": "TEXT", "body": "Shared text", "agent_context": "Private notes"}],
             variables=[],
             tags=[],
         )
@@ -1001,10 +1001,13 @@ class TestDashboardTemplates(APIBaseTest):
         list_response = self.client.get(f"/api/projects/{sibling_team.pk}/dashboard_templates/")
         assert list_response.status_code == status.HTTP_200_OK, list_response
         assert str(org_template.id) in [r["id"] for r in list_response.json()["results"]]
+        listed_template = get_template_from_response(list_response, org_template.id)
+        assert "agent_context" not in listed_template["tiles"][0]
 
         retrieve_response = self.client.get(f"/api/projects/{sibling_team.pk}/dashboard_templates/{org_template.id}")
         assert retrieve_response.status_code == status.HTTP_200_OK, retrieve_response
         assert retrieve_response.json()["scope"] == "organization"
+        assert "agent_context" not in retrieve_response.json()["tiles"][0]
 
     def test_organization_scoped_template_not_visible_to_other_org(self) -> None:
         org_template = DashboardTemplate.objects.create(
@@ -1278,21 +1281,32 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         mock_report.assert_not_called()
 
     def test_non_staff_editor_can_create_organization_scoped_template(self) -> None:
+        tiles = [{"type": "TEXT", "body": "Shared text", "agent_context": "Private notes"}]
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {**variable_template, "template_name": "Org scoped by editor", "scope": "organization"},
+            {
+                **variable_template,
+                "template_name": "Org scoped by editor",
+                "scope": "organization",
+                "tiles": tiles,
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED, response
         assert response.json()["scope"] == "organization"
         assert response.json()["team_id"] == self.team.pk
+        assert "agent_context" not in response.json()["tiles"][0]
+        template = DashboardTemplate.objects.get(id=response.json()["id"])
+        assert "agent_context" not in template.tiles[0]
 
     def test_non_staff_editor_can_promote_and_demote_between_team_and_organization(self) -> None:
+        tiles = [{"type": "TEXT", "body": "Private text", "agent_context": "Private notes"}]
         create = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {**variable_template, "template_name": "Promote demote me"},
+            {**variable_template, "template_name": "Promote demote me", "tiles": tiles},
         )
         assert create.status_code == status.HTTP_201_CREATED, create
         assert create.json()["scope"] == "team"
+        assert create.json()["tiles"][0]["agent_context"] == "Private notes"
         tid = create.json()["id"]
 
         promote = self.client.patch(
@@ -1301,6 +1315,8 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         )
         assert promote.status_code == status.HTTP_200_OK, promote
         assert promote.json()["scope"] == "organization"
+        assert "agent_context" not in promote.json()["tiles"][0]
+        assert "agent_context" not in DashboardTemplate.objects.get(id=tid).tiles[0]
 
         demote = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",

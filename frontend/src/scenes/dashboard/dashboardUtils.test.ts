@@ -15,6 +15,7 @@ import {
 
 import {
     dashboardSearchParamsFromOverrides,
+    dashboardTemplateForExport,
     dashboardToSaveableTemplate,
     searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
@@ -176,6 +177,9 @@ describe('dashboardToSaveableTemplate', () => {
             { type: 'BUTTON', transparent_background: true },
             { type: 'WIDGET', transparent_background: false },
         ])
+        expect(dashboardTemplateForExport(dashboardToSaveableTemplate(dashboard))?.tiles[0]).not.toHaveProperty(
+            'agent_context'
+        )
     })
 })
 
