@@ -11,7 +11,7 @@ permissions:
 
 env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
-    SEMGREP_IMAGE: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
+    SEMGREP_IMAGE: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
 
 jobs:
     # Job to decide which path-scoped semgrep scans need to run.
