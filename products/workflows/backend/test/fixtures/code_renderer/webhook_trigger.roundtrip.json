@@ -21,6 +21,9 @@
                     "distinct_id": {
                         "value": "{request.body.distinct_id}",
                         "order": 1
+                    },
+                    "auth_header": {
+                        "value": "value of TRIGGER_NODE_AUTH_HEADER"
                     }
                 }
             }

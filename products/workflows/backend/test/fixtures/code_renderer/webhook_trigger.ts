@@ -1,4 +1,7 @@
-import { delay, path, trigger, workflow } from '@posthog/workflows'
+// @posthog/workflows cannot express everything in this workflow. Review these before you push:
+// - trigger_node: The input "auth_header" of "Webhook trigger" is a secret. PostHog does not return its value, so set TRIGGER_NODE_AUTH_HEADER before you push.
+
+import { delay, path, secret, trigger, workflow } from '@posthog/workflows'
 
 export const webhookTrigger = workflow({
     key: 'webhook-trigger',
@@ -10,6 +13,7 @@ export const webhookTrigger = workflow({
             inputs: {
                 event: { value: '{request.body.event}', order: 0 },
                 distinct_id: { value: '{request.body.distinct_id}', order: 1 },
+                auth_header: secret('TRIGGER_NODE_AUTH_HEADER'),
             },
         },
         { name: 'Webhook trigger', description: 'A webhook starts this workflow.' },

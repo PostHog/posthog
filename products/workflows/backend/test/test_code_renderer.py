@@ -50,6 +50,12 @@ EXPECTED_WARNINGS: dict[str, list[dict[str, str | None]]] = {
             "message": 'The exit condition "exit_on_conversion" is not one @posthog/workflows can declare, so the file declares "exit_only_at_end" and the first push stores it. With no conversion goal, the two run the same.',
         },
     ],
+    "webhook_trigger": [
+        {
+            "action_id": "trigger_node",
+            "message": 'The input "auth_header" of "Webhook trigger" is a secret. PostHog does not return its value, so set TRIGGER_NODE_AUTH_HEADER before you push.',
+        },
+    ],
     "ui_built": [
         {
             "action_id": None,
