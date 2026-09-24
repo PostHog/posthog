@@ -21,6 +21,8 @@ DATE_TO = "2026-06-02T10:00:00Z"
 # The form OTel ingestion writes: lowercase hex, 32 characters for a trace and 16 for a span.
 TRACE_A = "4bf92f3577b34da6a3ce929d0e0e4736"
 TRACE_B = "8a3c60f7d188f8fa79d48a391a778fa6"
+# The form the LLM gateway writes for the same trace from a `traceparent` header.
+TRACE_A_UUID = "4bf92f35-77b3-4da6-a3ce-929d0e0e4736"
 PARENT_SPAN = "00f067aa0ba902b7"
 
 
@@ -81,7 +83,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         assert results[1] == {
             "uuid": generation,
             "event": "$ai_generation",
-            "timestamp": "2026-06-02T08:00:05Z",
+            "started_at": "2026-06-02T08:00:00.500000Z",
             "ai_trace_id": TRACE_A,
             "ai_span_id": "b9c7c989f97918e1",
             "ai_parent_id": PARENT_SPAN,
@@ -95,6 +97,32 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
             "is_error": True,
         }
         assert results[0]["is_error"] is False
+
+    @parameterized.expand(
+        [
+            ("an SDK event stamped at the finish", {}, "2026-06-02T08:00:00Z"),
+            ("an OTel event stamped at the start", {"$ai_ingestion_source": "otel"}, "2026-06-02T08:00:04Z"),
+        ]
+    )
+    def test_normalizes_the_start_time_by_ingestion_source(
+        self, _name: str, properties: dict[str, Any], expected_start: str
+    ) -> None:
+        self._create_ai_event(TRACE_A, timestamp="2026-06-02T08:00:04Z", properties={"$ai_latency": 4, **properties})
+        flush_persons_and_events()
+
+        response = self._post(TRACE_A)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["started_at"] for row in json.loads(response.content)["results"]] == [expected_start]
+
+    def test_finds_the_gateway_uuid_form_of_the_trace_id(self) -> None:
+        by_uuid = self._create_ai_event(TRACE_A_UUID)
+        flush_persons_and_events()
+
+        response = self._post(TRACE_A)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["uuid"] for row in json.loads(response.content)["results"]] == [by_uuid]
 
     def test_collapses_duplicate_rows_of_one_event(self) -> None:
         # ai_events is a plain MergeTree fed by at-least-once ingestion, so one event can land twice.

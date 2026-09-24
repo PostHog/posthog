@@ -840,7 +840,9 @@ class _TracingTraceAiEventSerializer(serializers.Serializer):
     event = serializers.CharField(
         help_text="The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`."
     )
-    timestamp = serializers.DateTimeField(help_text="When the call finished. Subtract `latency_seconds` for its start.")
+    started_at = serializers.DateTimeField(
+        help_text="When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish."
+    )
     ai_trace_id = serializers.CharField(help_text="The `$ai_trace_id` of the event, which opens it in LLM analytics.")
     ai_span_id = serializers.CharField(allow_null=True, help_text="The `$ai_span_id` of the event.")
     ai_parent_id = serializers.CharField(
@@ -858,7 +860,7 @@ class _TracingTraceAiEventSerializer(serializers.Serializer):
 
 
 class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
-    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest first.")
+    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest stamped first.")
 
 
 class _TracingSparklineRowSerializer(serializers.Serializer):

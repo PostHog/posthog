@@ -102704,8 +102704,8 @@ export namespace Schemas {
       uuid: string;
       /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
       event: string;
-      /** When the call finished. Subtract `latency_seconds` for its start. */
-      timestamp: string;
+      /** When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish. */
+      started_at: string;
       /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
       ai_trace_id: string;
       /**
@@ -102765,7 +102765,7 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceAiEventsResponse {
-      /** AI events in the trace, earliest first. */
+      /** AI events in the trace, earliest stamped first. */
       results: _TracingTraceAiEvent[];
     }
 
