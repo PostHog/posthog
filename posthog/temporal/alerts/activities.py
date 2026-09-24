@@ -59,7 +59,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import get_metric_meter
 
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -369,6 +369,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 record_ai_detector_check_outcome("evaluated")
         except CH_TRANSIENT_ERRORS:
             raise
+        except AlertDataUnavailableError as err:
+            error = {"message": str(err)}
         except LLMDetectorUnavailableError:
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
             # re-raise so the retry policy gets another attempt. Once the attempts run out the

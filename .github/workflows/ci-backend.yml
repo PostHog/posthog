@@ -1073,9 +1073,12 @@ jobs:
               # data_warehouse tests use custom search attributes (PostHogTeamId, PostHogOrgId,
               # PostHogDagId) when scheduling materialization, so they must be registered
               # before tests run.
+              # If the command hangs, SIGABRT makes faulthandler print the Python stack of each
+              # thread before the process exits, so the log shows where it stopped.
+              timeout-minutes: 10
               run: |
                   bin/wait-for-docker temporal
-                  python manage.py register_temporal_search_attributes
+                  PYTHONFAULTHANDLER=1 timeout --signal=ABRT --kill-after=30s 3m python manage.py register_temporal_search_attributes
 
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
