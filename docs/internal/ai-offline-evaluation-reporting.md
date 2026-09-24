@@ -44,7 +44,7 @@ Public project tokens used for event capture cannot authenticate these operation
 Create scorers first, using the existing scorer API or UI, and pin their version UUIDs before submitting results.
 Older and archived versions remain valid references.
 The API validates numeric bounds and steps, boolean values, and categorical keys against the pinned configuration.
-Numeric scores use finite binary64 values; step validation allows four units in the last place of rounding tolerance.
+Numeric scores use finite binary64 values; step validation allows up to four units in the last place of rounding tolerance, capped at one millionth of the configured step.
 
 For example, this upload declares one item and its boolean result:
 

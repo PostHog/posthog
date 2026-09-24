@@ -2,7 +2,7 @@ from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -147,12 +147,14 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if isinstance(exc, OfflineEvaluationConflict):
             OFFLINE_UPLOAD_ERRORS.labels(outcome="conflict").inc()
             return Response(
-                {
-                    "code": exc.code,
-                    "detail": exc.detail,
-                    "attr": exc.field,
-                    **(asdict(exc.counts) if exc.counts else {}),
-                },
+                OfflineEvaluationErrorSerializer(
+                    {
+                        "code": exc.code,
+                        "detail": exc.detail,
+                        "attr": exc.field,
+                        **(asdict(exc.counts) if exc.counts else {}),
+                    }
+                ).data,
                 status=409,
             )
         if isinstance(exc, OfflineEvaluationValidationError):
@@ -176,9 +178,12 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _experiment_id(self) -> UUID:
         return cast(UUID, serializers.UUIDField().run_validation(self.kwargs["pk"]))
 
-    @extend_schema(parameters=[EXPERIMENT_ID_PARAMETER])
+    @validated_request(
+        UploadSubmissionSerializer,
+        parameters=[EXPERIMENT_ID_PARAMETER],
+        responses={200: UploadReceiptSerializer, **ERROR_RESPONSES},
+    )
     @action(detail=True, methods=["post"])
-    @validated_request(UploadSubmissionSerializer, responses={200: UploadReceiptSerializer, **ERROR_RESPONSES})
     @llma_track_latency("aio_offline_experiment_upload")
     @monitor(feature=None, endpoint="aio_offline_experiment_upload", method="POST")
     def upload(self, request: TypedRequest[UploadSubmission], **kwargs: object) -> Response:
@@ -191,11 +196,12 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         return Response(UploadReceiptSerializer(receipt).data)
 
-    @extend_schema(parameters=[EXPERIMENT_ID_PARAMETER])
-    @action(detail=True, methods=["post"])
     @validated_request(
-        EmptyOfflineExperimentSerializer, responses={200: ExperimentReceiptSerializer, **ERROR_RESPONSES}
+        EmptyOfflineExperimentSerializer,
+        parameters=[EXPERIMENT_ID_PARAMETER],
+        responses={200: ExperimentReceiptSerializer, **ERROR_RESPONSES},
     )
+    @action(detail=True, methods=["post"])
     @llma_track_latency("aio_offline_experiment_complete")
     @monitor(feature=None, endpoint="aio_offline_experiment_complete", method="POST")
     def complete(self, request: Request, **kwargs: object) -> Response:
@@ -203,11 +209,12 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             OfflineExperimentService(team_id=self.team_id).close(self._experiment_id(), status="completed")
         )
 
-    @extend_schema(parameters=[EXPERIMENT_ID_PARAMETER])
-    @action(detail=True, methods=["post"])
     @validated_request(
-        EmptyOfflineExperimentSerializer, responses={200: ExperimentReceiptSerializer, **ERROR_RESPONSES}
+        EmptyOfflineExperimentSerializer,
+        parameters=[EXPERIMENT_ID_PARAMETER],
+        responses={200: ExperimentReceiptSerializer, **ERROR_RESPONSES},
     )
+    @action(detail=True, methods=["post"])
     @llma_track_latency("aio_offline_experiment_fail")
     @monitor(feature=None, endpoint="aio_offline_experiment_fail", method="POST")
     def fail(self, request: Request, **kwargs: object) -> Response:

@@ -27,8 +27,9 @@ def _is_float_on_step(value: float, base: Decimal, step: Decimal) -> bool:
     # Fractions avoid overflow when a finite binary64 value is divided by a very small step.
     remainder = (Fraction(Decimal(str(value))) - Fraction(base)) % Fraction(step)
     distance = min(remainder, Fraction(step) - remainder)
-    # Allow a few binary64 rounding errors from SDK arithmetic, such as 0.1 + 0.2.
-    return distance <= 4 * Fraction(math.ulp(value))
+    # Allow SDK arithmetic such as 0.1 + 0.2 without letting large values skip step validation.
+    tolerance = min(4 * Fraction(math.ulp(value)), Fraction(step) / 1_000_000)
+    return distance <= tolerance
 
 
 def _validate_categorical_score(config: dict[str, object], categorical_values: list[str] | None) -> dict[str, str]:
@@ -91,7 +92,7 @@ def _validate_numeric_score(config: dict[str, object], numeric_value: Decimal | 
         on_step = (
             _is_float_on_step(numeric_value, base, numeric_step)
             if isinstance(numeric_value, float)
-            else (numeric_value - base) % numeric_step == 0
+            else (Fraction(numeric_value) - Fraction(base)) % Fraction(numeric_step) == 0
         )
         if not on_step:
             return {"numeric_value": f"Ensure this value increments by {numeric_step}."}

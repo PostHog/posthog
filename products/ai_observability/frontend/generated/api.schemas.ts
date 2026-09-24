@@ -465,6 +465,192 @@ export interface OfflineEvaluationErrorApi {
     accepted_result_count?: number
 }
 
+export type OfflineExperimentItemPayloadInputApiInput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+export type OfflineExperimentItemPayloadInputApiOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+export type OfflineExperimentItemPayloadInputApiExpectedOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+/**
+ * @nullable
+ */
+export type OfflineExperimentItemPayloadInputApiMetadata = { [key: string]: unknown } | null
+
+export interface OfflineExperimentItemPayloadInputApi {
+    input?: OfflineExperimentItemPayloadInputApiInput
+    output?: OfflineExperimentItemPayloadInputApiOutput
+    expected_output?: OfflineExperimentItemPayloadInputApiExpectedOutput
+    /** @nullable */
+    metadata?: OfflineExperimentItemPayloadInputApiMetadata
+}
+
+export interface ItemSubmissionApi {
+    /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
+    id: string
+    /**
+     * Stable case identifier for matching inputs across experiments.
+     * @maxLength 255
+     * @nullable
+     */
+    case_key?: string | null
+    /**
+     * Identifier for a repeated execution of the same case.
+     * @maxLength 255
+     * @nullable
+     */
+    trial?: string | null
+    /**
+     * Stable item identifier in an external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_item_identifier?: string | null
+    /**
+     * Pinned item-version identifier in an external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_item_version_identifier?: string | null
+    /**
+     * UUID of the hosted item version in the experiment's dataset revision.
+     * @nullable
+     */
+    dataset_item_version_id?: string | null
+    /**
+     * Trace identifier for the application execution that produced this output.
+     * @maxLength 255
+     * @nullable
+     */
+    application_trace_id?: string | null
+    /** Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ. */
+    payload?: OfflineExperimentItemPayloadInputApi
+}
+
+/**
+ * * `ok` - OK
+ * * `error` - Error
+ * * `skipped` - Skipped
+ * * `not_applicable` - Not applicable
+ */
+export type OfflineEvaluationResultStatusEnumApi =
+    (typeof OfflineEvaluationResultStatusEnumApi)[keyof typeof OfflineEvaluationResultStatusEnumApi]
+
+export const OfflineEvaluationResultStatusEnumApi = {
+    Ok: 'ok',
+    Error: 'error',
+    Skipped: 'skipped',
+    NotApplicable: 'not_applicable',
+} as const
+
+/**
+ * @nullable
+ */
+export type OfflineEvaluationResultPayloadInputApiMetadata = { [key: string]: unknown } | null
+
+export interface OfflineEvaluationResultPayloadInputApi {
+    /** @nullable */
+    reasoning?: string | null
+    /** @nullable */
+    error_message?: string | null
+    /** @nullable */
+    metadata?: OfflineEvaluationResultPayloadInputApiMetadata
+}
+
+export interface ResultSubmissionApi {
+    /** UUID of an item declared in this request or already accepted in this experiment. */
+    item_id: string
+    /** Exact UUID of an existing scorer version in this project. */
+    scorer_version_id: string
+    /** Outcome of this scorer execution.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+    value?: number | boolean | string[] | null
+    /**
+     * Optional stable error code, permitted only for error outcomes.
+     * @maxLength 128
+     * @nullable
+     */
+    error_code?: string | null
+    /**
+     * Trace identifier of the evaluator that produced this result.
+     * @maxLength 255
+     * @nullable
+     */
+    evaluator_trace_id?: string | null
+    /**
+     * Caller-supplied evaluation time in ISO 8601 format.
+     * @nullable
+     */
+    evaluated_at?: string | null
+    /** Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels. */
+    payload?: OfflineEvaluationResultPayloadInputApi
+}
+
+export interface UploadSubmissionApi {
+    /**
+     * Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.
+     * @maxItems 1000
+     */
+    items?: ItemSubmissionApi[]
+    /**
+     * One to 1,000 unique item/scorer-version results. The entire request commits atomically.
+     * @maxItems 1000
+     */
+    results: ResultSubmissionApi[]
+}
+
+export interface ItemReceiptApi {
+    /** Accepted item UUID. */
+    id: string
+    /** Whether this upload created the item. */
+    created: boolean
+    /** Original server acceptance time, unchanged on retry. */
+    accepted_at: string
+}
+
+export interface ResultReceiptApi {
+    /** Accepted item UUID. */
+    id: string
+    /** Whether this upload created the item. */
+    created: boolean
+    /** Original server acceptance time, unchanged on retry. */
+    accepted_at: string
+    /** Item this result evaluates. */
+    item_id: string
+    /** Pinned scorer version used by this result. */
+    scorer_version_id: string
+}
+
+export interface UploadReceiptApi {
+    /** One acknowledgment per referenced item. */
+    items: ItemReceiptApi[]
+    /** Acknowledgments in the submitted result order. */
+    results: ResultReceiptApi[]
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**

@@ -126,6 +126,8 @@ import type {
     TraceReviewApi,
     TraceReviewCreateApi,
     TranslateRequestApi,
+    UploadReceiptApi,
+    UploadSubmissionApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -280,14 +282,11 @@ export const getAiObservabilityOfflineExperimentsCompleteCreateUrl = (projectId:
 export const aiObservabilityOfflineExperimentsCompleteCreate = async (
     projectId: string,
     id: string,
-    experimentSubmissionApi: ExperimentSubmissionApi,
     options?: RequestInit
-): Promise<ExperimentSubmissionApi> => {
-    return apiMutator<ExperimentSubmissionApi>(getAiObservabilityOfflineExperimentsCompleteCreateUrl(projectId, id), {
+): Promise<ExperimentReceiptApi> => {
+    return apiMutator<ExperimentReceiptApi>(getAiObservabilityOfflineExperimentsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentSubmissionApi),
     })
 }
 
@@ -298,14 +297,11 @@ export const getAiObservabilityOfflineExperimentsFailCreateUrl = (projectId: str
 export const aiObservabilityOfflineExperimentsFailCreate = async (
     projectId: string,
     id: string,
-    experimentSubmissionApi: ExperimentSubmissionApi,
     options?: RequestInit
-): Promise<ExperimentSubmissionApi> => {
-    return apiMutator<ExperimentSubmissionApi>(getAiObservabilityOfflineExperimentsFailCreateUrl(projectId, id), {
+): Promise<ExperimentReceiptApi> => {
+    return apiMutator<ExperimentReceiptApi>(getAiObservabilityOfflineExperimentsFailCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentSubmissionApi),
     })
 }
 
@@ -316,14 +312,14 @@ export const getAiObservabilityOfflineExperimentsUploadCreateUrl = (projectId: s
 export const aiObservabilityOfflineExperimentsUploadCreate = async (
     projectId: string,
     id: string,
-    experimentSubmissionApi: ExperimentSubmissionApi,
+    uploadSubmissionApi: UploadSubmissionApi,
     options?: RequestInit
-): Promise<ExperimentSubmissionApi> => {
-    return apiMutator<ExperimentSubmissionApi>(getAiObservabilityOfflineExperimentsUploadCreateUrl(projectId, id), {
+): Promise<UploadReceiptApi> => {
+    return apiMutator<UploadReceiptApi>(getAiObservabilityOfflineExperimentsUploadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentSubmissionApi),
+        body: JSON.stringify(uploadSubmissionApi),
     })
 }
 

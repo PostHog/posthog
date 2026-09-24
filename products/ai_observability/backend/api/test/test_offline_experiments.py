@@ -4,10 +4,13 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+from drf_spectacular.generators import SchemaGenerator
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.routers import SimpleRouter
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Project, User
@@ -16,6 +19,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.api.offline_experiments import OfflineExperimentViewSet
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 
@@ -79,6 +83,14 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
         experiment_id = str(body["id"])
         self.assertEqual(created.data["id"], experiment_id)
+
+        incomplete = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
+        self.assertEqual(incomplete.status_code, status.HTTP_409_CONFLICT, incomplete.data)
+        self.assertEqual(incomplete.data["code"], "expected_count_mismatch")
+        self.assertEqual(incomplete.data["expected_item_count"], 1)
+        self.assertEqual(incomplete.data["expected_result_count"], 1)
+        self.assertEqual(incomplete.data["accepted_item_count"], 0)
+        self.assertEqual(incomplete.data["accepted_result_count"], 0)
 
         item_id = str(uuid4())
         uploaded = self.client.post(
@@ -188,3 +200,30 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         response = self.client.post(self._endpoint(), body, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(OfflineExperiment.objects.for_team(self.team.id).exists())
+
+
+class TestOfflineExperimentActionSchemas(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("upload", {"items", "results"}, {"items", "results"}),
+            ("complete", None, {"id", "status", "accepted_item_count", "accepted_result_count"}),
+            ("fail", None, {"id", "status", "accepted_item_count", "accepted_result_count"}),
+        ]
+    )
+    def test_action_schema_matches_its_payload(
+        self, action: str, request_fields: set[str] | None, response_fields: set[str]
+    ) -> None:
+        router = SimpleRouter()
+        router.register("offline_experiments", OfflineExperimentViewSet, basename="offline_experiments")
+        schema = SchemaGenerator(patterns=router.urls).get_schema(request=None, public=True)
+        operation = schema["paths"][f"/offline_experiments/{{id}}/{action}/"]["post"]
+        components = schema["components"]["schemas"]
+
+        if request_fields is None:
+            self.assertNotIn("requestBody", operation)
+        else:
+            request_ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+            self.assertEqual(set(components[request_ref.rsplit("/", 1)[-1]]["properties"]), request_fields)
+
+        response_ref = operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+        self.assertTrue(response_fields <= set(components[response_ref.rsplit("/", 1)[-1]]["properties"]))
