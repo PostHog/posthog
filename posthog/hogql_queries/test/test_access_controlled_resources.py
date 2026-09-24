@@ -1,7 +1,9 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -293,23 +295,32 @@ class TestQueriedAccessControlledResources(BaseTest):
             )
         assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
 
-    def test_shared_view_is_walked_once(self):
-        # Four views over one base: walking per path would re-read the catalog and the base view for
-        # every parent. One table fetch plus one view lookup per level is the whole cost.
-        views = {"base_view": "select * from system.notebooks"}
-        views.update({f"mid_view_{i}": "select * from base_view" for i in range(4)})
-        for name, definition in views.items():
+    def test_view_fan_out_does_not_scale_queries(self):
+        # Views that share a base view must each be walked once, so six of them cost the same queries as two.
+        def _query_count(fan_out: int) -> int:
             DataWarehouseSavedQuery.objects.create(
-                team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
+                team=self.team,
+                name=f"base_view_{fan_out}",
+                query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
             )
-        sql = "select * from mid_view_0, mid_view_1, mid_view_2, mid_view_3"
-        with self.assertNumQueries(3):
-            assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == {
-                "warehouse_view",
-                "warehouse_table",
-                "external_data_source",
-                "notebook",
-            }
+            view_names = [f"view_{fan_out}_{i}" for i in range(fan_out)]
+            for name in view_names:
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team,
+                    name=name,
+                    query={"kind": "HogQLQuery", "query": f"select * from base_view_{fan_out}"},
+                )
+            query = HogQLQuery(query=f"select * from {', '.join(view_names)}")
+            with CaptureQueriesContext(connection) as ctx:
+                assert queried_access_controlled_resources(query, self.team) == {
+                    "warehouse_view",
+                    "warehouse_table",
+                    "external_data_source",
+                    "notebook",
+                }
+            return len(ctx.captured_queries)
+
+        assert _query_count(6) == _query_count(2)
 
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")

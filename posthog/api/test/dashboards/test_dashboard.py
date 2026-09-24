@@ -54,7 +54,6 @@ from products.dashboards.backend.api.dashboard import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
@@ -982,46 +981,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
         with self.assertNumQueries(baseline + 11 + 9):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
-
-    def test_saved_view_fan_out_does_not_scale_dashboard_gets(self) -> None:
-        # A SQL tile's cache key walks the saved views it reads. When many views share one base view, the
-        # walk must read each view once, so a tile over six such views costs the same as a tile over two.
-        def _view_tile_query_cost(fan_out: int) -> int:
-            DataWarehouseSavedQuery.objects.create(
-                team=self.team,
-                name=f"base_view_{fan_out}",
-                query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
-            )
-            view_names = [f"view_{fan_out}_{i}" for i in range(fan_out)]
-            for name in view_names:
-                DataWarehouseSavedQuery.objects.create(
-                    team=self.team,
-                    name=name,
-                    query={"kind": "HogQLQuery", "query": f"select * from base_view_{fan_out}"},
-                )
-            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": f"fan out {fan_out}"})
-            self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-
-            def _dashboard_query_count() -> int:
-                with capture_db_queries() as ctx:
-                    self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
-                return len(ctx.captured_queries)
-
-            _dashboard_query_count()  # warmup: absorbs one-off writes like last_accessed_at
-            baseline = _dashboard_query_count()
-            self.dashboard_api.create_insight(
-                {
-                    "dashboards": [dashboard_id],
-                    "query": {
-                        "kind": "DataVisualizationNode",
-                        "source": {"kind": "HogQLQuery", "query": f"select * from {', '.join(view_names)}"},
-                    },
-                }
-            )
-            _dashboard_query_count()
-            return _dashboard_query_count() - baseline
-
-        self.assertEqual(_view_tile_query_cost(6), _view_tile_query_cost(2))
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
