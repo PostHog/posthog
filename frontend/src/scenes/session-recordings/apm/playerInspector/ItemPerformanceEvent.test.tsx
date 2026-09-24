@@ -102,6 +102,7 @@ describe('ItemPerformanceEvent', () => {
 
         const { container } = render(<ItemPerformanceEventDetail item={item} finalTimestamp={null} />)
         const tab = [...container.querySelectorAll('.LemonTabs__tab')].find((el) => el.textContent === tabLabel)
+        expect(tab).toBeTruthy()
         fireEvent.click(tab as Element)
 
         expect(container.textContent).toContain(expectedPrompt)

@@ -347,7 +347,9 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
                               ),
                           }
                         : false,
-                    isNetworkRequest || (item.entry_type !== 'navigation' && item.request_body)
+                    isNetworkRequest ||
+                    // if we're missing the initiator type, but we do have a body then we should show it
+                    (item.entry_type !== 'navigation' && item.request_body)
                         ? {
                               key: 'payload',
                               label: 'Payload',

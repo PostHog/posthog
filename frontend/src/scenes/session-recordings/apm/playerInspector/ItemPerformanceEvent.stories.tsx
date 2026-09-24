@@ -156,9 +156,8 @@ export const NoResponseRecorded: Story = {
     },
 }
 
-// With header and body capture off nothing is captured, so the tabs have no content to show.
-// They must stay, because they hold the only prompt that tells a person how to turn capture on.
-// teamLogic seeds the team from `getAppContext().current_team`, so the flags are lowered there.
+// With capture off the tabs have no content, but they hold the only prompt that tells a person
+// how to turn capture on. teamLogic seeds the team from `getAppContext().current_team`.
 export const NetworkCaptureDisabled: Story = {
     args: {
         item: {
