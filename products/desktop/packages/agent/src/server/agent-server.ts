@@ -4790,6 +4790,13 @@ export class AgentServer {
       if (this.config.serviceTier) {
         openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
       }
+      // Codex sends no trace header, so the gateway stamps a fresh id per
+      // request and a run's generations each land in a trace of one. Codex-only:
+      // this header outranks `traceparent`, so setting it for Claude would
+      // replace the per-turn ids its CLI mints with one id for the whole run.
+      if (taskRunId) {
+        openaiCustomHeaders["X-PostHog-Trace-Id"] = taskRunId;
+      }
     } else {
       customHeaders = buildPosthogScopedPropertyHeaderLines(
         gatewayProperties,
