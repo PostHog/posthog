@@ -172,6 +172,20 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     type_cast=int,  # 512KB
 )
 
+# Config version 2 writer policy, default closed: the projects whose flags may be created,
+# updated and enabled with config version 2, and whether they may create new ones. Disabling
+# and archiving an existing row never depend on either. See docs/internal/feature-flags/api-writes.md.
+FEATURE_FLAG_RULES_V2_TEAM_IDS: frozenset[int] = frozenset(
+    int(team_id) for team_id in get_set(os.getenv("FEATURE_FLAG_RULES_V2_TEAM_IDS", "")) if team_id
+)
+FEATURE_FLAG_RULES_V2_CREATION_ENABLED: bool = get_from_env(
+    "FEATURE_FLAG_RULES_V2_CREATION_ENABLED", False, type_cast=str_to_bool
+)
+# Pilot-scope bound for one rule's opaque metadata object; revisited at the shared-project gate.
+FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES: int = get_from_env(
+    "FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES", 2048, type_cast=int
+)
+
 # Staged rollout for feature flag filters validation (#50084). Rule ids to reject on, comma
 # separated, matching the ids in the violation metrics and in the `code` of each error this
 # returns (e.g. "cross_field.variant_rollout_sum_not_100").

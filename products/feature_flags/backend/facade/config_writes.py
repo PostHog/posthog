@@ -1,11 +1,11 @@
-"""Writer admission and server-owned identity for config version 2 updates.
+"""Writer admission and server-owned identity for config version 2 writes.
 
-Three things a v2 update needs that the pure validator deliberately does not do:
+Three things a v2 write needs that the pure validator deliberately does not do:
 
-- **Admission.** ``v2_update_limits`` is the closed seam the writer asks before it looks at
-  a request. It answers ``None`` in every deployed configuration, so no v2 write is
-  reachable in production through any entrypoint. The production admission requirements
-  are documented in ``docs/internal/feature-flags/api-writes.md``.
+- **Admission.** ``v2_write_limits`` and ``v2_creation_enabled`` are the writer policy, read
+  from two settings that default closed: a project allowlist and a creation switch. Nothing
+  else grants admission. Disabling and archiving an existing v2 row need neither, which the
+  serializer decides; the operation matrix is in ``docs/internal/feature-flags/api-writes.md``.
 - **Identity.** Rule ids and assignment seeds are server-owned and identify rules, not
   list positions. ``resolve_identity`` echoes back existing identity, allocates it for
   genuinely new rules, and rejects a client that tries to choose it.
@@ -34,29 +34,35 @@ from products.feature_flags.backend.facade.config_validation import (
 from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
 
-# The trusted writer policy for admitted v2 updates. ``None`` denies every one of them and
-# is the only value any deployed configuration has: per-team admission is not implemented,
-# and the per-rule metadata byte bound has no agreed production value (see api-writes.md).
-# Tests patch this attribute to exercise the dormant path; nothing reads a request field,
-# a serializer context flag, staff status or a missing user as permission to write v2.
-V2_UPDATE_LIMITS: ValidationLimits | None = None
-
 _SEEDED_RULE_TYPE = "percentage_rollout"
 
 
-def v2_update_limits() -> ValidationLimits | None:
-    """Trusted limits for an admitted v2 update, or ``None`` when the write is denied.
+def v2_write_limits(team_id: int) -> ValidationLimits | None:
+    """Trusted limits for a v2 write on ``team_id``'s flags, or ``None`` when the team is not admitted.
 
-    A lower deployment filter-size limit always wins over the policy's, matching the cap
-    the v1 write path and the Rust reader both enforce.
+    Admission is the ``FEATURE_FLAG_RULES_V2_TEAM_IDS`` allowlist alone: no request field,
+    serializer context flag, staff status or missing user opens it. Settings are read at call
+    time so ``override_settings`` applies in tests.
+
+    ``max_config_bytes`` is the deployment filter-size limit the v1 write path and the Rust
+    reader both enforce. ``max_metadata_bytes`` is pilot scope: its default is sized for the
+    known pilot documents and is revisited at the shared-project gate, before users author
+    documents through the editor or broader API use.
     """
-    limits = V2_UPDATE_LIMITS
-    if limits is None:
+    if team_id not in settings.FEATURE_FLAG_RULES_V2_TEAM_IDS:
         return None
     return ValidationLimits(
-        max_config_bytes=min(limits.max_config_bytes, settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES),
-        max_metadata_bytes=limits.max_metadata_bytes,
+        max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES,
+        max_metadata_bytes=settings.FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES,
     )
+
+
+def v2_creation_enabled(team_id: int) -> bool:
+    """Whether ``team_id`` may create a new v2 flag: admitted and ``FEATURE_FLAG_RULES_V2_CREATION_ENABLED``.
+
+    Closing the creation switch leaves existing rows updatable and enableable in admitted teams.
+    """
+    return bool(settings.FEATURE_FLAG_RULES_V2_CREATION_ENABLED) and v2_write_limits(team_id) is not None
 
 
 def reject_duplicate_json_keys(body: bytes) -> None:
@@ -198,3 +204,23 @@ def review_update(
             ]
         ) from exc
     return review_config(document, limits=limits, current=current).warnings
+
+
+def validate_stored(stored: Mapping[str, Any], *, limits: ValidationLimits) -> None:
+    """Reject enabling a stored document that no longer validates under the current limits.
+
+    Enabling is what makes the document reachable by evaluation, so a row written under an
+    older contract or a larger byte limit must be edited back into validity first.
+    """
+    try:
+        validate_config(stored, limits=limits)
+    except ConfigValidationError as exc:
+        raise ConfigValidationError(
+            [
+                ConfigError(
+                    code="unsupported",
+                    detail="This flag's stored configuration cannot be enabled through this API.",
+                    attr="filters",
+                )
+            ]
+        ) from exc

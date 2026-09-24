@@ -1,9 +1,8 @@
-"""Config version 2 update path: closed in production, exercised through a test-only admission.
+"""Config version 2 update path: full-document replacement, identity, concurrency and admission.
 
-`config_writes.V2_UPDATE_LIMITS` is None in every deployed configuration, so the closed-path
-tests here run with production settings and the admitted ones patch that one attribute.
-Admitting updates is not PH-GATE-001 and not the common safety gate: no production v2 row may
-exist, and these flags are invented test rows.
+Both writer settings default closed, so the closed-path tests run with production settings and
+the admitted ones override the project allowlist. Create, enable, disable and archive are covered
+in test_feature_flag_config_v2_lifecycle. These flags are invented test rows.
 """
 
 import copy
@@ -24,20 +23,13 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-from products.feature_flags.backend.facade import (
-    api as flag_facade,
-    config_writes,
-)
-from products.feature_flags.backend.facade.config_validation import ValidationLimits
+from products.feature_flags.backend.facade import api as flag_facade
 from products.feature_flags.backend.models import FeatureFlag
-
-ADMITTED_LIMITS = ValidationLimits(
-    max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES, max_metadata_bytes=2048
-)
 
 RULE_A = "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90"
 RULE_B = "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e"
@@ -45,8 +37,10 @@ SEED_B = "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
 UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
-def admit_v2_updates():
-    return patch.object(config_writes, "V2_UPDATE_LIMITS", ADMITTED_LIMITS)
+def admit_v2(team_id: int, *, creation: bool = False):
+    return override_settings(
+        FEATURE_FLAG_RULES_V2_TEAM_IDS=frozenset({team_id}), FEATURE_FLAG_RULES_V2_CREATION_ENABLED=creation
+    )
 
 
 def targeted(rule_id: str | None = RULE_A, **extra: Any) -> dict:
@@ -77,7 +71,7 @@ def config(*rules: dict, **extra: Any) -> dict:
 
 class V2UpdateTestCase(APIBaseTest):
     def flag(self, filters: dict | None = None, **extra: Any) -> FeatureFlag:
-        return FeatureFlag.objects.create(
+        flag = FeatureFlag.objects.create(
             team=self.team,
             key=extra.pop("key", "v2-flag"),
             filters=filters if filters is not None else config(targeted(), rollout()),
@@ -85,15 +79,31 @@ class V2UpdateTestCase(APIBaseTest):
             created_by=self.user,
             **extra,
         )
+        ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id)).delete()
+        return flag
 
     def patch_flag(self, flag: FeatureFlag, data: dict, method: str = "patch"):
         return getattr(self.client, method)(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", data, format="json"
         )
 
+    def post_flag(self, data: dict):
+        return self.client.post(f"/api/projects/{self.team.id}/feature_flags/", data, format="json")
 
-class TestV2UpdatesAreClosed(V2UpdateTestCase):
-    """With production settings nothing reaches the v2 path, through any entrypoint."""
+    def activity(self, flag: FeatureFlag) -> list[ActivityLog]:
+        return list(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id)).order_by(
+                "created_at"
+            )
+        )
+
+    @staticmethod
+    def changed_fields(entry: ActivityLog) -> set[str]:
+        return {change["field"] for change in (entry.detail or {})["changes"]}
+
+
+class TestV2WritesAreClosed(V2UpdateTestCase):
+    """With production settings no create, replacement or enable reaches the v2 path, through any entrypoint."""
 
     @parameterized.expand(["patch", "put"])
     def test_http_v2_replacement_is_rejected_and_writes_nothing(self, method: str) -> None:
@@ -159,12 +169,34 @@ class TestV2UpdatesAreClosed(V2UpdateTestCase):
         assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_config_version"
 
+    def test_facade_and_direct_serializer_creates_are_reserved(self) -> None:
+        with self.assertRaises(ValidationError) as caught:
+            flag_facade.create_flag({"key": "new-v2", "filters": config()}, team=self.team, user=self.user)
+        assert caught.exception.get_codes() == {"filters": ["reserved_config_version"]}
+        serializer = FeatureFlagSerializer(
+            data={"key": "new-v2", "filters": config()},
+            context={"request": ServiceRequest(self.user), "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        assert not serializer.is_valid()
+        assert serializer.errors["filters"][0].code == "reserved_config_version"
+        assert not FeatureFlag.objects.filter(key="new-v2").exists()
+
+    @parameterized.expand(["patch", "put"])
+    def test_enabling_is_rejected_without_admission(self, method: str) -> None:
+        flag = self.flag(active=False)
+        response = self.patch_flag(flag, {"key": flag.key, "version": 3, "active": True}, method=method)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "unsupported_config_version"
+        flag.refresh_from_db()
+        assert not flag.active
+        assert flag.version == 3
+
 
 @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
 class AdmittedV2TestCase(V2UpdateTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(admit_v2_updates())
+        self.enterContext(admit_v2(self.team.id))
 
 
 class TestAdmittedV2Updates(AdmittedV2TestCase):
@@ -177,10 +209,8 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         assert flag.filters == {"groups": [{"properties": [], "rollout_percentage": 25}]}
         assert flag.version == 4
 
-    def test_v2_create_stays_reserved_when_updates_are_admitted(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/", {"key": "new-v2", "filters": config()}, format="json"
-        )
+    def test_v2_create_stays_reserved_while_creation_is_closed(self) -> None:
+        response = self.post_flag({"key": "new-v2", "filters": config()})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "reserved_config_version"
         assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
@@ -417,7 +447,7 @@ class TestV2ApprovalPolicyLocking(NonAtomicBaseTest):
             finally:
                 connection.close()
 
-        with admit_v2_updates(), transaction.atomic():
+        with admit_v2(self.team.id), transaction.atomic():
             flag_facade.update_flag(first, {"version": 3, "name": "First"}, team=self.team, user=self.user)
             with ThreadPoolExecutor(max_workers=1) as executor:
                 executor.submit(update_second_flag).result(timeout=10)
@@ -475,7 +505,7 @@ class TestV2ApprovalPolicyLocking(NonAtomicBaseTest):
             assert getattr(error.exception.__cause__, "sqlstate", None) == "55P03"
 
         with (
-            admit_v2_updates(),
+            admit_v2(self.team.id),
             patch.object(FeatureFlag, "save", autospec=True, side_effect=save_with_concurrent_policy),
         ):
             flag_facade.update_flag(flag, {"version": 3, "name": "Renamed"}, team=self.team, user=self.user)
@@ -516,9 +546,8 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
 
     @parameterized.expand(
         [
-            ("active", {"active": False}),
             ("archived", {"archived": True, "active": False}),
-            ("deleted", {"deleted": True}),
+            ("restore", {"deleted": False}),
             ("remote_config", {"is_remote_configuration": True}),
             ("encrypted", {"has_encrypted_payloads": True}),
             ("continuity", {"ensure_experience_continuity": True}),
@@ -669,7 +698,7 @@ class TestV2RequestBytes(AdmittedV2TestCase):
     @parameterized.expand(
         [
             ("config", config(targeted(description="x" * 400)), 200),
-            ("metadata", config(targeted(metadata={"note": "x" * 4000})), ADMITTED_LIMITS.max_config_bytes),
+            ("metadata", config(targeted(metadata={"note": "x" * 4000})), settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES),
         ]
     )
     def test_an_oversized_stored_document_can_be_replaced_within_the_limits(
