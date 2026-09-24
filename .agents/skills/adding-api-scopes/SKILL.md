@@ -21,7 +21,7 @@ If the object is also an access-control resource, use the same name for both.
 - **Public:** OAuth lists it, MCP can request it, and the key picker offers it. This is the default.
 - **Internal:** only the server creates tokens with it. Use `INTERNAL_API_SCOPE_OBJECTS`.
 - **OAuth-hidden:** a person can paste it into a personal API key, but OAuth clients do not see it. Use this for staff-only or unreleased surfaces. Use `OAUTH_HIDDEN_SCOPE_OBJECTS`.
-- **Privileged:** no unprivileged preset or OAuth default includes it. Use `PRIVILEGED_SCOPES`.
+- **Privileged:** only PostHog staff can give it to an OAuth app, through Django admin or a data migration. An app that registers itself cannot get it, and the CLI login and the key picker presets never include it. Use this for a scope that a partner app must not grant to itself, such as `llm_gateway`. Use `PRIVILEGED_SCOPES`, and set `unprivilegedExcluded: true` on the picker row.
 
 Also decide if project secret API keys need it (see `/adding-project-secret-api-key-auth`), and if organizations can restrict it with access control (`ACCESS_CONTROL_RESOURCES` in `products/access_control/backend/facade/user_access_control.py`).
 
