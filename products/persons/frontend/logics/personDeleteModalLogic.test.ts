@@ -24,8 +24,16 @@ describe('personDeleteModalLogic', () => {
             logic.actions.showPersonDeleteModal(PERSON)
             logic.actions.setDeleteConfirmationText('delete')
             logic.actions.setAlsoDeleteEvents(true)
-            logic.actions.deletePerson(PERSON, true, false)
+            logic.actions.setAlsoDeleteRecordings(true)
+            logic.actions.deletePerson(PERSON, true, true)
         }).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({
+            personDeleteModal: null,
+            deleteConfirmationText: '',
+            alsoDeleteEvents: false,
+            alsoDeleteRecordings: false,
+        })
 
         await expectLogic(logic, () => {
             logic.actions.showPersonDeleteModal(OTHER_PERSON)
