@@ -177,7 +177,7 @@ export const clickHouseSetupModalLogic = kea<clickHouseSetupModalLogicType>([
                 port: 8443,
                 user: 'default' as string,
                 password: '' as string,
-                verify: true,
+                verify: true as boolean,
             },
             errors: ({ host, port, user, password }) => ({
                 host: host.trim() ? undefined : 'Host is required',
