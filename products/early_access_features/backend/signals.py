@@ -30,3 +30,26 @@ def create_waitlist_survey_on_concept_stage(sender, instance: EarlyAccessFeature
 
     feature_id = str(instance.id)
     transaction.on_commit(lambda: create_waitlist_survey_for_concept_feature.delay(feature_id))
+
+
+@receiver(post_save, sender=EarlyAccessFeature)
+def close_waitlist_survey_on_graduation(sender, instance: EarlyAccessFeature, **kwargs) -> None:
+    """
+    When an Early Access Feature leaves the `concept` ("Coming Soon") stage, enqueue a task
+    that ends its waitlist survey and takes the survey off the payload. Without this the
+    survey keeps collecting sign-ups from people who already have the feature, and they get
+    welcomed onto a waitlist they never joined.
+
+    Paired with `create_waitlist_survey_on_concept_stage`, and a signal for the same reason:
+    it catches every save path, not only the API update flow.
+    """
+    if instance.stage == EarlyAccessFeature.Stage.CONCEPT:
+        return
+    if not (instance.payload and instance.payload.get("survey_id")):
+        return
+
+    # Imported lazily to avoid import cycles during app loading.
+    from posthog.tasks.early_access_feature import close_waitlist_survey_for_graduated_feature
+
+    feature_id = str(instance.id)
+    transaction.on_commit(lambda: close_waitlist_survey_for_graduated_feature.delay(feature_id))

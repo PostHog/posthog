@@ -12,8 +12,10 @@ import { Breadcrumb, EarlyAccessFeatureAssignee, EarlyAccessFeatureType } from '
 const search = createFeaturePreviewSearch<EarlyAccessFeatureType>()
 
 // The waitlist survey id lives in the untyped `payload` bag, so pin its shape in one place.
+// A feature that left the concept stage keeps its ended survey under `closed_survey_id`, so
+// the sign-ups it collected stay countable.
 export const waitlistSurveyId = (feature: EarlyAccessFeatureType): string | null => {
-    const surveyId = feature.payload?.survey_id
+    const surveyId = feature.payload?.survey_id ?? feature.payload?.closed_survey_id
     return typeof surveyId === 'string' ? surveyId : null
 }
 
