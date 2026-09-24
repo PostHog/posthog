@@ -42,7 +42,6 @@ class SerializedPerson(CommonActor):
     is_identified: Optional[bool]
     name: str
     distinct_ids: list[str]
-    # Only on a persons search response: the searched fields the term was found in.
     matched_fields: NotRequired[list[str]]
 
 

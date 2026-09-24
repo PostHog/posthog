@@ -390,9 +390,7 @@ class DeletionStatusPagination(LimitOffsetPagination):
     default_limit = 100
 
 
-# Keep in step with the OR arms of `PersonStrategy.filter_conditions` and with `TAG_BY_FIELD` in
-# `PersonSearchMatchTags.tsx`: a field added to one and not the others is either tagged without
-# being searched, or searched without being tagged.
+# Keep in sync with `PersonStrategy.filter_conditions` and `TAG_BY_FIELD` in `PersonSearchMatchTags.tsx`.
 class PersonSearchMatchField(TextChoices):
     DISTINCT_ID = "distinct_id", "Distinct ID"
     EMAIL = "email", "Email"
@@ -452,9 +450,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             }
 
 
-# The list builds its rows as dicts rather than through a serializer, so this one only describes
-# them for the schema. `matched_fields` is not read-only, because the schema marks a read-only
-# field as required, and a row that no search produced carries no such key.
+# Schema only, since the list builds its rows as dicts. `matched_fields` is not read-only because
+# the schema marks read-only fields as required.
 @extend_schema_serializer(component_name="PersonListRecord")
 class PersonListRecordSerializer(PersonSerializer):
     matched_fields = serializers.ListField(
@@ -561,8 +558,7 @@ _GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
 # hide the other matches.
 _COMPLETE_EMAIL_TERM = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# The email property keys that `PersonStrategy.filter_conditions` searches. Keep the two lists in
-# step, or an email hit hides a person the fuzzy search finds and that person gets no tag.
+# Keep in sync with the email arms of `PersonStrategy.filter_conditions`.
 _EMAIL_PROPERTY_KEYS = ("email", "Email")
 
 
@@ -576,8 +572,7 @@ def _is_canonical_uuid(value: str) -> bool:
 
 
 def _exact_identifier_hits(team_id: int, search: str) -> dict[str, list[str]]:
-    """Resolve a search term as a person UUID or distinct ID: each hit's person UUID, mapped to
-    the fields the term was found in. Empty when the term matches neither.
+    """Resolve a search term as a person UUID or distinct ID, with the fields it matched; empty when it matches neither.
 
     Fuzzy person search reads every person row and distinct ID of the team, which is what times
     out on large projects. Identifiers resolve over personhog in milliseconds and hold no
@@ -601,14 +596,7 @@ def _exact_identifier_hits(team_id: int, search: str) -> dict[str, list[str]]:
 
 
 def _search_match_fields(search: str, person: SerializedPerson, known_fields: Collection[str] = ()) -> list[str]:
-    """Which searched fields hold the term, so a picker can say why a row is there.
-
-    Two people often share one display name, for example when an address is one person's
-    distinct ID and another person's email property, so the name alone cannot tell them apart.
-    The check is the fuzzy search's: case-insensitive substring over the same fields.
-    `known_fields` carries what the identifier lookup established, because the hydrated distinct
-    IDs are capped and the one that matched can sit past the cap.
-    """
+    # `known_fields` covers a matched distinct ID past the hydration cap.
     needle = search.lower()
     properties = person["properties"]
     checks = (
@@ -755,9 +743,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         include_total = "include_total" in request.GET
         search = (filter.search or "").strip()
-        # Nothing else narrows the result set, so an identifier that resolves over personhog is
-        # the answer, or the head of it, on every page. The lookup is cheap enough to repeat per
-        # page, and repeating it is what keeps the pages of one search consistent.
+        # With no other filter, an identifier hit answers or leads every page.
         can_answer_from_identifier = not person_properties
 
         # This endpoint bypasses `QueryRunner.run()`, so nothing else measures how long it takes.
@@ -817,8 +803,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
             elif search:
                 exact_hits = _exact_identifier_hits(team.pk, search) if can_answer_from_identifier else {}
-                # A UUID hit is the whole answer. An email hit is not, because the address can also
-                # sit in another person's email property, and only ClickHouse can find that row.
+                # An email can also sit in other persons' properties, which only ClickHouse searches.
                 email_property_search = bool(exact_hits) and _COMPLETE_EMAIL_TERM.match(search) is not None
                 if exact_hits and not email_property_search:
                     API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by="exact_identifier").inc()
@@ -834,10 +819,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         exact_hits=exact_hits,
                     )
                 if email_property_search:
-                    # One predicate joins the identifier hit to the property arms of the fuzzy search,
-                    # so every page and the total come from one query. The distinct ID arm stays out,
-                    # because its scan is what makes the fuzzy search slow. The person ID arm cannot
-                    # match an address.
+                    # The fuzzy search's property arms, without its slow distinct ID scan.
                     identifier_hit = " or ".join(f"id = toUUID('{person_uuid}')" for person_uuid in exact_hits)
                     properties = {
                         "type": "OR",
@@ -865,10 +847,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
             actors_runner = ActorsQueryRunner(team=team, query=actors_query)
-            # Tagged before the query, so a failed or cancelled search still records which path it took.
+            # Before the query, so failures carry it too.
             slo.tag(answered_by=answered_by)
-            # personhog found the hit without ClickHouse, which can lag behind it or fail, so the hit
-            # leads the first page whatever the query returns.
+            # ClickHouse can lag behind personhog or fail, so the hit leads the first page regardless.
             hit_leads_page = email_property_search and filter.offset == 0
             actor_ids: list[Any] = []
             total_count: Optional[int] = None
@@ -904,14 +885,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
                 if not hit_leads_page:
                     raise
-                # personhog already answered the hit, so a failed property search returns the hit alone
-                # instead of failing the request. The SLO still records the failure.
+                # Degrade to the personhog hit instead of failing the request.
                 capture_exception(err)
                 slo.fail(error_type=type(err).__name__)
             finally:
                 if email_property_search:
-                    # The runner tagged `has_search` from its query, which carries the address as a
-                    # property filter rather than a search term. The request did search.
+                    # The runner tags `has_search=False` because this query has no `search` field.
                     slo.tag(has_search=True)
 
             if hit_leads_page:
@@ -947,16 +926,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         k: v for k, v in properties.items() if k not in restricted_person_properties
                     }
 
-        # After the property restriction, so a tag never points at a property the caller cannot see.
-        # The CSV renderer spreads a list over one column per element, which would make the export's
-        # header depend on its rows, so an export carries no tags.
+        # After the restriction, so no tag reveals a hidden property. CSV would turn the list into
+        # per-row columns.
         if search and self.request.accepted_renderer.format != "csv":
             for person_dict in serialized_actors:
                 known_fields = exact_hits.get(str(person_dict["id"]), ())
                 person_dict["matched_fields"] = _search_match_fields(search, person_dict, known_fields)
         if exact_hits:
-            # Hydration orders a page by creation date. An identifier hit is the row the term names
-            # outright, so it leads the rows that only hold the term in a property.
+            # Hydration sorts by creation date.
             serialized_actors.sort(key=lambda person_dict: str(person_dict["id"]) not in exact_hits)
 
         # A full page means there may be more behind it. Callers that know the whole result set up

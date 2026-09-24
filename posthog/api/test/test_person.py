@@ -114,7 +114,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "exact_identifier",
                 None,
             ),
-            # An email hit still asks ClickHouse for the address as a property, which tags the actor type.
             (
                 "exact identifier and email property",
                 "?search=someone@gmail.com",
@@ -202,7 +201,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("partial term", "?search=someone", status.HTTP_500_INTERNAL_SERVER_ERROR, "clickhouse", None),
-            # personhog already found the person the address names, so the first page still has an answer.
             (
                 "email hit",
                 "?search=someone@gmail.com",
@@ -233,7 +231,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             properties={"email": "someone@gmail.com"},
             immediate=True,
         )
-        # Fails the query itself, so the runner has already tagged the SLO event from its own query.
+        # Below `calculate`, so the runner's own SLO tags still apply.
         with (
             mock.patch(
                 "posthog.hogql_queries.paginators.execute_hogql_query",
@@ -337,7 +335,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with self.capture_select_queries() as clickhouse_queries:
             response = self.client.get("/api/person/?search=abe@example.com&include_total=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # The identifier hit leads, and holding the address as a property too lists it once.
         self.assertEqual(
             [(result["id"], result["matched_fields"]) for result in response.json()["results"]],
             [
@@ -349,8 +346,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.json()["count"], 4)
         self.assertIsNone(response.json()["next"])
-        # The identifier hit answered the ID arms of the fuzzy search, so the page and count queries
-        # read person properties and never scan the team's distinct IDs.
+        # The distinct ID scan is what makes the fuzzy search slow.
         person_queries = [
             query for query in clickhouse_queries if "system.columns" not in query and "system.tables" not in query
         ]
@@ -358,8 +354,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         for query in person_queries:
             self.assertNotIn("person_distinct_id2", query)
 
-        # One person per page: the hit fills the first page on its own and the property matches
-        # follow, so following `next` repeats nobody and skips nobody.
         listed: list[str] = []
         next_url: Optional[str] = "/api/person/?search=abe@example.com&limit=1&include_total=true"
         while next_url:
@@ -380,8 +374,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_person(team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True)
         flush_persons_and_events()
 
-        # A person can hold more distinct IDs than a response hydrates, so the tag cannot depend on
-        # the matched one being in the hydrated list.
         hydrate_no_distinct_ids = functools.partial(get_serialized_people, distinct_id_limit=0)
         with mock.patch("posthog.api.person.get_serialized_people", new=hydrate_no_distinct_ids):
             response = self.client.get("/api/person/?search=abe@example.com")
@@ -2137,8 +2129,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
-        # The renderer would spread `matched_fields` over one column per element, so a searched
-        # export keeps the header of an unsearched one.
         response = self.client.get("/api/person.csv?search=4")
         lines = response.content.splitlines()
         self.assertGreater(len(lines), 1)
@@ -2699,7 +2689,6 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        # The distinct ID finds the row. A tag on the hidden property would confirm what it holds.
         response = self.client.get("/api/person/?search=hidden@example.com")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(

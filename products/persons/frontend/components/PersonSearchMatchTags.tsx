@@ -13,9 +13,8 @@ const TAG_BY_FIELD: Record<PersonSearchMatchFieldEnumApi, TagContent> = {
     id: { label: 'Person ID', explanation: "The search matched this person's ID." },
 }
 
-/** Which of a person's fields a search matched, for picker rows where two people can share one display name. */
 export function PersonSearchMatchTags({ person }: { person: PersonType }): JSX.Element | null {
-    // A field this bundle predates gets no tag rather than a wrong one.
+    // Skip fields newer than this bundle.
     const tags = (person.matched_fields ?? []).flatMap(
         (field) => TAG_BY_FIELD[field as PersonSearchMatchFieldEnumApi] ?? []
     )
