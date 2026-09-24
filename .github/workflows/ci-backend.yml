@@ -2246,22 +2246,13 @@ jobs:
                   ch_migrations() {
                       git diff --name-only --diff-filter="$1" "$2"..HEAD -- posthog/clickhouse/migrations/ | awk '!/README|__pycache__/' | sort
                   }
-                  # A stacked PR can carry master's migrations through a merge. Keep
-                  # paths that differ in content, including number collisions.
+                  # Compare contents against master so conflicting additions still reach validation.
+                  ch_migrations AM origin/master > "$RUNNER_TEMP/ch-master.txt"
                   for filter in A AM; do
                       ch_migrations "$filter" "$DIFF_BASE" > "$RUNNER_TEMP/ch-base-$filter.txt"
                       output="$RUNNER_TEMP/ch-migrations-changed.txt"
                       [ "$filter" = A ] && output="$RUNNER_TEMP/ch-migrations-added.txt"
-                      : > "$output"
-                      while IFS= read -r file; do
-                          if git diff --quiet origin/master HEAD -- "$file"; then
-                              continue
-                          else
-                              status=$?
-                              [ "$status" -eq 1 ] || exit "$status"
-                          fi
-                          printf '%s\n' "$file" >> "$output"
-                      done < "$RUNNER_TEMP/ch-base-$filter.txt"
+                      comm -12 "$RUNNER_TEMP/ch-base-$filter.txt" "$RUNNER_TEMP/ch-master.txt" > "$output"
                   done
                   cat "$RUNNER_TEMP/ch-migrations-changed.txt"
 

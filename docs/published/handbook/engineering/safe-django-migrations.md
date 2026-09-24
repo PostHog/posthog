@@ -842,6 +842,10 @@ class Migration(migrations.Migration):
 
 ## General Best Practices
 
+On stacked PRs, the CI SQL report skips new migration files whose contents already match master.
+Files with different contents at the same path remain visible for review.
+ClickHouse checks also exclude master's unchanged migrations, while retaining new files that conflict with master's migration numbers.
+
 ### 1. One Risky Operation Per Migration
 
 Split migrations with multiple risky operations into separate migrations. This makes rollback easier and reduces deployment risk.
