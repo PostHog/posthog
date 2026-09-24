@@ -9,6 +9,8 @@ export interface ReportVerdict {
   title: string;
   /** One or two sentences: why the report is in this state and what to do. */
   body: string;
+  /** What research wrote to justify the state, when the state is its verdict. */
+  rationale?: string;
 }
 
 /**
@@ -19,10 +21,17 @@ export interface ReportVerdict {
  * `hasExistingPr` folds in what the report row alone can't know: a linked
  * implementation task may hold a live PR before `implementation_pr_url` is
  * stamped (see findContinuableImplementationTask).
+ *
+ * `actionabilityExplanation` is the reasoning off the report's latest
+ * actionability judgment. A verdict that parks the report carries it, because
+ * the reader cannot act on the verdict without knowing what drove it.
  */
 export function deriveReportVerdict(
   report: SignalReport,
-  { hasExistingPr }: { hasExistingPr: boolean },
+  {
+    hasExistingPr,
+    actionabilityExplanation,
+  }: { hasExistingPr: boolean; actionabilityExplanation?: string | null },
 ): ReportVerdict {
   switch (report.status) {
     case "resolved":
@@ -105,12 +114,17 @@ export function deriveReportVerdict(
         title: "Needs your direction",
         body: "A fix needs your call first: business context, trade-offs, or a choice between approaches. Add direction when you start the PR, or ask about it in chat.",
       };
-    case "not_actionable":
+    case "not_actionable": {
+      const rationale = actionabilityExplanation?.trim() || undefined;
       return {
         tone: "info",
-        title: "For your awareness",
-        body: "No code change follows from this report. Read it, then dismiss it.",
+        title: "Not actionable after research",
+        body: rationale
+          ? "Research judged this report not actionable, so no implementation was started and no run failed. Read the reasoning, then dismiss the report."
+          : "Research judged this report not actionable, so no implementation was started and no run failed. Open Activity for the judgment, then dismiss the report.",
+        rationale,
       };
+    }
     default:
       return {
         tone: "decision",

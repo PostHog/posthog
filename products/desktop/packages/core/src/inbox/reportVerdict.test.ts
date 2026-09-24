@@ -75,7 +75,7 @@ describe("deriveReportVerdict", () => {
     [
       { status: "ready", actionability: "not_actionable" },
       false,
-      "For your awareness",
+      "Not actionable after research",
       "info",
     ],
     [{ status: "ready" }, false, "Ready for review", "decision"],
@@ -97,4 +97,28 @@ describe("deriveReportVerdict", () => {
     });
     expect(verdict.title).toBe("Agent investigating");
   });
+
+  it("carries the research reasoning on a report parked as not actionable", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "not_actionable" }),
+      {
+        hasExistingPr: false,
+        actionabilityExplanation: "  The rate limit is working as designed.  ",
+      },
+    );
+    expect(verdict.rationale).toBe("The rate limit is working as designed.");
+    expect(verdict.body).toContain("Read the reasoning");
+  });
+
+  it.each([undefined, null, "   "])(
+    "omits the rationale when research recorded %j",
+    (explanation) => {
+      const verdict = deriveReportVerdict(
+        report({ status: "ready", actionability: "not_actionable" }),
+        { hasExistingPr: false, actionabilityExplanation: explanation },
+      );
+      expect(verdict.rationale).toBeUndefined();
+      expect(verdict.body).toContain("Open Activity for the judgment");
+    },
+  );
 });

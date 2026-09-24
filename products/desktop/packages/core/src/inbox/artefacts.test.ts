@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildReviewerOptions,
   buildSuggestedReviewerItems,
+  extractActionabilityExplanation,
   extractSuggestedReviewers,
   orderSuggestedReviewers,
   reviewerMatchesAvailable,
@@ -264,5 +265,35 @@ describe("artefacts", () => {
     },
   ])("builds write content from the $name", ({ reviewer, expected }) => {
     expect(toSuggestedReviewerWriteContent([reviewer])).toEqual(expected);
+  });
+
+  describe("extractActionabilityExplanation", () => {
+    const judgment = (created_at: string, explanation: unknown) => ({
+      type: "actionability_judgment",
+      created_at,
+      content: { actionability: "not_actionable", explanation },
+    });
+
+    it("takes the reasoning from the newest judgment, whatever the list order", () => {
+      expect(
+        extractActionabilityExplanation([
+          judgment("2026-01-02T00:00:00Z", "The behavior is expected."),
+          { type: "note", created_at: "2026-01-03T00:00:00Z", content: {} },
+          judgment("2026-01-01T00:00:00Z", "Too vague to act on."),
+        ]),
+      ).toBe("The behavior is expected.");
+    });
+
+    it.each([
+      ["no artefacts", undefined],
+      [
+        "no judgment",
+        [{ type: "note", created_at: "2026-01-01T00:00:00Z", content: {} }],
+      ],
+      ["a blank explanation", [judgment("2026-01-01T00:00:00Z", "   ")]],
+      ["a non-string explanation", [judgment("2026-01-01T00:00:00Z", 7)]],
+    ])("returns null for %s", (_label, results) => {
+      expect(extractActionabilityExplanation(results)).toBeNull();
+    });
   });
 });

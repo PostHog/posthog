@@ -6,7 +6,10 @@ import {
   EyeSlashIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
-import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
+import {
+  extractActionabilityExplanation,
+  extractRepoSelectionRepository,
+} from "@posthog/core/inbox/artefacts";
 import {
   resolveInboxReportDetailCache,
   updateInboxReportCaches,
@@ -143,6 +146,9 @@ export function ReportVerdictBanner({
   const cloudRepository = extractRepoSelectionRepository(
     artefactsResp?.results,
   );
+  const actionabilityExplanation = extractActionabilityExplanation(
+    artefactsResp?.results,
+  );
 
   // Structural dedupe guard: re-engaging a report that already has live
   // implementation work (an open PR, or a run still in flight) should continue
@@ -198,7 +204,10 @@ export function ReportVerdictBanner({
     hasExistingPr ||
     findLatestDiscussionTask(reportTasks) !== null;
 
-  const verdict = deriveReportVerdict(report, { hasExistingPr });
+  const verdict = deriveReportVerdict(report, {
+    hasExistingPr,
+    actionabilityExplanation,
+  });
 
   const fireAction = useReportActionTracker(report, surface, triageId);
   const openTask = useOpenTask();

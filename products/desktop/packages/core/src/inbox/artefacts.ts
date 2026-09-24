@@ -262,3 +262,33 @@ export function toSuggestedReviewerWriteContent(
     })
     .filter((entry): entry is SuggestedReviewerWriteEntry => entry !== null);
 }
+
+function hasActionabilityExplanation(
+  content: unknown,
+): content is { explanation: string } {
+  return (
+    typeof content === "object" &&
+    content !== null &&
+    "explanation" in content &&
+    typeof content.explanation === "string"
+  );
+}
+
+/**
+ * Why research reached its latest actionability verdict. The judgment is
+ * rewritten on every research pass, so the newest artefact is the one that
+ * describes the report's current state.
+ */
+export function extractActionabilityExplanation(
+  results: { type: string; content: unknown; created_at: string }[] | undefined,
+): string | null {
+  const latest = (results ?? [])
+    .filter((entry) => entry.type === "actionability_judgment")
+    .sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    )
+    .at(-1);
+  if (!latest || !hasActionabilityExplanation(latest.content)) return null;
+  return latest.content.explanation.trim() || null;
+}

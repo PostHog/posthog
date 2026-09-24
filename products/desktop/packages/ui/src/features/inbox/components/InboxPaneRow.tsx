@@ -1,5 +1,7 @@
-import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
-import { REPORT_IMPLEMENTATION_LABELS } from "@posthog/core/inbox/reportImplementation";
+import {
+  REPORT_IMPLEMENTATION_LABELS,
+  type ReportImplementationState,
+} from "@posthog/core/inbox/reportImplementation";
 import {
   deriveHeadline,
   humanizeReportTitle,
@@ -10,6 +12,7 @@ import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
+import { ReportImplementationStatus } from "@posthog/ui/features/inbox/components/ReportImplementationStatus";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
@@ -84,15 +87,10 @@ export function InboxPaneRow({
               </span>
             )}
             {implementationState && (
-              <span
-                className={`mt-1 flex items-center gap-1.5 text-[12px] ${implementationState === "working" ? "text-blue-11" : "text-amber-11"}`}
-              >
-                <span
-                  aria-hidden="true"
-                  className="size-1.5 rounded-full bg-current"
-                />
-                {REPORT_IMPLEMENTATION_LABELS[implementationState]}
-              </span>
+              <ReportImplementationStatus
+                state={implementationState}
+                className="mt-1"
+              />
             )}
             <span className="mt-1 block truncate text-muted-foreground/70 text-xxs">
               {formatRelativeAge(report.created_at)}

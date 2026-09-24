@@ -35,6 +35,11 @@ export function ReportVerdictCallout({
           {verdict.title}
         </span>
         <span className="text-[14px] text-gray-11">{verdict.body}</span>
+        {verdict.rationale && (
+          <p className="m-0 mt-1 whitespace-pre-line border-border border-l-2 pl-3 text-[13px] text-muted-foreground">
+            {verdict.rationale}
+          </p>
+        )}
         {details}
       </div>
       {children}
