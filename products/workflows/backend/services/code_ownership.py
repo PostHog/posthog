@@ -28,8 +28,6 @@ _OPERATIONS_ACTIONS: Final = frozenset(
     }
 )
 
-# Actions that answer a POST but store nothing. `code` takes the editor's unsaved state in the body and
-# renders it, which is how a person turns local edits to a code-managed workflow into the file to commit.
 _READ_ACTIONS: Final = frozenset({"code"})
 
 _UPDATE_ACTIONS: Final = frozenset({"update", "partial_update"})

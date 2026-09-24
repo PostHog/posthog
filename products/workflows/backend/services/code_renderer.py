@@ -1,16 +1,3 @@
-"""Renders a stored workflow as `@posthog/workflows` TypeScript source.
-
-The SDK's `emit.ts` maps source to a definition. This module walks the definition the read API
-returns and writes the source back, so the two stay inverses. The golden fixtures under
-`products/workflows/backend/test/fixtures/code_renderer/` hold the pairs: each `.json` must render
-as its `.ts` byte for byte, and a `.roundtrip.json` holds what that `.ts` emits where it differs
-from the stored `.json`.
-
-Everything the SDK cannot express stays visible. A step or trigger that needs a loose type uses the
-SDK pass-through helpers, a lost setting becomes a `CodeWarning`, and the file opens with the
-warnings as a comment so an agent reading the source alone sees the gaps.
-"""
-
 from __future__ import annotations
 
 import re
@@ -26,12 +13,9 @@ TRIGGER_ID = "trigger_node"
 EXIT_ID = "exit_node"
 
 _INDENT = "    "
-# A value whose one-line form is longer than this breaks across lines.
 _INLINE_WIDTH = 80
 
-# Keys PostHog stamps on a function input at validation. The SDK's `diff.ts` ignores the same set.
 _DERIVED_INPUT_KEYS = frozenset({"bytecode", "bytecode_error", "transpiled", "order", "secret"})
-# Keys PostHog compiles onto a branch condition's filters.
 _DERIVED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "source"})
 _CONDITION_CONSTRUCTORS = {"person": "person", "event": "eventProperty", "group": "group"}
 _SET_OPERATORS = frozenset({"is_set", "is_not_set"})
@@ -40,23 +24,17 @@ _WEBHOOK_METHODS = frozenset({"POST", "PUT", "PATCH", "GET", "DELETE"})
 _VARIABLE_TYPES = frozenset({"string", "number", "boolean"})
 _SDK_EXIT_CONDITIONS = frozenset({"exit_only_at_end", "exit_on_trigger_not_matched"})
 _DEFAULT_EXIT_CONDITION = "exit_only_at_end"
-# The condition the file declares in place of a stored one it cannot declare, which is the stored
-# condition without its conversion part.
 _EXIT_CONDITION_WITHOUT_CONVERSION = {
     "exit_on_conversion": "exit_only_at_end",
     "exit_on_trigger_not_matched_or_conversion": "exit_on_trigger_not_matched",
 }
 _HOISTABLE_TYPES = frozenset({"delay", "function", "function_email"})
 
-# The render walks every action, edge and branch arm once, and a request or a stored row can hold
-# any count of them. These caps are far above what the editor builds, and keep one render from
-# holding a web worker.
 MAX_ACTIONS = 1000
 MAX_EDGES = 2000
 MAX_BRANCH_ARMS = 100
 
 _IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
-# The same pattern and caps `emit.ts` checks, so a wait the push would refuse is warned about here.
 _DURATION = re.compile(r"(?P<amount>[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?P<unit>[dhms])")
 _DURATION_CAPS = {"d": 30, "h": 24, "m": 60, "s": 60}
 _REPEAT_ID = re.compile(r"(?P<base>.+)_(?P<count>\d+)")
@@ -69,8 +47,6 @@ _JS_RESERVED = frozenset(
 
 @frozen
 class CodeWarning:
-    """One thing the rendered source does not carry. `action_id` is None for a workflow-level loss."""
-
     action_id: str | None
     message: str
 
@@ -90,7 +66,6 @@ def _list(value: Any) -> list[Any]:
 
 
 def branch_arm_count(action: dict[str, Any]) -> int:
-    """How many `branch` edges the step's type reads, which are the indexes `0..count - 1`."""
     kind = action.get("type")
     config = _dict(action.get("config"))
     if kind == "conditional_branch":
@@ -107,11 +82,6 @@ class WorkflowTooLargeToRender(ValueError):
 
 
 def render_workflow_code(definition: dict[str, Any]) -> RenderedWorkflowCode:
-    """Renders a workflow definition, in the shape the read API returns, as SDK source.
-
-    Raises `WorkflowTooLargeToRender` before any walk when the definition is over `MAX_ACTIONS`,
-    `MAX_EDGES` or `MAX_BRANCH_ARMS`.
-    """
     actions = _list(definition.get("actions"))
     if len(actions) > MAX_ACTIONS:
         raise WorkflowTooLargeToRender(f"The workflow has more than {MAX_ACTIONS} steps.")
@@ -120,10 +90,6 @@ def render_workflow_code(definition: dict[str, Any]) -> RenderedWorkflowCode:
     if any(isinstance(action, dict) and branch_arm_count(action) > MAX_BRANCH_ARMS for action in actions):
         raise WorkflowTooLargeToRender(f"A step of the workflow has more than {MAX_BRANCH_ARMS} branch arms.")
     return _Renderer(definition).render()
-
-
-# Plain JSON values print as literals. These three wrap what JSON cannot say: a call, a bare
-# identifier, and a comment that keeps its place in a list or an object.
 
 
 @frozen(kw_only=False)
@@ -159,8 +125,6 @@ def _key(key: str) -> str:
 
 
 def _comment_line(indent: str, text: str) -> str:
-    # A step name is free text, so a line terminator in it would end the comment and turn the
-    # rest of the name into code. U+2028 and U+2029 end a line in JavaScript too.
     safe = re.sub(r"[\n\r\u2028\u2029]", lambda match: f"\\u{ord(match.group(0)):04x}", text)
     return f"{indent}// {safe}".rstrip()
 
@@ -182,7 +146,6 @@ def _is_primitive(value: Any) -> bool:
 
 
 def _inline(node: Any) -> str | None:
-    """The one-line form of a node, or None when the node holds a comment and has to break."""
     if isinstance(node, _Identifier):
         return node.name
     if isinstance(node, _Comment):
@@ -212,7 +175,6 @@ def _print(node: Any, indent: str) -> str:
         return inline
     inner = indent + _INDENT
     if isinstance(node, _Call):
-        # A trailing object hugs the parentheses, the way a formatter prints `workflow({ ... })`.
         if node.args and isinstance(node.args[-1], dict) and all(_is_primitive(arg) for arg in node.args[:-1]):
             leading = "".join(f"{_literal(arg)}, " for arg in node.args[:-1])
             return f"{node.name}({leading}{_print(node.args[-1], indent)})"
@@ -243,7 +205,6 @@ def _items(items: tuple[Any, ...] | list[Any], indent: str) -> str:
 
 
 def _slug(name: str) -> str:
-    """The action id `emit.ts` derives from a step name."""
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
@@ -271,8 +232,6 @@ def _json_lines(value: Any) -> tuple[str, ...]:
 
 
 def _is_set(value: Any) -> bool:
-    """Whether a stored field carries a value the editor's defaults do not: `""`, `[]`, `{}`, None and
-    whitespace all count as unset, and so does a container that holds nothing but those."""
     if value is None or isinstance(value, bool | int | float):
         return value is not None
     if isinstance(value, str):
@@ -286,8 +245,6 @@ def _is_set(value: Any) -> bool:
 
 @frozen
 class _Placement:
-    """One action at one place in the path. `arms` is set on a branch, one path per condition."""
-
     action: dict[str, Any]
     arms: tuple[tuple[_Placement, ...], ...] | None = None
 
@@ -307,21 +264,13 @@ class _Renderer:
         self.warnings: list[CodeWarning] = []
         self.imports: set[str] = set()
         self.visited: set[str] = set()
-        # The steps inside an arm that cannot be kept are placed nowhere, so they render nothing.
         self.dropped: set[str] = set()
-        # Which arm of the stored branch each rendered arm came from, after empty arms are dropped.
         self.kept_arms: dict[str, list[int]] = {}
         self.edgeless_arms: dict[str, set[int]] = {}
         self.pass_through: list[str] = []
-        # The secret variable each step names, so two distinct steps naming one variable warn.
         self.secret_owner: dict[str, str] = {}
-        # The step calls by action id, without their `id` option, and the comment blocks of the
-        # steps that have no constructor.
         self.calls: dict[str, _Call] = {}
         self.comments: dict[str, _Comment] = {}
-        # A step placed more than once prints as one const. `repeats` maps each re-placement to the
-        # first placement, `hoisted` lists those first placements in graph order, and
-        # `const_names` gives each of them its const.
         self.repeats: dict[str, str] = {}
         self.hoisted: list[str] = []
         self.const_names: dict[str, str] = {}
@@ -371,11 +320,6 @@ class _Renderer:
         return name
 
     def walk(self, start: str, stop: str) -> tuple[_Placement, ...]:
-        """Follows `continue` edges from `start` until `stop`, placing a branch's arms in between.
-
-        An arm stops where the branch's own `continue` edge points, which is the step after the
-        branch, so this reads back exactly the path `emit.ts` laid out.
-        """
         placements: list[_Placement] = []
         node = start
         while node != stop:
@@ -431,13 +375,6 @@ class _Renderer:
     def droppable_arms(
         self, action_id: str, arms: tuple[tuple[_Placement, ...], ...], arm_count: int, *, conditions_follow: bool
     ) -> set[int]:
-        """The arms without steps that the file can leave out and still route every person the same way.
-
-        PostHog takes the first arm that matches, so leaving out an arm before an arm with steps
-        sends a person who matches both down the later arm. Only a trailing run of arms without
-        steps can go. When `conditions_follow` is false the step keeps every condition in its
-        config, so an arm with an edge must keep that edge and only an arm without one can go.
-        """
         edgeless = self.edgeless_arms.get(action_id, set()) | set(range(len(arms), arm_count))
         droppable: set[int] = set()
         for index in reversed(range(arm_count)):
@@ -458,7 +395,6 @@ class _Renderer:
 
     @classmethod
     def _base_options(cls, action: dict[str, Any]) -> dict[str, Any]:
-        """The options every step constructor opens with, in the order `emit.ts` writes them."""
         options: dict[str, Any] = {"name": cls._name(action)}
         description = action.get("description")
         if _is_set(description):
@@ -467,7 +403,6 @@ class _Renderer:
 
     @staticmethod
     def _flatten(placements: tuple[_Placement, ...]) -> Iterator[_Placement]:
-        # The order `emit.ts` hands out ids in: a branch, then its arms, then the step after it.
         for placement in placements:
             yield placement
             for arm in placement.arms or ():
@@ -489,8 +424,6 @@ class _Renderer:
         elif kind == "function_email":
             call = self.render_email(action, config)
         elif kind == "conditional_branch":
-            # A branch renders its conditions before it knows it can keep `branch()`. When it falls
-            # back to `step()`, drop the condition helpers it imported, because the file never calls them.
             imports = set(self.imports)
             call = self.render_branch(action, config, placement.arms or ())
             if call is None or call.name != "branch":
@@ -582,12 +515,6 @@ class _Renderer:
         return _Call(self.use("delay"), (duration, self._base_options(action)))
 
     def secret_base(self, action: dict[str, Any]) -> str:
-        """The id a secret's variable is named after.
-
-        A step placed twice shares one `secret()` in the source, so the numbered re-placement
-        names the variable after the first placement. Without that the two placements would
-        render differently and never fold back into one const.
-        """
         match = _REPEAT_ID.fullmatch(action["id"])
         if match and match["count"] == str(int(match["count"])):
             first = self.actions.get(match["base"])
@@ -647,7 +574,6 @@ class _Renderer:
         return _Call(self.use("fn"), ({**self._base_options(action), "templateId": template_id, "inputs": values},))
 
     def render_webhook(self, action: dict[str, Any], values: dict[str, Any]) -> _Call | None:
-        """`webhook()` when every input is one it writes, else None so `fn()` keeps the exact inputs."""
         if set(values) - _WEBHOOK_INPUTS or not isinstance(values.get("url"), str):
             return None
         method = values.get("method", "POST")
@@ -755,7 +681,6 @@ class _Renderer:
                 action["id"],
                 f'The recipient of "{name}" carries more than an address. {PACKAGE} sends to the address only.',
             )
-        # The editor stores `cc`, `bcc` and `replyTo` empty on every email, so only a value is a loss.
         for key, value in message.items():
             if key not in ("from", "to", "subject", "text", "html", "design", "preheader") and _is_set(value):
                 self.warn(
@@ -811,13 +736,9 @@ class _Renderer:
         if not isinstance(conditions, list) or not conditions:
             return None
         self.warn_extra_config(action, config, frozenset({"conditions"}))
-        # `emit.ts` refuses an empty arm. A trailing empty arm sends a person to the step after
-        # the branch, which is where the fall-through goes too, so dropping it changes nothing at
-        # run time. An earlier one stays, because dropping it would change which arm matches first.
         dropped = self.droppable_arms(action["id"], placed_arms, len(conditions), conditions_follow=True)
         arms = []
         kept: list[int] = []
-        # The arm warnings wait for `branch()` to hold, because a fallback to `step()` keeps the arms differently.
         dropped_names: list[Any] = []
         empty_kept: list[tuple[int, Any]] = []
         for index, condition in enumerate(conditions):
@@ -839,8 +760,6 @@ class _Renderer:
             when = [self.render_condition(action["id"], entry) for entry in properties]
             if any(entry is None for entry in when):
                 return self.render_pass_through_step(action, config, placed_arms)
-            # `then` is filled once every arm's steps are rendered, because a step inside an arm
-            # may be a re-placement of a step that comes earlier in the path.
             arms.append({"name": condition.get("name", ""), "when": when, "then": None})
             kept.append(index)
         if not arms:
@@ -856,12 +775,6 @@ class _Renderer:
         return _Call(self.use("branch"), ({**self._base_options(action), "branches": arms},))
 
     def hoist_repeats(self, placements: tuple[_Placement, ...]) -> None:
-        """Turns a step placed more than once into one const, following the `_2` rule of `emit.ts`.
-
-        A placement is a repeat when its id is an earlier placement's id with `_<n>` appended,
-        `n` is one more than the placements that base already has, and the two steps render the
-        same. Anything else is its own step, with the id it carries.
-        """
         count_of_base: dict[str, int] = {}
         for placement in placements:
             action_id = placement.id
@@ -894,7 +807,6 @@ class _Renderer:
 
     @staticmethod
     def with_id(call: _Call, action: dict[str, Any]) -> _Call:
-        # `emit.ts` derives the id from the name, so the id is written only when it differs.
         options = call.args[-1]
         if action["id"] == _slug(options["name"]):
             return call
@@ -945,8 +857,6 @@ class _Renderer:
     def render_raw_trigger(
         self, trigger: dict[str, Any], config: dict[str, Any], trigger_options: dict[str, Any]
     ) -> _Call:
-        # A stored secret reads back as a mask, which a push under a new key cannot deploy, so each
-        # secret input becomes a `secret()` the file resolves from the environment, as a step's does.
         rendered = self.render_config(trigger, config)
         return _Call(self.use("trigger"), (rendered, trigger_options) if trigger_options else (rendered,))
 

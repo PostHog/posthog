@@ -16,7 +16,6 @@ from products.workflows.backend.services.code_renderer import (
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "code_renderer"
 
-# The warnings each fixture must report, in order. A fixture absent here renders with none.
 EXPECTED_WARNINGS: dict[str, list[dict[str, str | None]]] = {
     "crm_follow_up": [
         {

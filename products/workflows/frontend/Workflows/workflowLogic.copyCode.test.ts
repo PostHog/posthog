@@ -183,7 +183,6 @@ describe('workflowLogic copy code', () => {
     })
 
     it('copies the unsaved changes the editor holds', async () => {
-        // Auto-save would clear the dirty state on its own a few seconds later.
         logic.actions.setAutoSaveEnabled(false)
         logic.actions.setWorkflowValue('name', 'Still typing')
         logic.actions.setWorkflowValue('edges', [])

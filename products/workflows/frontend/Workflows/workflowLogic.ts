@@ -97,7 +97,6 @@ function workflowCodeRequest(workflow: HogFlow): HogFlowCodeRequestApi {
         actions: workflow.actions,
         edges: workflow.edges,
         variables: workflow.variables ?? [],
-        // The editor allows a conversion event without filters, but the request type requires them.
         conversion: conversion && {
             ...conversion,
             events: conversion.events?.map((event) => ({ ...event, filters: event.filters ?? {} })),
@@ -4018,7 +4017,6 @@ export const workflowLogic = kea<workflowLogicType>([
         copyCodeDisabledReason: [
             (s) => [s.logicProps],
             (logicProps: WorkflowLogicProps): string | undefined => {
-                // The code endpoint is a detail route, so a workflow needs an id before it can render.
                 if (!logicProps.id || logicProps.id === 'new') {
                     return 'Save the workflow first'
                 }

@@ -209,7 +209,6 @@ class TestHogFlowCode(APIBaseTest):
 
         response = self._code(str(flow.id))
 
-        # A missing route is a 404 too, so the body has to say the object was not found.
         assert response.status_code == 404
         assert response.json()["detail"] == "Not found."
 

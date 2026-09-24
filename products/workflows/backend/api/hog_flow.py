@@ -2864,9 +2864,6 @@ class HogFlowCodeSerializer(serializers.Serializer):
     )
 
 
-# The request fields below are typed like the stored workflow for codegen, but only their outer shape
-# is checked at runtime. The editor holds half-finished steps that a save accepts as a lenient draft,
-# so a copy must not refuse them. The renderer reads every nested value defensively.
 class _JSONObjectListField(serializers.JSONField):
     def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
         value = super().to_internal_value(data)
@@ -2976,7 +2973,6 @@ class HogFlowCodeRequestSerializer(serializers.Serializer):
         edges = attrs.get("edges")
         if edges is None:
             return attrs
-        # A body may send edges without actions, so an edge can leave a step the workflow stores.
         actions = attrs.get("actions")
         if actions is None:
             actions = self.context.get("stored_actions") or []
@@ -5532,8 +5528,6 @@ class HogFlowViewSet(
     )
     @action(detail=True, methods=["GET", "POST"], filter_backends=[], url_path="code")
     def code(self, request: Request, *args, **kwargs) -> Response:
-        # Renders what the editor shows: the staged draft when one exists, else the live definition.
-        # The serializer output is the input on purpose, so secrets arrive already masked.
         data = self.get_serializer(self.get_object()).data
         definition = {**data, **(data.get("draft") or {})}
         if request.method == "POST":
@@ -5543,8 +5537,6 @@ class HogFlowViewSet(
             unsaved.is_valid(raise_exception=True)
             posted = dict(unsaved.validated_data)
             if "actions" in posted:
-                # A body can carry a secret in plaintext. Mask it the way a read masks a stored
-                # secret, so the source names the secret and never prints its value.
                 posted["actions"] = mask_secret_action_inputs(deepcopy(posted["actions"]), {}, {})
             definition.update(posted)
         try:
