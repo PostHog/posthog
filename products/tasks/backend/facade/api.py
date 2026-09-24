@@ -9832,23 +9832,29 @@ def start_space_setup(
             raise contracts.SpaceSetupInProgressError("Space setup is already running. Open its task to see progress.")
         repository = request.repository or (channel.repositories[0] if channel.repositories else None)
         request = replace(request, repository=repository)
-        task = Task.create_and_run(
-            team=team,
-            title=space_setup_task_title(channel.name, request),
-            description=build_space_setup_prompt(
-                team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
-            ),
-            origin_product=Task.OriginProduct.SPACE_SETUP,
-            user_id=user_id,
-            channel=channel,
-            create_pr=False,
-            posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
-            runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
-            model=SPACE_SETUP_MODEL,
-            reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
-            initial_permission_mode="auto",
-            client_provenance=client_provenance,
-        )
+        try:
+            task = Task.create_and_run(
+                team=team,
+                title=space_setup_task_title(channel.name, request),
+                description=build_space_setup_prompt(
+                    team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
+                ),
+                origin_product=Task.OriginProduct.SPACE_SETUP,
+                user_id=user_id,
+                channel=channel,
+                repository=repository,
+                create_pr=False,
+                posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
+                runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+                model=SPACE_SETUP_MODEL,
+                reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+                initial_permission_mode="auto",
+                client_provenance=client_provenance,
+            )
+        except ValueError as e:
+            raise SpaceSetupUnavailableError(
+                f"Goal setup could not start: {e}. Connect the GitHub integration that owns the repository, then retry setup."
+            ) from e
         ChannelContextGeneration.objects.update_or_create(
             channel_id=channel.id, defaults={"team_id": team.id, "task_id": task.id}
         )
