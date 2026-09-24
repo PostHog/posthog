@@ -93,6 +93,18 @@ describe('client IP signatures', () => {
                 { ip: '198.51.100.10', source: 'forwarded', edgeOutcome: 'absent' },
             ],
             [
+                'no IP for an unsigned request from a Cloudflare address',
+                async () => ({ 'x-forwarded-for': '162.158.10.20' }),
+                [KEY],
+                { ip: undefined, source: 'cloudflare', edgeOutcome: 'absent' },
+            ],
+            [
+                'no IP for an unsigned request from a Cloudflare IPv6 address',
+                async () => ({ 'x-forwarded-for': '2606:4700:10::6816:1' }),
+                [KEY],
+                { ip: undefined, source: 'cloudflare', edgeOutcome: 'absent' },
+            ],
+            [
                 'no IP for a malformed forwarded-for entry',
                 async () => ({ 'x-forwarded-for': 'not-an-ip' }),
                 [KEY],
