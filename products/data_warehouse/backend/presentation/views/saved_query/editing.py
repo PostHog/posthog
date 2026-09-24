@@ -28,9 +28,14 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.data_modeling.backend.facade.api import has_incremental_history, record_dag_sync_failure
+from products.data_modeling.backend.facade.api import (
+    has_incremental_history,
+    record_dag_sync_failure,
+    sync_saved_query_to_dag,
+)
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
+    DAG,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
@@ -329,8 +334,6 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-        from products.data_modeling.backend.facade.models import DAG
-
         dag_obj = None
         if dag_id:
             # Resolved outside the sync below, whose failures are swallowed: a caller that named a
@@ -342,11 +345,9 @@ class DataWarehouseSavedQuerySerializer(
 
         # best effort sync to new data modeling DAG representation
         try:
-            from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
-
             sync_saved_query_to_dag(view, dag=dag_obj)
         except Exception as e:
-            record_dag_sync_failure(view, e)
+            record_dag_sync_failure(view.team_id, view.id, view.name, e)
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
@@ -535,15 +536,12 @@ class DataWarehouseSavedQuerySerializer(
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
-                from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
-                from products.data_modeling.backend.facade.models import DAG
-
                 dag_obj = None
                 if dag_id:
                     dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
                 sync_saved_query_to_dag(view, dag=dag_obj)
             except Exception as e:
-                record_dag_sync_failure(view, e)
+                record_dag_sync_failure(view.team_id, view.id, view.name, e)
         return view
 
     def validate_query(self, query):

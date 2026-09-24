@@ -564,26 +564,22 @@ def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
     return _promote_view_nodes(Node.objects.filter(dag=dag))
 
 
-def record_dag_sync_failure(saved_query: "DataWarehouseSavedQuery", error: Exception) -> None:
+def record_dag_sync_failure(team_id: int, saved_query_id: UUID | str, saved_query_name: str, error: Exception) -> None:
     """Record a DAG sync failure a caller is about to swallow, against the query it happened on.
 
     The sync is best effort, so the caller keeps the save. It leaves the query with no node, which
-    only shows up later as a materialization that cannot be scheduled. Without the query on the
-    capture the two cannot be connected, so the capture is the whole point of this function.
+    only shows up later as a materialization that cannot be scheduled. Nothing connects the two
+    unless the capture names the query.
     """
     SAVED_QUERY_DAG_SYNC_FAILURES.labels(reason=type(error).__name__).inc()
     capture_exception(
         error,
-        {
-            "saved_query_id": str(saved_query.id),
-            "saved_query_name": saved_query.name,
-            "team_id": saved_query.team_id,
-        },
+        {"saved_query_id": str(saved_query_id), "saved_query_name": saved_query_name, "team_id": team_id},
     )
     logger.exception(
         "failed_to_sync_saved_query_to_dag",
-        team_id=saved_query.team_id,
-        saved_query_id=str(saved_query.id),
+        team_id=team_id,
+        saved_query_id=str(saved_query_id),
         error=str(error),
     )
 
@@ -600,16 +596,20 @@ def _resolution_reason(error: Exception) -> str:
     return f"Unexpected {type(error).__name__}."
 
 
-def ensure_dag_node(saved_query: "DataWarehouseSavedQuery") -> str | None:
+def ensure_dag_node(team_id: int, saved_query_id: UUID | str) -> str | None:
     """Make sure the saved query has a node to materialize, and say why it cannot have one.
 
     Returns None when a node exists or when this call created one, and otherwise a message for the
-    person who asked to materialize. The sync at save time is best effort, so a query whose
-    dependencies did not resolve reaches materialization with no node. Retrying the sync here
-    recovers the queries whose resolution has since started to work, and gives the rest a reason
-    instead of a generic failure.
+    person who asked. The sync at save time is best effort, so a query whose dependencies did not
+    resolve arrives at materialization with no node and no reason anyone can read.
     """
-    if Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id).exists():
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    if Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).exists():
+        return None
+    saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).first()
+    if saved_query is None:
+        # Deleted since the caller read it. Its own lookup reports that better than a message here.
         return None
     if saved_query.managed_viewset_id is not None:
         # A managed viewset owns where its queries sit in the graph, so a user-initiated sync must
@@ -618,7 +618,7 @@ def ensure_dag_node(saved_query: "DataWarehouseSavedQuery") -> str | None:
     try:
         sync_saved_query_to_dag(saved_query)
     except Exception as e:
-        record_dag_sync_failure(saved_query, e)
+        record_dag_sync_failure(team_id, saved_query_id, saved_query.name, e)
         return (
             f"Can't set this view up to materialize. {_resolution_reason(e)} "
             "Update the query so every table it reads resolves, then try again."

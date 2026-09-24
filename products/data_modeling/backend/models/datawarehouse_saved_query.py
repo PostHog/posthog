@@ -363,19 +363,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         try:
             materialize_saved_query(self, triggered_by_id=triggered_by_id)
-        except MissingDagNodeError as e:
-            # The node went away between scheduling and this deferred start, so the tiers have
-            # nothing to run either. Honor the same contract as schedule_materialization: a query
-            # left at is_materialized=True with no node reports itself fresh while it keeps
-            # serving whatever the last run wrote, and says nothing to its readers.
-            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
-            logger.exception(
-                "missing_dag_node_on_initial_materialization",
-                team_id=self.team_id,
-                saved_query_id=str(self.id),
-            )
-            self.is_materialized = False
-            self.save(update_fields=["is_materialized"])
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
@@ -383,6 +370,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
             )
+            if isinstance(e, MissingDagNodeError):
+                # The node went away between scheduling and this deferred start, so the tiers have
+                # nothing to run either. Honor the same contract as schedule_materialization: a
+                # query left at is_materialized=True with no node reports itself fresh while it
+                # keeps serving whatever the last run wrote, and says nothing to its readers.
+                self.is_materialized = False
+                self.save(update_fields=["is_materialized"])
 
     def revert_materialization(self):
         from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query

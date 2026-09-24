@@ -795,7 +795,7 @@ class TestEnsureDagNode(BaseTest):
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
 
-        assert ensure_dag_node(saved_query) is None
+        assert ensure_dag_node(self.team.pk, saved_query.pk) is None
         assert Node.objects.filter(team=self.team, saved_query=saved_query).exists()
 
     def test_names_the_dependency_that_cannot_be_resolved(self):
@@ -805,7 +805,7 @@ class TestEnsureDagNode(BaseTest):
             query={"query": "SELECT 1 FROM no_such_table", "kind": "HogQLQuery"},
         )
 
-        blocked = ensure_dag_node(saved_query)
+        blocked = ensure_dag_node(self.team.pk, saved_query.pk)
 
         assert blocked is not None
         assert "no_such_table" in blocked
@@ -823,7 +823,7 @@ class TestEnsureDagNode(BaseTest):
             "products.data_modeling.backend.logic.saved_query_dag_sync.get_parents_from_model_query",
             side_effect=secret,
         ):
-            blocked = ensure_dag_node(saved_query)
+            blocked = ensure_dag_node(self.team.pk, saved_query.pk)
 
         assert blocked is not None
         assert "internal-bucket" not in blocked
