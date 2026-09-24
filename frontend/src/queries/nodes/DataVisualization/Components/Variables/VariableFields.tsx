@@ -15,6 +15,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import {
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
@@ -150,18 +151,19 @@ export const ListVariableSelect = ({
     const { loadVariableOptions } = useActions(logic)
     const { requestedValuesQueryKey, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
     const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
-    const loadedOptions =
-        variable.values_query == null
-            ? getStaticVariableOptions(variable)
-            : isCurrentQuery
-              ? variableOptions.options
-              : []
+    const queryOptions = isCurrentQuery ? variableOptions.options : []
+    const loadedOptions = variable.values_query == null ? getStaticVariableOptions(variable) : queryOptions
     const currentError = isCurrentQuery ? variableOptionsError : null
-    const isTruncated = variable.values_query != null && isCurrentQuery && variableOptions.truncated
+    const isTruncated = isCurrentQuery && variableOptions.truncated
     const options = useMemo(
         () => loadedOptions.map((option) => ({ key: option.value, label: option.label })),
         [loadedOptions]
     )
+    const emptyState = currentError
+        ? "Couldn't load options. Check the query, then try again."
+        : isTruncated
+          ? 'No match in the options that loaded. Narrow the options query to reach the rest.'
+          : undefined
 
     return (
         <LemonInputSelect
@@ -172,13 +174,7 @@ export const ListVariableSelect = ({
             onBlur={onBlur}
             onChange={(values) => onChange(variable.is_multi ? values : (values[0] ?? ''))}
             placeholder={variableOptionsLoading ? 'Loading options...' : 'Select a value'}
-            emptyStateComponent={
-                currentError
-                    ? "Couldn't load options. Check the query, then try again."
-                    : isTruncated
-                      ? `No match in the first ${MAX_LIST_VARIABLE_OPTIONS.toLocaleString()} options. Narrow the options query to reach the rest.`
-                      : undefined
-            }
+            emptyStateComponent={emptyState}
             status={currentError ? 'danger' : 'default'}
             loading={variableOptionsLoading}
             disabledReason={disabledReason || undefined}
@@ -221,7 +217,7 @@ export const ListVariableFields = ({
     useOnMountEffect(() => maybeLoadConnectionOptions())
     const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
     const loadedOptions = isQueryBacked && isCurrentQuery ? variableOptions.options : []
-    const isTruncated = isQueryBacked && isCurrentQuery && variableOptions.truncated
+    const isTruncated = isCurrentQuery && variableOptions.truncated
     const availableOptions = isQueryBacked ? loadedOptions : getStaticVariableOptions(variable)
     const currentError = isCurrentQuery ? variableOptionsError : null
     const defaultValues = getListVariableSelectedValues({ ...variable, value: undefined })
@@ -277,7 +273,7 @@ export const ListVariableFields = ({
                     <LemonField.Pure
                         label="Options query"
                         className="gap-1"
-                        info={`The first column supplies the option values. An optional second column supplies their display labels. Up to ${MAX_LIST_VARIABLE_OPTIONS.toLocaleString()} rows load, unless the query has a smaller LIMIT of its own. Options load when the variable is shown, and results are cached for a few minutes.`}
+                        info={`The first column supplies the option values. An optional second column supplies their display labels. Up to ${humanFriendlyNumber(MAX_LIST_VARIABLE_OPTIONS)} rows load, unless the query has a smaller LIMIT of its own. Options load when the variable is shown, and results are cached for a few minutes.`}
                     >
                         <CodeEditorResizeable
                             language="hogQL"
@@ -293,7 +289,7 @@ export const ListVariableFields = ({
                                 </span>
                             ) : isTruncated ? (
                                 <span className="text-warning text-xs">
-                                    Loaded the first {MAX_LIST_VARIABLE_OPTIONS.toLocaleString()} options. Narrow the
+                                    Loaded the first {humanFriendlyNumber(loadedOptions.length)} options. Narrow the
                                     query to reach the rest.
                                 </span>
                             ) : loadedOptions.length > 0 ? (

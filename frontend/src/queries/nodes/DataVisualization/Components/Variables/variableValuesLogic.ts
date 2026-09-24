@@ -1,8 +1,11 @@
 import { LogicWrapper, MakeLogicType, afterMount, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { splitQueries } from 'lib/monaco/multiQueryUtils'
+
 import { performQuery } from '~/queries/query'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import { ListVariable } from '../../types'
 import { getListVariableValues } from './variableUtils'
@@ -57,7 +60,10 @@ export const queryResultsToVariableOptions = (results: unknown): VariableOption[
 export const getStaticVariableOptions = (variable: ListVariable): VariableOption[] =>
     getListVariableValues(variable).map((value) => ({ value, label: value }))
 
-export const MAX_LIST_VARIABLE_OPTIONS = 10000
+export const MAX_LIST_VARIABLE_OPTIONS = 2000
+
+/** HogQL returns this many rows for a query that carries no LIMIT of its own. */
+const HOGQL_DEFAULT_ROW_LIMIT = 100
 
 export interface ListVariableOptions {
     options: VariableOption[]
@@ -65,13 +71,17 @@ export interface ListVariableOptions {
     truncated: boolean
 }
 
-export const EMPTY_LIST_VARIABLE_OPTIONS: ListVariableOptions = { options: [], truncated: false }
+const EMPTY_LIST_VARIABLE_OPTIONS: ListVariableOptions = { options: [], truncated: false }
 
-// HogQL gives a query without its own LIMIT 100 rows. The dropdown filters what it loaded, so every
-// value after row 100 was unreachable. The wrapper raises that ceiling and keeps the author's query
-// intact, including its own LIMIT.
-export const withOptionsRowLimit = (valuesQuery: string, limit: number): string =>
-    `SELECT * FROM (\n${valuesQuery.replace(/;\s*$/, '')}\n) AS variable_values LIMIT ${limit}`
+// The dropdown filters what it loaded, so every value after HogQL's default row limit was
+// unreachable. The wrapper raises that ceiling and keeps the author's query intact, including a
+// LIMIT of its own.
+const withOptionsRowLimit = (valuesQuery: string, limit: number): HogQLQueryString => {
+    // splitQueries knows which semicolons end a statement, so one inside a string literal survives.
+    const statements = splitQueries(valuesQuery)
+    const statement = statements.length === 1 ? statements[0].query : valuesQuery
+    return hogql`SELECT * FROM (\n${hogql.raw(statement)}\n) AS variable_values LIMIT ${limit}`
+}
 
 const runValuesQuery = async (variable: ListVariable, query: string): Promise<unknown[]> => {
     const response = await performQuery<HogQLQuery>({
@@ -89,18 +99,21 @@ export const loadListVariableOptions = async (variable: ListVariable): Promise<L
         return { options: getStaticVariableOptions(variable), truncated: false }
     }
 
-    let rows: unknown[]
     try {
-        rows = await runValuesQuery(variable, withOptionsRowLimit(valuesQuery, MAX_LIST_VARIABLE_OPTIONS + 1))
+        const rows = await runValuesQuery(variable, withOptionsRowLimit(valuesQuery, MAX_LIST_VARIABLE_OPTIONS + 1))
+        return {
+            options: queryResultsToVariableOptions(rows.slice(0, MAX_LIST_VARIABLE_OPTIONS)),
+            truncated: rows.length > MAX_LIST_VARIABLE_OPTIONS,
+        }
     } catch {
         // A query the wrapper cannot hold must still load the options it loaded before, and must
-        // still report its own error rather than one about the wrapper.
-        rows = await runValuesQuery(variable, valuesQuery)
-    }
-
-    return {
-        options: queryResultsToVariableOptions(rows.slice(0, MAX_LIST_VARIABLE_OPTIONS)),
-        truncated: rows.length > MAX_LIST_VARIABLE_OPTIONS,
+        // still report its own error rather than one about the wrapper. HogQL clips it, so a full
+        // page here means values are missing.
+        const rows = await runValuesQuery(variable, valuesQuery)
+        return {
+            options: queryResultsToVariableOptions(rows),
+            truncated: rows.length >= HOGQL_DEFAULT_ROW_LIMIT,
+        }
     }
 }
 
