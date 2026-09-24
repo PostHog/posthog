@@ -70,8 +70,14 @@ class TestSpikeEventsAPI(APIBaseTest):
     def _list(self, query: str = ""):
         return self.client.get(f"/api/environments/{self.team.id}/error_tracking/spike_events/{query}")
 
-    def test_malformed_date_filter_is_rejected(self):
-        response = self._list("?date_to='")
+    @parameterized.expand(
+        [
+            ("date", "?date_to='"),
+            ("issue_ids", "?issue_ids=not-a-uuid"),
+        ]
+    )
+    def test_malformed_filter_is_rejected(self, _name: str, query: str):
+        response = self._list(query)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
