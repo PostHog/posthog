@@ -944,7 +944,13 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.supports_combined_agent_server_start_and_health() is True
 
     @pytest.mark.parametrize(
-        "exit_code, stdout, expected", [(0, "ok:3", True), (1, "", False), (1, "claude_credential_unavailable", None)]
+        "exit_code, stdout, expected",
+        [
+            (0, "ok:3", True),
+            (1, "", False),
+            (1, "claude_credential_unavailable", None),
+            (1, "codex_credential_unavailable", None),
+        ],
     )
     def test_wait_for_health_check(self, mock_sandbox: Any, exit_code, stdout, expected):
         from products.tasks.backend.exceptions import ProcessTaskFatalError

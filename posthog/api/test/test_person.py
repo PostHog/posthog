@@ -1,4 +1,6 @@
 import json
+import functools
+from datetime import timedelta
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
@@ -31,6 +33,7 @@ from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -42,6 +45,8 @@ from posthog.models.person.util import (
     get_person_by_id,
     get_person_by_uuid,
 )
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
@@ -84,11 +89,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         flush_persons_and_events()
         response = self.client.get("/api/person/?search=another@gm")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual([result.get("matched_fields") for result in response.json()["results"]], [None])
 
-        response = self.client.get("/api/person/?search=distinct_id_3")
+        response = self.client.get("/api/person/?search=distinct_id_3&include_matched_fields=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual([result["matched_fields"] for result in response.json()["results"]], [["distinct_id"]])
 
     @staticmethod
     def _persons_list_slo_events(capture: mock.MagicMock) -> list[dict]:
@@ -104,6 +109,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("partial search", "?search=another@gm", True, False, "clickhouse", "person"),
             ("no search", "", False, False, "clickhouse", "person"),
             ("exact identifier", "?search=someone@gmail.com", True, False, "exact_identifier", None),
+            (
+                "exact identifier and email property",
+                "?search=someone@gmail.com&include_matched_fields=true",
+                True,
+                False,
+                "exact_identifier_and_email",
+                "person",
+            ),
             ("client query id", "?search=another@gm&client_query_id=abc-123", True, True, "clickhouse", "person"),
         ]
     )
@@ -180,13 +193,59 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/person/?search=someone{extra_params}")
         self.assertEqual(response.status_code, 499)
 
-    def test_search_still_fails_on_a_query_error_that_is_not_a_cancellation(self) -> None:
-        with mock.patch(
-            "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
-            side_effect=ServerException("Boom", code=999),
+    @parameterized.expand(
+        [
+            ("partial term", "?search=someone", status.HTTP_500_INTERNAL_SERVER_ERROR, None, None),
+            (
+                "email hit",
+                "?search=someone@gmail.com&include_matched_fields=true",
+                status.HTTP_200_OK,
+                "exact_identifier_and_email",
+                ["distinct_id", "email"],
+            ),
+            (
+                "email hit past the first page",
+                "?search=someone@gmail.com&offset=1&include_matched_fields=true",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                None,
+                None,
+            ),
+        ]
+    )
+    def test_search_on_a_query_error_that_is_not_a_cancellation(
+        self,
+        _name: str,
+        query: str,
+        expected_status: int,
+        expected_answered_by: Optional[str],
+        expected_matched_fields: Optional[list[str]],
+    ) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "someone@gmail.com"},
+            immediate=True,
+        )
+        # Below `calculate`, so the runner's own SLO tags still apply.
+        with (
+            mock.patch(
+                "posthog.hogql_queries.paginators.execute_hogql_query",
+                side_effect=ServerException("Boom", code=999),
+            ),
+            mock.patch("posthog.slo.events.posthoganalytics.capture") as capture,
         ):
-            response = self.client.get("/api/person/?search=someone")
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            response = self.client.get(f"/api/person/{query}")
+        self.assertEqual(response.status_code, expected_status)
+        if expected_matched_fields is not None:
+            self.assertEqual(
+                [result["matched_fields"] for result in response.json()["results"]], [expected_matched_fields]
+            )
+
+        completed = self._persons_list_slo_events(capture)
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0]["outcome"], "failure")
+        self.assertTrue(completed[0]["has_search"])
+        self.assertEqual(completed[0].get("answered_by"), expected_answered_by)
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -221,17 +280,108 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # second page. Following it would leave the fast path and run the ClickHouse search for
         # results that cannot exist.
         for url, expected in [
-            (f"/api/person/?search={person.uuid}&limit=1", person),
-            ("/api/person/?search=someone@gmail.com&limit=1", person),
-            (f"/api/person/?search={anonymous_distinct_id}&limit=1", anonymous),
-            ("/api/person/?distinct_id=someone@gmail.com&limit=1", person),
+            (f"/api/person/?search={person.uuid}&limit=1", [person]),
+            (f"/api/person/?search={person.uuid}&limit=1&offset=1&include_matched_fields=true", []),
+            ("/api/person/?search=someone@gmail.com&limit=1", [person]),
+            (f"/api/person/?search={anonymous_distinct_id}&limit=1", [anonymous]),
+            ("/api/person/?distinct_id=someone@gmail.com&limit=1", [person]),
+            ("/api/person/?distinct_id=someone@gmail.com&limit=1&offset=1&include_matched_fields=true", []),
         ]:
             with self.subTest(url=url), self.capture_select_queries() as clickhouse_queries:
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual([result["id"] for result in response.json()["results"]], [str(expected.uuid)])
+                self.assertEqual(
+                    [result["id"] for result in response.json()["results"]], [str(match.uuid) for match in expected]
+                )
                 self.assertIsNone(response.json()["next"])
             self.assertEqual(clickhouse_queries, [])
+
+    def test_search_by_email_lists_the_property_matches_behind_the_distinct_id_hit(self) -> None:
+        by_distinct_id = _create_person(
+            team=self.team,
+            distinct_ids=["abe@example.com"],
+            properties={"email": "abe@example.com"},
+            immediate=True,
+        )
+        by_property = _create_person(
+            team=self.team,
+            distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e5f"],
+            properties={"email": "abe@example.com"},
+            immediate=True,
+        )
+        by_title_cased_property = _create_person(
+            team=self.team,
+            distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e60"],
+            properties={"Email": "abe@example.com"},
+            created_at=timezone.now() - timedelta(days=1),
+            immediate=True,
+        )
+        by_name = _create_person(
+            team=self.team,
+            distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e61"],
+            properties={"name": "abe@example.com"},
+            created_at=timezone.now() - timedelta(days=2),
+            immediate=True,
+        )
+        _create_person(
+            team=self.team, distinct_ids=["zoe@example.com"], properties={"email": "zoe@example.com"}, immediate=True
+        )
+        flush_persons_and_events()
+
+        with self.capture_select_queries() as clickhouse_queries:
+            response = self.client.get(
+                "/api/person/?search=abe@example.com&include_total=true&include_matched_fields=true"
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(result["id"], result["matched_fields"]) for result in response.json()["results"]],
+            [
+                (str(by_distinct_id.uuid), ["distinct_id", "email"]),
+                (str(by_property.uuid), ["email"]),
+                (str(by_title_cased_property.uuid), ["email"]),
+                (str(by_name.uuid), ["name"]),
+            ],
+        )
+        self.assertEqual(response.json()["count"], 4)
+        self.assertIsNone(response.json()["next"])
+        # The distinct ID scan is what makes the fuzzy search slow.
+        person_queries = [
+            query for query in clickhouse_queries if "system.columns" not in query and "system.tables" not in query
+        ]
+        self.assertEqual(len(person_queries), 2)
+        for query in person_queries:
+            self.assertNotIn("person_distinct_id2", query)
+
+        listed: list[str] = []
+        next_url: Optional[str] = (
+            "/api/person/?search=abe@example.com&limit=1&include_total=true&include_matched_fields=true"
+        )
+        while next_url:
+            with self.capture_select_queries() as clickhouse_queries:
+                response = self.client.get(next_url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 4)
+            listed.extend(result["id"] for result in response.json()["results"])
+            for query in clickhouse_queries:
+                self.assertNotIn("person_distinct_id2", query)
+            next_url = response.json()["next"]
+        self.assertEqual(
+            listed,
+            [str(by_distinct_id.uuid), str(by_property.uuid), str(by_title_cased_property.uuid), str(by_name.uuid)],
+        )
+
+    def test_search_by_email_tags_the_distinct_id_hit_past_the_hydration_cap(self) -> None:
+        _create_person(team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True)
+        flush_persons_and_events()
+
+        hydrate_no_distinct_ids = functools.partial(get_serialized_people, distinct_id_limit=0)
+        with mock.patch("posthog.api.person.get_serialized_people", new=hydrate_no_distinct_ids):
+            response = self.client.get("/api/person/?search=abe@example.com&include_matched_fields=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(result["distinct_ids"], result["matched_fields"]) for result in response.json()["results"]],
+            [([], ["distinct_id"])],
+        )
 
     def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
         _create_person(
@@ -1979,6 +2129,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
+        response = self.client.get("/api/person.csv?search=4&include_matched_fields=true")
+        lines = response.content.splitlines()
+        self.assertGreater(len(lines), 1)
+        self.assertNotIn(b"matched_fields", lines[0])
+
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):
         created_ids = []
@@ -1996,6 +2151,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # We would return an empty "next" url.
         # Now we just return 9 people instead
         create_person_in_ch(team_id=self.team.pk, version=0)
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
 
         returned_ids = []
         # The property-access-control feature check reuses the request's already-loaded team,
@@ -2518,3 +2676,25 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         properties = response.json()["results"][result_key]["properties"]
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
+
+    def test_search_does_not_tag_a_restricted_property(self) -> None:
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email, access_level=PropertyAccessLevel.NONE.value
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["hidden@example.com"],
+            properties={"email": "hidden@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/?search=hidden@example.com&include_matched_fields=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(result["properties"], result["matched_fields"]) for result in response.json()["results"]],
+            [({}, ["distinct_id"])],
+        )

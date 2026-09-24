@@ -21,6 +21,7 @@ const WARM_DEBOUNCE_MS = 600;
 export interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
   claudeModelAccess?: string;
+  codexModelAccess?: string;
   selectedRepository?: string | null;
   repositories?: string[];
   githubIntegrationId?: number;
@@ -39,6 +40,7 @@ export interface UseWarmTaskOptions {
 export function useWarmTask({
   workspaceMode,
   claudeModelAccess,
+  codexModelAccess,
   selectedRepository,
   repositories,
   githubIntegrationId,
@@ -87,7 +89,9 @@ export function useWarmTask({
     ? (githubIntegrationId ?? null)
     : null;
   const heldLeaseIsUnusable =
-    agentRuntime === "pi" || claudeModelAccess === "own-subscription";
+    agentRuntime === "pi" ||
+    claudeModelAccess === "own-subscription" ||
+    codexModelAccess === "own-subscription";
   const eligible =
     enabled &&
     !heldLeaseIsUnusable &&
