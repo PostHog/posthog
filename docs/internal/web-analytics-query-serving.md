@@ -180,6 +180,13 @@ A fast-path or full-join tag on an enrolled team means the lazy gate rejected th
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
 
+## Identifying a failed marketing query
+
+Marketing Analytics query errors show a query ID when the request has one.
+Use that ID to find the failed request in the query log.
+The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
+Errors outside the query path, such as configuration failures, may have no query ID.
+
 ## Marketing metric chart
 
 The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.
