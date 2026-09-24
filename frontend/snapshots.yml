@@ -11297,9 +11297,9 @@ snapshots:
     scenes-app-settings-user--settings-user-navigation--light:
         hash: v1.k794b7964.a4061da91e7c33e6b70809f56174bcdf6367de383cdf7f4bd44ce933ac4ef789.CL6GK2S3yJDBY8GcRukzMatIbh7G5prl8YxdZYxf3c0
     scenes-app-settings-user--settings-user-notifications--dark:
-        hash: v1.k794b7964.71bacadb9ac5b0c487720425bf966d89a9c54f455faa1a892ff5ea907f6e329e.zXpXJ8VNwNQLHAZ2zdWcAv4Dlrp2aYxY6RxMaQt2SPU
+        hash: v1.k794b7964.2204e0a2e6d5fadb35dbbe13c68b9af2fe4052473a34e9562299bddfb7687eb1.xG738ieu2EfqR-FhuyuG916gXJawaPw_aCHVcVvWGbc
     scenes-app-settings-user--settings-user-notifications--light:
-        hash: v1.k794b7964.f4d030083926f31fbda564b41ee7405b79debd470db6396116423813ae948342.TrlewkCNonzpNstsoZTjggpzXBAbvkl6_CCV8Y8XmkI
+        hash: v1.k794b7964.6dc077d049e7b4c5ce8c3a623b281a7d02f43647a2f3edcb7c624555296246eb.XJPMz9qmz5R2ocrf49XL8yyGAF2bRbZfPe9VTyyzK4w
     scenes-app-settings-user--settings-user-profile--dark:
         hash: v1.k794b7964.5f1d9971d5da44a5868c6f1cfc633fa5e2f90d0f31e9ed651783f949512350ab.3b41GlzDKrj_9lsTioV2GDzEZDpVY2GAiAEmGjKdA9c
     scenes-app-settings-user--settings-user-profile--light:
@@ -11416,10 +11416,30 @@ snapshots:
         hash: v1.k794b7964.2ff771815c26e56d32f41eae88bb1c453a6fe50e273cb5095c1c3f9477dc590f.5A7_p3_Mbh5nL3T1e5olwqpfNMu6t4_-TKQ0j1ja1AY
     scenes-app-stamphog-digests--digests-list-empty--light:
         hash: v1.k794b7964.46c349724a92b59d4693ac9e9164bcff7c89c8d04ef967fee23ff5052457c63e.HqC03R4DRb_7TP-ljXEykmHv_DOCNYRAhZeNr5fSAoE
+    scenes-app-stamphog-repositories--add-repository-picker-open--dark:
+        hash: v1.k794b7964.7c70df7eb2aba8e63827f52ca587fba6245bdef4030d41d0ee4b356c111267e1.7PTfVCbXSGaxOy0S60kvBXR3ukQWRQ4uhqE387ODGwE
+    scenes-app-stamphog-repositories--add-repository-picker-open--light:
+        hash: v1.k794b7964.8d55815d8b741d0af2a63e9b7ee4c4105453c58ed407a72b7b0338ad6d41c95b.XC_XCin3PpNFO8rLkoDSPEuF14x3VbaIq2lJCG-TwKI
+    scenes-app-stamphog-repositories--connected-after-sync--dark:
+        hash: v1.k794b7964.eccb7a6a19ac75eb6f3ae74d108d7964bc7205030b254c844d1fe0adf121917d.uEEHiQpJWlzEpmOg3Vt2XOrdjb1wRVsISQfAjX9DM_Q
+    scenes-app-stamphog-repositories--connected-after-sync--light:
+        hash: v1.k794b7964.cfa31afd9dd7e1aaec6538da8851dc08ac7062a3a15f2565accf9596827d7777.VUvFzSZFUiRfsYmpHRAMqtgMC55xQ1f1NNA9Rgrk9EA
+    scenes-app-stamphog-repositories--first-repository--dark:
+        hash: v1.k794b7964.1975eded573d56013d5cdde0b008189e7339a4392eddfdcd9c8acf6ba49975c4.7b0dzklN_3prLtvf3A0nC7CkMjA26k2SyK4HmdDantA
+    scenes-app-stamphog-repositories--first-repository--light:
+        hash: v1.k794b7964.697a57ed8f474f15c42129d955b53b9de5f387577e4581dd3574879c079be10f.35765sT3uU8Cy6EUM1xBAhv9b_5EWT-xGvoyOqBdK_4
+    scenes-app-stamphog-repositories--not-connected--dark:
+        hash: v1.k794b7964.d66764ddcf73498bb22127281c32c30edc6cfa5206c5985ffe418afdfb460af6.tsu9ky_1CHhLrgpkUZRGDzp5nqI9KUrBTH1Zd0obpr8
+    scenes-app-stamphog-repositories--not-connected--light:
+        hash: v1.k794b7964.9c4dc3ba392a7ea7cb00133fc2e74398aa66703a3949ecf5d9524898d540f5b2.LFrpHsUlnxgGDD3VJp8h8DoVfwMUB7IbFa7FIjRh9VY
     scenes-app-stamphog-repositories--repositories-list--dark:
-        hash: v1.k794b7964.d3fef1c6e6cfe2236106ae143dca48f4532d29c1c5bfcd3d6c5995b2b7c917fc.TwE2zKzmtrveSPIxEAtz5ZpkWvOwZQ0qSKDWYbbSPRM
+        hash: v1.k794b7964.05246c47bc288778b938b2f9379458e1cbc18214cdfcfca46bd647d7f910d93f.zYwEB_zyw7fXCT-6E--jWdhNWkqNWJ-TdEB90mgEERo
     scenes-app-stamphog-repositories--repositories-list--light:
-        hash: v1.k794b7964.69b3f8946be364d5f94d9ac4c0c05413edf014ea55069c181f924d30bbab458a.urlrVpziCX4AJeDE8XUxOBBD79YMKSsUOQnTd4CnD2o
+        hash: v1.k794b7964.da354a1edb7c115d0c7f695ef58237970f3057d26e1aedb0db0dd3fda4511780.htoHBFn118PVvGOY4sN_3CzVB5jwVcvMTod2ttIKi1Q
+    scenes-app-stamphog-repositories--repository-expanded--dark:
+        hash: v1.k794b7964.f9e813ba71635974004268f9b7ccf89fa23cf4bc192653f0ac49ae9bdb22a55c.UYt1dmvJpiE0V3pvXdB37EkNNxGwr5h7Kkp0Q7GktLY
+    scenes-app-stamphog-repositories--repository-expanded--light:
+        hash: v1.k794b7964.07ea2b4e15d17ef6c449dfb3c93089c0bbb836033e6deb240cc66540cfebc2b8.Ex8TXB5UPcDZjQgwE4DljCUwwNwFnjY7eI2sSwByglE
     scenes-app-stamphog-runs--runs-list--dark:
         hash: v1.k794b7964.0f6fb2d21628b8c0f8781d21610ca6fd605216cb07cfeae30f9fc6189ca72d2b.GzyJek2YNFSPSBQoznkgE_FcldLmSLCiVa0gCaHUIxI
     scenes-app-stamphog-runs--runs-list--light:

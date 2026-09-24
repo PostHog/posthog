@@ -182,17 +182,29 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
 
 ## Trust boundaries
 
-- The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
-  `manager` level on the `stamphog` resource, because they decide whether a pull request is reviewed
-  at all. Naming one of those fields on a create takes `manager` too. Connecting a repository
-  without them, and the digest toggle, stay at `editor`.
+- Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,
+  `trigger_label`) need the `manager` level on the `stamphog` resource, on an update or a create alike. Turning reviews
+  **on** (`enabled=True`, or `add_repository`) needs `editor`, so an editor can re-enable a repository
+  a manager paused; that is the requested self-serve direction. A supplied value counts even when it
+  matches the stored one, because the view's snapshot of the row is stale by the time the facade
+  saves. The digest toggle stays at `editor`. Service credentials are refused at both levels.
+- A sync records what the member's own GitHub token lists in the team's `StamphogInstallation`
+  snapshot and creates no repo config. `add_repository` binds only a repository in that snapshot,
+  taking the installation id and the connecting user from the record, never from the request.
+  Never list an installation's repositories with the installation token for this: an outside
+  collaborator on one repository can reach the installation, and that token shows every private
+  repository in it. The snapshot is a union across members' syncs, and only the removal and
+  uninstall webhooks shrink it. A `repositories_added` webhook never grows it: the webhook carries
+  no user, so nobody on the team proved access to that repository. It becomes addable when a member
+  syncs again.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
   and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
   fields were set by someone who never proved GitHub access, so a pre-selected label mode would
-  otherwise go live the moment a manager enables the row. Reinstall rebinds keep settings — those
+  otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
   one placeholder silence the whole team's digest.
