@@ -287,7 +287,9 @@ class TestChargebeeCatalogEndpoints:
             ),
         ],
     )
-    def test_yields_the_nested_catalog_object(self, endpoint: str, path: str, wrapper: str, row: dict) -> None:
+    def test_yields_the_nested_catalog_object(
+        self, endpoint: str, path: str, wrapper: str, row: dict[str, Any]
+    ) -> None:
         urls: list[str] = []
         response_iter = iter([_make_http_response({"list": [{wrapper: row}]})])
 
