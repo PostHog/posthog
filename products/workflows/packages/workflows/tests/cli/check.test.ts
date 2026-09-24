@@ -33,14 +33,20 @@ describe('check', () => {
         )
     })
 
-    it('passes offline even when a secret the file names is not set', async () => {
-        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ secret: true }) })
+    // A fork's pull request gets an empty string for a secret its job maps into the environment.
+    for (const [state, env] of [
+        ['not set', {}],
+        ['empty', { CRM_WEBHOOK_SECRET: '' }],
+    ] as const) {
+        it(`passes offline even when a secret the file names is ${state}`, async () => {
+            const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ secret: true }) })
 
-        const result = await runCli(['check', 'flows/onboarding.ts'], { workspace })
+            const result = await runCli(['check', 'flows/onboarding.ts'], { workspace, env })
 
-        assert.equal(result.code, 0)
-        assert.match(result.stdout, /^1 workflow\(s\), all valid\.$/m)
-    })
+            assert.equal(result.code, 0, result.stderr)
+            assert.match(result.stdout, /^1 workflow\(s\), all valid\.$/m)
+        })
+    }
 
     it('names what a push would change, and writes nothing', async (t) => {
         const standIn = await startStandIn()

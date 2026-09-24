@@ -155,8 +155,10 @@ export async function loadWorkflowFile(path: string, options: LoadOptions): Prom
  * The environment `check` emits against.
  *
  * `check` runs on a pull request, and a pull request from a fork cannot read a repository secret,
- * so an unset variable must not fail it. The placeholder never reaches PostHog: `check` writes
- * nothing, and the diff excludes every secret input on both sides.
+ * so an unset variable must not fail it. A CI job that maps the secret into its environment gives
+ * the fork an empty string rather than nothing, so an empty variable takes the placeholder too. The
+ * placeholder never reaches PostHog: `check` writes nothing, and the diff compares a secret's
+ * presence but never a placeholder value.
  *
  * @param env - The real process environment, read before the placeholder is used.
  */
@@ -166,7 +168,8 @@ export function previewEnv(
     return new Proxy(
         {},
         {
-            get: (_target, name: string) => env[name] ?? '(resolved at push)',
+            get: (_target, name: string) =>
+                env[name] === undefined || env[name] === '' ? '(resolved at push)' : env[name],
         }
     ) as Readonly<Record<string, string | undefined>>
 }
