@@ -26,10 +26,10 @@ from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, F
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_uuid, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import Property, PropertyGroup
+from posthog.models.property.parse import parse_property_group_data
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
@@ -632,7 +632,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def properties(self) -> PropertyGroup:
         if self.filters:
             # Do not try simplifying properties at this stage. We'll let this happen at query time.
-            return Filter(data={**self.filters, "is_simplified": True}).property_groups
+            return parse_property_group_data(self.filters.get("properties"))
 
         # convert deprecated groups to properties
         if self.groups:
@@ -659,7 +659,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                         group["properties"] = new_properties
 
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
-                    property_groups.append(Filter(data={**group, "is_simplified": True}).property_groups)
+                    property_groups.append(parse_property_group_data(group.get("properties")))
                 elif group.get("action_id") or group.get("event_id"):
                     key = group.get("action_id") or group.get("event_id")
                     event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"

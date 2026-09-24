@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -466,16 +467,16 @@ class InsightViewed(models.Model):
 
 @timed("generate_insight_cache_key")
 def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboard"]) -> str:
-    # Deferred: the legacy filters layer imports the HogQL/schema universe, and this model
-    # loads at django.setup() in every process.
-    from posthog.models.filters.utils import get_filter  # noqa: PLC0415
-
+    # `dashboard_filters()` adds `date_from` and `date_to` whenever a dashboard is applied, so
+    # dropping None values keeps a dashboard with no date range hashing as the bare insight.
     try:
-        dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
-        candidate_filters_hash = generate_cache_key(
-            insight.team.pk, "{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id)
+        filters = insight.dashboard_filters(dashboard=dashboard)
+        stringified = json.dumps(
+            {key: value for key, value in filters.items() if value is not None},
+            sort_keys=True,
+            default=str,
         )
-        return candidate_filters_hash
+        return generate_cache_key(insight.team.pk, f"{stringified}_{insight.team_id}")
     except Exception as e:
         logger.error(
             "insight.generate_insight_cache_key.failed",

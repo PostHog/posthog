@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
-from posthog.schema_enums import PropertyOperator
 
 if TYPE_CHECKING:  # Avoid circular import
     from posthog.models import Property, Team
@@ -89,35 +88,14 @@ class SimplifyFilterMixin:
         return PropertyGroup(type=PropertyOperatorType.AND, values=simplified_properties_values)
 
     def _simplify_property_group(self, team: "Team", prop_group: "PropertyGroup", **kwargs) -> "PropertyGroup":
-        from posthog.models.property import Property, PropertyGroup
+        from posthog.models.property.parse import expand_cohort_group
 
-        new_groups = []
-        for group in prop_group.values:
-            if isinstance(group, PropertyGroup):
-                new_groups.append(self._simplify_property_group(team, group))
-            elif isinstance(group, Property):
-                new_groups.append(self._simplify_property(team, group))
-
-        prop_group.values = new_groups
-        return prop_group
+        return expand_cohort_group(prop_group, team)
 
     def _simplify_property(self, team: "Team", property: "Property", **kwargs) -> "PropertyGroup":
-        if property.type == "cohort":
-            from products.cohorts.backend.models.cohort import Cohort
-            from products.cohorts.backend.models.util import simplified_cohort_filter_properties
+        from posthog.models.property.parse import expand_cohort_property
 
-            try:
-                cohort = Cohort.objects.get(pk=cast(str | int, property.value), team__project_id=team.project_id)
-            except Cohort.DoesNotExist:
-                # :TODO: Handle non-existing resource in-query instead
-                return PropertyGroup(type=PropertyOperatorType.AND, values=[property])
-
-            return simplified_cohort_filter_properties(
-                cohort, team, property.negation or property.operator == PropertyOperator.NOT_IN.value
-            )
-
-        # PropertyOperatorType doesn't really matter here, since only one value.
-        return PropertyGroup(type=PropertyOperatorType.AND, values=[property])
+        return expand_cohort_property(property, team)
 
     def _group_set_property(self, group_type_index: GroupTypeIndex) -> "Property":
         from posthog.models.property import Property

@@ -22,7 +22,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import Filter, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
@@ -1098,15 +1098,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             insight = Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
+                query=browser_filtered_pageview_query(),
                 team=self.team,
                 last_refresh=now(),
             )

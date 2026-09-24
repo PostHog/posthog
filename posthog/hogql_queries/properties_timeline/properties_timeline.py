@@ -1,7 +1,7 @@
 import json
 import datetime
 from datetime import timedelta
-from typing import Any, TypedDict, TypeVar, Union, cast
+from typing import Any, TypedDict, Union, cast
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
@@ -16,7 +16,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql_queries.properties_timeline.query_date_range import QueryDateRange
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
 from posthog.models.person.person import Person
@@ -25,10 +24,10 @@ from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
 
-F = TypeVar("F", Filter, PropertiesTimelineFilter)
 
-
-def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, team: Team) -> datetime.datetime:
+def offset_time_series_date_by_interval(
+    date: datetime.datetime, *, filter: PropertiesTimelineFilter, team: Team
+) -> datetime.datetime:
     """If the insight is time-series, offset date according to the interval of the filter."""
     if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
         return date

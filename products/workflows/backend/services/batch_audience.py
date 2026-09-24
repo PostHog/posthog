@@ -10,8 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex
+from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.user_blast_radius import (
@@ -103,7 +102,7 @@ def get_batch_audience_count(
                 left=ast.Field(chain=["persons", "team_id"]),
                 right=ast.Constant(value=team.pk),
             ),
-            property_to_expr(cleaned_filter.property_groups, team, scope="person"),
+            property_to_expr(cleaned_filter, team, scope="person"),
         ]
 
         # uniqCombined, not count(DISTINCT ...): the latter compiles to uniqExact, which holds
@@ -140,7 +139,7 @@ def email_dedupe_group_expr() -> ast.Expr:
 
 def _build_audience_person_query(
     team: Team,
-    filter: Filter,
+    prop_group: PropertyGroup,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
 ) -> ast.SelectQuery:
@@ -150,7 +149,7 @@ def _build_audience_person_query(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        property_to_expr(filter.property_groups, team, scope="person"),
+        property_to_expr(prop_group, team, scope="person"),
     ]
 
     if dedupe_key == EMAIL_DEDUPE_KEY:

@@ -84,8 +84,8 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team
-from posthog.models.filters import Filter
 from posthog.models.integration import Integration
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
@@ -542,7 +542,8 @@ BATCH_FLAG_CONDITION_REJECTION = (
 
 
 def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
-    property_groups = Filter(data=filters or {}, team=team).property_groups
+    # Cohorts are expanded so a flag condition nested inside one is still caught.
+    property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 

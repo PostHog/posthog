@@ -38,17 +38,16 @@ from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, parse_actor_property_filters
+from posthog.api.utils import action, paging_params, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import LIMIT, OFFSET
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.properties_timeline import PropertiesTimeline
 from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Filter, Person, Team, User
+from posthog.models import Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -675,15 +674,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         client_query_id = request.GET.get("client_query_id")
         tag_client_query_id(client_query_id)
         team = self.team
-        filter = Filter(request=request, team=self.team)
-
         assert request.user.is_authenticated
 
+        paging = paging_params(request)
+        limit = paging.limit
+        offset = paging.offset
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
-            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
-        elif not filter.limit:
-            filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
+            limit, offset = CSV_EXPORT_LIMIT, 0
+        elif not limit:
+            limit = DEFAULT_PAGE_LIMIT
 
         from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -691,30 +691,32 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
 
         person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
-        if filter.email:
-            person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
+        if request.GET.get("email"):
+            person_properties.append(
+                {"type": "person", "key": "email", "value": request.GET.get("email"), "operator": "exact"}
+            )
 
         include_total = "include_total" in request.GET
-        search = (filter.search or "").strip()
+        search = (request.GET.get("search") or "").strip()
         # Nothing else narrows the result set, so an identifier that resolves over personhog is
         # already the whole first page, and a ClickHouse scan would add nothing.
-        can_answer_from_identifier = not person_properties and filter.offset == 0
+        can_answer_from_identifier = not person_properties and offset == 0
 
         # This endpoint bypasses `QueryRunner.run()`, so nothing else measures how long it takes.
         # The search path is the slow one, so the shape of the request is recorded alongside the
         # duration. The search term itself is never recorded - it is user data.
         slo_properties: dict[str, JsonValue] = {
             "query_type": "ActorsQuery",
-            "has_search": bool(filter.search),
+            "has_search": bool(request.GET.get("search")),
             "has_properties": bool(person_properties),
-            "has_distinct_id": bool(filter.distinct_id),
+            "has_distinct_id": bool(request.GET.get("distinct_id")),
             # Only a caller that can cancel sends an id, which is what separates the command
             # palette's searches from the persons page's on the dashboard.
             "has_client_query_id": bool(client_query_id),
             "include_total": include_total,
             "is_csv": is_csv_request,
-            "limit": filter.limit,
-            "offset": filter.offset,
+            "limit": limit,
+            "offset": offset,
         }
         # The block wraps the identifier fast paths too, not just the ClickHouse one. Measuring
         # only the slow path would drop every fast answer out of the sample, so the endpoint would
@@ -730,21 +732,25 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
             properties=slo_properties,
         ) as slo:
-            if filter.distinct_id:
+            exact_distinct_id = request.GET.get("distinct_id")
+            if exact_distinct_id:
                 # Exact match on any of the person's distinct IDs; no matching person => no results.
-                matched = get_person_by_distinct_id(team.pk, filter.distinct_id, distinct_id_limit=0)
+                matched = get_person_by_distinct_id(team.pk, exact_distinct_id, distinct_id_limit=0)
                 if matched is None:
                     # Return early: a constant-false predicate can't be pushed into the persons
                     # lazy table, so ClickHouse would still aggregate every person row for the
                     # team before filtering everything out.
                     slo.tag(answered_by="exact_identifier", result_count=0)
-                    return self._person_list_response(request, [], filter, total_count=0 if include_total else None)
+                    return self._person_list_response(
+                        request, [], limit, offset, total_count=0 if include_total else None
+                    )
                 if can_answer_from_identifier and not search:
                     slo.tag(answered_by="exact_identifier", result_count=1)
                     return self._person_list_response(
                         request,
                         [str(matched.uuid)],
-                        filter,
+                        limit,
+                        offset,
                         total_count=1 if include_total else None,
                         has_next=False,
                     )
@@ -755,23 +761,24 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     answered_by="exact_identifier" if exact_uuids else "clickhouse"
                 ).inc()
                 if exact_uuids:
-                    page = exact_uuids[: filter.limit]
+                    page = exact_uuids[:limit]
                     slo.tag(answered_by="exact_identifier", result_count=len(page))
                     return self._person_list_response(
                         request,
                         page,
-                        filter,
+                        limit,
+                        offset,
                         total_count=len(exact_uuids) if include_total else None,
-                        has_next=len(exact_uuids) > filter.limit,
+                        has_next=len(exact_uuids) > limit,
                     )
 
             actors_query = ActorsQuery(
                 select=["id"],
                 properties=person_properties,
-                search=filter.search or None,
+                search=request.GET.get("search") or None,
                 orderBy=["created_at DESC", "id DESC"],
-                limit=filter.limit,
-                offset=filter.offset,
+                limit=limit,
+                offset=offset,
             )
             # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
@@ -809,13 +816,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
 
             slo.tag(answered_by="clickhouse", result_count=len(actor_ids))
-            return self._person_list_response(request, actor_ids, filter, total_count=total_count)
+            return self._person_list_response(request, actor_ids, limit, offset, total_count=total_count)
 
     def _person_list_response(
         self,
         request: request.Request,
         person_uuids: builtins.list[Any],
-        filter: Filter,
+        limit: int,
+        offset: int,
         total_count: Optional[int] = None,
         has_next: Optional[bool] = None,
     ) -> Response:
@@ -835,14 +843,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # A full page means there may be more behind it. Callers that know the whole result set up
         # front say so instead, so a page that happens to fill the limit does not advertise an
         # empty page after it.
-        _should_paginate = len(person_uuids) >= filter.limit if has_next is None else has_next
+        _should_paginate = len(person_uuids) >= limit if has_next is None else has_next
 
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        previous_url = (
-            format_query_params_absolute_url(request, filter.offset - filter.limit)
-            if filter.offset - filter.limit >= 0
-            else None
-        )
+        next_url = format_query_params_absolute_url(request, offset + limit) if _should_paginate else None
+        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
 
         # TEMPORARY: Work out usage patterns of this endpoint
         renderer = SafeJSONRenderer()

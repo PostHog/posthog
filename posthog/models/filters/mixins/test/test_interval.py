@@ -1,21 +1,21 @@
 import pytest
 
-from posthog.models import Filter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 
 
 @pytest.mark.parametrize(
     "filter,expected_interval",
     [
-        (Filter(data={"interval": "hour"}), "hour"),
-        (Filter(data={"interval": "day"}), "day"),
-        (Filter(data={"interval": "week"}), "week"),
-        (Filter(data={"interval": "month"}), "month"),
+        (PropertiesTimelineFilter(data={"interval": "hour"}), "hour"),
+        (PropertiesTimelineFilter(data={"interval": "day"}), "day"),
+        (PropertiesTimelineFilter(data={"interval": "week"}), "week"),
+        (PropertiesTimelineFilter(data={"interval": "month"}), "month"),
         # Downcasing
-        (Filter(data={"interval": "HoUR"}), "hour"),
+        (PropertiesTimelineFilter(data={"interval": "HoUR"}), "hour"),
         # Blank filter
-        (Filter(data={"events": []}), "day"),
+        (PropertiesTimelineFilter(data={"events": []}), "day"),
         # Legacy support - translate minutes to hours!
-        (Filter(data={"interval": "minute"}), "hour"),
+        (PropertiesTimelineFilter(data={"interval": "minute"}), "hour"),
     ],
 )
 def test_filter_interval_success(filter, expected_interval):
@@ -27,10 +27,10 @@ def test_filter_interval_success(filter, expected_interval):
     "filter,expected_error_message",
     [
         (
-            Filter(data={"interval": "foo"}),
+            PropertiesTimelineFilter(data={"interval": "foo"}),
             "Interval foo does not belong to SUPPORTED_INTERVAL_TYPES!",
         ),
-        (Filter(data={"interval": 123}), "Interval must be a string!"),
+        (PropertiesTimelineFilter(data={"interval": 123}), "Interval must be a string!"),
     ],
 )
 def test_filter_interval_errors(filter, expected_error_message):

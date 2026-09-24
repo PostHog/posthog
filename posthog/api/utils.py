@@ -29,6 +29,8 @@ from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 from posthog.schema import QueryTiming
 
 from posthog.api.documentation import extend_schema
+from posthog.constants import LIMIT, OFFSET
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -36,11 +38,8 @@ from posthog.exceptions import (
 )
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_property
-from posthog.models import Entity, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.entity import MathType
-from posthog.models.filters.filter import Filter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
@@ -90,80 +89,6 @@ class ServiceRequest:
 class ClassicBehaviorBooleanFieldSerializer(serializers.BooleanField):
     def __init__(self, **kwargs):
         Field.__init__(self, allow_null=True, required=False, **kwargs)
-
-
-def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
-    # Except for "events", we require an entity id and type to be provided
-    if not filter.target_entity_id and filter.target_entity_type != "events":
-        raise ValidationError("An entity id and the entity type must be provided to determine an entity")
-
-    entity_math = filter.target_entity_math or "total"  # make math explicit
-    possible_entity = entity_from_order(filter.target_entity_order, filter.entities)
-
-    if possible_entity:
-        return possible_entity
-
-    possible_entity = retrieve_entity_from(
-        filter.target_entity_id,
-        filter.target_entity_type,
-        entity_math,
-        filter.events,
-        filter.actions,
-    )
-    if possible_entity:
-        return possible_entity
-    elif filter.target_entity_type:
-        return Entity(
-            {
-                "id": filter.target_entity_id,
-                "type": filter.target_entity_type,
-                "math": entity_math,
-            }
-        )
-    else:
-        raise ValidationError("An entity must be provided for target entity to be determined")
-
-
-def entity_from_order(order: Optional[str], entities: list[Entity]) -> Optional[Entity]:
-    if not order:
-        return None
-
-    for entity in entities:
-        if entity.index == int(order):
-            return entity
-    return None
-
-
-def retrieve_entity_from(
-    entity_id: Optional[str],
-    entity_type: Optional[str],
-    entity_math: MathType,
-    events: list[Entity],
-    actions: list[Entity],
-) -> Optional[Entity]:
-    """
-    Retrieves the entity from the events and actions.
-
-    NOTE: entity_id here is considered always to be a string. event ids are
-    strings, and action ids are ints. Elsewhere we get the `entity_id` from a
-    get request, from which we do not get type information, and we do not
-    require the entity type to be provided. A more complete solution might be to
-    require entity type information, but to resolve the issue we cast the action
-    id to a string, such that we can get equality.
-
-    This doesn't preclude ths issue that an event name could be a string that is
-    also a valid number however, but this should be an unlikely occurance.
-    """
-
-    if entity_type == "actions":
-        for action in actions:
-            if action.id == entity_id and (action.math or "total") == entity_math:
-                return action
-    else:
-        for event in events:
-            if event.id == entity_id and (event.math or "total") == entity_math:
-                return event
-    return None
 
 
 def format_paginated_url(request: request.Request, offset: int, page_size: int, mode=PaginationMode.next):
@@ -822,3 +747,28 @@ def log_activity_from_viewset(
         )
     except:
         pass
+
+
+@frozen
+class Paging:
+    """A page of results asked for by `limit` and `offset`. Either is 0 when the client sends neither."""
+
+    limit: int
+    offset: int
+
+
+def _paging_param(raw: str | None, name: str) -> int:
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError as error:
+        raise ValidationError(f"'{name}' must be an integer") from error
+
+
+def paging_params(request: request.Request) -> Paging:
+    """Read the `limit` and `offset` query params, defaulting either to 0 when absent or empty."""
+    return Paging(
+        limit=_paging_param(request.GET.get(LIMIT), LIMIT),
+        offset=_paging_param(request.GET.get(OFFSET), OFFSET),
+    )

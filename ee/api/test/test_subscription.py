@@ -19,12 +19,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.models import Team
-from posthog.models.filters.filter import Filter
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
+from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -83,18 +83,13 @@ class TestSubscriptionTemporal(APILicensedTest):
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
-
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=cls.team,
             created_by=cls.user,
         )
@@ -567,12 +562,12 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def test_can_update_dashboard_subscription_with_new_insights(self):
         insight_1 = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=self.team,
             created_by=self.user,
         )
         insight_2 = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=self.team,
             created_by=self.user,
         )
@@ -634,7 +629,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         insights = []
         for _ in range(MAX_INSIGHTS + 1):
             insight = Insight.objects.create(
-                filters=Filter(data=self.insight_filter_dict).to_dict(),
+                query=browser_filtered_pageview_query(),
                 team=self.team,
                 created_by=self.user,
             )
@@ -671,7 +666,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # Create an insight that belongs to a different dashboard
         other_dashboard = Dashboard.objects.create(team=self.team, name="other dashboard", created_by=self.user)
         other_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=self.team,
             created_by=self.user,
         )
@@ -717,7 +712,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # Create another team and insight
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         other_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=other_team,
             created_by=self.user,
         )
@@ -1429,7 +1424,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         team_two = Team.objects.create(organization=self.organization, name="Team two")
         team_three = Team.objects.create(organization=self.organization, name="Team three")
         team_three_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=team_three,
             created_by=self.user,
         )
@@ -1439,7 +1434,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                 Subscription.objects.create(
                     team=team,
                     insight=Insight.objects.create(
-                        filters=Filter(data=self.insight_filter_dict).to_dict(),
+                        query=browser_filtered_pageview_query(),
                         team=team,
                         created_by=self.user,
                     ),
@@ -1630,7 +1625,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # Team 2: its own slack integration (higher id than team 1's)
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         other_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=other_team,
             created_by=self.user,
         )
@@ -1848,7 +1843,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def test_list_subscriptions_filter_by_insights(self):
         other_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user
+            query=browser_filtered_pageview_query(), team=self.team, created_by=self.user
         )
         first_id = self._create_subscription(title="First").json()["id"]
         second_id = self._create_subscription(title="Second", insight=other_insight.id).json()["id"]
@@ -1887,7 +1882,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def _insight(self, **kwargs) -> Insight:
         return Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user, **kwargs
+            query=browser_filtered_pageview_query(), team=self.team, created_by=self.user, **kwargs
         )
 
     def test_list_subscriptions_filter_by_dashboard_tiles(self):
@@ -1954,7 +1949,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def test_list_subscriptions_search_matches_insight_name(self):
         named_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=self.team,
             created_by=self.user,
             name="UniqueInsightNameForSearchTest",
@@ -2398,7 +2393,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     def setUpTestData(cls):
         super().setUpTestData()
         cls.insight = Insight.objects.create(
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            query=default_pageview_query(),
             team=cls.team,
             created_by=cls.user,
         )

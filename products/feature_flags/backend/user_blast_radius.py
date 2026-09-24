@@ -22,8 +22,8 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
+from posthog.models.property.parse import parse_properties_for_team
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -57,7 +57,7 @@ def use_blast_radius_query_v2(team: Team) -> bool:
     )
 
 
-def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> BlastRadiusResult:
+def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_type: str) -> BlastRadiusResult:
     """
     Person blast radius whose peak query memory does not grow with the size of the person table.
 
@@ -74,10 +74,10 @@ def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> 
     database = Database.create_for(team=team)
 
     total = count_matching_persons(team, None, database, query_type=query_type)
-    if len(filter.property_groups.flat) == 0:
+    if len(prop_group.flat) == 0:
         return BlastRadiusResult(affected=total, total=total)
 
-    affected = count_matching_persons(team, filter, database, query_type=query_type)
+    affected = count_matching_persons(team, prop_group, database, query_type=query_type)
     return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
@@ -137,13 +137,13 @@ def _normalize_property_value(prop: Property) -> None:
             prop.value = str(prop.value)
 
 
-def replace_proxy_properties(team: Team, feature_flag_condition: dict):
+def replace_proxy_properties(team: Team, feature_flag_condition: dict) -> PropertyGroup:
     # Parse phase: everything here derives directly from the caller's filter JSON, so a
     # ValueError is caller input (malformed property shape, non-numeric cohort id) and becomes
     # a 400. Cohort ids are cast eagerly so a bad id fails here instead of surfacing as a bare
     # ValueError from deep inside query building.
     try:
-        prop_groups = Filter(data=feature_flag_condition, team=team).property_groups
+        prop_groups = parse_properties_for_team(feature_flag_condition, team)
 
         for prop in prop_groups.flat:
             if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
@@ -155,7 +155,7 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
             else:
                 _normalize_property_value(prop)
 
-        return Filter(data={"properties": prop_groups.to_dict()}, team=team)
+        return prop_groups
     except ValueError as e:
         raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
 
@@ -206,10 +206,10 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
+def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
 
-    properties = filter.property_groups.flat
+    properties = prop_group.flat
 
     if len(properties) == 0:
         # No filters means all persons are affected
@@ -217,7 +217,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
         return BlastRadiusResult(affected=total_users, total=total_users)
 
     # Build the SELECT query - property_to_expr handles all properties including cohorts
-    select_query = _build_person_query(team, filter, return_count=True)
+    select_query = _build_person_query(team, prop_group, return_count=True)
 
     # Execute the query
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -238,7 +238,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     return BlastRadiusResult(affected=blast_radius, total=total_users)
 
 
-def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
+def _build_person_query(team: Team, prop_group: PropertyGroup, return_count: bool = True, cursor: Optional[str] = None):
     """Build HogQL AST query to count or select distinct persons matching filters."""
 
     # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
@@ -265,7 +265,7 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     ]
 
     # Add all property filters (including cohorts) via property_to_expr
-    property_expr = property_to_expr(filter.property_groups, team, scope="person")
+    property_expr = property_to_expr(prop_group, team, scope="person")
     where_exprs.append(property_expr)
 
     # Add cursor-based pagination when returning IDs
@@ -289,10 +289,12 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     return select_query
 
 
-def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> BlastRadiusResult:
+def _get_group_blast_radius(
+    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex
+) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
 
-    properties = filter.property_groups.flat
+    properties = prop_group.flat
 
     # Validate all group properties have correct group_type_index
     for property in properties:
@@ -312,7 +314,7 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
         return BlastRadiusResult(affected=total_groups, total=total_groups)
 
     # Build the SELECT query for groups
-    select_query = _build_group_query(team, filter, group_type_index, return_count=True)
+    select_query = _build_group_query(team, prop_group, group_type_index, return_count=True)
 
     # Execute the query with OFFLINE workload (groups queries can be massive)
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -336,7 +338,7 @@ PERSON_BATCH_SIZE = 500
 
 def _build_group_query(
     team: Team,
-    filter: Filter,
+    prop_group: PropertyGroup,
     group_type_index: GroupTypeIndex,
     return_count: bool = True,
     cursor: Optional[str] = None,
@@ -375,7 +377,7 @@ def _build_group_query(
     group_key_properties = []
     regular_properties = []
 
-    for prop in filter.property_groups.flat:
+    for prop in prop_group.flat:
         if prop.key == "$group_key":
             group_key_properties.append(prop)
         else:
@@ -540,11 +542,9 @@ def _build_group_query(
 
     # Add regular property filters using property_to_expr (only if there are any)
     if regular_properties:
-        regular_filter = Filter(
-            data={"properties": PropertyGroup(type=filter.property_groups.type, values=regular_properties).to_dict()},
-            team=team,
+        property_expr = property_to_expr(
+            PropertyGroup(type=prop_group.type, values=regular_properties), team, scope="group"
         )
-        property_expr = property_to_expr(regular_filter.property_groups, team, scope="group")
         where_exprs.append(property_expr)
 
     # Add cursor-based pagination when returning keys
@@ -568,11 +568,11 @@ def _build_group_query(
     return select_query
 
 
-def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
+def _get_person_blast_radius_persons(team: Team, prop_group: PropertyGroup, cursor: Optional[str] = None) -> list[str]:
     """Get distinct person IDs matching person-based feature flag filters."""
 
     # Build the SELECT query to get person IDs
-    select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
+    select_query = _build_person_query(team, prop_group, return_count=False, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
@@ -586,11 +586,11 @@ def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optiona
 
 
 def _get_group_blast_radius_persons(
-    team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
+    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
 ) -> list[str]:
     """Get distinct group keys matching group-based feature flag filters."""
 
-    properties = filter.property_groups.flat
+    properties = prop_group.flat
 
     # Validate all group properties have correct group_type_index
     for property in properties:
@@ -604,7 +604,7 @@ def _get_group_blast_radius_persons(
             raise ValidationError("Invalid group type index for feature flag condition.")
 
     # Build the SELECT query to get group keys
-    select_query = _build_group_query(team, filter, group_type_index, return_count=False, cursor=cursor)
+    select_query = _build_group_query(team, prop_group, group_type_index, return_count=False, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(

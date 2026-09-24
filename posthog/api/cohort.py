@@ -45,10 +45,9 @@ from posthog.api.services.flags_service import (
     batch_evaluate_flag_for_team,
 )
 from posthog.api.shared import SearchMatchTypeSerializerMixin, SerializedPersonActorSerializer, UserBasicSerializer
-from posthog.api.utils import action, parse_actor_property_filters
+from posthog.api.utils import action, paging_params, parse_actor_property_filters
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import LIMIT, OFFSET
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -75,9 +74,9 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
@@ -1336,7 +1335,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         try:
             if properties:
                 HogQLCohortQuery(
-                    filter=Filter(data={"properties": properties}, team=team), team=team
+                    property_groups=expand_cohort_properties(parse_property_group_data(properties), team), team=team
                 ).get_query_executor(user=user).generate_clickhouse_sql()
             if query:
                 context = HogQLContext(team_id=team.pk, team=team, user=user, enable_select_queries=True)
@@ -1397,7 +1396,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if self.context["request"].method != "PATCH":
             return
 
-        parsed_filter = Filter(data=request_filters)
+        parsed_filter = parse_property_group_data(request_filters.get("properties"))
         instance = cast(Cohort, self.instance)
         if instance.is_static and cohort_will_be_static:
             return
@@ -1410,7 +1409,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if not cohort_used_in_flags:
             return
 
-        for prop in parsed_filter.property_groups.flat:
+        for prop in parsed_filter.flat:
             if prop.type == "behavioral":
                 raise serializers.ValidationError(
                     detail="Behavioral filters cannot be added to cohorts used in feature flags.",
@@ -1944,14 +1943,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def persons(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
-        filter = Filter(request=request, team=self.team)
         assert request.user.is_authenticated
 
+        paging = paging_params(request)
+        limit = paging.limit
+        offset = paging.offset
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
-        if is_csv_request and not filter.limit:
-            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
-        elif not filter.limit:
-            filter = filter.shallow_clone({LIMIT: 100})
+        if is_csv_request and not limit:
+            limit, offset = CSV_EXPORT_LIMIT, 0
+        elif not limit:
+            limit = 100
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         cohort_properties: list[dict] = [{"type": "cohort", "key": "id", "value": cohort.pk}]
@@ -1964,22 +1965,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # Match the legacy PersonQuery ordering (created_at DESC, id DESC) so pagination
             # leads with the newest members; ActorsQuery otherwise defaults to id ASC.
             orderBy=["created_at DESC", "id DESC"],
-            limit=filter.limit,
-            offset=filter.offset,
+            limit=limit,
+            offset=offset,
         )
         actors_response = ActorsQueryRunner(team=team, query=actors_query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         actor_ids = [row[0] for row in actors_response.results]
         with personhog_caller_tag("cohorts/persons"):
             serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
-        _should_paginate = len(actor_ids) >= filter.limit
+        _should_paginate = len(actor_ids) >= limit
 
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        previous_url = (
-            format_query_params_absolute_url(request, filter.offset - filter.limit)
-            if filter.offset - filter.limit >= 0
-            else None
-        )
+        next_url = format_query_params_absolute_url(request, offset + limit) if _should_paginate else None
+        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
         if is_csv_request:
             KEYS_ORDER = [
                 "id",

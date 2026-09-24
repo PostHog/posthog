@@ -2,13 +2,13 @@ import time_machine
 from posthog.test.base import APIBaseTest
 
 from posthog.hogql_queries.properties_timeline.query_date_range import QueryDateRange
-from posthog.models.filters.filter import Filter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 
 
 class TestQueryDateRange(APIBaseTest):
     def test_parsed_date(self):
         with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
-            filter = Filter(
+            filter = PropertiesTimelineFilter(
                 data={
                     "date_from": "-48h",
                     "interval": "day",
@@ -31,7 +31,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_parsed_date_hour(self):
         with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
-            filter = Filter(
+            filter = PropertiesTimelineFilter(
                 data={
                     "date_from": "-48h",
                     "interval": "hour",
@@ -54,7 +54,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_parsed_date_middle_of_hour(self):
         with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
-            filter = Filter(
+            filter = PropertiesTimelineFilter(
                 data={
                     "date_from": "2021-08-23 05:00:00",
                     "date_to": "2021-08-26 07:00:00",
@@ -78,7 +78,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_parsed_date_week_rounded(self):
         with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
-            filter = Filter(
+            filter = PropertiesTimelineFilter(
                 data={
                     "date_from": "-7d",
                     "interval": "week",
@@ -101,7 +101,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_is_hourly(self):
         with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
-            filter = Filter(
+            filter = PropertiesTimelineFilter(
                 data={
                     "date_from": "-48h",
                     "interval": "day",
@@ -116,7 +116,7 @@ class TestQueryDateRange(APIBaseTest):
         self.assertFalse(query_date_range.is_hourly(None))
 
         with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
-            filter = Filter(
+            filter = PropertiesTimelineFilter(
                 data={
                     "date_from": "-48h",
                     "interval": "hour",

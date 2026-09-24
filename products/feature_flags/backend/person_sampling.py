@@ -10,7 +10,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.filters import Filter
+from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
 from posthog.schema_enums import PersonsArgMaxVersion
 
@@ -78,17 +78,17 @@ def sampled_or_exact_count(run_count: Callable[[Optional[int]], int]) -> int:
     return run_count(None)
 
 
-def count_matching_persons(team: Team, filter: Optional[Filter], database: Database, query_type: str) -> int:
+def count_matching_persons(team: Team, prop_group: Optional[PropertyGroup], database: Database, query_type: str) -> int:
     """Count the persons a filter matches, or every person on the team when filter is None."""
     return sampled_or_exact_count(
-        lambda sample_modulus: _run_person_count(team, filter, database, query_type, sample_modulus)
+        lambda sample_modulus: _run_person_count(team, prop_group, database, query_type, sample_modulus)
     )
 
 
 def _run_person_count(
-    team: Team, filter: Optional[Filter], database: Database, query_type: str, sample_modulus: Optional[int]
+    team: Team, prop_group: Optional[PropertyGroup], database: Database, query_type: str, sample_modulus: Optional[int]
 ) -> int:
-    query = build_person_count_query(team, filter, sample_modulus=sample_modulus)
+    query = build_person_count_query(team, prop_group, sample_modulus=sample_modulus)
     response = execute_hogql_query(
         query=query,
         team=team,
@@ -100,14 +100,16 @@ def _run_person_count(
         # whatever this says, so the pin is only load-bearing if that path is ever lost. A
         # filtered count reads person properties, where v2 is the faster shape, so it keeps the
         # automatic choice.
-        modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1) if filter is None else None,
+        modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1) if prop_group is None else None,
         context=HogQLContext(team_id=team.pk, database=database),
         settings=count_settings(sample_modulus),
     )
     return response.results[0][0] if response.results else 0
 
 
-def build_person_count_query(team: Team, filter: Optional[Filter], sample_modulus: Optional[int]) -> ast.SelectQuery:
+def build_person_count_query(
+    team: Team, prop_group: Optional[PropertyGroup], sample_modulus: Optional[int]
+) -> ast.SelectQuery:
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -117,14 +119,14 @@ def build_person_count_query(team: Team, filter: Optional[Filter], sample_modulu
     ]
     if sample_modulus is not None:
         where_exprs.append(person_sample_predicate(sample_modulus))
-    if filter is not None:
-        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
+    if prop_group is not None:
+        where_exprs.append(property_to_expr(prop_group, team, scope="person"))
 
     # A filter can add a one-to-many join: a `distinct_id` person property resolves through
     # persons.pdi, which gives a person one row per distinct id. So a filtered count dedups on
     # the person id. The unfiltered total joins nothing, so it keeps the plain count() and
     # avoids a uniqExact state over every person on the team.
-    if filter is None:
+    if prop_group is None:
         count_expr: ast.Expr = ast.Call(name="count", args=[])
     else:
         count_expr = ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])
