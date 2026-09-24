@@ -229,6 +229,7 @@ class _AccountUpdateCounts:
     updated: int
     regions_filled: int
     regions_replaced: int
+    error: str | None = None
 
 
 async def _update_accounts(
@@ -260,20 +261,26 @@ async def _update_accounts(
         if POSTHOG_ORG_REGION_FIELD in record:
             resend.append({field: value for field, value in record.items() if field != POSTHOG_ORG_REGION_FIELD})
 
+    error = None
     if resend:
         try:
             retry_response = await asyncio.to_thread(sf.bulk.Account.update, resend)  # type: ignore[union-attr,arg-type]
-        except Exception:
-            # The first attempt's updates are already written, so their counts must survive.
+        except Exception as e:
+            # The first attempt's updates are already written, so the failure is reported
+            # beside their counts instead of raised over them.
             logger.exception("salesforce_account_resend_failed", account_count=len(resend))
-            retry_response = []
-            resend = []
-        for record, result in zip(resend, retry_response, strict=True):
-            if result.get("success"):
-                updated += 1
-            else:
-                logger.warning("salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors"))
-    return _AccountUpdateCounts(updated=updated, regions_filled=regions_filled, regions_replaced=regions_replaced)
+            error = f"Failed to resend {len(resend)} Accounts without the region: {e!s}"
+        else:
+            for record, result in zip(resend, retry_response, strict=True):
+                if result.get("success"):
+                    updated += 1
+                else:
+                    logger.warning(
+                        "salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors")
+                    )
+    return _AccountUpdateCounts(
+        updated=updated, regions_filled=regions_filled, regions_replaced=regions_replaced, error=error
+    )
 
 
 @activity.defn
@@ -403,6 +410,8 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
                         total_updated += counts.updated
                         regions_filled += counts.regions_filled
                         regions_replaced += counts.regions_replaced
+                        if counts.error:
+                            errors.append(counts.error)
 
                 total_processed += len(batch_org_ids)
                 heartbeater.details = (total_processed, total_orgs, total_updated)

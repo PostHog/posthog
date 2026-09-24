@@ -402,7 +402,7 @@ class TestEnrichOrgPageActivity(TestCase):
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_keeps_batch_counts_when_the_resend_fails(
+    async def test_keeps_batch_counts_and_reports_a_failed_resend(
         self, _mock_close, mock_get_page, mock_sf_client, _mock_regions, _mock_heartbeat
     ):
         mock_get_page.return_value = [
@@ -426,7 +426,8 @@ class TestEnrichOrgPageActivity(TestCase):
 
         assert result.processed == 2
         assert result.updated == 1
-        assert result.errors == []
+        assert len(result.errors) == 1
+        assert "Salesforce timed out" in result.errors[0]
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
