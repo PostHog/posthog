@@ -254,6 +254,11 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT reinterpretAsUInt64('12345678')", ast.IntegerType(nullable=False))
         self._assert_first_column_type("SELECT reinterpretAsFloat64('12345678')", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT reinterpretAsUUID('1234567890123456')", ast.UUIDType(nullable=False))
+        # The width-suffixed spellings alias toInt/toFloat, so they resolve to the same nullable type
+        self._assert_first_column_type("SELECT toInt64('1')", ast.IntegerType(nullable=True))
+        self._assert_first_column_type("SELECT toIntOrNull('1')", ast.IntegerType(nullable=True))
+        self._assert_first_column_type("SELECT toInt64OrNull('1')", ast.IntegerType(nullable=True))
+        self._assert_first_column_type("SELECT toFloat64('1')", ast.FloatType(nullable=True))
 
     def test_resolver_infers_date_arithmetic_granularity(self) -> None:
         # Nullability below tracks the argument: parsing a string goes through `toDateOrNull` /

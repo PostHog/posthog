@@ -836,6 +836,10 @@ class TestPropertyTypes(BaseTest):
             ("to_int_or_zero", "toIntOrZero(properties.$screen_width)", "toInt64OrZero"),
             ("to_float_or_default", "toFloatOrDefault(properties.$screen_width, 0)", "toFloat64OrDefault"),
             ("to_int_or_default", "toIntOrDefault(properties.$screen_width, 0)", "toInt64OrDefault"),
+            ("to_float64_or_zero", "toFloat64OrZero(properties.$screen_width)", "toFloat64OrZero"),
+            ("to_int64_or_zero", "toInt64OrZero(properties.$screen_width)", "toInt64OrZero"),
+            ("to_float64_or_default", "toFloat64OrDefault(properties.$screen_width, 0)", "toFloat64OrDefault"),
+            ("to_int64_or_default", "toInt64OrDefault(properties.$screen_width, 0)", "toInt64OrDefault"),
         ]
     )
     def test_numeric_property_not_double_cast_inside_string_parser(self, _name: str, expr: str, ch_fn: str):

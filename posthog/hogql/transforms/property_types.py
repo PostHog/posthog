@@ -150,7 +150,16 @@ class PropertySwapper(CloningVisitor):
     # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
     # Numeric-typed property in one of these, we must not auto-convert the property
     # to Float, the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
+    _STRING_INPUT_CONVERSIONS: set[str] = {
+        "toFloatOrZero",
+        "toFloat64OrZero",
+        "toIntOrZero",
+        "toInt64OrZero",
+        "toFloatOrDefault",
+        "toFloat64OrDefault",
+        "toIntOrDefault",
+        "toInt64OrDefault",
+    }
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
     # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those

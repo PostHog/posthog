@@ -1825,14 +1825,39 @@ class TestPrinter(BaseTest):
         [
             ("toFloat", "toFloat('1.3')"),
             ("toFloatOrNull", "toFloatOrNull('1.3')"),
+            ("toFloat64", "toFloat64('1.3')"),
             ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+            ("toInt", "toInt('1')"),
+            ("toIntOrNull", "toIntOrNull('1')"),
+            ("toInt64", "toInt64('1')"),
+            ("toInt64OrNull", "toInt64OrNull('1')"),
         ]
     )
-    def test_to_float_aliases(self, _name: str, expr: str) -> None:
-        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
-        # all routing through accurateCastOrNull so unparseable input becomes NULL.
+    def test_nullable_numeric_cast_aliases(self, _name: str, expr: str) -> None:
+        # The ClickHouse spellings are accepted aliases of toFloat/toInt, all routing through
+        # accurateCastOrNull so unparseable input becomes NULL.
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+
+    @parameterized.expand(
+        [
+            ("toFloatOrZero", "toFloatOrZero('1.3')", "toFloat64OrZero(%(hogql_val_0)s)"),
+            ("toFloat64OrZero", "toFloat64OrZero('1.3')", "toFloat64OrZero(%(hogql_val_0)s)"),
+            ("toIntOrZero", "toIntOrZero('1')", "toInt64OrZero(%(hogql_val_0)s)"),
+            ("toInt64OrZero", "toInt64OrZero('1')", "toInt64OrZero(%(hogql_val_0)s)"),
+            ("toFloat64OrDefault", "toFloat64OrDefault('1.5')", "toFloat64OrZero(%(hogql_val_0)s)"),
+            ("toInt64OrDefault", "toInt64OrDefault('1')", "toInt64OrZero(%(hogql_val_0)s)"),
+            (
+                "toInt64OrDefault with a default",
+                "toInt64OrDefault('1', 7)",
+                "toInt64OrDefault(%(hogql_val_0)s, accurateCast(7, 'Int64'))",
+            ),
+        ]
+    )
+    def test_width_suffixed_conversion_aliases(self, _name: str, expr: str, expected: str) -> None:
+        # Each 64-bit ClickHouse spelling prints as the HogQL function it aliases.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), expected)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
@@ -1882,6 +1907,20 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "uuid(event)",
             "Unsupported function call 'uuid(...)'. Perhaps you meant 'toUUID(...)'?",
+        )
+        # Widths HogQL does not alias resolve to one exact name. Lexical nearest-match cannot
+        # find it: 'toInt8OrNull' sits closer to 'countOrNull' than to anything in the toInt family.
+        self._assert_expr_error(
+            "toInt8OrNull(event)",
+            "Unsupported function call 'toInt8OrNull(...)'. Perhaps you meant 'toIntOrNull(...)'?",
+        )
+        self._assert_expr_error(
+            "toUInt32(event)",
+            "Unsupported function call 'toUInt32(...)'. Perhaps you meant 'toInt(...)'?",
+        )
+        self._assert_expr_error(
+            "toDecimal64(event)",
+            "Unsupported function call 'toDecimal64(...)'. Perhaps you meant 'toDecimal(...)'?",
         )
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
         self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")

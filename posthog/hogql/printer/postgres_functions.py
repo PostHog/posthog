@@ -216,10 +216,17 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toDateTime": _make_cast_handler("TIMESTAMP"),
     "toString": _make_cast_handler("TEXT"),
     "toInt": _make_cast_handler("BIGINT"),
+    "toIntOrNull": _make_cast_handler("BIGINT"),
+    "toInt64": _make_cast_handler("BIGINT"),
+    "toInt64OrNull": _make_cast_handler("BIGINT"),
     "toFloat": _make_cast_handler("DOUBLE PRECISION"),
+    "toFloat64": _make_cast_handler("DOUBLE PRECISION"),
     "toFloatOrZero": _make_cast_handler("DOUBLE PRECISION"),
+    "toFloat64OrZero": _make_cast_handler("DOUBLE PRECISION"),
     "toIntOrZero": _make_cast_handler("BIGINT"),
+    "toInt64OrZero": _make_cast_handler("BIGINT"),
     "toIntOrDefault": _make_cast_handler("BIGINT"),
+    "toInt64OrDefault": _make_cast_handler("BIGINT"),
     "toBool": _make_cast_handler("BOOLEAN"),
     "toUUID": _make_cast_handler("UUID"),
     # Date extraction
@@ -304,6 +311,7 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Postgres backend intentionally drops the default arg — _make_cast_handler
     # only uses args[0], so this is a plain CAST and the fallback is unsupported.
     "toFloatOrDefault": _make_cast_handler("DOUBLE PRECISION"),
+    "toFloat64OrDefault": _make_cast_handler("DOUBLE PRECISION"),
     # More JSON
     "JSONExtractUInt": _make_json_cast_handler("INTEGER"),
     # String

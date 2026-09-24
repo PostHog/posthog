@@ -140,6 +140,20 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT CAST(1 AS {type_name}) AS x"))
         self.assertIsNotNone(result.content)
 
+    @parameterized.expand(
+        [
+            ("or_zero_float", "SELECT toFloat64OrZero('1.5') AS x"),
+            ("or_zero_int", "SELECT toInt64OrZero('1') AS x"),
+            ("bare_float", "SELECT toFloat64('1.5') AS x"),
+            ("or_null_int", "SELECT toInt64OrNull('1') AS x"),
+            ("or_default_int", "SELECT toInt64OrDefault('1', 7) AS x"),
+        ]
+    )
+    async def test_width_suffixed_numeric_conversions_are_accepted(self, _name: str, query: str) -> None:
+        # Plain ClickHouse spellings that callers reach for first, so each one has to run here.
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+        self.assertIsNotNone(result.content)
+
     async def test_validation_error_for_empty_query(self):
         with self.assertRaises(MaxToolRetryableError):
             await self.tool.execute(

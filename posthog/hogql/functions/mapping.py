@@ -1,3 +1,4 @@
+import re
 from itertools import chain
 from typing import Optional
 
@@ -33,6 +34,14 @@ HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
     "notILike": ast.CompareOperationOp.NotILike,
     "in": ast.CompareOperationOp.In,
     "notIn": ast.CompareOperationOp.NotIn,
+}
+
+# The printer rewrites the single-argument form of each of these to its OrZero equivalent.
+DEGENERATE_DEFAULT_TO_ZERO: dict[str, str] = {
+    "toIntOrDefault": "toIntOrZero",
+    "toInt64OrDefault": "toIntOrZero",
+    "toFloatOrDefault": "toFloatOrZero",
+    "toFloat64OrDefault": "toFloatOrZero",
 }
 
 HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
@@ -277,6 +286,23 @@ ALL_EXPOSED_FUNCTION_NAMES = [
     )
     if not name.startswith("_")
 ]
+
+_EXPOSED_FUNCTION_NAME_SET = set(ALL_EXPOSED_FUNCTION_NAMES)
+
+# ClickHouse numeric conversions carry the target width in the name. HogQL aliases the 64-bit ones
+# and leaves the rest out, so a caller who writes a narrower width needs the canonical spelling
+# named for them. Lexical nearest-match cannot do it: `toInt8OrNull` is closer to `countOrNull`
+# than to anything in the `toInt` family.
+_WIDTH_SUFFIXED_CONVERSION_RE = re.compile(r"^toU?(Int|Float|Decimal)(?:8|16|32|64|128|256)(OrZero|OrNull|OrDefault)?$")
+
+
+def suggest_width_suffixed_conversion(name: str) -> Optional[str]:
+    """Map a width-suffixed ClickHouse conversion name onto the HogQL spelling, if one exists."""
+    match = _WIDTH_SUFFIXED_CONVERSION_RE.match(name)
+    if match is None:
+        return None
+    candidate = f"to{match.group(1)}{match.group(2) or ''}"
+    return candidate if candidate in _EXPOSED_FUNCTION_NAME_SET else None
 
 
 def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:
