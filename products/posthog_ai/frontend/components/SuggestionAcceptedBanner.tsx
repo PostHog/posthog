@@ -8,7 +8,6 @@ export interface SuggestionAcceptedBannerProps {
     children: React.ReactNode
 }
 
-/** What a card shows once its offer is taken: the outcome, and a link to what it created. */
 export function SuggestionAcceptedBanner({
     accepted,
     linkLabel,

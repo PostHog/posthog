@@ -22,10 +22,6 @@ function turnSuggestionEventProperties(
     }
 }
 
-/**
- * The card's lifecycle: `superseded` is the card going away because the conversation moved on, and
- * `extra` on `accepted` carries what the kind created (a skill name, a notebook id, an alert bound).
- */
 export type TurnSuggestionEvent =
     | 'shown'
     | 'dismissed'

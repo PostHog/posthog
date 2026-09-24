@@ -154,7 +154,6 @@ export function buildSubscriptionCreatePayload({
     }
 }
 
-/** The create body's type, which the generated client doesn't export by name. */
 type HogFunctionWriteBody = NonNullable<Parameters<typeof hogFunctionsCreate>[1]>
 
 const ERROR_ALERT_SUB_TEMPLATE = 'error-tracking-issue-reopened'

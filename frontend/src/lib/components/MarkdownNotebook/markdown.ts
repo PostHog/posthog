@@ -2025,8 +2025,7 @@ function escapeComponentTagLineStart(line: string): string {
 }
 
 // For markdown the author meant to render: only a line that would parse as a component tag or a
-// comment is neutralized, so headings and lists stay live. Fenced code stays literal in the parser,
-// so a tag sample inside a fence keeps its text unchanged.
+// comment is neutralized, so headings and lists stay live.
 export function escapeComponentTagLines(markdown: string): string {
     const lines: string[] = []
     let openFence: string | null = null
