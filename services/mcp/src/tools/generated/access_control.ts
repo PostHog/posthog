@@ -139,7 +139,7 @@ const accessControlDefaultRuleSetPrepare = (): ToolBase<
 
 const accessControlDefaultRuleSetExecute = (): ToolBase<
     typeof AccessControlDefaultRuleSetSchemaExecute,
-    WithAgentNote<Schemas.AccessControlRuleWriteResponse>
+    WithAgentNote<Schemas.AccessControlStoredRule>
 > => ({
     name: 'access-control-default-rule-set-execute',
     schema: AccessControlDefaultRuleSetSchemaExecute,
@@ -176,7 +176,7 @@ const accessControlDefaultRuleSetExecute = (): ToolBase<
         if (params.access_level !== undefined) {
             body['access_level'] = params.access_level
         }
-        const result = await context.api.request<Schemas.AccessControlRuleWriteResponse>({
+        const result = await context.api.request<Schemas.AccessControlStoredRule>({
             method: 'PUT',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_default_rules/`,
             body,
@@ -374,7 +374,7 @@ const accessControlMemberRuleSetPrepare = (): ToolBase<
 
 const accessControlMemberRuleSetExecute = (): ToolBase<
     typeof AccessControlMemberRuleSetSchemaExecute,
-    WithAgentNote<Schemas.AccessControlRuleWriteResponse>
+    WithAgentNote<Schemas.AccessControlStoredRule>
 > => ({
     name: 'access-control-member-rule-set-execute',
     schema: AccessControlMemberRuleSetSchemaExecute,
@@ -414,7 +414,7 @@ const accessControlMemberRuleSetExecute = (): ToolBase<
         if (params.member_id !== undefined) {
             body['member_id'] = params.member_id
         }
-        const result = await context.api.request<Schemas.AccessControlRuleWriteResponse>({
+        const result = await context.api.request<Schemas.AccessControlStoredRule>({
             method: 'PUT',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_member_rules/`,
             body,
@@ -624,7 +624,7 @@ const accessControlRoleRuleSetPrepare = (): ToolBase<
 
 const accessControlRoleRuleSetExecute = (): ToolBase<
     typeof AccessControlRoleRuleSetSchemaExecute,
-    WithAgentNote<Schemas.AccessControlRuleWriteResponse>
+    WithAgentNote<Schemas.AccessControlStoredRule>
 > => ({
     name: 'access-control-role-rule-set-execute',
     schema: AccessControlRoleRuleSetSchemaExecute,
@@ -664,7 +664,7 @@ const accessControlRoleRuleSetExecute = (): ToolBase<
         if (params.role_id !== undefined) {
             body['role_id'] = params.role_id
         }
-        const result = await context.api.request<Schemas.AccessControlRuleWriteResponse>({
+        const result = await context.api.request<Schemas.AccessControlStoredRule>({
             method: 'PUT',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_role_rules/`,
             body,
