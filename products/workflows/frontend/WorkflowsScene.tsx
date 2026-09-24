@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -25,8 +25,9 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
+import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
-import { messagingNavTabs } from './messagingTabs'
+import { MessagingNavTabKey, messagingNavTabs } from './messagingTabs'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
@@ -35,7 +36,6 @@ import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -134,7 +134,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
-const MESSAGING_TAB_CONTENT: Record<string, JSX.Element> = {
+const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
     library: <MessageTemplatesTable />,
     channels: <MessageChannels />,
     'opt-outs': <OptOutScene />,
@@ -144,7 +144,6 @@ const MESSAGING_TAB_CONTENT: Record<string, JSX.Element> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { emailSendingSuspended, emailSendingSuspensionReason } = useValues(workflowsEmailSuspensionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
@@ -215,7 +214,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         },
         // Shared with the broadcasts scene; the content lives here because this is where they open.
         ...messagingNavTabs().map((tab) => ({ ...tab, content: MESSAGING_TAB_CONTENT[tab.key] })),
-    ] as LemonTab<WorkflowsSceneTab>[]
+    ]
 
     return (
         <SceneContent className="workflows">
@@ -290,13 +289,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            {emailSendingSuspended && (
-                <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
-                    Email sending is suspended for this project. Workflow emails are not being delivered.
-                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} Contact
-                    support to get sending re-enabled.
-                </LemonBanner>
-            )}
+            <EmailSuspensionBanner />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

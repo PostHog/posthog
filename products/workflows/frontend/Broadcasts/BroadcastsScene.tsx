@@ -10,7 +10,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { messagingNavTabs } from '../messagingTabs'
+import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
 
 export const scene: SceneExport = {
@@ -36,11 +38,13 @@ export function BroadcastsScene(): JSX.Element {
                     </AccessControlAction>
                 }
             />
+            <EmailSuspensionBanner />
             <LemonTabs
                 activeKey="broadcasts"
                 tabs={[{ label: 'Broadcasts', key: 'broadcasts', link: urls.broadcasts() }, ...messagingNavTabs()]}
                 sceneInset
             />
+            <BroadcastsFeaturePreview />
             <BroadcastsTable />
         </SceneContent>
     )

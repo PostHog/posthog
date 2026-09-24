@@ -8,7 +8,9 @@ import { urls } from 'scenes/urls'
  * Workflows renders these with their content; Broadcasts renders them as links back to it, so a
  * sender or a suppression rule is one click away from either surface rather than only from one.
  */
-export function messagingNavTabs(): LemonTab<string>[] {
+export type MessagingNavTabKey = 'library' | 'channels' | 'opt-outs' | 'suppression' | 'reputation'
+
+export function messagingNavTabs(): LemonTab<MessagingNavTabKey>[] {
     return [
         { label: 'Library', key: 'library', link: urls.workflows('library') },
         { label: 'Channels', key: 'channels', link: urls.workflows('channels') },
