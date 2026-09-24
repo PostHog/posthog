@@ -110,6 +110,7 @@ export function TagSelect({
     }
 
     const selectedCount = value.length
+    const hasVisibleSelection = displayedTags.some(({ tag }) => value.includes(tag))
     const trigger = children ? (
         children(value)
     ) : (
@@ -201,7 +202,7 @@ export function TagSelect({
                             )}
                         </ul>
                     </div>
-                    {(tagPageError || selectedCount > 0) && (
+                    {(tagPageError || hasVisibleSelection) && (
                         <div className="border-t border-primary">
                             {tagPageError && (
                                 <LemonButton
@@ -222,7 +223,7 @@ export function TagSelect({
                                     Couldn't load tags. Try again.
                                 </LemonButton>
                             )}
-                            {selectedCount > 0 && (
+                            {hasVisibleSelection && (
                                 <LemonButton
                                     fullWidth
                                     size="small"

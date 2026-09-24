@@ -26,10 +26,12 @@ describe('TagSelect', () => {
 
         await userEvent.click(screen.getByText('revenue'))
         await waitFor(() => expect(screen.getByLabelText('topic-1 (75)')).toBeInTheDocument())
+        expect(screen.getByText('Clear selection')).toBeInTheDocument()
         expect(screen.queryByLabelText('topic-75 (1)')).not.toBeInTheDocument()
         await userEvent.type(screen.getByPlaceholderText('Search tags'), 'topic-75')
         await waitFor(() => expect(screen.getByLabelText('topic-75 (1)')).toBeInTheDocument())
         expect(screen.queryByLabelText('revenue (1)')).not.toBeInTheDocument()
+        expect(screen.queryByText('Clear selection')).not.toBeInTheDocument()
         await userEvent.click(screen.getByLabelText('topic-75 (1)'))
         expect(onChange).toHaveBeenCalledWith(['revenue', 'topic-75'])
     })
@@ -50,6 +52,7 @@ describe('TagSelect', () => {
             await screen.findByText("Couldn't load tags. Try again.", { selector: '.LemonButton__content' })
         )
         await waitFor(() => expect(screen.getByLabelText('available')).toBeInTheDocument())
+        expect(screen.queryByText('Clear selection')).not.toBeInTheDocument()
         expect(loadTags).toHaveBeenCalledTimes(2)
     })
 
