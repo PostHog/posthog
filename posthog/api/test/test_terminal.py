@@ -84,6 +84,17 @@ class TestTerminalSandboxService(SimpleTestCase):
                 self.service.start("small")
         self.provider.create.assert_not_called()
 
+    def test_lost_provisioning_lock_destroys_the_untracked_sandbox(self) -> None:
+        def lose_lock(*args: object, **kwargs: object) -> SimpleNamespace:
+            self.redis.delete("terminal-sandbox:1:2:lock")
+            return SimpleNamespace(exit_code=0)
+
+        self.sandbox.execute.side_effect = lose_lock
+        with self.assertRaises(Throttled):
+            self.service.start("small")
+        self.sandbox.destroy.assert_called_once()
+        assert not self.redis.exists(self.service.key)
+
     def test_failed_stop_preserves_session_for_retry(self) -> None:
         session = self.service.start("small")
         self.sandbox.destroy.side_effect = RuntimeError("Provider unavailable")

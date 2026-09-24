@@ -111,6 +111,7 @@ RUN python3 -m venv /opt/notebook-venv && \
     ipython \
     jupyter \
     jupyterlab \
+    tornado \
     notebook \
     ipywidgets \
     numpy \

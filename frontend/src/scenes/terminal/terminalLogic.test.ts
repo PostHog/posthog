@@ -102,6 +102,32 @@ describe('terminal lifecycle', () => {
         expect(window.posthogTerminal).toBeUndefined()
     })
 
+    it.each([false, true])('waits for Modal cleanup on project changes, with explicit Stop: %s', async (stop) => {
+        terminalLogic.actions.setEnvironment('modal')
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(ModalTerminalRuntime).mock.results[0].value
+        let finishStop!: () => void
+        runtime.stop.mockReturnValue(new Promise<void>((resolve) => (finishStop = resolve)))
+        const nextProjectId = MOCK_DEFAULT_TEAM.id + 1
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: nextProjectId })
+        expect(terminalLogic.values.status).toBe('stopping')
+        expect(ModalTerminalRuntime).toHaveBeenCalledTimes(1)
+        if (stop) {
+            terminalLogic.actions.stop()
+        }
+        finishStop()
+        await waitFor(() => expect(terminalLogic.values.status).toBe(stop ? 'idle' : 'ready'))
+        expect(ModalTerminalRuntime).toHaveBeenCalledTimes(stop ? 1 : 2)
+        if (!stop) {
+            expect(ModalTerminalRuntime).toHaveBeenLastCalledWith(
+                String(nextProjectId),
+                expect.any(Function),
+                expect.any(Function)
+            )
+        }
+    })
+
     it.each([false, true])('opens folders with the simple side panel enabled: %s', (enabled) => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,

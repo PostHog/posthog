@@ -20,6 +20,7 @@ class TerminalHandler(WebSocketHandler):
     stream: PipeIOStream | None = None
     pid: int | None = None
     output_task: asyncio.Task[None] | None = None
+    reap_task: asyncio.Task[None] | None = None
 
     def check_origin(self, origin: str) -> bool:
         return origin == os.environ["TERMINAL_ORIGIN"]
@@ -81,6 +82,11 @@ class TerminalHandler(WebSocketHandler):
         except (ValueError, StreamClosedError):
             self.close(1008, "Invalid terminal message")
 
+    async def _reap_child(self, pid: int) -> None:
+        with suppress(ChildProcessError):
+            while os.waitpid(pid, os.WNOHANG) == (0, 0):
+                await asyncio.sleep(0.05)
+
     def on_close(self) -> None:
         if self.output_task is not None:
             self.output_task.cancel()
@@ -89,8 +95,7 @@ class TerminalHandler(WebSocketHandler):
         if self.pid is not None:
             with suppress(ProcessLookupError):
                 os.killpg(self.pid, signal.SIGKILL)
-            with suppress(ChildProcessError):
-                os.waitpid(self.pid, 0)
+            self.reap_task = asyncio.create_task(self._reap_child(self.pid))
             self.application.settings["terminal_connected"] = False
 
 

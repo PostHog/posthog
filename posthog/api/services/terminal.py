@@ -1,10 +1,14 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Event, Thread
 from uuid import uuid4
 
 from django.conf import settings
 
-from redis.exceptions import LockError
+from redis.exceptions import LockError, RedisError
+from redis.lock import Lock
 from rest_framework.exceptions import APIException, NotFound, Throttled
 
 from posthog.redis import get_client
@@ -32,9 +36,29 @@ class TerminalSandboxService:
         self.key = f"terminal-sandbox:{team_id}:{user_id}"
         self.redis = get_client()
 
+    @staticmethod
+    def _renew_lock(lock: Lock, stopped: Event) -> None:
+        while not stopped.wait(60):
+            try:
+                lock.reacquire()
+            except RedisError:
+                return
+
+    @contextmanager
+    def _acquire_lock(self) -> Iterator[Lock]:
+        with self.redis.lock(f"{self.key}:lock", timeout=180, blocking_timeout=0, thread_local=False) as lock:
+            stopped = Event()
+            renewal = Thread(target=self._renew_lock, args=(lock, stopped), daemon=True)
+            renewal.start()
+            try:
+                yield lock
+            finally:
+                stopped.set()
+                renewal.join()
+
     def start(self, size: str) -> dict[str, str]:
         try:
-            with self.redis.lock(f"{self.key}:lock", timeout=180, blocking_timeout=0):
+            with self._acquire_lock() as lock:
                 sandbox_class = get_sandbox_class_for_backend("modal")
                 existing = self.redis.get(self.key)
                 if existing:
@@ -87,6 +111,8 @@ class TerminalSandboxService:
                     )
                     if not credentials.token:
                         raise TerminalSandboxUnavailable()
+                    if not lock.owned():
+                        raise Throttled(detail="The sandbox start expired. Try again in a moment.")
                     session_id = str(uuid4())
                     self.redis.set(
                         self.key,
@@ -102,7 +128,7 @@ class TerminalSandboxService:
 
     def stop(self, session_id: str) -> None:
         try:
-            with self.redis.lock(f"{self.key}:lock", timeout=180, blocking_timeout=0):
+            with self._acquire_lock():
                 existing = self.redis.get(self.key)
                 if not existing:
                     return

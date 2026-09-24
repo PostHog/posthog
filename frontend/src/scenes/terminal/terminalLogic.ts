@@ -173,8 +173,8 @@ export interface terminalLogicActions {
     start: () => {
         value: true
     }
-    stop: () => {
-        value: true
+    stop: (preserveRunRequested?: boolean) => {
+        preserveRunRequested: boolean
     }
 }
 
@@ -221,7 +221,7 @@ export const terminalLogic = kea<terminalLogicType>([
         setHasSelection: (selected: boolean) => ({ selected }),
         setClipboardError: (error: string | null) => ({ error }),
         setPasting: (pasting: boolean) => ({ pasting }),
-        stop: true,
+        stop: (preserveRunRequested: boolean = false) => ({ preserveRunRequested }),
         setStatus: (status: TerminalStatus) => ({ status }),
         setError: (error: string | null) => ({ error }),
         setSaveError: (error: string | null) => ({ error }),
@@ -273,7 +273,10 @@ export const terminalLogic = kea<terminalLogicType>([
             },
         ],
         hasStarted: [false, { start: () => true }],
-        runRequested: [false, { start: () => true, stop: () => false }],
+        runRequested: [
+            false,
+            { start: () => true, stop: (state, { preserveRunRequested }) => preserveRunRequested && state },
+        ],
         hasSelection: [false, { setHasSelection: (_, { selected }) => selected }],
         pasting: [false, { setPasting: (_, { pasting }) => pasting }],
         clipboardError: [null as string | null, { setClipboardError: (_, { error }) => error }],
@@ -285,7 +288,7 @@ export const terminalLogic = kea<terminalLogicType>([
             { setSaveError: (_, { error }) => error, start: () => null, stop: () => null },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, asyncActions, values, cache }) => ({
         setEnvironment: () => cache.session?.view.clear(),
         openUrl: ({ url }) => {
             const target = new URL(url, window.location.origin)
@@ -427,15 +430,15 @@ export const terminalLogic = kea<terminalLogicType>([
                 actions.setPasting(false)
             }
         },
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: ({ currentTeam }) => {
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }, breakpoint) => {
             if (cache.projectId === currentTeam?.id) {
                 return
             }
-            const restart = values.runRequested
-            actions.stop()
+            await asyncActions.stop(true)
+            breakpoint()
             cache.filesystem = null
             cache.session?.view.clear()
-            if (restart && cache.session) {
+            if (values.runRequested && cache.session) {
                 actions.start()
             }
         },
