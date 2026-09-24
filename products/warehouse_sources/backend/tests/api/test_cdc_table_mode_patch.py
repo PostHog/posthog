@@ -181,6 +181,24 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
     mock_trigger.assert_called_once()
 
 
+@pytest.mark.parametrize("ingest_mode", [None, "buffered"])
+def test_resync_of_a_streaming_table_keeps_its_buffer_on_a_buffered_source(team, user, client: HttpClient, ingest_mode):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode=ingest_mode)
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["is_buffered_snapshot_enabled"], return_value=True),
+    ):
+        response = client.post(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/resync")
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.sync_type_config.get("cdc_mode") == "snapshot"
+    # Unmarked, the next capture run empties the buffer and can delete changes the snapshot never saw.
+    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
+
+
 @pytest.mark.parametrize(
     ("old_mode", "new_mode"),
     [

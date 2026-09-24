@@ -1883,6 +1883,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Reset CDC state so the next run does a full re-snapshot
             updates["cdc_mode"] = "snapshot"
             removes = ["cdc_last_log_position", "cdc_deferred_runs"]
+            # Without the marker, the next capture run would empty the buffer, deleting changes a
+            # capture run already in progress wrote after the snapshot started reading.
+            if resnapshot_stays_in_buffer(instance, logger):
+                updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+            else:
+                removes.append(CDC_SNAPSHOT_LANE_KEY)
 
         # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
         # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source
