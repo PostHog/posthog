@@ -1052,6 +1052,22 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         assert str(getattr(obj_team1, "pk", obj_team1)) in ids
         assert str(getattr(obj_team2, "pk", obj_team2)) not in ids
 
+    def test_feature_flag_state_columns_match_the_model(self):
+        # SQL is one of several surfaces agents read a project's flag roster from, so it has to
+        # agree with the flag list and `feature-flag-get-all` on which flags are on and which are
+        # hidden. Drop either column and a switched-off or archived flag reads as a live one.
+        FeatureFlag.objects.create(team=self.team, key="live", active=True)
+        FeatureFlag.objects.create(team=self.team, key="disabled", active=False)
+        FeatureFlag.objects.create(team=self.team, key="archived", active=False, archived=True)
+
+        response = execute_hogql_query(
+            "SELECT key, active, archived FROM system.feature_flags ORDER BY key",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("archived", 0, 1), ("disabled", 0, 0), ("live", 1, 0)]
+
     def test_error_tracking_issue_severity(self):
         create_issue(team_id=self.team.pk, name="high_severity_issue", severity="high")
 

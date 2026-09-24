@@ -989,12 +989,33 @@ feature_flags: PostgresTable = PostgresTable(
         ),
         "rollout_percentage": IntegerDatabaseField(
             name="rollout_percentage",
-            description="Top-level rollout percentage (0-100); detailed rules live in filters.",
+            description=(
+                "Deprecated legacy column, no longer written; usually null. Read the rollout from "
+                "filters.groups[N].rollout_percentage instead."
+            ),
         ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the flag."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the flag was created."),
+        "_active": BooleanDatabaseField(name="active", hidden=True),
+        "active": ExpressionField(
+            name="active",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_active"])]),
+            description=(
+                "1 if the flag is enabled, 0 if it is switched off and serves nobody. This is the flag's on/off "
+                "state, not whether it is in use."
+            ),
+        ),
+        "_archived": BooleanDatabaseField(name="archived", hidden=True),
+        "archived": ExpressionField(
+            name="archived",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_archived"])]),
+            description=(
+                "1 if the flag has been archived, 0 otherwise. An archived flag is always disabled, and the flag "
+                "list and the API hide it by default, so filter on this to match the roster those surfaces show."
+            ),
+        ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
             name="deleted",

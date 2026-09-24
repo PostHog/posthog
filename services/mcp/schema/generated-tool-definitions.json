@@ -5437,7 +5437,7 @@
         }
     },
     "feature-flag-get-all": {
-        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.\n\nRead whether a flag is on from `active`, never from `status`. `active: false` means the flag serves nobody.\n\n`status` answers a different question: is this flag worth keeping? `STALE` means nothing has evaluated the flag for 30 days, or the flag is rolled out to everyone and over 30 days old. `ACTIVE` only means \"not stale\", and a disabled flag is reported `ACTIVE` because staleness is not measured on a flag that serves nobody. So `active: false` with `status: \"ACTIVE\"` is one flag that is off, not two surfaces disagreeing.\n\n`archived` is `false` on every row unless you pass `{\"archived\":\"true\"}`, because the list hides archived flags by default. Soft-deleted flags never appear. The whole roster is therefore this list plus a second call with `{\"archived\":\"true\"}`.\n\n`filters.groups[].rollout_percentage` gives each release condition's rollout, so a flag whose conditions are all at 0 serves nobody even when `active` is `true`. The property filters that target each condition are left out. Read `feature-flag-get-definition` for the full targeting, the variants and the payloads.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get all feature flags",

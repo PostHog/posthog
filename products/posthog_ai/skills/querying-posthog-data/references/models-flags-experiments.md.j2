@@ -6,7 +6,9 @@ Feature flags control rollouts of new features and are used for A/B testing.
 
 ### Columns
 
-These are the only columns exposed via HogQL — the full flag model (e.g. `active`, `ensure_experience_continuity`, `last_called_at`, rollback settings) is not queryable here; fetch the flag via the feature flag API tools instead.
+These are the only columns exposed via HogQL — the full flag model (e.g. `ensure_experience_continuity`, `last_called_at`, rollback settings) is not queryable here; fetch the flag via the feature flag API tools instead.
+
+`active`, `archived` and `deleted` are the flag's state, and each is 1 or 0. The flag list in the app and the `feature-flag-get-all` tool both hide archived and deleted flags, so add `WHERE NOT archived AND NOT deleted` to count the same roster they do. `active` then says which of those flags are switched on. A flag can be `active` and still serve nobody, when every release condition in `filters` sits at 0%.
 
 {{ schema_columns('system.feature_flags') }}
 
