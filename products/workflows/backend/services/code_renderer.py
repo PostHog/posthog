@@ -1032,6 +1032,12 @@ class _Renderer:
             if action_id not in self.visited and action_id not in (self.trigger_id, self.exit_id):
                 self.warn(action_id, f'"{self._name(action)}" is not reached from the trigger and is dropped.')
 
+        for stored_id, sdk_id, label in ((self.trigger_id, TRIGGER_ID, "trigger"), (self.exit_id, EXIT_ID, "exit")):
+            if stored_id in self.actions and stored_id != sdk_id:
+                self.warn(
+                    stored_id,
+                    f'The {label} has the id "{stored_id}", and {PACKAGE} always names it "{sdk_id}". The first push removes "{stored_id}" and adds "{sdk_id}" in its place.',
+                )
         on = self.render_trigger(self.actions.get(self.trigger_id))
         flat = tuple(self._flatten(placements))
         for placement in flat:

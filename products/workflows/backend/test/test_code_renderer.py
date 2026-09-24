@@ -149,7 +149,22 @@ class TestCodeRenderer(SimpleTestCase):
         default_rendered = render_workflow_code(default_definition)
         custom_rendered = render_workflow_code(custom_definition)
 
-        assert custom_rendered == default_rendered
+        renamed = [
+            {
+                "action_id": "custom_trigger",
+                "message": 'The trigger has the id "custom_trigger", and @posthog/workflows always names it "trigger_node". The first push removes "custom_trigger" and adds "trigger_node" in its place.',
+            },
+            {
+                "action_id": "custom_exit",
+                "message": 'The exit has the id "custom_exit", and @posthog/workflows always names it "exit_node". The first push removes "custom_exit" and adds "exit_node" in its place.',
+            },
+        ]
+        assert [asdict(warning) for warning in custom_rendered.warnings] == [
+            *renamed,
+            *[asdict(warning) for warning in default_rendered.warnings],
+        ]
+        body = custom_rendered.code[custom_rendered.code.index("import {") :]
+        assert body == default_rendered.code[default_rendered.code.index("import {") :]
 
     @parameterized.expand(
         [
