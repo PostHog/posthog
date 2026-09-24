@@ -62,6 +62,8 @@ class StableCursorPagination(CursorPagination):
     DRF positions a cursor on the first ordering field and skips the rows that tie on it by count.
     That skip is correct only when tied rows come back in the same order on every request.
     The cursor encodes only the first ordering field, so the tiebreaker does not change the cursor format.
+    Known gap: DRF caps the tie offset at `offset_cutoff`, so a cursor cannot page past more tied rows than that.
+    A cursor position that includes the primary key would close the gap, but it changes the cursor format.
     """
 
     def get_ordering(self, request: Request, queryset: QuerySet, view: APIView) -> tuple[str, ...]:
