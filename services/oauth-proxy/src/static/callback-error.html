@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Authorization link expired</title>
+
+    <style>
+        /* Mirrors the region picker (src/static/region-picker.html), which mirrors the app's
+           login scene. A Worker cannot import the app's tokens, so the values are restated. */
+        @font-face {
+            font-family: RoundHog;
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/static/fonts/RoundHog.woff2') format('woff2');
+        }
+
+        @font-face {
+            font-family: RoundHog;
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('/static/fonts/RoundHog-SemiBold.woff2') format('woff2');
+        }
+
+        :root {
+            --font-sans:
+                RoundHog, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', helvetica, arial,
+                sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+            --text-primary: #111;
+            --text-secondary: #4b5563;
+            --card-bg: #f6f5f0;
+            --card-border: #e3e0d4;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 72px 16px;
+            font-family: var(--font-sans);
+            color: var(--text-primary);
+            background-color: #b5cd8f;
+            background-image:
+                radial-gradient(80% 70% at 50% 30%, rgb(255 253 240 / 45%), transparent 70%),
+                linear-gradient(180deg, #cfe0ae 0%, #b5cd8f 55%, #9dbb78 100%);
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        main {
+            width: 27rem;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        article {
+            width: 100%;
+            padding: 32px 36px;
+            text-align: center;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            box-shadow: 0 16px 40px rgb(30 50 10 / 25%);
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 25px;
+            letter-spacing: -0.5px;
+        }
+
+        p {
+            margin-top: 12px;
+            font-size: 14px;
+            line-height: 21px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <article>
+            <h1>This authorization link has expired</h1>
+            <p>PostHog cannot match it to a sign-in that is still in progress.</p>
+            <p>Go back to the app or the command line you started from, and sign in again.</p>
+        </article>
+    </main>
+</body>
+
+</html>

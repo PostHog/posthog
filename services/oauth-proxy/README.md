@@ -49,8 +49,14 @@ Trailing slashes are optional; paths are normalized before matching.
 
 3. **Callback.**
    The regional server sends the user to `/oauth/callback` with the nonce from step 2 as `state`.
-   The worker looks up and deletes the matching record, then forwards every query param to the client's original `redirect_uri`, restoring the client's own `state`.
+   The worker looks the matching record up, then forwards every query param to the client's original `redirect_uri`, restoring the client's own `state`.
    The client never sees a regional URL, so its token request comes back through the proxy.
+   The record is left to expire on its TTL rather than consumed on read, so a reload or a client retry forwards the same code again instead of stranding it.
+   Replaying the forward is inert: the authorization code is single-use at the regional server, and PKCE binds it to the client that requested it.
+   A callback the worker cannot match to a record has nowhere to send the code, so it answers with a page that tells the person to start again, not a bare 400.
+
+   The worker only replaces `redirect_uri` with its own callback when it stored a record for that flow.
+   Taking the callback over without one would strand the code at the proxy.
 4. **Token.**
    `/oauth/token` looks up the region by `client_id`.
    It rewrites `client_id`, `client_secret`, and `redirect_uri` back to the values the regional server issued the code for, then forwards the request.

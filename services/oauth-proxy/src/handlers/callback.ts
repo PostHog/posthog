@@ -1,4 +1,23 @@
-import { deletePendingCallback, getPendingCallback } from '@/lib/kv'
+import { getPendingCallback } from '@/lib/kv'
+
+import CALLBACK_ERROR_HTML from '../static/callback-error.html'
+
+const CALLBACK_ERROR_HEADERS: Record<string, string> = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+}
+
+/**
+ * The proxy holds the only copy of the client's `redirect_uri`, so a callback it cannot
+ * match to a flow has nowhere to send the authorization code. Say so in a page the person
+ * can act on instead of a bare 400, which leaves them on a dead URL with no way forward.
+ */
+function flowNotFound(): Response {
+    return new Response(CALLBACK_ERROR_HTML, { status: 400, headers: CALLBACK_ERROR_HEADERS })
+}
 
 /**
  * OAuth Callback Interception — proxy receives the regional server's callback
@@ -12,19 +31,17 @@ export async function handleCallback(request: Request, kv: KVNamespace): Promise
     const state = url.searchParams.get('state')
 
     if (!state) {
-        return new Response('Missing state parameter', { status: 400 })
+        return flowNotFound()
     }
 
+    // The record is left to expire on its TTL rather than consumed on read. Deleting it here
+    // made the forward single-use, so a reload, a duplicate navigation or a client retry hit
+    // an empty record and dropped an authorization code the person had already granted.
+    // Replaying the forward is inert: the code itself is single-use at the regional server,
+    // and PKCE binds it to the client that requested it.
     const record = await getPendingCallback(kv, state)
     if (!record) {
-        return new Response('State expired or invalid', { status: 400 })
-    }
-
-    // A transient KV failure here should not turn an already-verified callback into a 500.
-    try {
-        await deletePendingCallback(kv, state)
-    } catch {
-        console.warn(JSON.stringify({ handler: 'callback', error: 'pending_callback_delete_failed' }))
+        return flowNotFound()
     }
 
     const clientUrl = new URL(record.redirect_uri)

@@ -114,6 +114,30 @@ describe('handleAuthorize', () => {
         expect(location.searchParams.has('_region')).toBe(false)
     })
 
+    it('leaves the callback with the regional server when it stores no record to forward from', async () => {
+        const mapping = {
+            us_client_id: 'us_real_id',
+            eu_client_id: 'eu_real_id',
+            redirect_uris: ['http://localhost:3000/callback'],
+            created_at: Date.now(),
+        }
+        mockKVGet(mockKV, (_key: string, type?: unknown) => {
+            if (type === 'json') {
+                return Promise.resolve(mapping)
+            }
+            return Promise.resolve(null)
+        })
+
+        const request = new Request(
+            'https://oauth.posthog.com/oauth/authorize/?client_id=us_real_id&redirect_uri=&response_type=code&state=client_state&_region=us'
+        )
+        const response = await handleAuthorize(request, mockKV)
+
+        const location = new URL(response.headers.get('location')!)
+        expect(location.searchParams.get('redirect_uri')).toBe('')
+        expect(location.searchParams.get('state')).toBe('client_state')
+    })
+
     it('rejects unregistered redirect_uri to prevent open redirects', async () => {
         const mapping = {
             us_client_id: 'us_id',

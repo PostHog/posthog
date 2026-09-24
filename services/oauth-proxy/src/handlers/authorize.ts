@@ -134,7 +134,9 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         }
         if (key === 'client_id' && regionalClientId) {
             regionalUrl.searchParams.set(key, regionalClientId)
-        } else if (key === 'redirect_uri' && mapping?.redirect_uris) {
+        } else if (key === 'redirect_uri' && nonce) {
+            // Gated on the nonce, not on the mapping: taking over the callback without a
+            // record to forward from strands the authorization code at the proxy.
             regionalUrl.searchParams.set(key, proxyCallbackUrl)
         } else {
             regionalUrl.searchParams.set(key, value)

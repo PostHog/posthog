@@ -33,42 +33,21 @@ describe('handleCallback', () => {
         expect(location.searchParams.get('state')).toBe('test_state_123')
     })
 
-    it('deletes the flow record after reading it, so the nonce is single-use', async () => {
+    it('keeps forwarding the code when the same callback arrives twice', async () => {
         const kv = createInMemoryKV()
-        const nonceHash = await hashKey('single_use_nonce')
+        const nonceHash = await hashKey('replayed_nonce')
         await kv.put(
             `pending_callback:${nonceHash}`,
             JSON.stringify({ redirect_uri: 'http://localhost:3000/callback', state: 'orig_state' })
         )
 
-        const request = new Request(
-            'https://oauth.posthog.com/oauth/callback/?code=auth_code_abc&state=single_use_nonce'
-        )
+        const request = new Request('https://oauth.posthog.com/oauth/callback/?code=auth_code_abc&state=replayed_nonce')
         const first = await handleCallback(request, kv)
         expect(first.status).toBe(302)
 
         const second = await handleCallback(request, kv)
-        expect(second.status).toBe(400)
-        expect(await second.text()).toBe('State expired or invalid')
-    })
-
-    it('still redirects to the client when deleting the flow record fails', async () => {
-        const nonceHash = await hashKey('delete_fails_nonce')
-        mockKVGet(mockKV, (key: string) => {
-            if (key === `pending_callback:${nonceHash}`) {
-                return Promise.resolve({ redirect_uri: 'http://localhost:3000/callback', state: 'orig_state' })
-            }
-            return Promise.resolve(null)
-        })
-        vi.mocked(mockKV.delete).mockRejectedValue(new Error('KV transient failure'))
-
-        const request = new Request(
-            'https://oauth.posthog.com/oauth/callback/?code=auth_code_abc&state=delete_fails_nonce'
-        )
-        const response = await handleCallback(request, mockKV)
-
-        expect(response.status).toBe(302)
-        const location = new URL(response.headers.get('location')!)
+        expect(second.status).toBe(302)
+        const location = new URL(second.headers.get('location')!)
         expect(location.origin + location.pathname).toBe('http://localhost:3000/callback')
         expect(location.searchParams.get('code')).toBe('auth_code_abc')
         expect(location.searchParams.get('state')).toBe('orig_state')
@@ -92,22 +71,20 @@ describe('handleCallback', () => {
         expect(location.searchParams.has('state')).toBe(false)
     })
 
-    it('returns 400 when state parameter is missing', async () => {
-        const request = new Request('https://oauth.posthog.com/oauth/callback/?code=auth_code_abc')
-        const response = await handleCallback(request, mockKV)
-
-        expect(response.status).toBe(400)
-        expect(await response.text()).toBe('Missing state parameter')
-    })
-
-    it('returns 400 when the nonce is expired or unknown', async () => {
+    it.each([
+        ['the state parameter is missing', 'https://oauth.posthog.com/oauth/callback/?code=auth_code_abc'],
+        [
+            'the nonce is expired or unknown',
+            'https://oauth.posthog.com/oauth/callback/?code=auth_code_abc&state=expired_state',
+        ],
+    ])('answers with a page the person can act on when %s', async (_case, url) => {
         mockKVGet(mockKV, () => Promise.resolve(null))
 
-        const request = new Request('https://oauth.posthog.com/oauth/callback/?code=auth_code_abc&state=expired_state')
-        const response = await handleCallback(request, mockKV)
+        const response = await handleCallback(new Request(url), mockKV)
 
         expect(response.status).toBe(400)
-        expect(await response.text()).toBe('State expired or invalid')
+        expect(response.headers.get('content-type')).toContain('text/html')
+        expect(await response.text()).toContain('sign in again')
     })
 
     it("forwards error params to the client's redirect_uri and restores its original state", async () => {

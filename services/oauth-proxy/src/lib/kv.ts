@@ -75,10 +75,6 @@ export async function getPendingCallback(kv: KVNamespace, nonce: string): Promis
     return data as PendingCallback | null
 }
 
-export async function deletePendingCallback(kv: KVNamespace, nonce: string): Promise<void> {
-    await kv.delete(`${PENDING_CALLBACK_PREFIX}${await hashKey(nonce)}`)
-}
-
 /**
  * Derive the regional client_id and optional client_secret rewrite for a given
  * region from a client mapping. Returns null if the mapping has no client_id
