@@ -121,6 +121,13 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
         ),
         pytest.param(
             [],
+            [run(1, "cancelled", workflow="earlier"), run(2, "success", workflow="later")],
+            [run(10, "success", workflow="later")],
+            (relay.Phase.FINISHED, "success"),
+            id="cancelled legacy wait does not hide the live run",
+        ),
+        pytest.param(
+            [],
             [run(1, "success", prs=(105000,))],
             [run(10, "success", prs=(105000,))],
             (relay.Phase.ABSENT, ""),
@@ -212,6 +219,53 @@ def test_poll_waits_out_a_replacement_before_failing(
     )
     assert (result.phase, result.state) == expected
     assert clock.now >= min_minutes * 60
+
+
+def test_migration_report_stops_when_depot_did_not_receive_the_handoff() -> None:
+    clock = FakeClock()
+    result = relay.poll(
+        FakeReader(
+            [
+                {
+                    EVENT_WAIT: [run(1, "success")],
+                    relay.CHANGES_CHECK: [run(2, "skipped")],
+                }
+            ]
+        ),
+        EVENT,
+        relay.MIGRATION_CHECK,
+        deadline_minutes=70,
+        absent_minutes=10,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    assert result.phase == relay.Phase.DECLINED
+    assert relay.report_migrations(result)[0] == 0
+    assert clock.now == 0
+
+
+def test_migration_report_waits_for_a_late_replacement_of_a_cancelled_run() -> None:
+    clock = FakeClock()
+    result = relay.poll(
+        FakeReader(
+            [{EVENT_WAIT: [run(1, "cancelled")]}] * 25
+            + [
+                {
+                    EVENT_WAIT: [run(1, "cancelled"), run(2, "success", workflow="replacement")],
+                    relay.MIGRATION_CHECK: [run(3, "success", workflow="replacement")],
+                }
+            ]
+        ),
+        EVENT,
+        relay.MIGRATION_CHECK,
+        deadline_minutes=70,
+        absent_minutes=10,
+        cancelled_minutes=70,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    assert (result.phase, result.state) == (relay.Phase.FINISHED, "success")
+    assert clock.now > 10 * 60
 
 
 @pytest.mark.parametrize(

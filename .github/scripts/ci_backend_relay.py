@@ -41,6 +41,7 @@ WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
 MIGRATION_CHECK = f"{DEPOT_WORKFLOW} / Validate migrations"
+CHANGES_CHECK = f"{DEPOT_WORKFLOW} / Determine need to run backend and migration checks"
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
 API_ROOT = "https://api.github.com"
@@ -116,12 +117,18 @@ def locate_wait(
     """
     if event_waits:
         return newest_live(event_waits)
-    legacy = [run for run in plain_waits if run.started_at >= event_at and pr_number in run.pull_requests]
+    legacy = [
+        run
+        for run in plain_waits
+        if run.state != "cancelled" and run.started_at >= event_at and pr_number in run.pull_requests
+    ]
     workflows = {run.depot_workflow for run in legacy}
     return newest_live(legacy) if len(workflows) == 1 and None not in workflows else None
 
 
-def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
+def progress(
+    wait: CheckRun | None, checks: Iterable[CheckRun], skipped_dependency_checks: Iterable[CheckRun] = ()
+) -> Progress:
     """Where the Depot run behind `wait` stands, judged by its check among `checks`."""
     if wait is None:
         return Progress(Phase.ABSENT)
@@ -138,6 +145,14 @@ def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
         key=lambda run: run.id,
         default=None,
     )
+    if check is None:
+        dependency = max(
+            (run for run in skipped_dependency_checks if workflow is not None and run.depot_workflow == workflow),
+            key=lambda run: run.id,
+            default=None,
+        )
+        if dependency is not None and dependency.state == "skipped":
+            return Progress(Phase.DECLINED, dependency.state, dependency.details_url)
     if check is None or check.state in PENDING_STATES:
         return Progress(Phase.RUNNING, check.state if check else "", wait.details_url)
     if check.state == "cancelled":
@@ -233,14 +248,14 @@ def poll(
     *,
     deadline_minutes: int,
     absent_minutes: int,
+    cancelled_minutes: int | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Progress:
     """Polls until the event's check finishes, Depot declines the hand-off, or a deadline passes.
 
-    ABSENT and CANCELLED are returned only after `absent_minutes`, because a duplicate run of the
-    same event can still replace a cancelled one. On the overall deadline the last progress is
-    returned as it stands.
+    A duplicate run of the same event can replace a cancelled one. The migration report
+    gives that replacement the full deadline; the required gate uses its shorter grace period.
     """
     start = clock()
     event_name = wait_check_name(event.pr_number, event.event_at)
@@ -249,12 +264,18 @@ def poll(
         event_waits = reader.read(event_name)
         plain_waits = [] if event_waits else reader.read(plain_name)
         wait = locate_wait(event_waits, plain_waits, event.pr_number, event.event_at)
-        current = progress(wait, reader.read(check_name) if wait and wait.state == "success" else [])
+        checks = reader.read(check_name) if wait and wait.state == "success" else []
+        dependencies = (
+            reader.read(CHANGES_CHECK) if check_name == MIGRATION_CHECK and wait and wait.state == "success" else []
+        )
+        current = progress(wait, checks, dependencies)
         sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
         elapsed = clock() - start
         if current.phase in (Phase.FINISHED, Phase.DECLINED):
             return current
-        if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
+        if current.phase == Phase.ABSENT and elapsed >= absent_minutes * 60:
+            return current
+        if current.phase == Phase.CANCELLED and elapsed >= (cancelled_minutes or absent_minutes) * 60:
             return current
         if elapsed >= deadline_minutes * 60:
             return current
@@ -341,7 +362,7 @@ def main(argv: Sequence[str]) -> int:
             code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
             outputs: dict[str, str] = {}
         elif mode == "migrations":
-            result = poll(reader, event, MIGRATION_CHECK, deadline_minutes=70, absent_minutes=10)
+            result = poll(reader, event, MIGRATION_CHECK, deadline_minutes=70, absent_minutes=10, cancelled_minutes=70)
             code, lines, outputs = report_migrations(result)
         else:
             sys.stderr.write("usage: ci_backend_relay.py gate|migrations\n")
