@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { BroadcastStatus, broadcastsLogic, getBroadcastStatus } from './broadcastsLogic'
+import { BroadcastStatus, broadcastsLogic, getBroadcastStatus, isEligibleWorkflow } from './broadcastsLogic'
 
 const STATUS_CONFIG: Record<BroadcastStatus, { label: string; type: LemonTagType }> = {
     draft: { label: 'Draft', type: 'default' },
@@ -38,11 +38,22 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Name',
             key: 'name',
             render: (_, item) => (
-                <LemonTableLink
-                    to={urls.broadcast(item.id)}
-                    title={item.name || 'Untitled broadcast'}
-                    description={item.description}
-                />
+                <div className="flex items-center gap-2">
+                    <LemonTableLink
+                        to={isEligibleWorkflow(item) ? urls.workflow(item.id, 'workflow') : urls.broadcast(item.id)}
+                        title={item.name || 'Untitled broadcast'}
+                        description={item.description}
+                    />
+                    {isEligibleWorkflow(item) && (
+                        <LemonTag
+                            type="muted"
+                            data-attr="broadcast-workflow-tag"
+                            title="A workflow with a batch trigger and one email. It opens in the workflow editor."
+                        >
+                            Workflow
+                        </LemonTag>
+                    )}
+                </div>
             ),
         },
         {

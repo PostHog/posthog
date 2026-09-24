@@ -24,6 +24,11 @@ export interface BroadcastRowDetails {
     totals: Record<string, number>
 }
 
+/** An ordinary workflow shaped like a broadcast. It opens in the workflow editor, since the wizard would rewrite its graph. */
+export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
+    return flow.origin_product !== 'broadcasts'
+}
+
 export function getBroadcastStatus(
     broadcast: HogFlowMinimalApi,
     details: BroadcastRowDetails | undefined
@@ -129,7 +134,9 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         return values.broadcasts
                     }
                     return await hogFlowsList(String(values.currentProjectId), {
-                        type: 'broadcast',
+                        // Broadcasts plus the ordinary workflows already shaped like one (a batch
+                        // trigger and a single email), so existing sends show up here too.
+                        broadcast_eligible: true,
                         limit: 100,
                     })
                 },

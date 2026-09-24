@@ -470,6 +470,35 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
         assert response.status_code == 400
 
+    def test_list_filter_by_broadcast_eligible(self):
+        email_action = {"id": "email_node", "type": "function_email", "config": {}}
+        exit_action = {"id": "exit_node", "type": "exit", "config": {}}
+
+        def trigger_action(trigger_type: str) -> dict:
+            return {"id": "trigger_node", "type": "trigger", "config": {"type": trigger_type}}
+
+        def create(name: str, actions: list[dict], **kwargs) -> None:
+            HogFlow.objects.create(
+                team=self.team, name=name, created_by=self.user, trigger={"type": "batch"}, actions=actions, **kwargs
+            )
+
+        broadcast_shape = [trigger_action("batch"), email_action, exit_action]
+        create("Broadcast", broadcast_shape, origin_product="broadcasts")
+        create("Eligible", broadcast_shape)
+        create("Loop with the same shape", broadcast_shape, origin_product="loops")
+        create("Two emails", [trigger_action("batch"), email_action, dict(email_action, id="email_2"), exit_action])
+        create(
+            "Has a delay",
+            [trigger_action("batch"), {"id": "wait", "type": "delay", "config": {}}, email_action, exit_action],
+        )
+        # The `trigger` column is a legacy copy of the trigger action's config and rows exist where the
+        # two disagree. The API reads the action, so the filter must read it too.
+        create("Event trigger action", [trigger_action("event"), email_action, exit_action])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_eligible=true")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"Broadcast", "Eligible"}
+
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
