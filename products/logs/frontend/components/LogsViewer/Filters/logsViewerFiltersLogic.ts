@@ -86,7 +86,6 @@ export function normalizeFilterGroup(filterGroup: unknown): UniversalFiltersGrou
     return { ...group, values: [{ type: FilterLogicalOperator.And, values: group.values }] }
 }
 
-// The inner group, for the components that edit the chips.
 export function innerFilterGroup(filterGroup: UniversalFiltersGroup): UniversalFiltersGroup {
     return normalizeFilterGroup(filterGroup).values[0] as UniversalFiltersGroup
 }
