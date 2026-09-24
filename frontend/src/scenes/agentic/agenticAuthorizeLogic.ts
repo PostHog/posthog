@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import api, { ApiError, isAbortError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
+import { loadAuthorizeProjects } from 'scenes/oauth/authorizeProjects'
 import { userLogic } from 'scenes/userLogic'
 
 import type { OrganizationBasicType, TeamBasicType, UserType } from '~/types'
@@ -115,8 +116,9 @@ export interface agenticAuthorizeLogicValues {
     agenticAuthorizationValidationErrors: DeepPartialMap<AgenticAuthorizationFormValues, ValidationErrorType>
     allOrganizations: OrganizationBasicType[]
     allTeams: TeamBasicType[] | null
+    allTeamsFailed: boolean
     allTeamsLoading: boolean
-    filteredTeams: TeamBasicType[]
+    filteredTeams: TeamBasicType[] | undefined
     isAgenticAuthorizationSubmitting: boolean
     isAgenticAuthorizationValid: boolean
     partnerName: string
@@ -152,6 +154,9 @@ export interface agenticAuthorizeLogicActions {
         payload?: any
     }
     loadPendingAuth: () => any
+    reloadProjects: () => {
+        value: true
+    }
     loadPendingAuthFailure: (
         error: string,
         errorObject?: any
@@ -219,7 +224,7 @@ export interface agenticAuthorizeLogicMeta {
         filteredTeams: (
             allTeams: TeamBasicType[] | null,
             agenticAuthorization: AgenticAuthorizationFormValues
-        ) => TeamBasicType[]
+        ) => TeamBasicType[] | undefined
         partnerName: (
             pendingAuth: {
                 partner_name: string
@@ -251,14 +256,13 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
     actions({
         setState: (state: string) => ({ state }),
         cancel: true,
+        reloadProjects: true,
     }),
     loaders(({ values }) => ({
         allTeams: [
             null as TeamBasicType[] | null,
             {
-                loadAllTeams: async () => {
-                    return await api.loadPaginatedResults('api/projects')
-                },
+                loadAllTeams: async () => await loadAuthorizeProjects('agentic'),
             },
         ],
         pendingAuth: [
@@ -271,6 +275,16 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
         ],
     })),
     reducers({
+        // The projects load has no fallback: without it the picker has nothing to offer, so the
+        // screen must say so instead of showing an empty menu.
+        allTeamsFailed: [
+            false,
+            {
+                loadAllTeams: () => false,
+                loadAllTeamsSuccess: () => false,
+                loadAllTeamsFailure: () => true,
+            },
+        ],
         state: [
             '' as string,
             {
@@ -330,9 +344,21 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             },
         },
     })),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         cancel: () => {
             window.location.href = '/'
+        },
+        // Read the list again on every organization pick, so a project created in another tab
+        // reaches the picker.
+        setAgenticAuthorizationValue: ({ name }) => {
+            const field = Array.isArray(name) ? name[0] : name
+            if (field === 'scoped_organizations') {
+                actions.loadAllTeams()
+            }
+        },
+        reloadProjects: () => {
+            userLogic.actions.loadUser()
+            actions.loadAllTeams()
         },
     })),
     selectors(() => ({
@@ -344,9 +370,10 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
         ],
         filteredTeams: [
             (s) => [s.allTeams, s.agenticAuthorization],
-            (allTeams: TeamBasicType[] | null, form: AgenticAuthorizationFormValues): TeamBasicType[] => {
+            (allTeams: TeamBasicType[] | null, form: AgenticAuthorizationFormValues): TeamBasicType[] | undefined => {
+                // Undefined keeps "not loaded yet" apart from "this organization has no projects".
                 if (!allTeams) {
-                    return []
+                    return undefined
                 }
                 const selectedOrgId = form.scoped_organizations[0]
                 if (!selectedOrgId) {

@@ -8,10 +8,13 @@ export type RequiredAccessLevel = 'organization' | 'team' | null
 
 export type ScopeAccessSelectorProps = {
     organizations: OrganizationOption[]
+    /** Undefined while the projects are still loading, so the picker can show a spinner. */
     teams?: TeamOption[]
     accessType?: AccessType
     requiredAccessLevel?: RequiredAccessLevel
     autoSelectFirst?: boolean
+    teamsLoadFailed?: boolean
+    onReloadTeams?: () => void
 }
 
 export type SelectorMode = 'single' | 'multiple'
@@ -24,9 +27,12 @@ export type OrganizationSelectorProps = {
 }
 
 export type TeamSelectorProps = {
-    teams: TeamOption[]
+    /** Undefined while the projects are still loading, so the picker can show a spinner. */
+    teams?: TeamOption[]
     organizations: OrganizationOption[]
     mode: SelectorMode
     value?: string[]
     onChange?: (val: string[]) => void
+    loadFailed?: boolean
+    onReload?: () => void
 }

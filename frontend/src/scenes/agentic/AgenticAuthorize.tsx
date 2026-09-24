@@ -21,20 +21,23 @@ export const AgenticAuthorize = (): JSX.Element => {
         scopeDescriptions,
         allOrganizations,
         filteredTeams,
-        allTeamsLoading,
+        allTeamsFailed,
         pendingAuthLoading,
         state,
         partnerName,
         agenticAuthorization,
         isAgenticAuthorizationSubmitting,
     } = useValues(agenticAuthorizeLogic)
-    const { cancel, submitAgenticAuthorization, setAgenticAuthorizationValue } = useActions(agenticAuthorizeLogic)
+    const { cancel, submitAgenticAuthorization, setAgenticAuthorizationValue, reloadProjects } =
+        useActions(agenticAuthorizeLogic)
 
     if (!state) {
         return <OAuthAuthorizeError title="Invalid request" description="Missing required state parameter." />
     }
 
-    if (allTeamsLoading || pendingAuthLoading) {
+    // The projects load stays out of this gate: the picker shows its own spinner, so switching
+    // organization refreshes one field instead of blanking the whole screen.
+    if (pendingAuthLoading) {
         return (
             <div className="flex items-center justify-center h-full py-12">
                 <Spinner />
@@ -85,10 +88,12 @@ export const AgenticAuthorize = (): JSX.Element => {
                                         mode="single"
                                         value={value?.length > 0 ? [String(value[0])] : []}
                                         onChange={(val: string[]) => onChange(val.length > 0 ? [parseInt(val[0])] : [])}
+                                        loadFailed={allTeamsFailed}
+                                        onReload={reloadProjects}
                                     />
                                 )}
                             </LemonField>
-                            {!selectedOrgId && (
+                            {!selectedOrgId && !allTeamsFailed && (
                                 <p className="text-xs text-muted">Select an organization first to see its projects.</p>
                             )}
                         </div>

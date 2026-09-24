@@ -1,4 +1,5 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
@@ -134,6 +135,25 @@ export default meta
 
 type Story = StoryObj<{}>
 
+// The project picker only renders once the person narrows access to projects, so every story
+// about that picker has to make that pick first.
+const selectProjectAccess = async (canvasElement: HTMLElement): Promise<void> => {
+    const button = await waitFor(
+        () => {
+            const match = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('button')).find(
+                (candidate) => candidate.textContent?.trim() === 'Projects'
+            )
+            if (!match) {
+                throw new Error('access type options not yet rendered')
+            }
+            return match
+        },
+        // The consent scene is a lazy chunk, so give a cold bundle time to arrive.
+        { timeout: 30000 }
+    )
+    button.click()
+}
+
 // A client that sends no `scope` at all: the server defaults the request to the app's ceiling,
 // so every row arrives selected at its highest level with the bulk actions available.
 export const DefaultScopes: Story = {
@@ -214,6 +234,42 @@ export const AccessControlsApply: Story = {
             )
         )
         return <App />
+    },
+}
+
+// The person picks projects, and the project list is still on its way. The picker has to say so:
+// an empty menu with no spinner reads as "you have no projects".
+export const ProjectPickerLoading: Story = {
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/organizations/:organization_id/projects/': () => new Promise<never>(() => {}) },
+        }),
+        withOAuthApplication({ required_scopes: [] }),
+    ],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize('feature_flag:read'))
+        return <App />
+    },
+    play: async ({ canvasElement }) => {
+        await selectProjectAccess(canvasElement)
+    },
+}
+
+// The project list failed. The picker offers a way back instead of staying empty forever.
+export const ProjectPickerLoadFailed: Story = {
+    decorators: [
+        mswDecorator({ get: { '/api/organizations/:organization_id/projects/': () => [500] } }),
+        withOAuthApplication({ required_scopes: [] }),
+    ],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize('feature_flag:read'))
+        return <App />
+    },
+    play: async ({ canvasElement }) => {
+        await selectProjectAccess(canvasElement)
     },
 }
 

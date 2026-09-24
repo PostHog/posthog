@@ -11,12 +11,16 @@ type UserDefinedAccessSelectorProps = {
     accessType?: AccessType
     organizations: OrganizationOption[]
     teams?: TeamOption[]
+    teamsLoadFailed?: boolean
+    onReloadTeams?: () => void
 }
 
 export const UserDefinedAccessSelector = ({
     accessType,
     organizations,
     teams,
+    teamsLoadFailed,
+    onReloadTeams,
 }: UserDefinedAccessSelectorProps): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
@@ -62,11 +66,13 @@ export const UserDefinedAccessSelector = ({
                     <LemonField name="scoped_teams">
                         {({ value, onChange }) => (
                             <TeamSelector
-                                teams={teams || []}
+                                teams={teams}
                                 organizations={organizations}
                                 mode="multiple"
                                 value={value.map((x: number) => String(x))}
                                 onChange={(val: string[]) => onChange(val.map((x) => parseInt(x)))}
+                                loadFailed={teamsLoadFailed}
+                                onReload={onReloadTeams}
                             />
                         )}
                     </LemonField>

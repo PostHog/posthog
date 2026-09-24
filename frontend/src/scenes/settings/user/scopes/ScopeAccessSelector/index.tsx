@@ -9,6 +9,8 @@ const ScopeAccessSelector = ({
     teams,
     requiredAccessLevel,
     autoSelectFirst = false,
+    teamsLoadFailed,
+    onReloadTeams,
 }: ScopeAccessSelectorProps): JSX.Element => {
     if (requiredAccessLevel === 'organization') {
         return <RequiredOrganizationAccessSelector organizations={organizations} autoSelectFirst={autoSelectFirst} />
@@ -17,14 +19,24 @@ const ScopeAccessSelector = ({
     if (requiredAccessLevel === 'team') {
         return (
             <RequiredTeamAccessSelector
-                teams={teams || []}
+                teams={teams}
                 organizations={organizations}
                 autoSelectFirst={autoSelectFirst}
+                teamsLoadFailed={teamsLoadFailed}
+                onReloadTeams={onReloadTeams}
             />
         )
     }
 
-    return <UserDefinedAccessSelector accessType={accessType} organizations={organizations} teams={teams} />
+    return (
+        <UserDefinedAccessSelector
+            accessType={accessType}
+            organizations={organizations}
+            teams={teams}
+            teamsLoadFailed={teamsLoadFailed}
+            onReloadTeams={onReloadTeams}
+        />
+    )
 }
 
 export default ScopeAccessSelector

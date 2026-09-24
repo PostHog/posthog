@@ -19,6 +19,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
+import { ProjectsLoadError } from 'scenes/settings/user/scopes/ScopeAccessSelector/ProjectsLoadError'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { AvailableFeature } from '~/types'
@@ -139,6 +140,8 @@ export const OAuthAuthorize = (): JSX.Element => {
         appName,
         allOrganizations,
         filteredTeams,
+        allTeamsLoading,
+        allTeamsFailed,
         oauthAuthorization,
         isOauthAuthorizationSubmitting,
         isCanceling,
@@ -164,6 +167,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         setOauthAuthorizationValue,
         setScopeAccess,
         setAllScopeAccess,
+        loadAllTeams,
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
@@ -339,7 +343,9 @@ export const OAuthAuthorize = (): JSX.Element => {
 
                                     <div className="flex flex-col gap-2">
                                         <LemonLabel>Project</LemonLabel>
-                                        {showCreateProject ? (
+                                        {allTeamsFailed ? (
+                                            <ProjectsLoadError onReload={loadAllTeams} />
+                                        ) : showCreateProject ? (
                                             <InlineCreateForm
                                                 label="New project name"
                                                 placeholder="e.g. My App"
@@ -352,6 +358,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                 <div className="flex-1 min-w-0">
                                                     <LemonSelect
                                                         fullWidth
+                                                        loading={allTeamsLoading}
                                                         placeholder={
                                                             selectedOrganization
                                                                 ? 'Select project'
@@ -394,6 +401,8 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     teams={filteredTeams ?? undefined}
                                     requiredAccessLevel={requiredAccessLevel}
                                     autoSelectFirst={true}
+                                    teamsLoadFailed={allTeamsFailed}
+                                    onReloadTeams={loadAllTeams}
                                 />
                             )}
                         </div>

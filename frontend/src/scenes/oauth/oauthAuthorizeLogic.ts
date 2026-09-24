@@ -13,6 +13,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
 
+import { loadAuthorizeProjects } from './authorizeProjects'
+
 export type OAuthAuthorizationFormValues = {
     scoped_organizations: number[]
     scoped_teams: number[]
@@ -196,6 +198,7 @@ export interface oauthAuthorizeLogicValues {
     allOrganizations: OrganizationBasicType[]
     allScopesRequired: boolean
     allTeams: TeamBasicType[] | null
+    allTeamsFailed: boolean
     allTeamsLoading: boolean
     appName: string
     authorizationComplete: boolean
@@ -434,18 +437,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         allTeams: [
             null as TeamBasicType[] | null,
             {
-                loadAllTeams: async () => {
-                    const user = userLogic.values.user
-                    if (!user?.organizations?.length) {
-                        return await api.loadPaginatedResults('api/projects')
-                    }
-                    const results = await Promise.all(
-                        user.organizations.map((org) =>
-                            api.loadPaginatedResults<TeamBasicType>(`api/organizations/${org.id}/projects`)
-                        )
-                    )
-                    return results.flat()
-                },
+                loadAllTeams: async () => await loadAuthorizeProjects('oauth'),
             },
         ],
         oauthApplication: [
@@ -505,6 +497,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         },
     })),
     reducers({
+        // The projects load has no fallback: without it the picker has nothing to offer, so the
+        // screen must say so instead of showing an empty menu.
+        allTeamsFailed: [
+            false,
+            {
+                loadAllTeams: () => false,
+                loadAllTeamsSuccess: () => false,
+                loadAllTeamsFailure: () => true,
+            },
+        ],
         scopes: [
             [] as string[],
             {
