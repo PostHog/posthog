@@ -363,15 +363,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
         assert self.client.post(f"{self.base_url}/{path}", body, format="json").status_code == ok_status
 
-    @parameterized.expand([("score",), ("validate_online",)])
-    def test_scoring_actions_need_the_query_scope(self, path: str):
+    @parameterized.expand(
+        [
+            ("score", ["autoresearch:write"], ["query:read"]),
+            ("validate_online", ["autoresearch:write"], ["query:read"]),
+            ("train", ["autoresearch:write", "query:read"], ["insight:read"]),
+        ]
+    )
+    def test_data_reading_actions_need_the_read_scopes(self, path: str, partial: list[str], rest: list[str]):
         missing = f"{self.base_url}/{uuid.uuid4()}/{path}/"
         self.client.logout()
-        write_only = self.create_personal_api_key_with_scopes(["autoresearch:write"])
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {write_only}")
+        without = self.create_personal_api_key_with_scopes(partial)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
         assert self.client.post(missing).status_code == status.HTTP_403_FORBIDDEN
-        with_query = self.create_personal_api_key_with_scopes(["autoresearch:write", "query:read"])
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_query}")
+        with_all = self.create_personal_api_key_with_scopes([*partial, *rest])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_all}")
         assert self.client.post(missing).status_code == status.HTTP_404_NOT_FOUND
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
@@ -388,12 +394,35 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 iteration_budget=iteration_budget,
             )
 
-        with patch("products.autoresearch.backend.facade.api.run_training", side_effect=_fake_run_training):
+        with patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
         assert data["status"] == "running"
+
+    def test_start_training_with_a_deleted_target_action_returns_400(self):
+        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        pipeline = self._make_pipeline(
+            target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
+        )
+        action.delete()
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
+    def test_patch_does_not_write_the_status(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        with CaptureQueriesContext(connection) as queries:
+            resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"name": "Renamed"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        updates = [
+            q["sql"]
+            for q in queries.captured_queries
+            if q["sql"].startswith('UPDATE "autoresearch_autoresearchpipeline"')
+        ]
+        assert len(updates) == 1
+        assert '"status"' not in updates[0]
 
     def test_start_training_with_live_run_returns_400(self):
         pipeline = self._make_pipeline()
@@ -402,7 +431,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             status=AutoresearchTrainingRun.Status.RUNNING,
             iteration_budget=50,
         )
-        with patch("products.autoresearch.backend.facade.api.run_training") as mock_run_training:
+        with patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training:
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_400_BAD_REQUEST

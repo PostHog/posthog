@@ -45,7 +45,6 @@ from ..models import (
 )
 from ..training import artifacts as artifact_store
 from ..training.recipe_validation import RecipeValidationError, validate_feature_sql, validate_recipe
-from ..training.runner import run_training
 from .contracts import (
     ArtifactContent,
     ArtifactDeleteResult,
@@ -347,7 +346,8 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
     row = _pipeline_row(team_id, pipeline_id, live_only=True)
     for key, value in fields.items():
         setattr(row, key, value)
-    row.save()
+    # Only the request's fields, so a stale read cannot write back a status a lifecycle action changed.
+    row.save(update_fields=[*fields, "updated_at"])
     return _pipeline_with_champion(row)
 
 
@@ -657,6 +657,31 @@ def get_training_run(
         return None
 
 
+def _claim_pipeline_for_training(team_id: int, pipeline_id: str | UUID) -> AutoresearchPipeline:
+    """Lock a live pipeline that has no running training run. Call inside ``transaction.atomic()``.
+
+    Every path that opens a run takes this lock, so two starts cannot both see no live run.
+    """
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        raise PipelineNotFound("Pipeline not found.")
+    try:
+        pipeline = (
+            AutoresearchPipeline.objects.for_team(team_id)
+            .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+            .select_for_update()
+            .get(pk=pipeline_uuid)
+        )
+    except AutoresearchPipeline.DoesNotExist:
+        raise PipelineNotFound("Pipeline not found.")
+    if _has_live_training_run(team_id, pipeline):
+        raise AutoresearchConflict(
+            "A training run is already in progress for this pipeline. "
+            "Wait for it to finish, or check its status in the training runs list."
+        )
+    return pipeline
+
+
 def start_training(team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None, user_id: int) -> TrainingRun:
     """Start an asynchronous training run in a sandbox.
 
@@ -665,26 +690,20 @@ def start_training(team_id: int, pipeline_id: str | UUID, *, iteration_budget: i
     ``run_training`` stays inside the lock so the new run row commits before a waiting
     request re-checks.
     """
-    pipeline_uuid = _as_uuid(pipeline_id)
-    if pipeline_uuid is None:
-        raise PipelineNotFound("Pipeline not found.")
+    # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
+    from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
+    from ..training.runner import run_training  # noqa: PLC0415
+
     with transaction.atomic():
-        try:
-            pipeline = (
-                AutoresearchPipeline.objects.for_team(team_id)
-                .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
-                .select_for_update()
-                .get(pk=pipeline_uuid)
-            )
-        except AutoresearchPipeline.DoesNotExist:
-            raise PipelineNotFound("Pipeline not found.")
-        if _has_live_training_run(team_id, pipeline):
-            raise AutoresearchConflict(
-                "A training run is already in progress for this pipeline. "
-                "Wait for it to finish, or check its status in the training runs list."
-            )
+        pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         budget = iteration_budget or pipeline.iteration_budget
-        training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=user_id)
+        try:
+            training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=user_id)
+        except Action.DoesNotExist:
+            raise AutoresearchConflict("The pipeline's target action no longer exists.")
+        except (ValueError, SandboxInferenceError) as exc:
+            # run_training refuses an unresolvable target or a departed creator before any write.
+            raise AutoresearchConflict(str(exc)) from exc
     return _training_run_to_contract(training_run)
 
 
@@ -693,12 +712,14 @@ def open_training_run(team_id: int, pipeline_id: str | UUID, *, iteration_budget
     pipeline = _pipeline_row(team_id, pipeline_id)
     if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
         raise AutoresearchConflict("Cannot open a training run on an archived pipeline.")
-    row = AutoresearchTrainingRun.objects.create(
-        pipeline=pipeline,
-        status=AutoresearchTrainingRun.Status.RUNNING,
-        iteration_budget=iteration_budget or pipeline.iteration_budget,
-        started_at=django_timezone.now(),
-    )
+    with transaction.atomic():
+        pipeline = _claim_pipeline_for_training(team_id, pipeline.pk)
+        row = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=iteration_budget or pipeline.iteration_budget,
+            started_at=django_timezone.now(),
+        )
     return _training_run_to_contract(row)
 
 

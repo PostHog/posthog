@@ -382,7 +382,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchTrainingRunSerializer,
                 description="The created training run. Poll it through the training runs endpoint.",
             ),
-            400: OpenApiResponse(description="A training run is already in progress for this pipeline."),
+            400: OpenApiResponse(
+                description="A training run is already in progress, or the pipeline's target or creator is no longer valid."
+            ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Start a training run",
@@ -394,7 +396,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             "retrain the existing champion stays live and keeps scoring until a new one is promoted."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="train")
+    # The sandbox agent gets a token with these read scopes, so the caller must already hold them.
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="train",
+        required_scopes=["autoresearch:write", "query:read", "insight:read"],
+    )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             training_run = api.start_training(
