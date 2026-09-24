@@ -282,7 +282,14 @@ impl FlagService {
                 );
 
                 // PG has no dependency metadata, so all flags go in a single stage.
-                let flags = FeatureFlagList::from_pg(self.pg_client.clone(), team_id).await?;
+                let (mut flags, undecodable) =
+                    FeatureFlagList::from_pg_keeping_undecodable(self.pg_client.clone(), team_id)
+                        .await?;
+                crate::flags::cache_builder::omit_unsupported_flags(
+                    team_id,
+                    &mut flags,
+                    &undecodable,
+                );
                 let evaluation_metadata =
                     crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
                 let wrapper = HypercacheFlagsWrapper {

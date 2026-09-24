@@ -175,7 +175,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
 }
 
 #[tokio::test]
-async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_stays_closed() {
+async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_is_evaluated() {
     use feature_flags::config::DEFAULT_TEST_CONFIG;
     use feature_flags::utils::test_utils::{
         insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client,
@@ -230,11 +230,9 @@ async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_stays_closed(
         .await
         .unwrap();
     assert_eq!(body["flags"]["healthy"]["enabled"], true);
-    assert_eq!(body["flags"]["eligible-v2"]["failed"], true);
-    assert_eq!(
-        body["flags"]["eligible-v2"]["reason"]["code"],
-        "flag_data_parsing_error"
-    );
+    assert_eq!(body["flags"]["eligible-v2"]["enabled"], true);
+    assert!(body["flags"]["eligible-v2"].get("failed").is_none());
+    assert_eq!(body["errorsWhileComputingFlags"], false);
     for case in &cases {
         assert!(body["flags"].get(case["id"].as_str().unwrap()).is_none());
         assert_eq!(case["expected"], json!({"status":"omitted"}));
@@ -379,4 +377,139 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
     let result = evaluator.evaluate(&context);
     assert!(matches!(result, Ok(Evaluation::TargetingMatch { .. })));
     assert!(!format!("{evaluator:?} {result:?}").contains("sensitive-seed"));
+}
+
+/// Complete properties come from a stored person, partial ones from request overrides.
+#[tokio::test]
+async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
+    use feature_flags::api::types::{
+        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, LegacyFlagsResponse,
+    };
+    use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
+    use feature_flags::flags::flag_matching::FeatureFlagMatcher;
+    use feature_flags::flags::flag_models::{EvaluationMetadata, FeatureFlagList};
+    use feature_flags::utils::test_utils::{mock_group_type_cache, TestContext};
+    use std::collections::HashMap;
+
+    let db = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        db.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let (mut projected, mut direct, mut skipped) = (0, 0, 0);
+    for case in corpus::cases() {
+        let id = case["id"].as_str().unwrap();
+        if matches!(
+            case["family"].as_str().unwrap(),
+            "white_box" | "eligibility"
+        ) {
+            skipped += 1;
+            continue;
+        }
+        let team = db.insert_new_team(None).await.unwrap();
+        let mut flag = corpus::read(&case);
+        flag.team_id = team.id;
+        let input = &case["context"];
+        let identifier = input["identifier"].as_str().unwrap().to_string();
+        let properties = corpus::properties(&case);
+        let complete = input["properties_complete"].as_bool().unwrap();
+        if complete && !properties.is_empty() {
+            db.insert_person(team.id, identifier.clone(), Some(json!(properties)))
+                .await
+                .unwrap();
+        }
+        let mut matcher = FeatureFlagMatcher::new(
+            identifier,
+            None,
+            team.id,
+            db.create_postgres_router(),
+            cohort_cache.clone(),
+            mock_group_type_cache(HashMap::new()),
+            None,
+        )
+        .with_timezone(input["timezone"].as_str().unwrap().parse().unwrap())
+        .with_explicit_exact_matching(input["explicit_exact_matching"].as_bool().unwrap())
+        .with_now(input["now"].as_str().unwrap().parse().unwrap())
+        .with_only_use_override_person_properties(!complete);
+        let expected = &case["expected"];
+        let failed = expected["status"] != "success";
+        let enabled = expected["value"].as_bool().unwrap_or(false);
+        if input["properties"].is_null() {
+            let result = matcher.get_match(&flag, None, None, None, &None);
+            assert_eq!(result.is_err(), failed, "{id}");
+            if let Ok(matched) = result {
+                assert_eq!(
+                    (matched.matches, matched.variant, matched.payload),
+                    (enabled, None, None),
+                    "{id}"
+                );
+            }
+            direct += 1;
+            continue;
+        }
+        let key = flag.key.clone();
+        let response = matcher
+            .evaluate_all_feature_flags(
+                FeatureFlagList {
+                    flags: PreparedFlags::seal(vec![flag]),
+                    evaluation_metadata: Arc::new(EvaluationMetadata {
+                        dependency_stages: vec![vec![1]],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                (!complete).then(|| properties.clone()),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        let details = &response.flags[&key];
+        assert_eq!(
+            (
+                details.failed,
+                details.enabled,
+                &details.variant,
+                &details.metadata.payload
+            ),
+            (failed, enabled, &None, &None),
+            "{id}"
+        );
+        assert_eq!(response.errors_while_computing_flags, failed, "{id}");
+        let mut wire = serde_json::to_value(&response).unwrap();
+        // `failed` is omitted on the wire when false and has no serde default.
+        wire["flags"][&key]
+            .as_object_mut()
+            .unwrap()
+            .entry("failed")
+            .or_insert(json!(false));
+        let reparse = || serde_json::from_value::<FlagsResponse>(wire.clone()).unwrap();
+        let legacy = LegacyFlagsResponse::from_response(reparse());
+        assert_eq!(
+            legacy.feature_flags[&key],
+            FlagValue::Boolean(enabled),
+            "{id}"
+        );
+        assert!(legacy.feature_flag_payloads.is_empty(), "{id}");
+        assert_eq!(
+            DecideV1Response::from_response(reparse())
+                .feature_flags
+                .contains(&key),
+            enabled,
+            "{id}"
+        );
+        assert_eq!(
+            DecideV2Response::from_response(reparse())
+                .feature_flags
+                .get(&key),
+            enabled.then_some(FlagValue::Boolean(true)).as_ref(),
+            "{id}"
+        );
+        projected += 1;
+    }
+    assert_eq!((projected, direct, skipped), (120, 2, 13));
 }

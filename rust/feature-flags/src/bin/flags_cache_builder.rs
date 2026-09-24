@@ -1317,7 +1317,9 @@ mod tests {
             .await
             .unwrap_or_else(|failure| panic!("{}", failure.message));
 
-        assert_eq!(published_flag_keys(&redis), ["v1-flag"]);
+        let mut published = published_flag_keys(&redis);
+        published.sort();
+        assert_eq!(published, ["v1-flag", "v2-flag"]);
         assert!(!outcome.etag.is_empty());
     }
 

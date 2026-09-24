@@ -44,6 +44,13 @@ impl FeatureFlag {
         overrides: &HashMap<String, Value>,
         group_filter_needs_db: &dyn Fn(&PropertyFilter, Option<GroupTypeIndex>) -> bool,
     ) -> bool {
+        if let Some(config) = self.filters.supported_v2() {
+            return config
+                .rules
+                .iter()
+                .flat_map(|rule| &rule.targeting)
+                .any(|predicate| !overrides.contains_key(&predicate.key));
+        }
         self.filters
             .requires_db_properties(overrides, &self.key, group_filter_needs_db)
             || self.filters.requires_cohort_filters()

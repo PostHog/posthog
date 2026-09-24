@@ -78,10 +78,10 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
 }
 
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
-/// non-v1 and non-object documents whatever their lifecycle, and evaluable v1 objects the
-/// typed decoder rejected. Mirrors Python's `_omit_unsupported_flags()` in
-/// `products/feature_flags/backend/flags_cache.py`, where the rationale lives.
-fn omit_unsupported_flags(
+/// non-v1 documents unless active and accepted by the v2 evaluator, non-object documents
+/// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
+/// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
+pub(crate) fn omit_unsupported_flags(
     team_id: TeamId,
     flags: &mut Vec<FeatureFlag>,
     undecodable: &UndecodableFlags,
@@ -89,12 +89,14 @@ fn omit_unsupported_flags(
     let unsupported: HashSet<FeatureFlagId> = flags
         .iter()
         .filter(|flag| {
-            !flag.filters.is_v1()
-                || match undecodable.get(&flag.id) {
-                    Some(UndecodableDocument::NotAnObject) => true,
-                    Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
-                    None => false,
-                }
+            if !flag.filters.is_v1() {
+                return !(is_evaluable(flag) && flag.filters.supported_v2().is_some());
+            }
+            match undecodable.get(&flag.id) {
+                Some(UndecodableDocument::NotAnObject) => true,
+                Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
+                None => false,
+            }
         })
         .map(|flag| flag.id)
         .collect();
@@ -1169,9 +1171,11 @@ mod tests {
             if flag["expect"] != "kept" {
                 continue;
             }
-            let filters = serde_json::to_value(&published[&ids[key]].filters).unwrap();
+            let filters = serde_json::to_value(published[&ids[key]]).unwrap()["filters"].take();
             if flag["blanked"] == true {
                 assert_eq!(filters, serde_json::json!({"groups": []}), "{key}");
+            } else if flag["filters"]["version"] == 2 {
+                assert_eq!(filters, flag["filters"], "{key}");
             } else {
                 // Group count and payloads rather than the whole document, because a
                 // JSONB round trip renders `rollout_percentage` as a float.

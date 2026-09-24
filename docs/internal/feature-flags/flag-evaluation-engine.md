@@ -7,7 +7,7 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
 An absent discriminator or numeric 1 (including 1.0) selects v1.
 Numeric 2 (including 2.0) selects the closed v2 parser; other discriminator values are unsupported.
-The service does not evaluate any non-v1 format, including a successfully parsed v2 configuration.
+The service evaluates v1 and a successfully parsed v2 configuration; every other non-v1 document is rejected per flag.
 The classification converts the discriminator to correctly rounded binary64, matching Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`) and its cache producer's normalization.
 
 Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
@@ -38,7 +38,7 @@ Parser fixtures from harness release 1.6.0 are pinned under contract version 2.1
 The Rust suite checks parser field sets, limits, and literals against the released schema and registry.
 Definitions-feed artifacts belong to the future definitions route and are not part of this parser pin.
 
-The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag whose document the v2 parser did not accept gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
 Detailed responses mark them failed.
 The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
 Healthy siblings still evaluate, and request eligibility remains unchanged.
@@ -47,17 +47,20 @@ Each recognized v2 ingress increments `flags_v2_config_parse_total` with a fixed
 These outcomes cover cache and PostgreSQL reads and contain no configuration values.
 
 The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
-The Rust and Python cache builders omit a non-v1 flag and its dependents instead of failing the team's rebuild, as the [service cache section](./hypercache-system.md#service-cache-rust) describes.
+The Rust and Python cache builders omit an unsupported non-v1 flag and its dependents instead of failing the team's rebuild, as the [service cache section](./hypercache-system.md#service-cache-rust) describes; the PostgreSQL fallback applies the same omission, so a Redis miss does not change which flags a team serves.
 `/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
 This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
 Those paths need independent exclusion and deployment-floor protection before such rows can exist.
 To roll back parsing, remove its reader consumer first while retaining opaque non-v1 reads and evaluator/producer rejection.
 Never restore a reader that interprets v2 data as v1.
 
-The dormant `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
+The `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
 The reader compiles each regex predicate once at parse time and stores it on the cached config, counted as a fixed `ESTIMATED_COMPILED_REGEX_BYTES` (2048) per compiled regex, as v1 does; an invalid pattern is stored rather than rejected, so its error surfaces only when evaluation reaches it.
-The evaluator does not participate in the service cache or HTTP dispatch.
 Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
+`get_match` runs it for an active flag whose parse succeeded, with the request distinct ID as the subject (hash key overrides, device identifiers and experience continuity do not apply), the team timezone and exact-matching setting, and the matcher's request time.
+Person properties come from the same override-and-database acquisition v1 conditions use: a v2 predicate key absent from the request overrides triggers database preparation, the merged map is `Complete` once the database was consulted, `Partial` when only overrides are known, and `Unavailable` without any overrides.
+The typed outcome is projected onto the existing match shape and reaches every response format unchanged: a targeting match sets `enabled` to the rule value with `condition_match` and the rule index, a terminal rollout miss and no rule match set `enabled` to the flag default (`false` for a null default) with `out_of_rollout_bound` or `no_condition_match`, never a variant or a payload.
+An evaluation error (missing context, an invalid property value, an invalid regex, a hash failure) takes the existing failed-record path and sets `errorsWhileComputingFlags`, so a configured `false` stays distinct from a failed record and from omission.
 The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
 The service adapter must retain eligibility and load/merge property context before invoking it.
 
