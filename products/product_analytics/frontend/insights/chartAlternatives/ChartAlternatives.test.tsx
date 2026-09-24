@@ -67,7 +67,7 @@ describe('ChartAlternatives', () => {
 
     afterEach(() => {
         cleanup()
-        chartAlternativesLogic.findMounted({ editMode: true, embedded: false, ...insightProps })?.unmount()
+        chartAlternativesLogic.findMounted({ embedded: false, ...insightProps })?.unmount()
     })
 
     function setQuery(query: TrendsQuery): void {
@@ -78,11 +78,11 @@ describe('ChartAlternatives', () => {
         render(
             <Provider>
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <ChartAlternatives insightProps={insightProps} editMode embedded={false} />
+                    <ChartAlternatives insightProps={insightProps} embedded={false} />
                 </BindLogic>
             </Provider>
         )
-        return chartAlternativesLogic.findMounted({ editMode: true, embedded: false, ...insightProps })!
+        return chartAlternativesLogic.findMounted({ embedded: false, ...insightProps })!
     }
 
     function currentTrendsQuery(): TrendsQuery {
@@ -115,7 +115,7 @@ describe('ChartAlternatives', () => {
         setQuery(makeTrendsQuery())
         alternativesLogic()
 
-        expect(chartPreviewsLogic.findMounted({ editMode: true, embedded: false, ...insightProps })).not.toBeUndefined()
+        expect(chartPreviewsLogic.findMounted({ embedded: false, ...insightProps })).not.toBeUndefined()
     })
 
     it('opens the gallery in a popover anchored to the chart type button', async () => {
