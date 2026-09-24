@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 
+from posthog.dataclasses import frozen
+
 from products.engineering_analytics.backend.facade.contracts import (
     AuthorFriction,
     AuthorFrictionList,
@@ -182,6 +184,12 @@ class _AuthorScore:
     pr_count: int
 
 
+@frozen
+class _RankBand:
+    low: int
+    high: int
+
+
 class FrictionScorer:
     """Scores every author with at least ``MIN_PULL_REQUESTS`` pull requests against each other."""
 
@@ -235,7 +243,7 @@ class FrictionScorer:
         ordered = sorted(scores, key=lambda s: (-s.score, s.author))
         return {s.author: rank for rank, s in enumerate(ordered, start=1)}
 
-    def _rank_bands(self) -> dict[str, tuple[int, int]]:
+    def _rank_bands(self) -> dict[str, _RankBand]:
         """The 10th to 90th percentile rank over bootstrap resamples of each author's pull requests."""
         rng = random.Random(_BOOTSTRAP_SEED)
         samples: dict[str, list[int]] = {author: [] for author in self._authors}
@@ -247,10 +255,10 @@ class FrictionScorer:
                 resampled[author] = [[metric_values[i] for i in picks] for metric_values in author_values]
             for author, rank in self._ranks(self._score(resampled)).items():
                 samples[author].append(rank)
-        bands = {}
+        bands: dict[str, _RankBand] = {}
         for author, ranks in samples.items():
             deciles = statistics.quantiles(sorted(ranks), n=10, method="inclusive")
-            bands[author] = (math.floor(deciles[0]), math.ceil(deciles[-1]))
+            bands[author] = _RankBand(low=math.floor(deciles[0]), high=math.ceil(deciles[-1]))
         return bands
 
     def score(self) -> list[AuthorFriction]:
@@ -269,8 +277,8 @@ class FrictionScorer:
                     groups=[FrictionGroupShare(group=group, score=value) for group, value in s.groups.items()],
                     pr_count=s.pr_count,
                     rank=ranks[s.author],
-                    rank_low=min(bands[s.author][0], ranks[s.author]),
-                    rank_high=max(bands[s.author][1], ranks[s.author]),
+                    rank_low=min(bands[s.author].low, ranks[s.author]),
+                    rank_high=max(bands[s.author].high, ranks[s.author]),
                 )
                 for s in scores
             ),
