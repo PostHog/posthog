@@ -1,10 +1,12 @@
 import math
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from functools import partial
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
+
+from django.db import InterfaceError, OperationalError
 
 from parameterized import parameterized
 
@@ -176,7 +178,7 @@ class TestGetMinTracesOverride:
 @pytest.mark.asyncio
 class TestGetTeamIdsForAIObservability:
     @pytest.fixture(autouse=True)
-    def _consent_needs_no_database(self):
+    def _consent_needs_no_database(self) -> Iterator[None]:
         with patch(CONSENT_QUERY_PATH, side_effect=set):
             yield
 
@@ -378,7 +380,9 @@ class TestAIDataProcessingConsentGate:
     @pytest.mark.django_db(transaction=True)
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     @patch(FF_PAYLOAD_PATH)
-    async def test_allowlisted_team_without_consent_is_not_discovered(self, mock_ff, mock_get_teams):
+    async def test_allowlisted_team_without_consent_is_not_discovered(
+        self, mock_ff: MagicMock, mock_get_teams: MagicMock
+    ) -> None:
         approved_id = await database_sync_to_async(_create_team)("Approved", True)
         unapproved_id = await database_sync_to_async(_create_team)("Unapproved", False)
         mock_ff.return_value = {
@@ -391,13 +395,50 @@ class TestAIDataProcessingConsentGate:
 
         assert result == [approved_id]
 
-    @patch(CONSENT_QUERY_PATH, side_effect=Exception("Postgres down"))
+    @pytest.mark.parametrize(
+        "query_results,expected,attempts,failed",
+        [
+            pytest.param([OperationalError("Postgres unavailable"), {1}], [1], 2, False, id="reconnects"),
+            pytest.param([InterfaceError("Connection closed"), {1}], [1], 2, False, id="closed_connection"),
+            pytest.param([OperationalError("Postgres unavailable")] * 3, [], 3, True, id="exhausted"),
+            pytest.param([RuntimeError("Unexpected query failure")], [], 1, True, id="non_retryable"),
+            pytest.param([set()], [], 1, False, id="no_consent"),
+        ],
+    )
+    @patch(CONSENT_QUERY_PATH)
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     @patch(FF_PAYLOAD_PATH, return_value=None)
-    async def test_unreadable_consent_discovers_no_teams(self, _mock_ff, mock_get_teams, _mock_query):
+    async def test_consent_query_retries_fail_closed(
+        self,
+        _mock_ff: MagicMock,
+        mock_get_teams: MagicMock,
+        mock_query: MagicMock,
+        query_results: list[Exception | set[int]],
+        expected: list[int],
+        attempts: int,
+        failed: bool,
+    ) -> None:
         mock_get_teams.return_value = [9999]
+        mock_query.side_effect = query_results
 
-        assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == []
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep,
+            patch("posthog.temporal.ai_observability.coordinator_metrics.get_metric_meter") as metric_meter,
+        ):
+            assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == expected
+
+        mock_get_teams.assert_called_once()
+        _mock_ff.assert_called_once()
+        assert mock_query.call_args_list == [call([1, 2, 9999])] * attempts
+        assert sleep.await_count == attempts - 1
+        if failed:
+            metric_meter.return_value.create_counter.assert_called_once_with(
+                "llma_coordinator_consent_query_failed",
+                "Discovery activities that returned no teams because the consent query failed",
+            )
+            metric_meter.return_value.create_counter.return_value.add.assert_called_once_with(1)
+        else:
+            metric_meter.assert_not_called()
 
 
 class TestCoordinatorConsentGate:

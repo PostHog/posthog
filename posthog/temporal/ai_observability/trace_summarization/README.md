@@ -146,12 +146,14 @@ The rule is applied in two places:
 - Team discovery drops every team without consent, so a guaranteed team is not exempt.
 - The per-team workflow repeats the check and returns an empty result when consent is absent. This also gates a manual trigger and a stale allowlist entry, which both skip discovery.
 
-Discovery fails closed: if the consent query itself fails, it returns no teams rather than a possibly non-consenting set.
-Summarization then stops for every team, so look for the `AI data processing consent filter failed` log line before you look for a discovery fault.
+Discovery retries transient consent database connection errors up to three attempts, with a 100 ms wait between attempts.
+These retries reuse the candidate teams without repeating the ClickHouse discovery query.
+Discovery fails closed if consent remains unreadable: it returns no teams and increments `llma_coordinator_consent_query_failed` once.
+Look for this counter and the `AI data processing consent filter failed` log line when discovery returns no teams unexpectedly.
 If discovery exhausts its activity retries or times out, new summarization and clustering coordinator runs fail before they dispatch any team workflows.
 The old hardcoded fallback is retained only for replaying existing workflow histories.
 
-Discovery reads consent for all candidate teams in one query that returns only team IDs.
+Each consent query reads all candidate teams at once and returns only team IDs.
 Each per-team summarization run checks consent once more before sampling, including manual runs and queued work.
 These queries run in the database thread pool with connection cleanup; they do not block the workflow event loop or run once per trace.
 Once a team run passes its entry check, it finishes without further consent checks between processing steps.

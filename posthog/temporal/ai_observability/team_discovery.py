@@ -15,12 +15,16 @@ import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
+from django.db import InterfaceError, OperationalError
+
 import structlog
 import posthoganalytics
 import temporalio.activity
 from temporalio.common import RetryPolicy
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.ai_observability.coordinator_metrics import increment_consent_query_failed
 from posthog.temporal.ai_observability.shared_activities import consented_team_ids
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -149,6 +153,16 @@ class TeamDiscoveryInput:
     pass
 
 
+@retry(
+    retry=retry_if_exception_type((InterfaceError, OperationalError)),
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    reraise=True,
+)
+async def _consented_team_ids_with_retry(team_ids: list[int]) -> set[int]:
+    return await database_sync_to_async_pool(consented_team_ids)(team_ids)
+
+
 # TODO: drop `inputs`/TeamDiscoveryInput next release; kept so pre-rollout activity tasks still deserialize.
 @temporalio.activity.defn(name="get_team_ids_for_llm_analytics")
 async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = None) -> list[int]:
@@ -214,11 +228,12 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
             discovery_context = {}
 
         try:
-            consented = await database_sync_to_async_pool(consented_team_ids)(discovered)
+            consented = await _consented_team_ids_with_retry(discovered)
         except Exception:
             # Fail closed: an unreadable consent flag must not let trace content reach a
             # third-party model.
             logger.exception("AI data processing consent filter failed, discovering no teams")
+            increment_consent_query_failed()
             return []
 
         result = [team_id for team_id in discovered if team_id in consented]

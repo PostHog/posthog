@@ -33,13 +33,13 @@ class TestCheckAIDataProcessingConsentActivity:
         ]
     )
     @pytest.mark.asyncio
-    async def test_consent_flag_decides(self, _name, approved, expected):
+    async def test_consent_flag_decides(self, _name: str, approved: bool | None, expected: bool) -> None:
         team_id = await database_sync_to_async(_create_team)(approved)
 
         assert await check_ai_data_processing_consent_activity(TeamAIConsentInput(team_id=team_id)) is expected
 
     @pytest.mark.asyncio
-    async def test_missing_team_is_not_approved(self):
+    async def test_missing_team_is_not_approved(self) -> None:
         assert await check_ai_data_processing_consent_activity(TeamAIConsentInput(team_id=-1)) is False
 
     @pytest.mark.asyncio(loop_scope="function")
