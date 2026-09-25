@@ -115,6 +115,33 @@ describe('fetchStreamed', () => {
         )
     })
 
+    it('times out a request that never gets a connection, and destroys a body that arrives later', async () => {
+        let deliverLateResponse: (response: Awaited<ReturnType<typeof request>>) => void = () => undefined
+        requestMock.mockReturnValue(
+            new Promise((resolve) => {
+                deliverLateResponse = resolve
+            })
+        )
+        const startedAtMs = Date.now()
+
+        const outcome = await Promise.race([
+            fetchStreamed('https://example.com/a.png', { timeoutMs: 20 }).then(
+                () => 'resolved',
+                (error: Error) => error.name
+            ),
+            new Promise((resolve) => setTimeout(() => resolve('still pending'), 1000)),
+        ])
+        const lateBody = Readable.from([Buffer.from('late')])
+        deliverLateResponse({ statusCode: 200, headers: {}, body: lateBody } as unknown as Awaited<
+            ReturnType<typeof request>
+        >)
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(outcome).toBe('TimeoutError')
+        expect(Date.now() - startedAtMs).toBeLessThan(1000)
+        expect(lateBody.destroyed).toBe(true)
+    })
+
     it.each([['ftp://example.com/a.png'], ['not a url']])('refuses %s before opening a socket', async (url) => {
         await expect(fetchStreamed(url, { timeoutMs: 1000 })).rejects.toThrow(InvalidRequestError)
 
