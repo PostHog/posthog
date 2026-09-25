@@ -703,9 +703,7 @@ def _build_template_context(
         if caller_key in context:
             posthog_app_context[caller_key] = context.pop(caller_key)
 
-    # JSON dumps here since there may be objects like Queries
-    # that are not serializable by Django's JSON serializer
-    context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+    context["posthog_app_context"] = posthog_app_context
 
     if posthog_distinct_id:
         groups = {}
@@ -736,7 +734,7 @@ def _build_template_context(
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
-    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
+    context["posthog_bootstrap"] = posthog_bootstrap
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
@@ -792,21 +790,19 @@ def _build_template_context(
             if user_email:
                 canonical_email = canonicalize_claim_value("email", user_email)
                 expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
-                context["js_posthog_identity_claims"] = json.dumps(
-                    {
-                        "email": {
-                            "value": canonical_email,
-                            "expires_at": expires_at,
-                            "hash": compute_identity_claim_hash(
-                                posthog_distinct_id,
-                                "email",
-                                canonical_email,
-                                support_secret,
-                                expires_at=expires_at,
-                            ),
-                        }
+                context["js_posthog_identity_claims"] = {
+                    "email": {
+                        "value": canonical_email,
+                        "expires_at": expires_at,
+                        "hash": compute_identity_claim_hash(
+                            posthog_distinct_id,
+                            "email",
+                            canonical_email,
+                            support_secret,
+                            expires_at=expires_at,
+                        ),
                     }
-                )
+                }
 
     return context
 
@@ -1143,11 +1139,6 @@ def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
         }
 
     return frontend_apps
-
-
-def json_uuid_convert(o):
-    if isinstance(o, uuid.UUID):
-        return str(o)
 
 
 def friendly_time(seconds: float):

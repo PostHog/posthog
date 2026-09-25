@@ -323,7 +323,7 @@ class TestOAuthAPI(APIBaseTest):
         # The serialized bootstrap, not the view's own template context: `_build_template_context`
         # forwards only an allowlist of caller-provided keys, and a key it omits never reaches the
         # frontend.
-        resolution = json.loads(response.context["posthog_app_context"])["oauth_scope_resolution"]
+        resolution = response.context["posthog_app_context"]["oauth_scope_resolution"]
         self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
         self.assertTrue(resolution["was_defaulted"])
 
@@ -342,7 +342,7 @@ class TestOAuthAPI(APIBaseTest):
         def applies() -> bool:
             response = self.client.get(self.base_authorization_url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls_apply"]
+            return response.context["posthog_app_context"]["oauth_consent_access_controls_apply"]
 
         access_control_feature = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
         self.assertFalse(applies())

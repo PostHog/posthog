@@ -1460,7 +1460,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
             render_template("index.html", request=mock_request, context={})
 
             # Get the context passed to the template
-            return json.loads(mock_template.render.call_args[0][0]["posthog_app_context"])
+            return mock_template.render.call_args[0][0]["posthog_app_context"]
 
     def test_default_lists_all_projects(self):
         assert len(self.client.get("/api/projects").json()["results"]) == 3
