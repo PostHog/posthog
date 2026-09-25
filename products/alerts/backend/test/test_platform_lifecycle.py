@@ -44,8 +44,10 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "notified": True,
             "consecutive_failures": 0,
         }
+        at = overrides.pop("at", self.cutoff)
+        fields["evaluation_key"] = f"window:{at.isoformat()}"
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], self.cutoff)
+        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], at)
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
@@ -88,6 +90,34 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         # `insert_events` never raises, so without reading a row back a broken write is invisible.
         assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10)]
+
+    def test_a_held_fire_clears_when_the_condition_ends(self) -> None:
+        def held() -> bool:
+            with team_scope(self.team.id):
+                return PlatformAlert.objects.get(configuration=self.configuration, grouping_key="").firing_unannounced
+
+        self._record(new_state="firing", notified=False, muted_notification="fire")
+        assert held() is True
+
+        # The incident ended inside the mute, so there is nothing left to announce when it lifts.
+        # Leaving the flag set here made every later check re-fire.
+        self._record(
+            new_state="not_firing", notified=False, muted_notification="resolve", at=self.cutoff + timedelta(hours=1)
+        )
+        assert held() is False
+
+    def test_a_muted_announcement_is_held_until_one_is_sent(self) -> None:
+        def held() -> bool:
+            with team_scope(self.team.id):
+                return PlatformAlert.objects.get(configuration=self.configuration, grouping_key="").firing_unannounced
+
+        self._record(new_state="firing", notified=False, muted_notification="fire")
+        # Without this the alert reaches the end of its mute already FIRING and never says so.
+        assert held() is True
+
+        # A later tick: `record_outcomes` skips a configuration an earlier attempt advanced past.
+        self._record(new_state="firing", notified=True, muted_notification="", at=self.cutoff + timedelta(hours=1))
+        assert held() is False
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()

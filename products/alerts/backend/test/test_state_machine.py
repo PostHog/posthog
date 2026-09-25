@@ -284,6 +284,22 @@ class TestPolicyDecisionTable:
                 NotificationAction.NONE,
             ),
             (
+                "unmute_announces_a_held_fire",
+                snapshot(state=AlertState.FIRING, firing_unannounced=True),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+            (
+                "unmute_stays_quiet_when_the_condition_cleared",
+                snapshot(state=AlertState.FIRING, firing_unannounced=True),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
                 "an_unmuted_check_still_announces",
                 snapshot(),
                 BREACH,

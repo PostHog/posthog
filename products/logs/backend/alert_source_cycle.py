@@ -18,6 +18,7 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -169,6 +170,7 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior_breached,
+        firing_unannounced=check.firing_unannounced,
     )
 
 
@@ -231,6 +233,18 @@ def _verdict(
         now=now,
     )
     return outcome
+
+
+def _condition(check: PlatformAlertCheckInput) -> dict[str, Any]:
+    """What the check was measured against, as a message states it."""
+    return {
+        "threshold_count": check.threshold_count,
+        "threshold_operator": check.threshold_operator,
+        "window_minutes": check.window_minutes,
+        "evaluation_periods": check.evaluation_periods,
+        "datapoints_to_alarm": check.datapoints_to_alarm,
+        "cooldown_minutes": check.cooldown_minutes,
+    }
 
 
 def _recorded(
@@ -304,7 +318,18 @@ def _delivery(
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
+        transitions=(
+            GroupTransition(
+                grouping_key="",
+                notification=outcome.notification.value,
+                kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
+                previous_state=check.state,
+                state=outcome.new_state.value,
+                value=value,
+                condition=_condition(check),
+                source_config=check.source_config,
+            ),
+        ),
     )
 
 

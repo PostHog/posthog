@@ -95,6 +95,9 @@ class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
     state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
     last_notified_at = models.DateTimeField(null=True, blank=True)
     snooze_until = models.DateTimeField(null=True, blank=True)
+    # Set when a mute holds a FIRE. Without it an alert reaches the end of its quiet hours
+    # already FIRING and never says so.
+    firing_unannounced = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         constraints = [

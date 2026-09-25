@@ -137,6 +137,8 @@ class AlertSnapshot:
     datapoints_to_alarm: int = 1
     # Breach flags of the most recent prior checks, newest first (excludes the current one).
     recent_events_breached: tuple[bool, ...] = ()
+    # True while the alert is FIRING and a mute held the announcement of it.
+    firing_unannounced: bool = False
 
 
 class StatefulSnapshot(Protocol):
@@ -272,7 +274,11 @@ def evaluate_alert_check(
             error_message=None,
         )
 
-    if snapshot.state == AlertState.SNOOZED:
+    if not muted and snapshot.firing_unannounced:
+        # Re-evaluating from scratch is what makes a condition that survived the mute announce
+        # itself, and is what the SNOOZED branch below does for an expired snooze.
+        effective_state = AlertState.NOT_FIRING
+    elif snapshot.state == AlertState.SNOOZED:
         # clear_check_ends_snooze: a snoozed alert was breached when parked, so a clear
         # check resolves it (FIRING-like). Otherwise the snooze simply expired and the
         # alert re-evaluates from scratch.
