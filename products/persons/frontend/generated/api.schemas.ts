@@ -313,7 +313,7 @@ export interface MessageAssetApi {
 
 export interface PersonSplitRequestApi {
     /**
-     * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is kept. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+     * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the distinct_id the person was created from is kept, or the first distinct_id when none matches. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
      * @nullable
      */
     main_distinct_id?: string | null

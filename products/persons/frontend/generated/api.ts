@@ -386,7 +386,7 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?:
  * Split distinct_ids off a merged person. Two mutually exclusive modes:
  *
  * - **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.
- * - **`main_distinct_id`**: keeps only the specified distinct_id on this person; moves every *other* distinct_id off onto its own new person. If omitted, the first distinct_id is kept.
+ * - **`main_distinct_id`**: keeps only the specified distinct_id on this person; moves every *other* distinct_id off onto its own new person. If omitted, the distinct_id the person was created from is kept, or the first distinct_id when none matches.
  *
  * The original person always retains its properties. To clear individual properties afterward, use the `delete_property` endpoint.
  *

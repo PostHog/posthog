@@ -1390,7 +1390,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             ("specific", ["creator", "other"], {"distinct_ids_to_split": ["creator"]}, 400, None),
             ("keep_other", ["creator", "other"], {"main_distinct_id": "other"}, 400, None),
-            ("default_other_first", ["other", "creator"], {}, 400, None),
+            ("default_other_first", ["other", "creator"], {}, 201, "creator"),
             ("keep_creator", ["creator", "other"], {"main_distinct_id": "creator"}, 201, "creator"),
             ("default_creator_first", ["creator", "other"], {}, 201, "creator"),
         ]
@@ -1410,7 +1410,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, expected_status)
         if expected_status == 400:
-            self.assertIn("created the person", response.content.decode())
+            self.assertIn("created this person", response.content.decode())
             enqueue.assert_not_called()
         else:
             enqueue.assert_called_once()

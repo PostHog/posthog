@@ -334,8 +334,9 @@ class PersonSplitRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The distinct_id to **keep** on this person; every *other* distinct_id is moved "
-            "to its own new single-id person. If omitted, the first distinct_id on the person "
-            "is kept. The original person always retains its properties; to clear individual "
+            "to its own new single-id person. If omitted, the distinct_id the person was created "
+            "from is kept, or the first distinct_id when none matches. The original person always "
+            "retains its properties; to clear individual "
             "properties afterward, use the delete_property endpoint. "
             "To surgically *remove* one or more distinct_ids while leaving the merge intact, "
             "use `distinct_ids_to_split` instead — these parameters are inverses of each other "
@@ -1302,7 +1303,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "person keeps every other distinct_id and its properties.\n"
             "- **`main_distinct_id`**: keeps only the specified distinct_id "
             "on this person; moves every *other* distinct_id off onto its own new person. If "
-            "omitted, the first distinct_id is kept.\n\n"
+            "omitted, the distinct_id the person was created from is kept, or the first "
+            "distinct_id when none matches.\n\n"
             "The original person always retains its properties. To clear individual "
             "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
@@ -1337,20 +1339,25 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
 
+        # The person's UUID is derived from the distinct ID that created it, and a split
+        # re-derives each new person's UUID the same way. Splitting that ID off therefore
+        # targets the original person itself: the ID never moves, and the split publishes
+        # an empty person row over the original one in ClickHouse, wiping its properties.
         creator_distinct_id = next(
             (did for did in distinct_ids if uuidFromDistinctId(person.team_id, did) == person.uuid), None
         )
         if creator_distinct_id is not None:
             if distinct_ids_to_split is not None:
                 moves_creator = creator_distinct_id in distinct_ids_to_split
+            elif main_distinct_id is None:
+                main_distinct_id = creator_distinct_id
+                moves_creator = False
             else:
-                kept_id = main_distinct_id or distinct_ids[0]
-                moves_creator = kept_id != creator_distinct_id
-                if not moves_creator and not main_distinct_id:
-                    main_distinct_id = creator_distinct_id
+                moves_creator = main_distinct_id != creator_distinct_id
             if moves_creator:
                 raise ValidationError(
-                    "This distinct ID created the person and must stay with them. Choose another ID to split."
+                    f"Distinct ID {creator_distinct_id} created this person and must stay with them. "
+                    "Keep it on the person, or split the other IDs instead."
                 )
 
         split_person.delay(
