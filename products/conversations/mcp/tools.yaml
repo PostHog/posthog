@@ -53,10 +53,10 @@ tools:
             triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view`
             parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any
             filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and
-            ordered by updated_at descending by default; page with `next_offset` from the response, and stop when it is
-            null. Returns ticket metadata including status, priority, message counts, and timestamps. Use
-            conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for
-            its message thread.
+            ordered by updated_at descending by default. To page, call again with `offset` set to the response's
+            `next_offset`, and stop when `next_offset` is null. Returns ticket metadata including status, priority,
+            message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and
+            conversations-tickets-messages-retrieve for its message thread.
         response:
             include:
                 - id
