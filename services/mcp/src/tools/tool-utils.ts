@@ -140,11 +140,16 @@ export function withTextProjection<T>(result: T, fields: string[]): T {
 
 /**
  * A paginated envelope whose `next`/`previous` links are replaced by the offsets to page with.
+ * Anything the runtime hands back untouched — an array, a primitive — keeps its own type.
  */
-export type WithPageOffsets<T> = Omit<T, 'next' | 'previous'> & {
-    next_offset: number | null
-    previous_offset: number | null
-}
+export type WithPageOffsets<T> = T extends readonly unknown[] | ((...args: never[]) => unknown)
+    ? T
+    : T extends object
+      ? Omit<T, 'next' | 'previous'> & {
+            next_offset: number | null
+            previous_offset: number | null
+        }
+      : T
 
 /**
  * Replace a paginated envelope's `next`/`previous` links with the offsets they point at.
