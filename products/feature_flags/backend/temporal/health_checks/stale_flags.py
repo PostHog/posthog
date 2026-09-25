@@ -149,7 +149,9 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # Only a never-called stale flag can come back from the rollout query too: a usage-stale
         # flag's last call predates the cutoff, which fails the call-recency filter below. Excluding
         # those ids beats fetching the rows again and dropping them in Python, and
-        # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity.
+        # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity. It reads
+        # `stale_rows`, not `stale_candidates`, so a never-called non-v1 row also stays out of the
+        # rollout query instead of being fetched and logged a second time.
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
@@ -208,7 +210,10 @@ class StaleFeatureFlagsCheck(HealthCheck):
 
 
 def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
-    """Every reader below describes config format 1; a row in another format is left unjudged."""
+    """Keep the rows whose `filters` is None or a config format 1 object.
+
+    Drop and log the rest, so `detect` never reports a flag it can't read.
+    """
     kept = []
     for flag in flags:
         filters = flag.filters

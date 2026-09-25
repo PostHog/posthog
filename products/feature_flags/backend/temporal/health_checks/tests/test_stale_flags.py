@@ -670,6 +670,13 @@ class TestStaleFlagsDetect(BaseTest):
             active=True,
             **{**stale_by_usage(), "filters": ["version"]},
         )
+        called = FeatureFlag.objects.create(
+            team=other_team,
+            key="v2-called",
+            created_by=self.user,
+            active=True,
+            **{**constant_and_called(), "filters": {"version": 2, **FULL_ROLLOUT_FILTERS}},
+        )
         self._create_flag("v1-stale", **stale_by_usage())
 
         with capture_logs() as logs:
@@ -679,7 +686,7 @@ class TestStaleFlagsDetect(BaseTest):
         assert [result.payload["flag_key"] for result in results[self.team.id]] == ["v1-stale"]
         skips = [log for log in logs if log["event"] == "stale_feature_flags_skipped_unsupported_config"]
         assert sorted((log["flag_id"], log["team_id"]) for log in skips) == sorted(
-            [(unsupported.id, other_team.id), (not_an_object.id, other_team.id)]
+            [(unsupported.id, other_team.id), (not_an_object.id, other_team.id), (called.id, other_team.id)]
         )
 
     def test_query_count_does_not_grow_with_candidates_or_teams(self) -> None:

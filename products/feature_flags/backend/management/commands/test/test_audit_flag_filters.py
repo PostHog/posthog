@@ -200,12 +200,13 @@ class TestAuditFlagFilters(BaseTest):
 
     def test_console_output_summarizes(self) -> None:
         self._create_flag("cross-field", INVALID_MULTIVARIATE_FILTERS)
+        self._create_flag("v2", {"version": 2, "rules": []})
         out = StringIO()
 
         call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
 
         output = out.getvalue()
-        assert "1 with violations" in output
+        assert "0 clean, 1 with violations, 1 skipped (config format not 1)." in output
         assert "cross_field.variant_rollout_sum_not_100" in output
 
     def test_console_output_reports_clean_scan(self) -> None:

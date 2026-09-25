@@ -1,4 +1,7 @@
+from io import StringIO
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import override_settings
@@ -140,7 +143,6 @@ class TestReencryptFlagPayloads(BaseTest):
         with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             with capture_logs() as logs:
                 call_command("reencrypt_flag_payloads", "--live-run")
-            assert Command()._reencrypt(unsupported.pk, flag_payload_codec()) is None
 
         unsupported.refresh_from_db()
         assert unsupported.filters == {"version": 2, "rules": [], "payloads": {"true": token}}
@@ -150,3 +152,20 @@ class TestReencryptFlagPayloads(BaseTest):
         assert sorted((log["flag_id"], log["team_id"]) for log in skips) == sorted(
             [(unsupported.id, other_team.id), (not_an_object.id, other_team.id)]
         )
+
+    def test_format_change_under_lock_is_counted_as_skipped(self):
+        self._make_flag("rc-flag", encrypt_with=OLD_KEY)
+        real = Command._reencrypt
+
+        def switch_format_under_lock(command, pk, codec):
+            FeatureFlag.objects.filter(pk=pk).update(filters={"version": 2, "rules": []})
+            return real(command, pk, codec)
+
+        out = StringIO()
+        with (
+            override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]),
+            patch.object(Command, "_reencrypt", switch_format_under_lock),
+        ):
+            call_command("reencrypt_flag_payloads", "--team-id", str(self.team.id), "--live-run", stdout=out)
+
+        assert "re-encrypted=0 skipped=1" in out.getvalue()
