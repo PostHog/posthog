@@ -2,7 +2,7 @@ import { parseSelect } from './hogqlParserSingleton'
 import { SELECTION_LABEL, SaveCandidates } from './SaveTargetCycler'
 
 export const SELECTION_NOT_A_QUERY =
-    'The selected text is not a complete query. Clear the selection to save the whole query.'
+    'The selected text is not a complete query. Close this dialog and clear the selection in the editor to save the whole query.'
 
 /**
  * Report why the chosen save candidate cannot be saved, or null when it is fine.
