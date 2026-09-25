@@ -8,7 +8,7 @@ Tasks onto one row per Task with these columns:
 
 - ``task_id``: the Task id; the idempotency key of the decision.
 - ``organization_id``: the PostHog organization the Task's account is linked to.
-- ``region``: the PostHog region the organization lives in (``us``, ``eu``).
+- ``region``: the PostHog cloud region the organization lives in (``us``, ``eu``).
 - ``assignee_user_id``: PostHog user id of the allocated holder.
 - ``source_assignee_id``: Salesforce user id of the same person.
 - ``allocated_at``: when the eligible allocation was made at the source; never a delivery time.
@@ -89,6 +89,14 @@ DECISION_COLUMNS = (
     "released_at",
     "source_releaser_id",
 )
+
+# One project's accounts include organizations hosted in either cloud, so a claim may name either
+# region, whichever instance runs the sweep.
+CLOUD_REGIONS = frozenset({"us", "eu"})
+
+# The fence of a relationship a claim enrolls without deciding it, when no writer ever changed it.
+# No earlier decision exists to protect, so any claim for it can pass.
+NO_PRIOR_CHANGE = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 class ClaimSourceMisconfigured(Exception):
@@ -217,12 +225,11 @@ def _refuse_saved_queries(view_name: str, context: HogQLContext) -> None:
         )
 
 
-def _binding_changed(team_id: int, definition: AccountRelationshipDefinition) -> bool:
-    """Lock the definition and tell whether its binding moved after the sweep read the view: to another
-    definition, to a newly pinned text, or with claims switched off. Rows read under the old binding
-    must not apply, and a claim under the old definition would leave the Task unable to fill the new
-    one. Call inside ``transaction.atomic()``, before locking the account."""
-    current = ownership.lock_definition(team_id, definition.id)
+def _binding_changed(current: AccountRelationshipDefinition | None, definition: AccountRelationshipDefinition) -> bool:
+    """Whether the binding moved after the sweep read the view: to another definition, to a newly
+    pinned text, or with claims switched off. Rows read under the old binding must not apply, and a
+    claim under the old definition would leave the Task unable to fill the new one. ``current`` is the
+    definition read under its lock, or None when it is gone or no longer controlled."""
     return (
         current is None
         or not current.claims_enabled
@@ -535,20 +542,33 @@ def claim(
 
     Under the Account lock, an accepted claim for the same Task is recognized first, so a Task read
     again on a later run is answered with the original decision even after the relationship has
-    changed hands. A new Task may fill the relationship only when the account manages it, it is
-    empty, the assignee is a member, and the allocation is later than the control timestamp, the
-    last human decision, by more than the clock-skew allowance. Every refusal is returned as an
-    outcome for the reconciler to record.
+    changed hands. A new Task may fill the relationship only when it is empty, the assignee is a
+    member, the region is a cloud region, and the allocation is later than the control timestamp,
+    the last human decision, by more than the clock-skew allowance. On an account not yet enrolled
+    under the definition, the fence is the relationship's last change by any writer. An accepted claim
+    enrolls the account under every controlled definition it lacks, as a person's edit does, because a
+    consumer takes over an account only once all its controlled relationships are managed. Control of
+    the claimed relationship starts at the claim's allocation time; a sibling's starts at its own last
+    change. A refusal enrolls nothing, because enrollment hands the account to consumers for good.
+    Every refusal is returned as an outcome for the reconciler to record.
 
-    Neither a claim nor a release moves the control timestamp. Both carry Salesforce's decision time
-    and are processed later, so moving it to the processing instant would fence out a Task allocated
-    between the source event and this sweep.
+    A claim or a release never moves an existing control timestamp. Both carry Salesforce's decision
+    time and are processed later, so moving it to the processing instant would fence out a Task
+    allocated between the source event and this sweep.
     """
     actor = relationships.Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
     with transaction.atomic():
-        # Definition before account, the order every writer takes. The view was read before this
-        # transaction, so the binding is checked again here.
-        if _binding_changed(team.id, definition):
+        # Definitions before the account, in id order, the order every writer takes. Every
+        # controlled definition is locked because an accepted claim may enroll the account under
+        # all of them. The view was read before this transaction, so the binding is checked again.
+        controlled_ids = set(ownership.controlled_definitions(team.id).values_list("id", flat=True))
+        controlled = {
+            locked_definition.id: locked_definition
+            for locked_definition in ownership.lock_definitions(team.id, controlled_ids | {definition.id})
+            if locked_definition.is_controlled
+        }
+        current = controlled.get(definition.id)
+        if current is None or _binding_changed(current, definition):
             return _claim_result("blocked", "binding_changed")
         try:
             locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
@@ -562,10 +582,7 @@ def claim(
                 return _claim_result("blocked", "identity_mismatch", accepted)
             return _claim_result("already_applied", None, accepted)
 
-        control = ownership.control_for(locked_account, definition)
-        if control is None:
-            return _claim_result("blocked", "role_not_managed")
-        if not ownership.region_matches(decision.region):
+        if decision.region not in CLOUD_REGIONS:
             return _claim_result("blocked", "identity_mismatch")
         membership = (
             OrganizationMembership.objects.select_related("user")
@@ -575,18 +592,36 @@ def claim(
         if membership is None:
             return _claim_result("blocked", "assignee_not_member")
 
-        holder = relationships.active_relationships(team.id, locked_account, definition).first()
+        holder = relationships.active_relationships(team.id, locked_account, current).first()
         if holder is not None:
             return _claim_result("rejected", "role_occupied", holder)
-        fence = control.controlled_at
-        rejection = ownership.allocation_rejection(decision.allocated_at, fence)
+        control = ownership.control_for(locked_account, current)
+        rejection = ownership.allocation_rejection(
+            decision.allocated_at,
+            control.controlled_at
+            if control is not None
+            else relationships.last_change_at(team.id, locked_account, current),
+        )
         if rejection is not None:
             return _claim_result("rejected", rejection)
 
+        controls = {
+            definition_id: relationships.enroll_locked(
+                team.id,
+                locked_account,
+                controlled_definition,
+                actor,
+                controlled_at=decision.allocated_at
+                if definition_id == current.id
+                else relationships.last_change_at(team.id, locked_account, controlled_definition) or NO_PRIOR_CHANGE,
+            )
+            for definition_id, controlled_definition in controlled.items()
+        }
+        fence = controls[current.id].controlled_at
         relationship = AccountRelationship.objects.for_team(team.id).create(
             team_id=team.id,
             account=locked_account,
-            definition=definition,
+            definition=current,
             user=membership.user,
             source=actor.source,
             source_ref=decision.source_ref,
@@ -595,7 +630,7 @@ def claim(
             account=locked_account,
             actor=actor,
             activity="role_claimed",
-            definition=definition,
+            definition=current,
             relationship=relationship,
             previous_user=None,
             current_user=membership.user,
@@ -622,7 +657,7 @@ def release(
         return _claim_result("not_held", None)
     with transaction.atomic():
         # Definition before account, and the binding checked again, as for a claim.
-        if _binding_changed(team.id, definition):
+        if _binding_changed(ownership.lock_definition(team.id, definition.id), definition):
             return _claim_result("blocked", "binding_changed")
         # The claim names the account to lock, and is then read again under that lock: a person may
         # have ended it in between, which is exactly what makes the release a no-op. An account
