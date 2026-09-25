@@ -60,7 +60,7 @@ describe('chartPreviewsLogic', () => {
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES], {
-            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: true,
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: 'test',
         })
         insightLogic(insightProps).mount()
         insightDataLogic(insightProps).mount()
@@ -88,10 +88,11 @@ describe('chartPreviewsLogic', () => {
     it('orders tiles as suggested, previewed, blank, then disabled', () => {
         insightVizDataLogic(insightProps).actions.updateQuerySource({
             ...trendsQuery(ChartDisplayType.ActionsLineGraph),
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }],
             breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
         })
         insightDataLogic(insightProps).actions.setInsightData({
-            results: [timeSeriesRow],
+            results: [{ ...timeSeriesRow, action: { ...timeSeriesRow.action, math: BaseMathType.UniqueUsers } }],
             hasMore: true,
             last_refresh: FIRST_REFRESH,
         })

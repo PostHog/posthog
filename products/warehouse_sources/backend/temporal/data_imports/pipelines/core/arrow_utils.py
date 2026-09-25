@@ -1375,6 +1375,17 @@ def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.
     return column_data.tolist()
 
 
+def _object_array(values: Sequence[object | None]) -> np.ndarray[Any, np.dtype[Any]]:
+    # Filled element by element rather than with `np.array(values, dtype=object)`: numpy reads a
+    # sequence-like value (a psycopg `Multirange`) as a nested dimension, so a column of equal
+    # length ones flattens into a 2-D array of the items and the values themselves are lost.
+    array = np.empty(len(values), dtype=object)
+    for index, value in enumerate(values):
+        array[index] = value
+
+    return array
+
+
 def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str]]:
     """JSON-serialize columns whose non-None values are all dicts, before any Arrow work.
 
@@ -1471,7 +1482,7 @@ def _process_batch(
             columnar_table_data[col] = pa.array(values)
         except:
             # Some values can't be interpreted by pyarrows directly
-            columnar_table_data[col] = np.array(values, dtype=object)
+            columnar_table_data[col] = _object_array(values)
 
     for field_name in columnar_table_data.keys():
         py_type: type = type(None)

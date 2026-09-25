@@ -8,8 +8,8 @@ import {
 import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 import { type EvidenceCardData, fetchEvidencePreview } from "./evidencePreview";
 
-// Optional resolution: the quick-ask panel binds no ANALYTICS_TRACKER, and
-// tracking must no-op there, not throw.
+// Optional resolution: where no ANALYTICS_TRACKER is bound, tracking must
+// no-op, not throw.
 function tracker(): AnalyticsTracker | null {
   return resolveServiceOptional<AnalyticsTracker>(ANALYTICS_TRACKER);
 }

@@ -1,5 +1,6 @@
 from posthog.test.base import BaseTest
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.management.commands.migrate_hooks import migrate_hooks
@@ -63,6 +64,7 @@ class TestMigrateHooks(BaseTest):
             "source": "events",
             "actions": [{"id": f"{self.action.id}", "name": "", "type": "actions", "order": 0}],
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
+            "bytecode_contract": RUNTIME_CONTRACT,
         }
         assert hog_function.hog == template_zapier.code
         assert hog_function.description == f"{template_zapier.description} Migrated from legacy hook {self.hook.id}."
