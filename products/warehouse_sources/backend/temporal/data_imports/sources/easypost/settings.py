@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class EasypostEndpointConfig:
     name: str
     # Path segment under https://api.easypost.com/v2/. EasyPost list responses wrap the array
@@ -29,6 +29,8 @@ class EasypostEndpointConfig:
     supports_start_datetime: bool = True
     # /carrier_accounts answers with a bare JSON array instead of the usual {"<name>": [...]}.
     returns_bare_list: bool = False
+    # Top-level keys dropped from every row before it reaches the warehouse.
+    redacted_fields: tuple[str, ...] = ()
 
 
 def _created_at_fields() -> list[IncrementalField]:
@@ -62,12 +64,17 @@ EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
         name="carrier_accounts",
         path="/carrier_accounts",
         # No cursor and no time filter, so full refresh only. EasyPost serves this endpoint to
-        # production API keys only; a test key is rejected.
+        # production API keys only, so a source connected with a test key cannot sync it — leave
+        # it unselected rather than failing a table the user never asked for.
         incremental_fields=[],
         partition_key=None,
+        should_sync_default=False,
         paginated=False,
         supports_start_datetime=False,
         returns_bare_list=True,
+        # Carrier credentials. EasyPost masks password-type values but returns the rest in
+        # plaintext, and anyone who can query the warehouse can read the synced row.
+        redacted_fields=("fields", "credentials", "test_credentials"),
     ),
     "carriers": EasypostEndpointConfig(
         name="carriers",
@@ -90,8 +97,10 @@ EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
         name="end_shippers",
         path="/end_shippers",
         # /end_shippers paginates by cursor but takes no start_datetime, so the descending
-        # client-side watermark stop is what bounds an incremental run.
+        # client-side watermark stop is what bounds an incremental run. EasyPost opens this API
+        # to enabled accounts only, so it stays unselected by default.
         incremental_fields=_created_at_fields(),
+        should_sync_default=False,
         supports_start_datetime=False,
     ),
     "events": EasypostEndpointConfig(

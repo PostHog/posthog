@@ -43,6 +43,14 @@ class TestGetSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
+    @parameterized.expand([("carrier_accounts",), ("end_shippers",)])
+    def test_restricted_endpoints_are_not_selected_by_default(self, endpoint: str) -> None:
+        # EasyPost gates both endpoints: /carrier_accounts rejects test keys, and the EndShipper
+        # API is opened per account. Selecting either by default fails a table nobody asked for.
+        schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
+        assert schemas[endpoint].should_sync_default is False
+        assert schemas["shipments"].should_sync_default is True
+
     def test_events_are_append_only(self) -> None:
         # Events are immutable, so they're append-only (no incremental updates to existing rows).
         schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}

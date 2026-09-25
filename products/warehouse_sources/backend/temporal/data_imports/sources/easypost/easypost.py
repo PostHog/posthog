@@ -86,6 +86,12 @@ def validate_credentials(api_key: str) -> bool:
         return False
 
 
+def _redact(items: list[dict[str, Any]], redacted_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    if not redacted_fields:
+        return items
+    return [{k: v for k, v in item.items() if k not in redacted_fields} for item in items]
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -108,7 +114,7 @@ def get_rows(
         data = _fetch_page(session, url, {}, logger)
         collection = data if config.returns_bare_list else data.get(config.name, [])
         if collection:
-            yield collection
+            yield _redact(collection, config.redacted_fields)
         return
 
     # Incremental cursor: EasyPost returns newest-first, so we walk backwards (via `before_id`) and
@@ -152,7 +158,7 @@ def get_rows(
             rows.append(item)
 
         if rows:
-            yield rows
+            yield _redact(rows, config.redacted_fields)
             # Save the cursor for the page we just yielded (not the next one) so a crash re-fetches
             # and re-yields this page — merge dedupes on the `id` primary key — rather than skipping it.
             resumable_source_manager.save_state(EasypostResumeConfig(before_id=before_id))

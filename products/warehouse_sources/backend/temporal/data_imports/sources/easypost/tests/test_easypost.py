@@ -40,7 +40,7 @@ def _patch_pages(monkeypatch: Any, pages_by_before_id: dict[Any, dict[str, Any]]
 
 
 def _patch_response(monkeypatch: Any, payload: Any) -> list[dict[str, Any]]:
-    """Answer every request with `payload`, returning the list of params each request sent."""
+    # Answers every request with `payload`; the returned list records what each request sent.
     requests: list[dict[str, Any]] = []
 
     def fake_fetch(session: Any, url: str, params: dict[str, Any], logger: Any) -> Any:
@@ -192,6 +192,24 @@ class TestUnpaginatedEndpoints:
         assert len(requests) == 1
         assert "before_id" not in requests[0]
         assert manager.saved == []
+
+    def test_carrier_credentials_never_reach_the_warehouse(self, monkeypatch: Any) -> None:
+        # EasyPost masks password-type credential values but returns the rest in plaintext, and
+        # anyone who can query the warehouse can read a synced row.
+        _patch_response(
+            monkeypatch,
+            [
+                {
+                    "id": "ca_1",
+                    "type": "UspsAccount",
+                    "fields": {"credentials": {"client_id": {"value": "123456"}}},
+                    "credentials": {"client_id": "123456"},
+                    "test_credentials": {"client_id": "123456"},
+                }
+            ],
+        )
+        rows = _collect(_FakeResumableManager(), endpoint="carrier_accounts")
+        assert rows == [{"id": "ca_1", "type": "UspsAccount"}]
 
     def test_empty_response_yields_nothing(self, monkeypatch: Any) -> None:
         _patch_response(monkeypatch, [])
