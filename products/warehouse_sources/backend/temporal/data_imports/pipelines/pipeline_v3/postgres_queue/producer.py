@@ -155,9 +155,16 @@ class PostgresProducer:
         # this job go terminal so their batches can't double-load. Runs the loader is
         # still draining are spared (see supersede_other_runs); a spared run that
         # stalls later is recovered by the reconcile sweep's stranded-run pass.
+        #
+        # A full_refresh is the exception: this run's batch 0 overwrites the table, so
+        # an older attempt's loaded rows are gone either way and sparing it only leaves
+        # its batches clogging the serial per-(team, schema) gate.
         if batch_result.batch_index == 0 and not self._is_resume:
             superseded = BatchQueue.supersede_other_runs(
-                self._conn, job_id=self._job_id, current_run_uuid=self._run_uuid
+                self._conn,
+                job_id=self._job_id,
+                current_run_uuid=self._run_uuid,
+                spare_runs_with_progress=self._sync_type != "full_refresh",
             )
             if superseded > 0:
                 self._logger.info("superseded_old_run_batches", count=superseded)

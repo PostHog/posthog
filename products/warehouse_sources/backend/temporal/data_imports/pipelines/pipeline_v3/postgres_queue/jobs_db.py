@@ -1219,6 +1219,7 @@ class BatchQueue:
         job_id: str,
         current_run_uuid: str,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
+        spare_runs_with_progress: bool = True,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
 
@@ -1238,11 +1239,19 @@ class BatchQueue:
 
         A spared run that stalls later is not re-checked here (this fires once, at the
         new run's first batch); the reconcile sweep's stranded-run pass owns that case.
+
+        ``spare_runs_with_progress=False`` drops the sparing rule. Pass it when the
+        incoming run overwrites the table regardless, which is a fresh non-resume
+        ``full_refresh``: its batch 0 writes with ``mode="overwrite"`` (``should_overwrite_table``
+        in ``load/processor.py``, applied in the full_refresh branch of ``core/delta/writer.py``),
+        so every row an older attempt loaded is discarded the moment this run starts. Sparing
+        those runs protects nothing, and leaves their batches to drain through the serial
+        per-(team, schema) gate — holding the queue head for hours to write data that has
+        already been thrown away. Incremental and CDC keep the sparing rule, because their
+        partially merged work survives into the new run.
         """
-        cursor = conn.execute(
-            _bulk_fail_dual_write_sql(
-                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
-                AND NOT EXISTS (
+        progress_guard = (
+            f"""AND NOT EXISTS (
                     SELECT 1
                     FROM {BATCH_TABLE} b_live
                     WHERE b_live.run_uuid = b.run_uuid
@@ -1250,6 +1259,13 @@ class BatchQueue:
                         AND b_live.latest_state IN ('executing', 'succeeded', 'waiting_retry')
                         AND b_live.state_changed_at > now() - make_interval(secs => %(progress_stale)s)
                 )"""
+            if spare_runs_with_progress
+            else ""
+        )
+        cursor = conn.execute(
+            _bulk_fail_dual_write_sql(
+                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                {progress_guard}"""
             ),
             {
                 "job_id": job_id,
