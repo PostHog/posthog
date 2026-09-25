@@ -23,7 +23,12 @@ export function InsightAIAnalysis(): JSX.Element | null {
             <h2 className="font-semibold text-lg m-0 mb-2 flex items-center gap-2">PostHog AI</h2>
             <p className="text-muted mb-4">Open PostHog AI in the side panel and ask it what this insight shows.</p>
             <div className="flex gap-2 flex-wrap">
-                <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}>
+                <AIConsentPopoverWrapper
+                    onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
+                    // Without consent the click only prefills the composer, so an earlier dismissal
+                    // must not hide the prompt that makes this button work.
+                    ignoreDismissal
+                >
                     <LemonButton
                         type="secondary"
                         onClick={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
