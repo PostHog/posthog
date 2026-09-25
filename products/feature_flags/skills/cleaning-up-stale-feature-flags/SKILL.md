@@ -251,6 +251,8 @@ A definition read that happens after you have already written to a file is too l
 Do not use a cached response for this check.
 If the read fails, stop before editing.
 If the version or rollout changed, stop: do not edit, and do not revert an edit you already made instead of not making it. Return to step 4, "Classify the rollout state," and reassess before touching any file.
+Repeat step 2's dependents and scheduled-changes reads in the same parallel block as that definition read, because a new dependent flag or schedule does not change the flag's version.
+If a new active dependent or pending schedule appears, stop before editing and report it as a step 2 exclusion.
 
 - **Fully rolled out boolean**: remove the flag check, keep the enabled path.
   If there is an else branch, remove it entirely.
@@ -307,6 +309,7 @@ already did this once. A change can land between editing and publishing just as 
 assessment and editing, and this is the last point before anything leaves your local session, so it
 gets its own independent check rather than relying on step 6 having gone right.
 If the read fails, stop before publishing.
+Repeat the dependents and scheduled-changes reads in the same block, for the reason step 6 gives.
 Compare its version and rollout against what step 6 used to choose the retained path:
 
 - **If they match**, name the version and rollout percentage you just confirmed in your summary or
@@ -314,6 +317,8 @@ Compare its version and rollout against what step 6 used to choose the retained 
 - **If they differ**, do not publish. If you already edited against the old data, revert those edits
   rather than leave them standing, and restart from step 4 with the new definition. Do this even when
   step 6's own pre-edit check ran and matched — that confirmed one moment, not this one.
+- **If a new active dependent or pending schedule appears**, do not publish. Revert your edits and
+  report it as a step 2 exclusion.
 
 Default to one draft PR per flag, so each review and rollback stays bounded.
 Start each flag's branch from the base branch, not from the tip the previous flag left behind:
@@ -407,11 +412,13 @@ End the instructions with:
 Keep general-purpose flag helpers that only lost their last caller, and list them in your summary.
 Then run the tests and relevant checks that cover the retained behavior.
 Before pushing or opening a PR, fetch the flag definition one more time, even though you already
-did this before editing. If the read fails, stop before publishing. Compare its version and rollout
+did this before editing, and repeat its dependency and schedule checks. If the read fails, stop before publishing.
+Compare its version and rollout
 against what you used to choose the retained path. If they match, name the version and rollout you
 just confirmed in your summary or PR description. If they differ, do not push or open a PR — revert
 any edit made against the old data and restart from the rollout classification instead. Do this even
 when your pre-edit check already ran and matched; that confirmed one moment, not this one.
+If a new active dependent or pending schedule appears, do not push or open a PR; revert your edits and report it.
 Do not push or open a PR unless validation passes and the user authorizes publication.
 If checks fail or cannot run, report how to restore validation. Do not offer to bypass them."
 
