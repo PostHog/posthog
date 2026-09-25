@@ -114,7 +114,7 @@ import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWareho
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
 import { BIEditorState, parseBIEditorState } from './bi/biEditorTypes'
-import { connectionSelectorLogic } from './connectionSelectorLogic'
+import { connectionSelectorLogic, LOADING_CONNECTIONS } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
@@ -636,6 +636,9 @@ export interface sqlEditorLogicActions {
     } // connectionSelectorLogic
     maybeLoadConnectionOptions: () => {
         value: true
+    } // connectionSelectorLogic
+    markConnectionUnavailable: (connectionId: string) => {
+        connectionId: string
     } // connectionSelectorLogic
     createDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
@@ -1198,6 +1201,13 @@ function claimConnectionScope(tabId: string, connectionId: string | null | undef
     }
 }
 
+// The backend refuses a connection id it cannot resolve: the source is deleted, it no longer
+// answers direct queries, or the user lost access to it. `posthog/hogql/direct_connection.py`
+// words every one of those the same way.
+export function isConnectionUnavailableError(error: string | null): boolean {
+    return !!error && error.toLowerCase().includes('invalid connectionid')
+}
+
 // Drops this tab's claim and reports whether the scoped connection is now unclaimed.
 function releaseConnectionScope(tabId: string, scopedConnectionId: string | null): boolean {
     connectionScopeOwners.delete(tabId)
@@ -1255,7 +1265,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             databaseTableListLogic,
             ['setConnection', 'loadDatabase', 'resetConnectionScope'],
             connectionSelectorLogic,
-            ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
+            ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions', 'markConnectionUnavailable'],
         ],
     })),
     actions(() => ({
@@ -2057,6 +2067,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Options can load after a connection was restored from the URL.
             loadConnectionOptionsSuccess: () => {
                 actions.enforceConnectionRawQueryMode()
+            },
+            setDataError: ({ error }) => {
+                const unavailableConnectionId = values.selectedConnectionId
+                if (!unavailableConnectionId || !isConnectionUnavailableError(error)) {
+                    return
+                }
+
+                actions.markConnectionUnavailable(unavailableConnectionId)
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        connectionId: undefined,
+                        sendRawQuery: undefined,
+                    },
+                })
+                actions.syncUrlWithQuery()
+                lemonToast.warning(
+                    'That connection is no longer available, so this tab is back on the PostHog warehouse. Run the query again, or pick another connection.'
+                )
+                posthog.capture('sql_editor_connection_unavailable_recovered')
             },
             runSubquery: async () => {
                 if (!props.editor) {
@@ -3493,7 +3524,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const connectionIdFromHash =
-                typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
+                typeof hashParams.c === 'string' && hashParams.c !== '' && hashParams.c !== LOADING_CONNECTIONS
+                    ? hashParams.c
+                    : undefined
             const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false

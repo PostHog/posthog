@@ -32,6 +32,7 @@ import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
 import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
+import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import {
@@ -607,6 +608,67 @@ describe('sqlEditorLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(router.values.hashParams.filters).toBeUndefined()
+    })
+
+    it('falls back to the PostHog warehouse when the saved connection no longer resolves', async () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.createTab('SELECT 1')
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+        logic.actions.setSourceQuery({
+            ...logic.values.sourceQuery,
+            source: {
+                ...logic.values.sourceQuery.source,
+                connectionId: 'dead-connection',
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(router.values.hashParams.c).toEqual('dead-connection')
+
+        logic.actions.setDataError(
+            'Invalid connectionId: no direct-query-capable data source with this id in this team, ' +
+                "or you don't have access to it."
+        )
+        await expectLogic(logic).toDispatchActions([
+            connectionSelectorLogic().actionCreators.markConnectionUnavailable('dead-connection'),
+        ])
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(logic.values.selectedConnectionId).toBeUndefined()
+        expect(router.values.hashParams.c).toBeUndefined()
+        expect(connectionSelectorLogic().values.unavailableConnectionIds).toEqual(['dead-connection'])
+    })
+
+    it('keeps the connection when the query fails for any other reason', async () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.createTab('SELECT 1')
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+        logic.actions.setSourceQuery({
+            ...logic.values.sourceQuery,
+            source: {
+                ...logic.values.sourceQuery.source,
+                connectionId: 'live-connection',
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        logic.actions.setDataError('Syntax error: failed at position 8')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(logic.values.selectedConnectionId).toEqual('live-connection')
     })
 
     it('syncs filters to the URL hash when the query is empty', async () => {
