@@ -104,6 +104,15 @@ export const authorFrictionLogic = kea<authorFrictionLogicType>([
         ],
     })),
     reducers({
+        friction: [
+            null as AuthorFrictionListApi | null,
+            {
+                loadFrictionSuccess: (_, { friction }) => friction,
+                // The old rows would link with the new source, so they go as soon as the scope changes.
+                setSourceId: () => null,
+                setScope: () => null,
+            },
+        ],
         frictionStatus: [
             'ok' as LoaderStatus,
             {
