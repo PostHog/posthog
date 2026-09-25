@@ -40,6 +40,12 @@ export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType
     return Array.from(new Set(allEvents.filter((e): e is string => !!e)))
 }
 
+/** A cold cache key answers with `result: null`, so only a non-nullish payload counts as data to render. */
+export const insightHasResults = (insight: Partial<QueryBasedInsightModel> | null | undefined): boolean => {
+    const payload = insight as { result?: unknown; results?: unknown } | null | undefined
+    return (payload?.result ?? payload?.results) != null
+}
+
 export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode

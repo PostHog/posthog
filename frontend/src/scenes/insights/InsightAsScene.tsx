@@ -9,6 +9,7 @@ import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { insightHasResults } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
@@ -34,12 +35,17 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         useValues(insightSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
 
+    // On a cold cache key the insight arrives with `result: null`, which the data node reads as cached
+    // data, so it publishes "no data" instead of running the query and the scene dead-ends on "Chart
+    // data didn't load". A failed calculation answers with `result: null` too, but that answer is
+    // terminal, so it goes through and the user retries with the button rather than the query rerunning.
+    const insightAnswered = insightHasResults(insight) || insight?.query_status?.error === true
+
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
         dashboardId: dashboardId ?? undefined,
-        // don't use cached insight if we have overrides
-        cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
+        cachedInsight: hasOverrides && insight?.short_id === insightId && insightAnswered ? insight : null,
         filtersOverride,
         variablesOverride,
     })
