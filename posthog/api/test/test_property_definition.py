@@ -259,7 +259,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def _large_project_with_five_properties(self) -> Team:
         team = Team.objects.create(organization=self.organization, name="Large project")
         PropertyDefinition.objects.bulk_create(
-            [PropertyDefinition(team=team, name=f"prop_{i}", property_type="String") for i in range(5)]
+            [
+                PropertyDefinition(team=team, name=f"prop_{i}", property_type="String", is_numerical=i in (0, 2))
+                for i in range(5)
+            ]
         )
         EventProperty.objects.create(team=team, event="$pageview", property="prop_1")
         EventProperty.objects.create(team=team, event="$pageview", property="prop_3")
@@ -296,6 +299,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 ["prop_1", "prop_3"],
                 2,
             ),
+            ("named", "&properties=prop_1,prop_4", ["prop_1", "prop_4"], 2),
+            ("numerical", "&is_numerical=true", ["prop_0", "prop_2"], 2),
         ]
     )
     def test_large_project_keeps_the_exact_count_for_sparse_requests(
@@ -1200,37 +1205,51 @@ class TestQueryContextLargeProjectSql(SimpleTestCase):
         assert "LIMIT %(limit)s + %(offset)s" in sql
         assert sql.strip().endswith("LIMIT %(limit)s OFFSET %(offset)s")
 
-    @parameterized.expand(
-        [
-            ("small_project", False, True),
-            ("large_project_without_a_verified_sort", True, False),
-        ]
-    )
-    def test_single_statement_otherwise(self, _name: str, large_project: bool, order_by_verified: bool) -> None:
-        assert "UNION ALL" not in self._context(large_project).as_sql(order_by_verified=order_by_verified)
+    def _with_sparse_filter(self, context: QueryContext, sparse_filter: Optional[str]) -> QueryContext:
+        if sparse_filter == "search":
+            return context.with_search("AND name ILIKE %(search)s", {"search": "%abc%"}, True)
+        if sparse_filter == "filtered_by_event":
+            return context.with_event_property_filter(event_names=["$pageview"], filter_by_event_names=True)
+        if sparse_filter == "named":
+            return context.with_properties_to_filter("$browser,$os")
+        if sparse_filter == "numerical":
+            return context.with_is_numerical_flag("true")
+        return context
 
     @parameterized.expand(
         [
-            ("large_project", True, None, False, True),
-            ("small_project", False, None, False, False),
-            ("large_project_search", True, "abc", False, False),
-            ("large_project_filtered_by_event", True, None, True, False),
+            ("small_project", False, True, None),
+            ("large_project_without_a_verified_sort", True, False, None),
+            ("large_project_search", True, True, "search"),
+            ("large_project_named", True, True, "named"),
+            ("large_project_numerical", True, True, "numerical"),
+        ]
+    )
+    def test_single_statement_otherwise(
+        self, _name: str, large_project: bool, order_by_verified: bool, sparse_filter: Optional[str]
+    ) -> None:
+        context = self._with_sparse_filter(self._context(large_project), sparse_filter)
+
+        assert "UNION ALL" not in context.as_sql(order_by_verified=order_by_verified)
+
+    @parameterized.expand(
+        [
+            ("large_project", True, None, True),
+            ("small_project", False, None, False),
+            ("large_project_search", True, "search", False),
+            ("large_project_filtered_by_event", True, "filtered_by_event", False),
+            ("large_project_named", True, "named", False),
+            ("large_project_numerical", True, "numerical", False),
         ]
     )
     def test_count_is_bounded_only_where_matches_are_dense(
-        self, _name: str, large_project: bool, search: Optional[str], filter_by_event_names: bool, bounded: bool
+        self, _name: str, large_project: bool, sparse_filter: Optional[str], bounded: bool
     ) -> None:
-        context = self._context(large_project)
-        if search:
-            context = context.with_search("AND name ILIKE %(search)s", {"search": f"%{search}%"}, True)
-        if filter_by_event_names:
-            context = context.with_event_property_filter(event_names=["$pageview"], filter_by_event_names=True)
-
-        count_sql = context.as_count_sql()
+        count_sql = self._with_sparse_filter(self._context(large_project), sparse_filter).as_count_sql()
 
         assert ("ORDER BY posthog_propertydefinition.name LIMIT %(count_cap)s) bounded" in count_sql) is bounded
         # The event filter limits rows, so the count has to carry the join too.
-        assert ("INNER JOIN (" in count_sql) is filter_by_event_names
+        assert ("INNER JOIN (" in count_sql) is (sparse_filter == "filtered_by_event")
 
     def test_filtered_by_event_pages_in_one_statement_led_by_the_seen_flag(self) -> None:
         sql = (

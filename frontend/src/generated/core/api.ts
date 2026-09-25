@@ -2245,7 +2245,7 @@ export const getPropertyDefinitionsListUrl = (projectId: string, params?: Proper
 }
 
 /**
- * List the property definitions of a project. On projects with more than 50000 property definitions, `count` stops at 10000 and `count_is_capped` is true, unless the request sets `search` or `filter_by_event_names`. `count` is a lower bound there, not a total, and `next` keeps paging past it. The default sort on those projects is verified definitions first, then name.
+ * List the property definitions of a project. On projects with more than 50000 property definitions, `count` stops at 10000 and `count_is_capped` is true, unless the request sets `search`, `filter_by_event_names`, `properties` or `is_numerical`. `count` is a lower bound there, not a total, and `next` keeps paging past it. The default sort on those projects is verified definitions first, then name.
  */
 export const propertyDefinitionsList = async (
     projectId: string,

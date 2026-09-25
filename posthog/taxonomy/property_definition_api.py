@@ -458,12 +458,7 @@ class QueryContext:
         )
 
     def as_sql(self, order_by_verified: bool):
-        if (
-            order_by_verified
-            and self.large_project
-            and not self.order_by_search_relevance
-            and not self.order_by_seen_on_events
-        ):
+        if order_by_verified and self.large_project and not self.matches_few_rows and not self.order_by_seen_on_events:
             return self._as_verified_first_sql()
 
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
@@ -518,10 +513,20 @@ class QueryContext:
             """
 
     @property
+    def matches_few_rows(self) -> bool:
+        # A search, a join on the events, a list of names or the numerical flag matches few rows. A bounded count
+        # or a page in name order walks most of the project before it finds them, so these requests keep the
+        # exact count and the single statement.
+        return bool(
+            self.order_by_search_relevance
+            or self.seen_on_events_join_limits_rows
+            or self.name_filter
+            or self.numerical_filter
+        )
+
+    @property
     def bounds_the_count(self) -> bool:
-        # A search or a join on the events matches few rows, so a bounded count in name order would walk
-        # most of the project before it reached the cap.
-        return self.large_project and not self.order_by_search_relevance and not self.seen_on_events_join_limits_rows
+        return self.large_project and not self.matches_few_rows
 
     def as_count_sql(self):
         # A LEFT JOIN cannot change the count, so only a join that limits rows belongs in it.
@@ -883,8 +888,9 @@ class PropertyDefinitionViewSet(
         description=(
             "List the property definitions of a project. On projects with more than "
             f"{PROJECT_SCAN_MAX_DEFINITIONS} property definitions, `count` stops at "
-            f"{LARGE_PROJECT_COUNT_CAP} and `count_is_capped` is true, unless the request sets `search` or "
-            "`filter_by_event_names`. `count` is a lower bound there, not a total, and `next` keeps paging "
+            f"{LARGE_PROJECT_COUNT_CAP} and `count_is_capped` is true, unless the request sets `search`, "
+            "`filter_by_event_names`, `properties` or `is_numerical`. `count` is a lower bound there, not a total, "
+            "and `next` keeps paging "
             "past it. The default sort on those projects is verified definitions first, then name."
         ),
         parameters=[PropertyDefinitionQuerySerializer],
