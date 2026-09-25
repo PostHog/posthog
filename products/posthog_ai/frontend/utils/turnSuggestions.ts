@@ -108,10 +108,11 @@ function parseAlertDraft(alert: PosthogTurnSuggestionParams['alert']): AlertSugg
     if (!insight || !alert || !isOneOf(ALERT_DIRECTIONS, alert.direction)) {
         return null
     }
-    if (typeof alert.changePercent !== 'number' || !(alert.changePercent > 0)) {
+    const changePercent = typeof alert.changePercent === 'number' ? Math.round(alert.changePercent) : NaN
+    if (!(changePercent > 0)) {
         return null
     }
-    return { ...insight, direction: alert.direction, changePercent: Math.round(alert.changePercent) }
+    return { ...insight, direction: alert.direction, changePercent }
 }
 
 function parseSubscriptionDraft(

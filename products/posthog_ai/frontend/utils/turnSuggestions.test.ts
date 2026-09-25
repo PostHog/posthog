@@ -23,6 +23,10 @@ describe('turnSuggestions', () => {
             'an alert without a positive bound',
             { ...SUGGESTION_FRAMES.alert, alert: { ...INSIGHT, direction: 'decrease', changePercent: 0 } },
         ],
+        [
+            'an alert whose bound rounds to zero',
+            { ...SUGGESTION_FRAMES.alert, alert: { ...INSIGHT, direction: 'decrease', changePercent: 0.3 } },
+        ],
         ['a subscription without a cadence', { ...SUGGESTION_FRAMES.subscription, subscription: INSIGHT }],
         ['an error alert without an issue', { ...SUGGESTION_FRAMES.error_alert, errorAlert: { issueName: 'x' } }],
         ['a non-object frame', 'scout'],
