@@ -477,11 +477,21 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return None
 
 
+class SourceExtractionNotImplementedError(NotImplementedError):
+    """A source class carries no `source_for_pipeline` of its own, so only the base stub is left.
+
+    Reaching this in a sync means the worker runs an older build than the web code that created
+    the source: a scaffolded source is only connectable once its implementation ships. Kept
+    distinct from a plain `NotImplementedError`, which a source implementation raises for a real
+    defect the pipeline must keep reporting.
+    """
+
+
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
 
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
@@ -490,7 +500,7 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
     def source_for_pipeline(
         self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
     ) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
     @abstractmethod
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResumableData]:

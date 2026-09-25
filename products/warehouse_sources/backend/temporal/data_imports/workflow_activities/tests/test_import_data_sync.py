@@ -33,7 +33,10 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    SimpleSource,
+    SourceExtractionNotImplementedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -175,6 +178,40 @@ async def test_retryable_setup_error_is_reraised():
         with pytest.raises(Exception, match="connection reset by peer"):
             await import_data_activity_sync(_inputs())
 
+    handle_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unimplemented_source_extraction_is_retryable_and_unreported():
+    # A scaffolded source is only connectable once its implementation ships, so a worker that
+    # still holds the base stub is running the build from before that release. The next retry
+    # lands on a caught-up worker, so the run must stay retryable, must not disable the schema,
+    # and must not mint an error-tracking issue for a rollout window.
+    error = SourceExtractionNotImplementedError("DepotSource does not implement source_for_pipeline")
+    source = _make_source(error, {})
+
+    with _patched_activity(source) as handle_mock:
+        with pytest.raises(NonReportableError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value.__cause__ is error
+    assert str(exc_info.value) == module.SOURCE_ROLLOUT_IN_PROGRESS_MESSAGE
+    handle_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_plain_not_implemented_error_from_a_source_is_still_reported():
+    # Source implementations raise NotImplementedError for real defects — an unbound resolve param
+    # in a REST manifest, or the Postgres guard against building a pipeline off the base template.
+    # Only the base stub means "this build is behind", so a plain one must still escape raw.
+    error = NotImplementedError("Resource orders defines resolve params that are not bound in path")
+    source = _make_source(error, {})
+
+    with _patched_activity(source) as handle_mock:
+        with pytest.raises(NotImplementedError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value is error
     handle_mock.assert_not_awaited()
 
 
