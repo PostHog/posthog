@@ -984,6 +984,7 @@ class VercelIntegration:
             return redirect_url
         except Exception as e:
             logger.exception("Vercel SSO completion failed", error=str(e), integration="vercel")
+            capture_exception(e)
             raise exceptions.AuthenticationFailed("SSO completion failed")
 
     @staticmethod
