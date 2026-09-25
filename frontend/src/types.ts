@@ -7415,6 +7415,7 @@ export interface CyclotronJobFilterActions extends CyclotronJobFilterBase {
 
 export type CyclotronJobFilterPropertyFilter =
     | EventPropertyFilter
+    | EventMetadataPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | GroupPropertyFilter

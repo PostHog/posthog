@@ -6772,6 +6772,26 @@ snapshots:
         hash: v1.k794b7964.ff266ce4b007479bd8156db3c4b65a91a8b987d226bfd7622b20085df50d5d1c.2IsZbL1hVZEqsqWd22bNC0XJvJSqSlXHKCc0LGtJzJc
     products-posthog-ai-threadview--saved-insight-query--light:
         hash: v1.k794b7964.405cb15303a44d4f837d5569ab4110e07b62ffa71fc418e0aaeb29ddafe8cf8e.mnRWTc0Tao1ttGBbi8vm9n77TQn-RXrRtmeeaDk-yM8
+    products-posthog-ai-turnsuggestioncard--alert-suggestion--dark:
+        hash: v1.k794b7964.b938a3849383187a65f892bd921c385992f045db27a99786ff1aea9a1a5de17d.1XjFQ3_-G46X5uNMFOdKTw6NkXear11568l1-UnJrso
+    products-posthog-ai-turnsuggestioncard--alert-suggestion--light:
+        hash: v1.k794b7964.3499de84fedb6f6cd08262e062cc8d88e3686cf4f1a1ce8a0d5768b1fccd94f6.OKYpLjWyLd1Ub75-XqvKzLlvbsF_69e8AbOsanKCoVM
+    products-posthog-ai-turnsuggestioncard--error-alert-suggestion--dark:
+        hash: v1.k794b7964.e6ef7c9da520c96080cad5c21bd29e6f8ed95d4e59e8a50ad2866e598bcd8045.vTviXThbN4DOKVgp2vNMHcBpSJi8_Ep3rlb8Fil4cGE
+    products-posthog-ai-turnsuggestioncard--error-alert-suggestion--light:
+        hash: v1.k794b7964.9995263b3aaefe6035bcee5f9e2cee0fbdde4719268e79d1bc7d4fa5a3cb8c5a.ziU7-4rJEYV5i0GI47_mn1vz4t8RfjIkY9zzqqSInus
+    products-posthog-ai-turnsuggestioncard--notebook-suggestion--dark:
+        hash: v1.k794b7964.74fb197d5358d0427d8b3738531cd3b4ebf142a218bf194c26521dc978891e86.LUm-MST9fFm-V4pBYoVm-vS3ivIije3ghaZyh0HFxCU
+    products-posthog-ai-turnsuggestioncard--notebook-suggestion--light:
+        hash: v1.k794b7964.e830d49196905143698da09d75f60daa5ecdcb5f7c6d960bfb3fe4f1b04eebd5.LyjZ1ihfD0UgRVD-C3y5IXx7wbmMLwDSx5K58_hrezI
+    products-posthog-ai-turnsuggestioncard--scout-suggestion--dark:
+        hash: v1.k794b7964.adaac0c052a5610abf04d9b624997b302c9924b88f0eb0cc8e9aa1cb1e996824.-Xg52Ob6EPvdSa3OaQfJvFUCWsxYjW8zn-k7zuxhR2g
+    products-posthog-ai-turnsuggestioncard--scout-suggestion--light:
+        hash: v1.k794b7964.5cb00fd76ac16f09d281f8f934be402db9ac64bb2ad25491c3114ad216d52924.rK-nRkXmvq3I69HQmTUWbq1B98idvic3o5y8aNiOCxA
+    products-posthog-ai-turnsuggestioncard--subscription-suggestion--dark:
+        hash: v1.k794b7964.0aa282c33282361855bd8c4609dba3d47bfb9437e522836e1d149f9ac373a37c.5HvJ7husXnhMQwv22pXQXe3hAZ9kX2vcpBqTcn0ZjLE
+    products-posthog-ai-turnsuggestioncard--subscription-suggestion--light:
+        hash: v1.k794b7964.7849a12071e1756203e27e7fa618cc7250f085032941a7330f3695a9098fc7d2.qCZQdszGwDkNuiCFz_uYrRCTnremqzaoLz0Bs9Q7B9s
     products-posthog-ai-virtualizedthread--anchored-open--dark:
         hash: v1.k794b7964.eecc3dde9e8475fb8f20f259880edae96e2750529897fc326c44d33ce20e0885.hQlXYcfwZ9CiFajcBHUg9oY6h2QcGrm91CkXVIht-OE
     products-posthog-ai-virtualizedthread--anchored-open--light:

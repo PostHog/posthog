@@ -2008,11 +2008,51 @@ export function escapeMarkdownLineStart(line: string): string {
         return `${leadingWhitespace}${orderedListMatch[1]}\\${content.slice(orderedListMatch[1].length)}`
     }
 
-    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z]|<!--)/.test(content)) {
+    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$)/.test(content) || COMPONENT_TAG_LINE_START.test(content)) {
         return `${leadingWhitespace}\\${content}`
     }
 
     return line
+}
+
+const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
+const COMPONENT_TAG_OPENER = /^(<[A-Z][A-Za-z0-9]*|<!--)/
+
+// The parser lifts a quoted tag out of its blockquote, so the check runs after any `>` markers too.
+// A backslash is not enough: the parser recovers a `\<Tag` that spans lines, because the prose
+// serializer writes multiline components that way. Inline code cannot be recovered into a tag.
+function escapeComponentTagLineStart(line: string): string {
+    const prefix = line.match(/^[\s>]*/)?.[0] ?? ''
+    const content = line.slice(prefix.length)
+    const opener = content.match(COMPONENT_TAG_OPENER)?.[0]
+    return opener ? `${prefix}\`${opener}\`${content.slice(opener.length)}` : line
+}
+
+// For markdown the author meant to render: only a line that would parse as a component tag or a
+// comment is neutralized, so headings and lists stay live.
+export function escapeComponentTagLines(markdown: string): string {
+    const lines: string[] = []
+    let openFence: string | null = null
+    for (const line of markdown.split('\n')) {
+        const trimmed = line.trim()
+        if (openFence) {
+            if (/^`+$/.test(trimmed) && trimmed.length >= openFence.length) {
+                openFence = null
+            }
+            lines.push(line)
+        } else if (trimmed.startsWith('```')) {
+            openFence = trimmed.match(/^`+/)?.[0] ?? '```'
+            lines.push(line)
+        } else {
+            lines.push(escapeComponentTagLineStart(line))
+        }
+    }
+    // A fence left open would otherwise close on a fence in the next joined block, and the lines
+    // after it, which were skipped here, would parse as live markdown.
+    if (openFence) {
+        lines.push(openFence)
+    }
+    return lines.join('\n')
 }
 
 function getCodeBlockFence(text: string): string {
