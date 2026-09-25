@@ -135,6 +135,12 @@ export const confirmedActionRuntimeInstalled = new Gauge({
     help: 'Whether the typed-confirm runtime was installed successfully at boot (1 = yes, 0 = misconfigured / MCP_SIGNED_STATE_KEY missing).',
 })
 
+export const clientIpResolutionsTotal = new Counter({
+    name: 'mcp_client_ip_resolutions_total',
+    help: 'How the Hono runtime found the end user IP it signs for the PostHog API, by source and edge signature outcome.',
+    labelNames: ['source', 'edge_outcome'] as const,
+})
+
 export const contextMillRevalidationDurationSeconds = new Histogram({
     name: 'mcp_context_mill_revalidation_duration_seconds',
     help: 'Context-mill resource revalidation duration.',

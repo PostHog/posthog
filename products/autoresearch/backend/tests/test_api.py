@@ -1,5 +1,6 @@
 import uuid
 import base64
+import dataclasses
 from typing import Any
 
 import pytest
@@ -12,6 +13,7 @@ from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
@@ -19,6 +21,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
+from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -63,6 +66,9 @@ MOCK_VALIDATION_ERROR = ValidationResult(
 )
 
 
+_VIEWS = "products.autoresearch.backend.presentation.views.views"
+
+
 class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -73,6 +79,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         )
         self._flag_patcher.start()
         self.addCleanup(self._flag_patcher.stop)
+        for gate in ("code_access_required_response", "usage_limit_response"):
+            gate_patcher = patch(f"{_VIEWS}.{gate}", return_value=None)
+            gate_patcher.start()
+            self.addCleanup(gate_patcher.stop)
 
     def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
         defaults = {
@@ -188,6 +198,107 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
 
     # ──────────────────────────────────────── lifecycle actions ────────────────────────────────────
+
+    def test_pause_and_resume_pipeline(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/pause/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["status"] == "paused"
+
+        resp2 = self.client.post(f"{self.base_url}/{pipeline.id}/resume/")
+        assert resp2.status_code == status.HTTP_200_OK
+        assert resp2.json()["status"] == "running"
+
+    @parameterized.expand(
+        [
+            ("resume_running", "resume", AutoresearchPipeline.Status.RUNNING, None),
+            ("pause_draft", "pause", AutoresearchPipeline.Status.DRAFT, None),
+            ("pause_bootstrapping", "pause", AutoresearchPipeline.Status.BOOTSTRAPPING, None),
+            ("archive_while_training", "archive", AutoresearchPipeline.Status.RUNNING, "running"),
+            ("archive_while_pending", "archive", AutoresearchPipeline.Status.RUNNING, "pending"),
+        ]
+    )
+    def test_refused_lifecycle_transition_returns_400(
+        self, _name: str, verb: str, start: AutoresearchPipeline.Status, run_status: str | None
+    ):
+        pipeline = self._make_pipeline(status=start)
+        if run_status:
+            AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=50)
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/{verb}/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        pipeline.refresh_from_db()
+        assert pipeline.status == start
+
+    @parameterized.expand(
+        [
+            ("pause", "post", "pause/"),
+            ("resume", "post", "resume/"),
+            ("archive", "post", "archive/"),
+            ("score", "post", "score/"),
+            ("validate_online", "post", "validate_online/"),
+            ("patch", "patch", ""),
+            ("delete", "delete", ""),
+        ]
+    )
+    def test_sandbox_origin_cannot_change_a_pipeline(self, verb: str, method: str, suffix: str):
+        start = AutoresearchPipeline.Status.PAUSED if verb == "resume" else AutoresearchPipeline.Status.RUNNING
+        pipeline = self._make_pipeline(status=start)
+        with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
+            resp = getattr(self.client, method)(f"{self.base_url}/{pipeline.id}/{suffix}", {"name": "x"}, format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        pipeline.refresh_from_db()
+        assert (pipeline.status, pipeline.name) == (start, "Test Pipeline")
+
+    def test_sandbox_origin_cannot_open_a_training_run(self):
+        pipeline = self._make_pipeline()
+        with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/training_runs/", {}, format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
+    def test_sandbox_origin_can_still_read_pipelines(self):
+        pipeline = self._make_pipeline()
+        with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
+            assert self.client.get(f"{self.base_url}/{pipeline.id}/").status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("idle", None, 204), ("training", "running", 400), ("pending", "pending", 400)])
+    def test_delete_pipeline_is_refused_while_training(self, _name: str, run_status: str | None, expected: int):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        if run_status:
+            AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=50)
+        resp = self.client.delete(f"{self.base_url}/{pipeline.id}/")
+        assert resp.status_code == expected
+        still_there = AutoresearchPipeline.objects.for_team(self.team.pk).filter(pk=pipeline.pk).exists()
+        assert still_there == (expected != 204)
+
+    def test_archive_pipeline(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/archive/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["status"] == "archived"
+        pipeline.refresh_from_db()
+        assert pipeline.status == AutoresearchPipeline.Status.ARCHIVED
+
+    def test_train_archived_pipeline_returns_404(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)
+        # Archived pipelines are excluded from the queryset so the endpoint returns 404
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_score_archived_pipeline_returns_404(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/score/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand([("no_champion", False), ("paused", True)])
+    def test_score_refused_returns_400(self, _name: str, paused: bool):
+        pipeline = self._make_trained_pipeline() if paused else self._make_pipeline()
+        pipeline.status = AutoresearchPipeline.Status.PAUSED if paused else AutoresearchPipeline.Status.RUNNING
+        pipeline.save(update_fields=["status"])
+        with patch("products.autoresearch.backend.inference.scoring.run_inference_for_pipeline") as mock_score:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/score/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        mock_score.assert_not_called()
 
     # ─────────────────────────────────────── validate action ──────────────────────────────────────
 
@@ -308,7 +419,199 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
         assert self.client.post(f"{self.base_url}/{path}", body, format="json").status_code == ok_status
 
+    @parameterized.expand(
+        [
+            ("score_query", "score", ["autoresearch:write", "person:write"], ["query:read"]),
+            ("score_person", "score", ["autoresearch:write", "query:read"], ["person:write"]),
+            ("validate_online", "validate_online", ["autoresearch:write"], ["query:read"]),
+            ("train", "train", ["autoresearch:write", "query:read"], ["insight:read"]),
+        ]
+    )
+    def test_data_reading_actions_need_the_read_scopes(
+        self, _name: str, path: str, partial: list[str], rest: list[str]
+    ):
+        missing = f"{self.base_url}/{uuid.uuid4()}/{path}/"
+        self.client.logout()
+        without = self.create_personal_api_key_with_scopes(partial)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
+        assert self.client.post(missing).status_code == status.HTTP_403_FORBIDDEN
+        with_all = self.create_personal_api_key_with_scopes([*partial, *rest])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_all}")
+        assert self.client.post(missing).status_code == status.HTTP_404_NOT_FOUND
+
     # ──────────────────────────────────────── train action ────────────────────────────────────────
+
+    def test_start_training(self):
+        pipeline = self._make_pipeline()
+
+        # The run must not exist before the call: the endpoint rejects pipelines that
+        # already have a live run, so the mock creates it the way run_training would.
+        def _fake_run_training(*, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any):
+            return AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.RUNNING,
+                iteration_budget=iteration_budget,
+            )
+
+        with patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["status"] == "running"
+
+    @parameterized.expand(
+        [
+            ("train", status.HTTP_200_OK),
+            ("training_runs", status.HTTP_201_CREATED),
+            ("validate_online", status.HTTP_200_OK),
+            # No champion, so the scoped caller gets past the scope check to the champion refusal.
+            ("score", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_action_target_actions_need_the_action_scope(self, path: str, ok_status: int):
+        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        pipeline = self._make_pipeline(
+            target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
+        )
+        scopes = ["autoresearch:write", "query:read", "insight:read", "person:write"]
+        self.client.logout()
+        without = self.create_personal_api_key_with_scopes(scopes)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
+        real_get_pipeline = api.get_pipeline
+        # An unlocked read that still sees the old event target must not decide the scope check.
+        with (
+            patch(
+                "products.autoresearch.backend.facade.api.get_pipeline",
+                side_effect=lambda *a, **kw: dataclasses.replace(
+                    real_get_pipeline(*a, **kw), target_definition={"type": "event"}
+                ),
+            ),
+            patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/{path}/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == "target_definition"
+        mock_run_training.assert_not_called()
+        assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
+        with_action = self.create_personal_api_key_with_scopes([*scopes, "action:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
+        with patch(
+            "products.autoresearch.backend.training.runner.run_training",
+            side_effect=lambda **kw: AutoresearchTrainingRun.objects.create(
+                pipeline=kw["pipeline"], status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=5
+            ),
+        ):
+            assert self.client.post(f"{self.base_url}/{pipeline.id}/{path}/").status_code == ok_status
+
+    @parameterized.expand(
+        [
+            ("code_access_required_response", Response(status=403), status.HTTP_403_FORBIDDEN),
+            ("usage_limit_response", Response(status=429), status.HTTP_429_TOO_MANY_REQUESTS),
+            ("is_sandbox_origin_request", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_start_training_is_refused_by_the_launch_gates(self, gate: str, gate_result: Any, gate_status: int):
+        pipeline = self._make_pipeline()
+        with (
+            patch(f"{_VIEWS}.{gate}", return_value=gate_result),
+            patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == gate_status
+        mock_run_training.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("score", "products.autoresearch.backend.inference.scoring.run_inference_for_pipeline"),
+            (
+                "validate_online",
+                "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline",
+            ),
+        ]
+    )
+    def test_scoring_actions_with_a_deleted_target_action_return_400(self, path: str, runner: str):
+        pipeline = self._make_trained_pipeline()
+        with patch(runner, side_effect=Action.DoesNotExist):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/{path}/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("score_deleted", "score", "deleted"),
+            ("score_no_steps", "score", "no_steps"),
+            ("validate_deleted", "validate_online", "deleted"),
+            ("validate_no_steps", "validate_online", "no_steps"),
+        ]
+    )
+    def test_scoring_actions_refuse_a_stale_target_action(self, _name: str, path: str, staleness: str):
+        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        pipeline = self._make_trained_pipeline()
+        pipeline.target_definition = {"type": "action", "action_id": action.id}
+        pipeline.save(update_fields=["target_definition"])
+        if staleness == "deleted":
+            action.deleted = True
+        else:
+            action.steps_json = []
+        action.save()
+        with (
+            patch("products.autoresearch.backend.inference.scoring.run_inference_for_pipeline") as mock_score,
+            patch(
+                "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline"
+            ) as mock_validate,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/{path}/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        mock_score.assert_not_called()
+        mock_validate.assert_not_called()
+
+    def test_start_training_with_a_deleted_target_action_returns_400(self):
+        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        pipeline = self._make_pipeline(
+            target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
+        )
+        # The Action API soft-deletes, so the row stays behind.
+        action.deleted = True
+        action.save(update_fields=["deleted"])
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
+    def test_patch_writes_only_the_fields_it_carries(self):
+        pipeline = self._make_pipeline(
+            status=AutoresearchPipeline.Status.RUNNING, target_event="uploaded_file", horizon_days=30
+        )
+        with CaptureQueriesContext(connection) as queries:
+            resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"name": "Renamed"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        updates = [
+            q["sql"]
+            for q in queries.captured_queries
+            if q["sql"].startswith('UPDATE "autoresearch_autoresearchpipeline"')
+        ]
+        assert len(updates) == 1
+        assert '"status"' not in updates[0].split(" WHERE ")[0]
+        pipeline.refresh_from_db()
+        assert (pipeline.name, pipeline.target_event, pipeline.horizon_days) == ("Renamed", "uploaded_file", 30)
+
+    @parameterized.expand(
+        [
+            ("live_run", AutoresearchPipeline.Status.RUNNING, True),
+            ("paused", AutoresearchPipeline.Status.PAUSED, False),
+        ]
+    )
+    def test_start_training_refused_returns_400(self, _name: str, start: AutoresearchPipeline.Status, live_run: bool):
+        pipeline = self._make_pipeline(status=start)
+        if live_run:
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=50
+            )
+        with patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        mock_run_training.assert_not_called()
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────
 
@@ -363,6 +666,34 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             pipeline_id = uuid.uuid4()
         resp = self.client.patch(f"{self.base_url}/{pipeline_id}/", {"name": "Renamed"}, format="json")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_model_defining_fields_are_rechecked_against_models_under_the_lock(self):
+        pipeline = self._make_trained_pipeline()
+        # The serializer read happened before the first run finished and created the model.
+        with patch(
+            "products.autoresearch.backend.presentation.views.serializers.api.pipeline_has_models", return_value=False
+        ):
+            resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"horizon_days": 30}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        pipeline.refresh_from_db()
+        assert pipeline.horizon_days == 7
+
+    @parameterized.expand(
+        [
+            ("target_changed", {"horizon_days": 30}, status.HTTP_400_BAD_REQUEST),
+            ("target_resubmitted", {"target_event": "$pageview"}, status.HTTP_200_OK),
+            ("metadata", {"name": "Renamed"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_model_defining_fields_frozen_while_the_first_run_is_live(self, _name: str, payload: dict, expected: int):
+        pipeline = self._make_pipeline()
+        AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=50
+        )
+        resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", payload, format="json")
+        assert resp.status_code == expected
+        pipeline.refresh_from_db()
+        assert pipeline.horizon_days == 7
 
     def test_target_editable_before_any_model_is_trained(self):
         pipeline = self._make_pipeline()
