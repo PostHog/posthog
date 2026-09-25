@@ -57,9 +57,7 @@ class DisallowElementBreakdowns:
         breakdown_filter = context.query.breakdownFilter
         if breakdown_filter is None:
             return
-        if breakdown_filter.breakdown_type == BreakdownType.ELEMENT or any(
-            breakdown.type == BreakdownType.ELEMENT for breakdown in breakdown_filter.breakdowns or []
-        ):
+        if breakdown_filter.breakdown_type == BreakdownType.ELEMENT:
             raise ValidationError(
                 "Element breakdowns are not supported for retention insights. Use an event or person property instead.",
                 code=self.code,

@@ -262,6 +262,18 @@ const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (inter
 const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
     if (bf.breakdowns?.length) {
         const first = bf.breakdowns[0]
+        if (first.type === 'element') {
+            return {
+                ...bf,
+                breakdowns: undefined,
+                breakdown: undefined,
+                breakdown_type: undefined,
+                breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
+                breakdown_normalize_url: undefined,
+                breakdown_path_cleaning: undefined,
+            }
+        }
         return {
             ...bf,
             breakdowns: undefined,

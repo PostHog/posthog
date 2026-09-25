@@ -4421,8 +4421,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T12:00:00Z",
             elements_chain=button_chain,
         )
-        # An autocapture on a plain div has no interactive tag, no text, and no href. Its
-        # tag_name column is an empty Enum array, where arrayElement(., 1) used to throw.
+        # An autocapture on a plain div has no text or href, but its tag name still belongs in
+        # the tag breakdown.
         self._create_event(
             team=self.team,
             event="$autocapture",
@@ -4434,7 +4434,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             for breakdown, expected in [
                 ("text", [("1", 2), ("Pricing", 1)]),
-                ("tag_name", [("button", 2), ("a", 1)]),
+                ("tag_name", [("button", 2), ("a", 1), ("div", 1)]),
                 # the null bucket sorts after every valued series, whatever the counts
                 ("href", [("/pricing", 1), (BREAKDOWN_NULL_STRING_LABEL, 3)]),
             ]:
