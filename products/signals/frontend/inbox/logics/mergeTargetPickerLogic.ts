@@ -24,6 +24,9 @@ const CANDIDATE_LIMIT = 20
 export interface MergeTargetCandidate {
     id: string
     title: string
+    status: SignalReportStatus
+    signalCount: number
+    updatedAt: string
 }
 
 export interface MergeTargetPickerLogicProps {
@@ -50,13 +53,19 @@ export interface mergeTargetPickerLogicActions {
     loadCandidatesSuccess: (
         candidates: {
             id: string
+            signalCount: number
+            status: SignalReportStatus
             title: string
+            updatedAt: string
         }[],
         payload?: string
     ) => {
         candidates: {
             id: string
+            signalCount: number
+            status: SignalReportStatus
             title: string
+            updatedAt: string
         }[]
         payload?: string
     }
@@ -100,6 +109,9 @@ export const mergeTargetPickerLogic = kea<mergeTargetPickerLogicType>([
                         .map((report) => ({
                             id: report.id,
                             title: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                            status: report.status as unknown as SignalReportStatus,
+                            signalCount: report.signal_count,
+                            updatedAt: report.updated_at,
                         }))
                 },
             },
