@@ -12,6 +12,7 @@ export function QualityChangeMarker({ change }: { change: QualityChange | null }
     return (
         <Tooltip title={`Was ${change.previous} in the previous period`}>
             <span
+                tabIndex={0}
                 aria-label={description}
                 className={`ml-1 inline-flex items-center gap-0.5 text-xs tabular-nums ${change.worse ? 'text-danger' : 'text-success'}`}
             >

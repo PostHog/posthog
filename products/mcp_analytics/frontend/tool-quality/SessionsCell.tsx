@@ -14,8 +14,9 @@ export function SessionsCell({
     previousSessions: number
     previousTotalSessions: number
 }): JSX.Element {
+    const hasPreviousPeriod = previousTotalSessions > 0
     const cell = (
-        <span className="whitespace-nowrap">
+        <span className="whitespace-nowrap" tabIndex={hasPreviousPeriod ? 0 : undefined}>
             <span className="tabular-nums">{formatNumber(sessions)}</span>
             {totalSessions > 0 ? (
                 <span className="text-secondary tabular-nums">
@@ -24,7 +25,7 @@ export function SessionsCell({
             ) : null}
         </span>
     )
-    if (previousSessions === 0 || previousTotalSessions === 0) {
+    if (!hasPreviousPeriod) {
         return cell
     }
     const previousShare = formatPercentage((previousSessions / previousTotalSessions) * 100, { compact: true })

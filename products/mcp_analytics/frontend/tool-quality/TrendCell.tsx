@@ -14,7 +14,7 @@ export function TrendCell({ totalCalls, previousCalls }: { totalCalls: number; p
     if (previousCalls === 0) {
         return (
             <Tooltip title={`${calls}, none in the previous period`}>
-                <span>
+                <span tabIndex={0}>
                     <Badge variant="info">New</Badge>
                 </span>
             </Tooltip>
@@ -24,7 +24,7 @@ export function TrendCell({ totalCalls, previousCalls }: { totalCalls: number; p
     const label = `${pctChange > 0 ? '+' : ''}${pctChange.toLocaleString()}%`
     return (
         <Tooltip title={`${calls} vs ${formatNumber(previousCalls)} in the previous period`}>
-            <span className="tabular-nums">
+            <span className="tabular-nums" tabIndex={0}>
                 {pctChange >= BIG_GROWTH_PCT || pctChange <= BIG_DROP_PCT ? (
                     <Badge variant="info">{label}</Badge>
                 ) : (
