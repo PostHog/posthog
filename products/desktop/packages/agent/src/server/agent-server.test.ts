@@ -297,6 +297,33 @@ interface NativeResumeTestServer {
 
 let nextTestPort = 20000;
 
+function sseEvents(body: ReadableStream<Uint8Array>): {
+  next: () => Promise<Record<string, unknown>>;
+  cancel: () => Promise<void>;
+} {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  return {
+    next: async () => {
+      for (;;) {
+        const end = buffered.indexOf("\n\n");
+        if (end >= 0) {
+          const frame = buffered.slice(0, end);
+          buffered = buffered.slice(end + 2);
+          if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
+        } else {
+          const chunk = await reader.read();
+          if (chunk.done)
+            throw new Error("Event stream ended before initialization");
+          buffered += decoder.decode(chunk.value, { stream: true });
+        }
+      }
+    },
+    cancel: () => reader.cancel(),
+  };
+}
+
 function getNextTestPort(): number {
   const port = nextTestPort;
   nextTestPort += 1;
@@ -3638,27 +3665,11 @@ describe("AgentServer HTTP Mode", () => {
           }),
         );
         if (!response.body) throw new Error("Expected an event stream");
-        let reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffered = "";
-        const nextEvent = async (): Promise<Record<string, unknown>> => {
-          for (;;) {
-            const end = buffered.indexOf("\n\n");
-            if (end >= 0) {
-              const frame = buffered.slice(0, end);
-              buffered = buffered.slice(end + 2);
-              if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
-            } else {
-              const chunk = await reader.read();
-              if (chunk.done)
-                throw new Error("Event stream ended before initialization");
-              buffered += decoder.decode(chunk.value, { stream: true });
-            }
-          }
-        };
+        let events = sseEvents(response.body);
         try {
-          let event = await nextEvent();
-          while (event.type !== "credential_request") event = await nextEvent();
+          let event = await events.next();
+          while (event.type !== "credential_request")
+            event = await events.next();
           const health = await app.fetch(
             new Request("http://localhost/health"),
           );
@@ -3680,10 +3691,9 @@ describe("AgentServer HTTP Mode", () => {
                 headers: { Authorization: authorization },
               }),
             );
-            await reader.cancel();
+            await events.cancel();
             if (!replacement.body) throw new Error("Expected an event stream");
-            reader = replacement.body.getReader();
-            buffered = "";
+            events = sseEvents(replacement.body);
           }
           const body = JSON.stringify({
             jsonrpc: "2.0",
@@ -3742,14 +3752,14 @@ describe("AgentServer HTTP Mode", () => {
             });
             return;
           }
-          while (event.type !== "connected") event = await nextEvent();
+          while (event.type !== "connected") event = await events.next();
           const ready = await app.fetch(new Request("http://localhost/health"));
           expect((await ready.json()).hasSession).toBe(true);
           expect(JSON.stringify(appendLogCalls)).not.toContain(
             "sk-ant-oat01-fake-test-token",
           );
         } finally {
-          await reader.cancel().catch(() => undefined);
+          await events.cancel().catch(() => undefined);
         }
       },
     );
@@ -3786,24 +3796,7 @@ describe("AgentServer HTTP Mode", () => {
           }),
         );
         if (!response.body) throw new Error("Expected an event stream");
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffered = "";
-        const nextEvent = async (): Promise<Record<string, unknown>> => {
-          for (;;) {
-            const end = buffered.indexOf("\n\n");
-            if (end >= 0) {
-              const frame = buffered.slice(0, end);
-              buffered = buffered.slice(end + 2);
-              if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
-            } else {
-              const chunk = await reader.read();
-              if (chunk.done)
-                throw new Error("Event stream ended before initialization");
-              buffered += decoder.decode(chunk.value, { stream: true });
-            }
-          }
-        };
+        const events = sseEvents(response.body);
         try {
           if (outcome === "reauth") {
             await vi.waitFor(async () => {
@@ -3816,10 +3809,10 @@ describe("AgentServer HTTP Mode", () => {
             });
           } else {
             const seen: unknown[] = [];
-            let event = await nextEvent();
+            let event = await events.next();
             while (event.type !== "connected") {
               seen.push(event.type);
-              event = await nextEvent();
+              event = await events.next();
             }
             expect(seen).not.toContain("credential_request");
             expect(JSON.stringify(appendLogCalls)).not.toContain(
@@ -3830,7 +3823,7 @@ describe("AgentServer HTTP Mode", () => {
             { runToken: "run-token", body: { rejected_token_sha256: null } },
           ]);
         } finally {
-          await reader.cancel().catch(() => undefined);
+          await events.cancel().catch(() => undefined);
         }
       },
     );
