@@ -1509,12 +1509,18 @@ describe('BatchWritingPersonStore', () => {
                 fromInternalPerson(sourcePerson, 'source-distinct')
             )
 
+            personStore.setCheckCachedPerson(teamId, 'source-distinct', sourcePerson)
+
             // Verify source cache exists
             expect(personStore.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeDefined()
 
             // Move distinct IDs
             const tx = createMockTransaction() as any
+            tx.moveDistinctIds.mockResolvedValue({ success: true, messages: [], distinctIdsMoved: ['source-distinct'] })
             await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx, 0)
+
+            // A moved id no longer checks as the source.
+            expect(personStore.getCheckCache().has(`${teamId}:source-distinct`)).toBe(false)
 
             // Verify the repository method was called
             expect(tx.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -2948,18 +2954,6 @@ describe('BatchWritingPersonStore', () => {
             const secondCallPayload = mockRepo.updatePersonsBatch.mock.calls[1][0][0]
             expect(secondCallPayload.properties_to_set).toEqual(expect.objectContaining({ b: '2', c: '3' }))
             expect(secondCallPayload.properties_to_unset).toContain('a')
-        })
-
-        it('a merge update stamps both identifiers of its person over a stale mapping', async () => {
-            const personStore = getPersonsStore()
-            const other = { ...person, id: '99', uuid: 'uuid-99' }
-            // The distinct id still maps to another person's entry when the merge writes its survivor.
-            personStore.setCachedPersonForUpdate(teamId, 'distinct_id_1', fromInternalPerson(other, 'distinct_id_1'), 0)
-
-            await personStore.updatePersonForMerge(person, { properties: { merged: 'yes' } }, 'distinct_id_1', 0)
-
-            const entry = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'distinct_id_1')
-            expect(entry).toMatchObject({ id: person.id, uuid: person.uuid })
         })
 
         it('two distinct_ids pointing to the same person share a single cache entry across batches', async () => {

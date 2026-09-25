@@ -252,8 +252,8 @@ export class PostgresPersonMerge {
     }
 
     /**
-     * The property outcome from the rows as they stand under the transaction's lock, with the
-     * store's pending changes on top. Precedence: target, then earlier sources, then the event's ops.
+     * The property outcome from the rows as they stand inside the transaction, sources locked, with
+     * the store's pending changes on top. Precedence: target, then earlier sources, then the event's ops.
      */
     private async lockedMergeOutcome(
         tx: PersonsStoreTransactionForBatch,

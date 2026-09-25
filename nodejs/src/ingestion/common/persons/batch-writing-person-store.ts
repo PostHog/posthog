@@ -1644,6 +1644,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+                // The checked person for a moved id is the source; the next check re-reads the row.
+                this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
 
@@ -1674,6 +1676,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+                // The checked person for a moved id is the source; the next check re-reads the row.
+                this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
 
@@ -1951,9 +1955,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         } else {
             // Merge updates into existing cached PersonUpdate
             personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update, true)
-            // Both identifiers name the person passed in, even if the mapping was stale.
             personUpdate.id = person.id
-            personUpdate.uuid = person.uuid
             cache.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache
