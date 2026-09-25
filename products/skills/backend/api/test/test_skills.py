@@ -2029,7 +2029,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(self, mock_publish, _mock_flag):
         skill = self.create_skill(name="make-pr")
 
@@ -2046,7 +2046,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_recreated_skill_with_the_same_version(self, mock_publish, _mock_flag):
         reviewed_skill = self.create_skill(name="make-pr")
         archive_skill(self.team, "make-pr")
