@@ -18,10 +18,12 @@ const FIXED_NOW = new Date('2026-01-01T12:00:00Z')
 describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', () => {
     let logic: ReturnType<typeof slackIntegrationLogic.build>
     let lastChannelsQuery: Record<string, string> = {}
-    let nextChannelsResponse: { id: string; name: string }[] = [
+    let lastChannelByIdQuery: Record<string, string> = {}
+    let nextChannelsResponse: { id: string; name: string; is_member?: boolean }[] = [
         { id: 'C1', name: 'general' },
         { id: 'C2', name: 'engineering' },
     ]
+    let nextChannelByIdResponse: SlackChannelType | null = null
 
     const buildChannel = (id: string, name: string): SlackChannelType => ({
         id,
@@ -34,6 +36,8 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
 
     beforeEach(() => {
         lastChannelsQuery = {}
+        lastChannelByIdQuery = {}
+        nextChannelByIdResponse = null
         nextChannelsResponse = [
             { id: 'C1', name: 'general' },
             { id: 'C2', name: 'engineering' },
@@ -41,11 +45,19 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         useMocks({
             get: {
                 '/api/environments/:team_id/integrations/:id/channels': ({ request }) => {
-                    lastChannelsQuery = Object.fromEntries(new URL(request.url).searchParams.entries())
+                    const query = Object.fromEntries(new URL(request.url).searchParams.entries())
+                    if (query.channel_id) {
+                        lastChannelByIdQuery = query
+                        return [200, { channels: nextChannelByIdResponse ? [nextChannelByIdResponse] : [] }]
+                    }
+                    lastChannelsQuery = query
                     return [
                         200,
                         {
-                            channels: nextChannelsResponse.map((c) => buildChannel(c.id, c.name)),
+                            channels: nextChannelsResponse.map((c) => ({
+                                ...buildChannel(c.id, c.name),
+                                ...(c.is_member === undefined ? {} : { is_member: c.is_member }),
+                            })),
                             lastRefreshedAt: '2026-01-01T00:00:00Z',
                             has_more: true,
                         },
@@ -107,6 +119,46 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         // Without pinning, slackChannels would be ['C_BULK2']. With the pin held in
         // _fetchedSlackChannelById, the channel survives the reload.
         expect(logic.values.slackChannels.map((c) => c.id).sort()).toEqual(['C_BULK2', 'C_OFFPAGE'])
+    })
+
+    it('drops a pinned channel on a forced refresh so its membership can be looked up again', async () => {
+        nextChannelsResponse = [{ id: 'C_BULK', name: 'bulk-channel' }]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        // What the picker pins on selection. The workspace has more channels than one page, so the
+        // pinned channel is the only copy the membership check can read.
+        logic.actions.loadSlackChannelByIdSuccess({ ...buildChannel('C_OFFPAGE', 'off-page'), is_member: false })
+        expect(logic.values.isMemberOfSlackChannel('C_OFFPAGE')).toBe(false)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels(true)
+        }).toFinishAllListeners()
+
+        // Unknown again rather than still false: the picker only re-looks-up a channel that is
+        // absent from slackChannels, so a surviving pin would answer the check forever.
+        expect(logic.values.isMemberOfSlackChannel('C_OFFPAGE')).toBeNull()
+    })
+
+    it('flips membership from a forced by-id re-check even while the listed copy is stale', async () => {
+        // The backend serves the list from an hour-long cache, so it keeps reporting the app as
+        // missing after someone invites it to the channel.
+        nextChannelsResponse = [{ id: 'C1', name: 'general', is_member: false }]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.isMemberOfSlackChannel('C1')).toBe(false)
+
+        nextChannelByIdResponse = buildChannel('C1', 'general')
+        await expectLogic(logic, () => {
+            logic.actions.recheckSlackChannelMembership(['C1'])
+        }).toFinishAllListeners()
+
+        // force_refresh is what makes the answer live: the backend otherwise serves the channel
+        // from the same hour-old list that reported the app missing.
+        expect(lastChannelByIdQuery).toMatchObject({ channel_id: 'C1', force_refresh: 'true' })
+        expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true)
     })
 
     it('reloads the full list when a search-then-clear sequence runs', async () => {

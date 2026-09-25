@@ -445,6 +445,26 @@ class SlackChannelsQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of channels to skip before returning results.",
     )
+    # Deliberately not nullable: generated clients serialize an explicit null as the literal
+    # query string "channel_id=null", which would then be looked up as a channel id. Omit to skip.
+    channel_id = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text=(
+            "Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and "
+            "`offset` are ignored and the response holds at most that channel."
+        ),
+    )
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads "
+            "the channel's current membership after inviting the app to it. Honored only for browser session "
+            "callers; API key, OAuth, and MCP callers always read through the cache."
+        ),
+    )
 
 
 class SlackChannelsResponseSerializer(serializers.Serializer):
@@ -467,6 +487,10 @@ class SlackUserSerializer(serializers.Serializer):
         help_text="Name to show in pickers: the member's display name, falling back to their real name or handle."
     )
 
+
+# How long a fetched Slack channel list stays cached. A single-channel re-check writes its live
+# answer into that list, so it reads the same constant to keep the list's original expiry.
+SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
 
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
@@ -1612,10 +1636,12 @@ class IntegrationViewSet(
             raise ValidationError("channels endpoint is only supported for Slack integrations")
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
+        query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
         # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
         # callers always read through the 1h cache so an agent loop can't bypass it.
         is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
-        force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
+        force_refresh: bool = is_session_auth and query_serializer.validated_data["force_refresh"]
         authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
@@ -1625,13 +1651,14 @@ class IntegrationViewSet(
         # install the same workspace must not share cached private-channel lists.
         key = f"slack/{instance.id}/{should_include_private_channels}/channels"
 
-        channel_id = request.query_params.get("channel_id")
+        channel_id = query_serializer.validated_data["channel_id"]
         if channel_id:
-            data = cache.get(key)
-            if data is not None:
-                for channel in data["channels"]:
-                    if channel["id"] == channel_id:
-                        return Response({"channels": [channel]})
+            if not force_refresh:
+                data = cache.get(key)
+                if data is not None:
+                    for channel in data["channels"]:
+                        if channel["id"] == channel_id:
+                            return Response({"channels": [channel]})
             try:
                 channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             except SlackApiError as e:
@@ -1642,8 +1669,6 @@ class IntegrationViewSet(
                 return Response({"channels": [serialized_channel]})
             return Response({"channels": []})
 
-        query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
         search = query_serializer.validated_data["search"]
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
@@ -1659,7 +1684,7 @@ class IntegrationViewSet(
                 "channels": [self._serialize_slack_channel(channel) for channel in channels],
                 "lastRefreshedAt": timezone.now().isoformat(),
             }
-            cache.set(key, data, 60 * 60)  # one hour
+            cache.set(key, data, SLACK_CHANNELS_CACHE_SECONDS)
 
         filtered_channels = self._filter_slack_channels_for_search(data["channels"], search)
         page = filtered_channels[offset : offset + limit]

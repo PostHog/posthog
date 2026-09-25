@@ -70,6 +70,8 @@ const integrationsChannelsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
             query: {
+                channel_id: params.channel_id,
+                force_refresh: params.force_refresh,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

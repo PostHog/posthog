@@ -16,19 +16,21 @@ const DM_SAVED = 'PostHog sends these to @sam in Slack.'
 const CHANNEL_HELP = /^PostHog must be in the channel/
 
 describe('SlackNotificationsSection', () => {
+    let workspace: IntegrationType = WORKSPACE
     let autonomyConfig: Record<string, unknown> | null = null
     let saves: Record<string, unknown>[] = []
     let saveGate: Promise<void> | null = null
 
     beforeEach(() => {
         initKeaTests()
+        workspace = WORKSPACE
         autonomyConfig = null
         saves = []
         saveGate = null
         // msw handlers reset between tests, so register per test rather than once per file.
         useMocks({
             get: {
-                '/api/projects/:team_id/integrations/': () => [200, { results: [WORKSPACE] }],
+                '/api/projects/:team_id/integrations/': () => [200, { results: [workspace] }],
                 '/api/environments/:team_id/integrations/:id/channels': () => [200, { channels: [], has_more: false }],
                 '/api/projects/:team_id/signals/config/': () => [200, { default_slack_notification_channel: null }],
                 '/api/users/@me/signal_autonomy/': () =>
@@ -109,6 +111,18 @@ describe('SlackNotificationsSection', () => {
         expect(toggle).toBeDisabled()
         finishSave()
         expect(await screen.findByText(DM_SAVED)).toBeInTheDocument()
+    })
+
+    // A workspace connected before PostHog asked for users:read can never resolve a direct
+    // message, so the save only ever came back as a red toast the user could not act on.
+    it('asks for a reconnect instead of saving a direct message the workspace cannot deliver', async () => {
+        workspace = { ...WORKSPACE, config: { scope: 'chat:write,channels:read' } } as IntegrationType
+
+        render(<SlackNotificationsSection />)
+        await userEvent.click(await screen.findByLabelText('Enable Slack notifications'))
+
+        expect(await screen.findByText(/Reconnect Slack to give it the users:read permission/)).toBeInTheDocument()
+        expect(saves).toEqual([])
     })
 
     it('returns to direct message mode after notifications are disabled', async () => {

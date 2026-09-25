@@ -25,6 +25,9 @@ const channel = (id: string, name: string): SlackChannelType => ({
     is_private_without_access: false,
 })
 
+// The channel someone picks before inviting the PostHog app to it.
+const notJoinedChannel: SlackChannelType = { ...channel('C7', 'launch-plans'), is_member: false }
+
 const channels: SlackChannelType[] = [
     channel('C1', 'alerts'),
     channel('C2', 'announcements'),
@@ -155,6 +158,33 @@ export const PastedChannelId: Story = {
         await userEvent.paste('C1234567890')
         await within(document.body).findByText('#release-updates')
     },
+}
+
+// The app is not in the picked channel yet. "Check again" re-reads that one channel from Slack,
+// so the warning clears as soon as someone runs the invite.
+export const MissingAppInChannel: Story = {
+    decorators: [
+        function NotJoinedMocks(Story) {
+            useStorybookMocks({
+                get: {
+                    '/api/projects/:id/integrations/:intId/channels': { channels: [...channels, notJoinedChannel] },
+                    '/api/environments/:id/integrations/:intId/channels': {
+                        channels: [...channels, notJoinedChannel],
+                    },
+                },
+            })
+            return <Story />
+        },
+    ],
+    render: () => (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker
+                integration={integration}
+                value={`${notJoinedChannel.id}|#${notJoinedChannel.name}`}
+                onChange={() => {}}
+            />
+        </div>
+    ),
 }
 
 // Typing a channel name and clicking away drops the search, because the picker takes an option

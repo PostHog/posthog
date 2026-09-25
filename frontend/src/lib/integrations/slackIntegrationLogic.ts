@@ -118,8 +118,12 @@ export interface slackIntegrationLogicActions {
             search: string
         }
     }
-    loadSlackChannelById: (channelId: string) => {
+    loadSlackChannelById: (
+        channelId: string,
+        forceRefresh?: boolean
+    ) => {
         channelId: string
+        forceRefresh: boolean
     }
     loadSlackChannelByIdFailure: (
         error: string,
@@ -132,12 +136,17 @@ export interface slackIntegrationLogicActions {
         slackChannelById: SlackChannelType | null,
         payload?: {
             channelId: string
+            forceRefresh: boolean
         }
     ) => {
         slackChannelById: SlackChannelType | null
         payload?: {
             channelId: string
+            forceRefresh: boolean
         }
+    }
+    recheckSlackChannelMembership: (channelIds: string[]) => {
+        channelIds: string[]
     }
     loadSlackUserById: (userId: string) => {
         userId: string
@@ -220,7 +229,8 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadAllSlackUsers: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackUserById: (userId: string) => ({ userId }),
-        loadSlackChannelById: (channelId: string) => ({ channelId }),
+        loadSlackChannelById: (channelId: string, forceRefresh: boolean = false) => ({ channelId, forceRefresh }),
+        recheckSlackChannelMembership: (channelIds: string[]) => ({ channelIds }),
         setRecentlySubscribedChannelIds: (channelIds: string[]) => ({ channelIds }),
         setSlackIntegrationInactive: (message: string | null) => ({ message }),
     }),
@@ -311,9 +321,9 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         slackChannelById: [
             null as SlackChannelType | null,
             {
-                loadSlackChannelById: async ({ channelId }) => {
+                loadSlackChannelById: async ({ channelId, forceRefresh }) => {
                     try {
-                        const res = await api.integrations.slackChannelsById(props.id, channelId)
+                        const res = await api.integrations.slackChannelsById(props.id, channelId, forceRefresh)
                         // The by-id endpoint always calls Slack live, so a success is real proof
                         // the connection works again.
                         actions.setSlackIntegrationInactive(null)
@@ -351,6 +361,11 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             {
                 loadSlackChannelByIdSuccess: (state, { slackChannelById }) =>
                     slackChannelById ? { ...state, [slackChannelById.id]: slackChannelById } : state,
+                // Cleared with `attemptedSlackChannelIds`, which the picker reads to decide whether a
+                // channel still needs a lookup. Holding a channel here while its marker is gone left
+                // the stale copy answering the membership check with nothing able to replace it, so
+                // "Check again" could never clear the warning for a channel the app had just joined.
+                loadAllSlackChannels: (state, { forceRefresh }) => (forceRefresh ? {} : state),
             },
         ],
         attemptedSlackUserIds: [
@@ -391,6 +406,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         loadAllSlackChannelsSuccess: () => {
             actions.setRecentlySubscribedChannelIds(getRecentSlackChannelIds(props.id))
         },
+        // Re-reads the picked channels straight from Slack, which is one call each, rather than
+        // enumerating the workspace. That keeps the re-check off the full list's refresh cooldown,
+        // so someone who has just invited the app does not wait out a cooldown to see it worked.
+        recheckSlackChannelMembership: ({ channelIds }) => {
+            for (const channelId of channelIds) {
+                actions.loadSlackChannelById(channelId, true)
+            }
+        },
     })),
 
     selectors({
@@ -402,7 +425,10 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             ): SlackChannelType[] => {
                 const listedIds = new Set(_fetchedSlackChannels.map((channel) => channel.id))
                 return [
-                    ..._fetchedSlackChannels,
+                    // A by-id lookup is the newest word on that channel, because the map is cleared
+                    // whenever the list is force-refreshed. Let it override the listed copy so a live
+                    // re-check of one channel's membership is not shadowed by the cached list.
+                    ..._fetchedSlackChannels.map((channel) => _fetchedSlackChannelsById[channel.id] ?? channel),
                     ...Object.values(_fetchedSlackChannelsById).filter((channel) => !listedIds.has(channel.id)),
                 ]
             },

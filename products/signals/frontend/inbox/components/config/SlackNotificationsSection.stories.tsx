@@ -13,6 +13,8 @@ const CHANNELS = [
 
 interface CardsState {
     connected?: boolean
+    /** A workspace installed before PostHog asked for the scope a direct message needs. */
+    cannotLookUpMembers?: boolean
     teamChannel?: string | null
     /** The personal reviewer ping target: the person's own account (`U…|@name`) or a channel. */
     myTarget?: string | null
@@ -22,13 +24,15 @@ interface CardsState {
 
 function Cards({
     connected = true,
+    cannotLookUpMembers = false,
     teamChannel = null,
     myTarget = null,
     awaitingTarget = false,
 }: CardsState): JSX.Element {
+    const workspace = cannotLookUpMembers ? { ...WORKSPACE, config: { scope: 'chat:write,channels:read' } } : WORKSPACE
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/integrations/': { results: connected ? [WORKSPACE] : [] },
+            '/api/projects/:team_id/integrations/': { results: connected ? [workspace] : [] },
             '/api/environments/:team_id/integrations/:id/channels': { channels: CHANNELS, has_more: false },
             '/api/projects/:team_id/signals/config/': {
                 id: 'cfg-1',
@@ -80,6 +84,10 @@ export const AwaitingTarget: Story = {
 
 export const DirectMessageToMe: Story = {
     render: () => <Cards myTarget="U0123ABC456|@sam" />,
+}
+
+export const DirectMessageUnavailable: Story = {
+    render: () => <Cards cannotLookUpMembers awaitingTarget />,
 }
 
 export const PersonalChannel: Story = {
