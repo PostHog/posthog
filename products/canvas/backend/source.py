@@ -186,6 +186,15 @@ _PH_CONNECTORS_CALL_RE = re.compile(
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
+# A control bound to an empty function renders enabled and does nothing when
+# clicked — a "Retry" that never retries reads as a hung canvas. Regex-based,
+# so it only catches the inline literal form, which is the one that ships.
+_DEAD_HANDLER_RE = re.compile(
+    r"\bon([A-Z][A-Za-z0-9_]*)\s*=\s*\{\s*(?:async\s+)?"
+    r"(?:\(\s*[^)]*\)|[A-Za-z0-9_$]+)\s*=>\s*(?:\{\s*\}|undefined|null|void\s+0)\s*\}"
+)
+_RECOVERY_HANDLER_NAMES = frozenset({"retry", "refresh", "reload", "refetch", "tryagain"})
+
 
 def diagnostic(
     severity: str, code: str, message: str, path: str | None = None, line: int | None = None
@@ -326,6 +335,43 @@ def _validate_platform_tokens(path: str, content: str) -> list[dict[str, Any]]:
     return diagnostics
 
 
+def _validate_dead_handlers(path: str, code: str) -> list[dict[str, Any]]:
+    """Flag interaction props wired to an empty function.
+
+    A recovery control is an error: it promises the viewer the canvas is
+    retrying and nothing happens, which is indistinguishable from a broken
+    canvas. Any other empty handler only warns — a placeholder there is
+    usually deliberate.
+    """
+    diagnostics: list[dict[str, Any]] = []
+    for match in _DEAD_HANDLER_RE.finditer(code):
+        prop = f"on{match.group(1)}"
+        if match.group(1).lower() in _RECOVERY_HANDLER_NAMES:
+            severity, code_name, remedy = (
+                "error",
+                "dead_recovery_handler",
+                "wire it to whatever re-runs the failed load (the refresh nonce in the starter scaffold) "
+                "and put the section back into its loading state while it runs",
+            )
+        else:
+            severity, code_name, remedy = (
+                "warning",
+                "dead_interaction_handler",
+                "wire it to the handler it needs, or drop the prop and the control with it",
+            )
+        diagnostics.append(
+            diagnostic(
+                severity,
+                code_name,
+                f"{prop} is bound to an empty function, so the control renders enabled and does nothing "
+                f"when the viewer clicks it — {remedy}",
+                path=path,
+                line=_line_of(code, match.start()),
+            )
+        )
+    return diagnostics
+
+
 def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
 
@@ -353,6 +399,8 @@ def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
                     line=_line_of(code, match.start()),
                 )
             )
+
+    diagnostics.extend(_validate_dead_handlers(path, code))
 
     return diagnostics
 

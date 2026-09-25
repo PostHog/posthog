@@ -122,7 +122,9 @@ fetch raw event dumps. Treat a rejected query and an empty result as different s
 must set an error state that renders visibly (message + retry), never fall through to zeros, an
 empty chart, or a "no data" message — a swallowed error makes real breakage (a missing table, an
 auth failure) look like missing data. Reserve the empty state for a query that succeeded with no
-rows.
+rows. The retry has to retry: wire it to the thing that re-runs the query and never to an empty
+handler — `onRetry={() => {}}` renders a button that promises a retry and does nothing, and
+source validation rejects it as `dead_recovery_handler`.
 
 ## Date windows
 

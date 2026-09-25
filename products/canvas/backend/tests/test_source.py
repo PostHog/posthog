@@ -451,6 +451,34 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertEqual(entry["path"], CANVAS_COMPONENT_PATH)
         self.assertEqual(entry["line"], 3)
 
+    def test_empty_recovery_handler_blocks_publish(self):
+        # The canvas this diagnostic exists for: a Retry button that renders
+        # enabled, tells the viewer nothing, and re-runs no query.
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + "const el = <CardError onRetry={() => {}} />;"})
+        diagnostics = validate_source_project(candidate)
+        self.assertTrue(has_errors(diagnostics), diagnostics)
+        entry = next(d for d in diagnostics if d["code"] == "dead_recovery_handler")
+        self.assertEqual(entry["path"], CANVAS_COMPONENT_PATH)
+        self.assertEqual(entry["line"], 3)
+
+    def test_other_empty_handlers_warn_but_stay_publishable(self):
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + "const el = <Dialog onOpenChange={() => {}} />;"})
+        diagnostics = validate_source_project(candidate)
+        self.assertFalse(has_errors(diagnostics), diagnostics)
+        self.assertIn("dead_interaction_handler", [d["code"] for d in diagnostics])
+
+    @parameterized.expand(
+        [
+            ("wired_to_a_function", "const el = <CardError onRetry={retry} />;"),
+            ("wired_inline", "const el = <CardError onRetry={() => setNonce((n) => n + 1)} />;"),
+        ]
+    )
+    def test_wired_recovery_handlers_pass(self, _name, snippet):
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + snippet})
+        codes = [d["code"] for d in validate_source_project(candidate)]
+        self.assertNotIn("dead_recovery_handler", codes)
+        self.assertNotIn("dead_interaction_handler", codes)
+
     def test_agent_request_requires_declared_capability(self):
         candidate = project(
             files={CANVAS_COMPONENT_PATH: CODE + 'ph.agent.request("Make it blue");'},

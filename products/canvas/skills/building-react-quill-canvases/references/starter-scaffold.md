@@ -87,12 +87,17 @@ function useCanvasQuery(runQuery, deps) {
   return state
 }
 
-function CardError({ message, onRetry }) {
+// Retry says what it is doing. The button spins and reads "Retrying…" the
+// moment it is clicked, and the card flips back to its skeleton as the query
+// re-runs. Never pass an empty handler here: a Retry that re-runs nothing is
+// indistinguishable from a frozen canvas, and validation rejects it.
+function CardError({ message, retrying, onRetry }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <p className="text-sm text-destructive">Couldn't load: {message}</p>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        Retry
+      <Button variant="outline" size="sm" disabled={retrying} onClick={onRetry}>
+        <RefreshCw size={14} className={retrying ? 'animate-spin' : undefined} />
+        {retrying ? 'Retrying…' : 'Retry'}
       </Button>
     </div>
   )
@@ -134,7 +139,12 @@ export default function Canvas() {
   const [open, setOpen] = useState(false)
   // Refresh plumbing: bump this nonce to re-run every data effect on demand.
   const [nonce, setNonce] = useState(0)
-  const retry = () => setNonce((n) => n + 1)
+  // Every refresh and retry is captured, so a retry nobody sees working is
+  // visible in the data. Declare 'canvas retry' in capabilities.posthog.captureEvents.
+  const retry = (source) => {
+    ph.capture('canvas retry', { source })
+    setNonce((n) => n + 1)
+  }
 
   const dateRange = {
     date_from: win.start.toISOString(),
@@ -191,7 +201,7 @@ export default function Canvas() {
               />
             </PopoverContent>
           </Popover>
-          <Button variant="outline" disabled={anyLoading} onClick={retry}>
+          <Button variant="outline" disabled={anyLoading} onClick={() => retry('toolbar')}>
             <RefreshCw size={14} className={anyLoading ? 'animate-spin' : undefined} />
             Refresh
           </Button>
@@ -207,7 +217,7 @@ export default function Canvas() {
             {events.loading ? (
               <SkeletonText lines={1} className="text-3xl" />
             ) : events.error ? (
-              <CardError message={events.error} onRetry={retry} />
+              <CardError message={events.error} retrying={events.loading} onRetry={() => retry('events')} />
             ) : (
               <Heading size="2xl">{events.data.total.toLocaleString()}</Heading>
             )}
@@ -224,7 +234,7 @@ export default function Canvas() {
             {visitors.loading ? (
               <SkeletonText lines={1} className="text-3xl" />
             ) : visitors.error ? (
-              <CardError message={visitors.error} onRetry={retry} />
+              <CardError message={visitors.error} retrying={visitors.loading} onRetry={() => retry('visitors')} />
             ) : (
               <Heading size="2xl">{visitors.data.toLocaleString()}</Heading>
             )}
@@ -243,7 +253,7 @@ export default function Canvas() {
           {events.loading ? (
             <SkeletonText lines={6} />
           ) : events.error ? (
-            <CardError message={events.error} onRetry={retry} />
+            <CardError message={events.error} retrying={events.loading} onRetry={() => retry('events')} />
           ) : (
             <div className="h-[280px] w-full">
               <ResponsiveContainer>
@@ -263,6 +273,11 @@ export default function Canvas() {
   )
 }
 ```
+
+Note: the retry path above is load-bearing. Source validation rejects a recovery control bound to
+an empty function (`dead_recovery_handler`), because a Retry button that re-runs nothing looks
+exactly like a canvas that has hung. Keep the three parts together: the handler re-runs the failed
+load, the button shows it is running, and `ph.capture('canvas retry')` records it.
 
 Note: reach PostHog through `import { ph } from "@posthog/canvas-sdk"`, a platform-provided module
 that needs no `dependencies` entry. The host also injects the same object as the `window.ph`
