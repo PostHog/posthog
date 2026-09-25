@@ -8,6 +8,7 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.salesforce_enrichment.usage_workflow import (
     EnrichPageResult,
     OrgRegionOutcome,
@@ -452,6 +453,7 @@ class TestEnrichOrgPageActivity(TestCase):
             await enrich_org_page_activity(0, 10000, 100)
 
         assert exc_info.value.type == ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE
+        assert is_expected_activity_failure(exc_info.value)
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
