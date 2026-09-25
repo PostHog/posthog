@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
@@ -215,6 +216,8 @@ def _format_timestamp(value: Any) -> str:
 def _build_paginator(config: DubEndpointConfig, folder_ids: list[str]) -> BasePaginator:
     if config.folder_scoped:
         return DubLinksScopePaginator(page_size=config.page_size, folder_ids=folder_ids)
+    if config.pagination == "single":
+        return SinglePagePaginator()
     if config.pagination == "cursor":
         return DubCursorPaginator(page_size=config.page_size)
     return PageNumberPaginator(base_page=1, page_param="page", total_path=None)
@@ -255,7 +258,9 @@ def get_resource(
 ) -> EndpointResource:
     config = DUB_ENDPOINTS[endpoint]
 
-    params: dict[str, Any] = {**config.params, config.page_size_param: config.page_size}
+    params: dict[str, Any] = {**config.params}
+    if config.pagination != "single":
+        params[config.page_size_param] = config.page_size
 
     if config.event_type is not None:
         if should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -379,7 +384,7 @@ def dub_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=list(endpoint_config.primary_keys),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
@@ -390,8 +395,10 @@ def dub_source(
 
 
 def _probe_params(config: DubEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {**config.params, config.page_size_param: 1}
-    if config.event_type is not None:
+    params: dict[str, Any] = {**config.params}
+    if config.pagination != "single":
+        params[config.page_size_param] = 1
+    if config.event_type is not None or "interval" in params:
         # Keep the probe cheap — a 24h window is enough to establish plan access.
         params["interval"] = "24h"
     return params

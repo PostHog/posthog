@@ -29,6 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settin
     PARTNER_PROGRAM_ENDPOINTS,
 )
 
+ANALYTICS_ENDPOINTS = tuple(name for name, config in DUB_ENDPOINTS.items() if config.path == "/analytics")
+SINGLE_PAGE_ENDPOINTS = tuple(name for name, config in DUB_ENDPOINTS.items() if config.pagination == "single")
+
 
 def _rows(n: int, prefix: str = "row") -> list[dict[str, Any]]:
     return [{"id": f"{prefix}-{i}", "createdAt": "2026-01-01T00:00:00.000Z"} for i in range(n)]
@@ -205,7 +208,21 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
         params = _params(resource)
         config = DUB_ENDPOINTS[endpoint]
-        assert params[config.page_size_param] == config.page_size
+        if config.pagination == "single":
+            # The aggregate endpoints reject an unknown page-size param with a 422.
+            assert config.page_size_param not in params
+        else:
+            assert params[config.page_size_param] == config.page_size
+
+    @pytest.mark.parametrize("endpoint", ANALYTICS_ENDPOINTS)
+    def test_analytics_endpoints_widen_both_dub_defaults(self, endpoint: str) -> None:
+        # /analytics defaults to a 24h window and to clicks-only metrics. Leaving either
+        # default in place still returns a well-formed table, just a near-empty one.
+        params = _params(get_resource(endpoint, False, None))
+
+        assert params["interval"] == "all"
+        assert params["event"] == "composite"
+        assert params["groupBy"] == DUB_ENDPOINTS[endpoint].params["groupBy"]
 
     def test_incremental_run_uses_merge_disposition(self) -> None:
         resource = get_resource("sale_events", True, None)
@@ -382,6 +399,37 @@ class TestDubSourceResumeBehavior:
         sent_params = self._drive("click_events", manager, [_make_http_response(_rows(1)), _make_http_response([])])
 
         assert sent_params[0]["page"] == 7
+
+
+class TestSinglePageEndpoints:
+    @pytest.mark.parametrize("endpoint", SINGLE_PAGE_ENDPOINTS)
+    def test_aggregate_endpoints_stop_after_one_request(self, endpoint: str) -> None:
+        # These return the whole table in one body with no next-page marker, so a paginator
+        # that kept asking would re-import the same rows until the run was killed.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        sent_params, pages = _drive_source(endpoint, manager, [_make_http_response(_rows(3))])
+
+        assert len(sent_params) == 1
+        assert pages == [_rows(3)]
+        assert DUB_ENDPOINTS[endpoint].page_size_param not in sent_params[0]
+
+    def test_composite_primary_keys_all_reach_the_source_response(self) -> None:
+        # The geo breakdowns repeat region and city names across countries, so a key that
+        # kept only the leaf dimension would merge unrelated rows on top of each other.
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"):
+            response = dub_source(
+                api_key="dub_test",
+                endpoint="analytics_cities",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+            )
+
+        expected = list(DUB_ENDPOINTS["analytics_cities"].primary_keys)
+        assert len(expected) > 1
+        assert response.primary_keys == expected
 
 
 class TestPartnerProgramTablesWithoutAProgram:

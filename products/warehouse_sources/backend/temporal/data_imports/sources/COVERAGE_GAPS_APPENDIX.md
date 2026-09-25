@@ -2670,17 +2670,19 @@ Note: Spec has 36 paths; the only other GETs are file downloads, embedded URL ge
 
 ## Dub — gaps
 
-Today (11): `click_events`, `commissions`, `customers`, `domains`, `folders`, `lead_events`, `links`, `partners`, `payouts`, `sale_events`, `tags`
+Today (23): `analytics_browsers`, `analytics_cities`, `analytics_continents`, `analytics_countries`, `analytics_devices`, `analytics_os`, `analytics_referers`, `analytics_regions`, `analytics_timeseries`, `analytics_triggers`, `click_events`, `commissions`, `customers`, `domains`, `folders`, `lead_events`, `links`, `partner_analytics_timeseries`, `partner_applications`, `partners`, `payouts`, `sale_events`, `tags`
 
 Diffed against: <https://spec.speakeasy.com/dub/dub/dub-with-code-samples>
 
-- [ ] `GET /analytics` — Dub's headline metric endpoint - clicks/leads/sales aggregated by timeseries, countries, cities, regions, continents, devices, browsers, os, referers, top_links, top_urls, trigger; none of these breakdown dimensions are reachable from the raw event tables today (high)
-- [ ] `GET /partners/analytics` — per-partner clicks/leads/sales/earnings rollup, the core affiliate-program metric (medium)
-- [ ] `GET /partners/applications` — pending partner applications for partner-acquisition funnel analysis (medium)
+- [x] `GET /analytics` — Dub's headline metric endpoint - clicks/leads/sales aggregated by timeseries, countries, cities, regions, continents, devices, browsers, os, referers, top_links, top_urls, trigger; none of these breakdown dimensions are reachable from the raw event tables today (high)
+- [x] `GET /partners/analytics` — per-partner clicks/leads/sales/earnings rollup, the core affiliate-program metric (medium)
+- [x] `GET /partners/applications` — pending partner applications for partner-acquisition funnel analysis (medium)
 - [ ] `GET /bounties/{bountyId}/submissions` — bounty submission records and their approval state (low)
 - [ ] `GET /links/count` — link counts grouped by domain/tag/folder/userId without paging all links (low)
 
 Note: api.dub.co/openapi.json 404s; the live spec is served from spec.speakeasy.com. Coverage of the object model (links, tags, folders, domains, customers, partners, commissions, payouts, and the three event types) is essentially complete - the gap is the aggregation layer.
+
+Note on the aggregation endpoints, added 2026-09-25: `/analytics` is imported as one table per `groupBy` breakdown, because each groupBy returns a different row shape. The `top_links` and `top_urls` breakdowns were deliberately left out - `links` already carries every link's destination URL alongside its lifetime clicks, leads and sales, so both are a grouping over a table we already sync. `/partners/analytics` is imported as the program-wide timeseries only: its per-partner cut needs a request per partner and returns the lifetime totals `/partners` already reports (`totalClicks`, `totalLeads`, `totalSaleAmount`, `totalCommissions`), so only the time-bucketed series - and its `earnings` column, which the workspace-level `/analytics` does not report - is new. `/bounties/{bountyId}/submissions` is not syncable: the spec exposes no endpoint that lists bounties (`GET /bounties` does not exist, and no other response carries a `bountyId`), so there is no way to enumerate the parent IDs to fan out over.
 
 ## Dynatrace — gaps
 
