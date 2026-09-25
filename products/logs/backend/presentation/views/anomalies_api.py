@@ -20,7 +20,13 @@ from posthog.rate_limit import (
     LogsSeriesBandsSustainedRateThrottle,
 )
 
-from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
+from products.logs.backend.anomaly_scan import (
+    MAX_EVAL_DAYS,
+    ScanBudgetExceeded,
+    ScanWindowInvalid,
+    resolve_eval_window,
+    run_scan,
+)
 from products.logs.backend.series_bands import (
     ALIVE_SLOT_FRACTION,
     BASELINE_WEEKS,
@@ -66,7 +72,7 @@ class LogsSeriesBandVerdict(models.TextChoices):
 
 _TIER_CHOICES = ["a", "b", "c", "d"]
 _COARSENED_REASON_CHOICES = ["sparse", "quiet"]
-_CONSTRAINT_CHOICES = ["team_retention", "byte_budget"]
+_CONSTRAINT_CHOICES = ["rollup_depth"]
 
 
 class _ScanDateRangeSerializer(serializers.Serializer):
@@ -82,7 +88,7 @@ class LogsAnomalyScanRequestSerializer(serializers.Serializer):
     serviceName = serializers.CharField(
         help_text=(
             "Service to scan (the log record's service_name). Required: the scan aggregates weeks of "
-            "baseline history from raw logs, so it is scoped to one service per call."
+            "baseline history from the volume rollup, so it is scoped to one service per call."
         ),
     )
     dateRange = _ScanDateRangeSerializer(
@@ -129,7 +135,13 @@ class LogsAnomalyScanBucketSerializer(serializers.Serializer):
 
 
 class LogsAnomalyScanSeriesSerializer(serializers.Serializer):
-    severity = serializers.CharField(help_text="Severity level of this log series (for example info, warn, error).")
+    namespace = serializers.CharField(
+        allow_blank=True, help_text="Namespace of the emitting resource; empty when the logs carry none."
+    )
+    environment = serializers.CharField(
+        allow_blank=True, help_text="Deployment environment of the emitting resource; empty when the logs carry none."
+    )
+    severity = serializers.CharField(help_text="Lowercased severity of this log series (for example info, error).")
     stage = serializers.ChoiceField(
         choices=_STAGE_CHOICES,
         allow_null=True,
@@ -153,8 +165,7 @@ class LogsAnomalyScanSeriesSerializer(serializers.Serializer):
         help_text=(
             "What limited this series' baseline maturity, or null for a full baseline. series_history: "
             "data starts inside the lookback, because the series is young or a per-stream retention rule "
-            "trimmed it (indistinguishable from the data). byte_budget and team_retention mirror the "
-            "scan level constraints."
+            "trimmed it (indistinguishable from the data). rollup_depth mirrors the scan level constraint."
         ),
     )
     buckets = LogsAnomalyScanBucketSerializer(
@@ -164,13 +175,18 @@ class LogsAnomalyScanSeriesSerializer(serializers.Serializer):
 
 
 class LogsAnomalyScanIssueSerializer(serializers.Serializer):
+    namespace = serializers.CharField(allow_blank=True, help_text="Namespace the issue belongs to.")
+    environment = serializers.CharField(allow_blank=True, help_text="Deployment environment the issue belongs to.")
     direction = serializers.ChoiceField(
         choices=["up", "down"],
-        help_text="up covers spikes; down covers drops and silences (which share one issue per service).",
+        help_text=(
+            "up covers spikes; down covers drops and silences, which share one issue per "
+            "(namespace, environment) of the service."
+        ),
     )
     severity = serializers.CharField(
         allow_null=True,
-        help_text="Severity of the spiking series. Null for down issues, which are tracked per service.",
+        help_text="Severity of the spiking series. Null for down issues, which are tracked across severities.",
     )
     kind = serializers.ChoiceField(
         choices=_VERDICT_CHOICES,
@@ -194,26 +210,26 @@ class LogsAnomalyScanIssueSerializer(serializers.Serializer):
 
 class LogsAnomalyScanResponseSerializer(serializers.Serializer):
     service_name = serializers.CharField(help_text="Service that was scanned.")
-    eval_start = serializers.DateTimeField(help_text="Actual start of the evaluated window after any clipping.")
-    eval_end = serializers.DateTimeField(help_text="Actual end of the evaluated window after clamping to now.")
+    eval_start = serializers.DateTimeField(help_text="Start of the evaluated window, snapped to the 5 minute grid.")
+    eval_end = serializers.DateTimeField(
+        help_text=(
+            "Actual end of the evaluated window, clamped to the newest bucket the volume rollup has finished counting."
+        ),
+    )
     lookback_days = serializers.FloatField(help_text="Days of baseline history the scan used.")
-    eval_clipped = serializers.BooleanField(
-        help_text="True when the evaluation window was clipped to fit the read budget. The response covers only the clipped window.",
-    )
-    degraded = serializers.BooleanField(
-        help_text="True when the scan could not afford the full lookback and fell back to a cheaper configuration.",
-    )
     binding_constraints = serializers.ListField(
         child=serializers.ChoiceField(choices=_CONSTRAINT_CHOICES),
         help_text=(
-            "Everything that limited the baseline, empty for an unconstrained scan. team_retention: the "
-            "project's log retention is shorter than the full lookback. byte_budget: the scan degraded "
-            "to stay inside its ClickHouse read budget."
+            "Everything that limited the baseline, empty for an unconstrained scan. rollup_depth: the "
+            "volume rollup does not hold the full lookback for this window."
         ),
+    )
+    series_truncated = serializers.BooleanField(
+        help_text="True when the service has more series than the response carries; the quietest were dropped."
     )
     series = LogsAnomalyScanSeriesSerializer(
         many=True,
-        help_text="One entry per severity level observed for the service, with per bucket evidence.",
+        help_text=("One entry per (namespace, environment, severity) series of the service, with per bucket evidence."),
     )
     issues = LogsAnomalyScanIssueSerializer(
         many=True,
@@ -371,9 +387,8 @@ class LogsSeriesBandsErrorSerializer(serializers.Serializer):
 class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Anomaly surfaces over one service's log volume.
 
-    Experimental, behind the logs-anomalies feature flag. `scan` computes
-    everything per request from raw logs; `series_bands` reads the volume
-    rollup. Neither persists anything.
+    Experimental, behind the logs-anomalies feature flag. Both read the volume
+    rollup and compute everything per request; neither persists anything.
     """
 
     scope_object = "logs"
@@ -388,31 +403,36 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 response=LogsAnomalyScanResponseSerializer,
                 description="Scan results: per severity evidence series and any issues that opened.",
             ),
+            400: OpenApiResponse(
+                response=LogsAnomalyScanErrorSerializer,
+                description="The requested window is empty, too wide, or starts before the volume rollup reaches.",
+            ),
             422: OpenApiResponse(
                 response=LogsAnomalyScanErrorSerializer,
-                description="The scan exceeded its read budget at every degradation step.",
+                description="The scan exceeded its ClickHouse read budget or time limit.",
             ),
         },
         summary="Scan a service's logs for volume anomalies",
         description=(
-            "Runs anomaly detection on demand over one service's log volume for the given window. "
-            "Learns per severity baselines from up to 6 weeks of history and returns per bucket "
-            "expected bands plus any spike, drop, or silence issues. Synchronous and read only."
+            "Runs anomaly detection on demand over one service's log volume for the given window, read "
+            "from the volume rollup. Learns a baseline per (namespace, environment, severity) series from "
+            "up to 5 weeks of history and returns per bucket expected bands plus any spike, drop, or "
+            "silence issues. Synchronous and read only."
         ),
     )
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def scan(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         data = request.validated_data
         service_name: str = data["serviceName"]
-        eval_start = floor_to_bucket(data["dateRange"]["date_from"])
-        eval_end = floor_to_bucket(min(data["dateRange"]["date_to"], dt.datetime.now(dt.UTC)))
-        if eval_end <= eval_start:
-            raise serializers.ValidationError("The evaluation window is empty after clamping to now.")
+        try:
+            window = resolve_eval_window(data["dateRange"]["date_from"], data["dateRange"]["date_to"])
+        except ScanWindowInvalid as err:
+            return Response({"error": str(err)}, status=status.HTTP_400_BAD_REQUEST)
 
         cache_key = (
             "logs_anomaly_scan/"
             + hashlib.sha256(
-                f"{self.team.id}/{service_name}/{eval_start.isoformat()}/{eval_end.isoformat()}".encode()
+                f"{self.team.id}/{service_name}/{window.eval_start.isoformat()}/{window.eval_end.isoformat()}".encode()
             ).hexdigest()
         )
         cached = cache.get(cache_key)
@@ -420,7 +440,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(cached)
 
         try:
-            result = run_scan(self.team, service_name, eval_start, eval_end)
+            result = run_scan(self.team, service_name, window.eval_start, window.eval_end)
         except ScanBudgetExceeded as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 

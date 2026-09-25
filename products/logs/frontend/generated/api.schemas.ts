@@ -1058,21 +1058,19 @@ export interface _ScanDateRangeApi {
 }
 
 export interface LogsAnomalyScanRequestApi {
-    /** Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call. */
+    /** Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from the volume rollup, so it is scoped to one service per call. */
     serviceName: string
     /** Evaluation window to scan for anomalies. May span at most 7 days. */
     dateRange: _ScanDateRangeApi
 }
 
 /**
- * * `team_retention` - team_retention
- * * `byte_budget` - byte_budget
+ * * `rollup_depth` - rollup_depth
  */
 export type BindingConstraintsEnumApi = (typeof BindingConstraintsEnumApi)[keyof typeof BindingConstraintsEnumApi]
 
 export const BindingConstraintsEnumApi = {
-    TeamRetention: 'team_retention',
-    ByteBudget: 'byte_budget',
+    RollupDepth: 'rollup_depth',
 } as const
 
 /**
@@ -1109,15 +1107,13 @@ export const LogsAnomalyScanSeriesTierEnumApi = {
 
 /**
  * * `series_history` - series_history
- * * `team_retention` - team_retention
- * * `byte_budget` - byte_budget
+ * * `rollup_depth` - rollup_depth
  */
 export type LimitedByEnumApi = (typeof LimitedByEnumApi)[keyof typeof LimitedByEnumApi]
 
 export const LimitedByEnumApi = {
     SeriesHistory: 'series_history',
-    TeamRetention: 'team_retention',
-    ByteBudget: 'byte_budget',
+    RollupDepth: 'rollup_depth',
 } as const
 
 /**
@@ -1169,7 +1165,11 @@ export interface LogsAnomalyScanBucketApi {
 }
 
 export interface LogsAnomalyScanSeriesApi {
-    /** Severity level of this log series (for example info, warn, error). */
+    /** Namespace of the emitting resource; empty when the logs carry none. */
+    namespace: string
+    /** Deployment environment of the emitting resource; empty when the logs carry none. */
+    environment: string
+    /** Lowercased severity of this log series (for example info, error). */
     severity: string
     /** Baseline stage reached by the end of the evaluation window. Null if no bucket was scored.
      *
@@ -1190,11 +1190,10 @@ export interface LogsAnomalyScanSeriesApi {
      * @nullable
      */
     history_start: string | null
-    /** What limited this series' baseline maturity, or null for a full baseline. series_history: data starts inside the lookback, because the series is young or a per-stream retention rule trimmed it (indistinguishable from the data). byte_budget and team_retention mirror the scan level constraints.
+    /** What limited this series' baseline maturity, or null for a full baseline. series_history: data starts inside the lookback, because the series is young or a per-stream retention rule trimmed it (indistinguishable from the data). rollup_depth mirrors the scan level constraint.
      *
      * * `series_history` - series_history
-     * * `team_retention` - team_retention
-     * * `byte_budget` - byte_budget */
+     * * `rollup_depth` - rollup_depth */
     limited_by: LimitedByEnumApi | null
     /** Per bucket observed counts and expected bands across the evaluation window, for evidence charts. */
     buckets: LogsAnomalyScanBucketApi[]
@@ -1227,13 +1226,17 @@ export const LogsAnomalyScanIssueStateEnumApi = {
 } as const
 
 export interface LogsAnomalyScanIssueApi {
-    /** up covers spikes; down covers drops and silences (which share one issue per service).
+    /** Namespace the issue belongs to. */
+    namespace: string
+    /** Deployment environment the issue belongs to. */
+    environment: string
+    /** up covers spikes; down covers drops and silences, which share one issue per (namespace, environment) of the service.
      *
      * * `up` - up
      * * `down` - down */
     direction: LogsAnomalyScanIssueDirectionEnumApi
     /**
-     * Severity of the spiking series. Null for down issues, which are tracked per service.
+     * Severity of the spiking series. Null for down issues, which are tracked across severities.
      * @nullable
      */
     severity: string | null
@@ -1265,19 +1268,17 @@ export interface LogsAnomalyScanIssueApi {
 export interface LogsAnomalyScanResponseApi {
     /** Service that was scanned. */
     service_name: string
-    /** Actual start of the evaluated window after any clipping. */
+    /** Start of the evaluated window, snapped to the 5 minute grid. */
     eval_start: string
-    /** Actual end of the evaluated window after clamping to now. */
+    /** Actual end of the evaluated window, clamped to the newest bucket the volume rollup has finished counting. */
     eval_end: string
     /** Days of baseline history the scan used. */
     lookback_days: number
-    /** True when the evaluation window was clipped to fit the read budget. The response covers only the clipped window. */
-    eval_clipped: boolean
-    /** True when the scan could not afford the full lookback and fell back to a cheaper configuration. */
-    degraded: boolean
-    /** Everything that limited the baseline, empty for an unconstrained scan. team_retention: the project's log retention is shorter than the full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget. */
+    /** Everything that limited the baseline, empty for an unconstrained scan. rollup_depth: the volume rollup does not hold the full lookback for this window. */
     binding_constraints: BindingConstraintsEnumApi[]
-    /** One entry per severity level observed for the service, with per bucket evidence. */
+    /** True when the service has more series than the response carries; the quietest were dropped. */
+    series_truncated: boolean
+    /** One entry per (namespace, environment, severity) series of the service, with per bucket evidence. */
     series: LogsAnomalyScanSeriesApi[]
     /** Anomaly issues that opened during the evaluation window, oldest first. */
     issues: LogsAnomalyScanIssueApi[]
