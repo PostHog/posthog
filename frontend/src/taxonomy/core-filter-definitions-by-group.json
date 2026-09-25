@@ -3906,6 +3906,10 @@
             "description": "Microsoft Click ID",
             "label": "msclkid"
         },
+        "oppref": {
+            "description": "OpenAI Ads Click ID",
+            "label": "oppref"
+        },
         "previous_build": {
             "description": "The previous build number for the app",
             "examples": [
@@ -7104,6 +7108,10 @@
             "description": "Microsoft Click ID Data from the first time this user was seen.",
             "label": "Initial msclkid"
         },
+        "$initial_oppref": {
+            "description": "OpenAI Ads Click ID Data from the first time this user was seen.",
+            "label": "Initial oppref"
+        },
         "$initial_os": {
             "description": "The operating system of the user. Data from the first time this user was seen.",
             "examples": [
@@ -9213,6 +9221,10 @@
         "msclkid": {
             "description": "Microsoft Click ID Data from the last time this user was seen.",
             "label": "Latest msclkid"
+        },
+        "oppref": {
+            "description": "OpenAI Ads Click ID Data from the last time this user was seen.",
+            "label": "Latest oppref"
         },
         "previous_build": {
             "description": "The previous build number for the app",
