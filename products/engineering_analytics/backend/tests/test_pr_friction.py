@@ -256,5 +256,6 @@ class TestPRFrictionView(_WarehouseMixin):
             38: {**base, "is_bot": True},
             39: {**base, "push_count": 0},
         }
+        assert self._github_source is not None
         assert {row["source_id"] for row in rows.values()} == {str(self._github_source.id)}
         assert rows[35]["ci_wait_seconds"] == [timedelta(hours=1).total_seconds()]
