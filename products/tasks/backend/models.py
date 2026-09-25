@@ -1420,6 +1420,7 @@ class Task(DeletedMetaFields, models.Model):
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
+        untrusted_checkout: bool = False,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
@@ -1494,6 +1495,12 @@ class Task(DeletedMetaFields, models.Model):
             # whether or not the run clones, so a repo-pinned caller that asks for read access
             # gets a checkout it can read and never write capability it did not ask for.
             run_extra_state["github_read_access"] = True
+        if untrusted_checkout:
+            # Read by TaskProcessingContext.untrusted_checkout: the agent-server launch quarantines
+            # the checkout's own harness config, which would otherwise execute at agent startup with
+            # this sandbox's credentials. Stamped on the run, not derived, so a resume that skips the
+            # checkout activity still starts the agent with the quarantine applied.
+            run_extra_state["untrusted_checkout"] = True
         # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
         # reconciler can re-dispatch faithfully if the workflow start is ever lost.
         run_extra_state["pending_dispatch"] = {

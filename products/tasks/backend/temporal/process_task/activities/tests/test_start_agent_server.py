@@ -12,6 +12,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxQuarantineError,
     SandboxRateLimitedError,
     SandboxTimeoutError,
 )
@@ -31,6 +32,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _LaunchParams,
     _network_enforcement_observation,
     _prepare_launch,
+    _quarantine_untrusted_agent_config,
     _read_agent_shadow_result,
     _record_boot_total,
     _resolve_protected_base_branch,
@@ -766,6 +768,95 @@ def test_ensure_every_repository_is_on_disk(mocker) -> None:
         f"test -d {sandbox_repo_path('PostHog/posthog')}",
         f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
     ]
+
+
+def test_untrusted_checkout_quarantines_every_startup_config_path(mocker) -> None:
+    # Harness config committed to the branch executes at agent startup, before any tool approval,
+    # so the files have to be gone before the agent server launches. Each path is a command the
+    # repository would otherwise get to name: the two settings files and the hook scripts they
+    # point at, plus .mcp.json, whose stdio servers are arbitrary processes.
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _quarantine_untrusted_agent_config(
+        _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+    )
+
+    command = sandbox.execute.call_args.args[0]
+    assert sandbox_repo_path("PostHog/posthog") in command
+    for path in (".claude/settings.json", ".claude/settings.local.json", ".claude/hooks", ".mcp.json"):
+        assert path in command
+
+
+def test_quarantine_leaves_the_working_tree_clean(mocker) -> None:
+    # Without the assume-unchanged pass, every quarantined repository carries a deleted
+    # .claude/settings.json in `git status`, and the agent's commit tooling can sweep that removal
+    # into a commit on somebody's PR branch. The flag must be set before the files go, while the
+    # index entry still matches the worktree.
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _quarantine_untrusted_agent_config(
+        _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+    )
+
+    command = sandbox.execute.call_args.args[0]
+    assert command.index("update-index --assume-unchanged") < command.index("rm -rf")
+
+
+def test_trusted_checkout_keeps_the_repositorys_own_config(mocker) -> None:
+    # A run on the requester's own branch is entitled to the repository's bootstrap hooks, so the
+    # quarantine must not fire by default.
+    sandbox = mocker.Mock()
+
+    _quarantine_untrusted_agent_config(_context(repository="PostHog/posthog"), sandbox)
+
+    sandbox.execute.assert_not_called()
+
+
+def test_untrusted_checkout_quarantines_every_repository(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _quarantine_untrusted_agent_config(
+        _context(
+            repository="PostHog/posthog",
+            state={"untrusted_checkout": True, "repositories": ["PostHog/posthog", "PostHog/posthog-js"]},
+        ),
+        sandbox,
+    )
+
+    assert len(sandbox.execute.call_args_list) == 2
+    assert sandbox_repo_path("PostHog/posthog-js") in sandbox.execute.call_args_list[1].args[0]
+
+
+def test_quarantine_failure_blocks_the_launch(mocker) -> None:
+    # Nothing in the launch parameters disables project configuration, so continuing past a failed
+    # removal starts the agent on hooks the branch still controls. Losing the run costs a sandbox;
+    # continuing costs the sandbox's GitHub and PostHog credentials.
+    sandbox = mocker.Mock()
+    sandbox.id = "sandbox-id"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="still present: .mcp.json", exit_code=4)
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(SandboxQuarantineError):
+        _quarantine_untrusted_agent_config(
+            _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+        )
+
+
+def test_quarantine_verifies_absence_rather_than_trusting_rm(mocker) -> None:
+    # `rm -rf` reports success for a path it never had to touch, so its status says nothing about
+    # what is left on disk. The command has to end by checking, or the gate is decorative.
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _quarantine_untrusted_agent_config(
+        _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+    )
+
+    command = sandbox.execute.call_args.args[0]
+    assert command.index("rm -rf") < command.index("still present")
 
 
 def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker) -> None:

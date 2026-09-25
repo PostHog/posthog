@@ -11,6 +11,7 @@ from products.review_hog.backend.reviewer.outcomes.judge import (
     _SYSTEM_PROMPT as _JUDGE_SYSTEM_PROMPT,
     _build_prompt as _build_judge_prompt,
 )
+from products.review_hog.backend.reviewer.tools.github_threads import ReviewThread, ThreadComment
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     build_validation_followup_prompt,
     build_validation_prompt,
@@ -19,6 +20,10 @@ from products.review_hog.backend.reviewer.tools.issues_review import build_revie
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 from products.review_hog.backend.reviewer.tools.select_perspectives import generate_selection_prompt
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import generate_chunking_prompt
+from products.review_hog.backend.reviewer.tools.thread_resolution import (
+    build_resolution_followup_prompt,
+    build_resolution_prompt,
+)
 
 
 @dataclass
@@ -98,6 +103,29 @@ def _validation_followup_prompt() -> str:
     return build_validation_followup_prompt(issue=_issue(), pr_files=[])
 
 
+def _thread() -> ReviewThread:
+    return ReviewThread(
+        thread_id="PRRT_1",
+        path="a.py",
+        line=1,
+        comments=[ThreadComment(id=1, author_login="octocat", author_association="MEMBER", body="please fix")],
+    )
+
+
+def _resolution_prompt() -> str:
+    return build_resolution_prompt(
+        threads=[_thread()],
+        thread=_thread(),
+        pr_metadata=_pr_metadata(),
+        skill_name="review-hog-resolution-criteria",
+        skill_version=1,
+    )
+
+
+def _resolution_followup_prompt() -> str:
+    return build_resolution_followup_prompt(thread=_thread())
+
+
 def _dedup_prompt() -> str:
     template, _ = load_template_and_schema("issue_deduplicator")
     return template.render()
@@ -137,6 +165,10 @@ class TestPromptInjectionGuards:
             ("issue_validation", _validation_prompt),
             ("issue_validation_followup", _validation_followup_prompt),
             ("issue_deduplicator", _dedup_prompt),
+            # The resolution stage is the one that WRITES code, so a retune dropping its guard is
+            # the most expensive of the set.
+            ("thread_resolution", _resolution_prompt),
+            ("thread_resolution_followup", _resolution_followup_prompt),
             ("outcome_judge_system", _outcome_judge_system_prompt),
             ("outcome_judge", _outcome_judge_prompt),
         ]

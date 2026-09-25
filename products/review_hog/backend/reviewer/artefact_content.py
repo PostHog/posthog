@@ -181,6 +181,12 @@ class ThreadVerdictArtefact(BaseModel):
         "(.github/, CODEOWNERS, dependency manifests). True withholds the link and the auto-resolve "
         "and flags the reply for human review; None = not checked (pre-backstop rows).",
     )
+    ask_trusted: bool | None = Field(
+        default=None,
+        description="The author-permission gate: whether the thread's opening commenter may drive a "
+        "code-writing turn. False withholds a fix commit's link and the auto-resolve and flags the "
+        "reply for human review; None = not evaluated (pre-gate rows).",
+    )
     verification: str | None = Field(default=None, description="What was run to verify a fix, and the honest result.")
     latest_comment_id: int | None = Field(
         default=None, description="Newest thread comment databaseId known at verdict time (the watermark)."

@@ -38,6 +38,7 @@ from products.review_hog.backend.temporal.resolution import (
     _prepare_run,
     _PreparedRun,
     _verification_section,
+    _with_backfilled_ask_trust,
     resolve_threads_activity,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -76,6 +77,7 @@ def _verdict(
     resolved: bool = False,
     commit_sha: str | None = "abc123",
     verification: str | None = None,
+    ask_trusted: bool | None = True,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -83,6 +85,7 @@ def _verdict(
         path="f.py",
         author_login="someone",
         author_is_bot=author_is_bot,
+        ask_trusted=ask_trusted,
         reasoning="checked the code",
         reply="what happened and why",
         commit_sha=commit_sha,
@@ -395,6 +398,69 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         # Restricted commits are real pushed commits: the restriction gates delivery, not the audit log.
         assert ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
 
+    @parameterized.expand(
+        [
+            # (name, the live thread's opening association, the trust decision written back)
+            ("member_ask_stays_deliverable", "MEMBER", True),
+            ("drive_by_ask_is_refused", "NONE", False),
+        ]
+    )
+    def test_pre_gate_verdict_gets_its_trust_decision_from_the_live_thread(
+        self, _name: str, association: str, expected: bool
+    ) -> None:
+        # Delivery reads `is not True`, so a row written before the gate existed would post a
+        # could-not-clear caveat and never resolve however trusted its asker was. The thread is in
+        # hand at redelivery, so the decision is made then and persisted.
+        report = self._report()
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            line=1,
+            comments=[ThreadComment(id=100, author_login="alice", author_association=association, body="fix this")],
+        )
+        verdict = _verdict(outcome="fixed", ask_trusted=None)
+
+        backfilled = _with_backfilled_ask_trust(self._input(), str(report.id), thread, verdict)
+
+        assert backfilled.ask_trusted is expected
+        # Persisted, so the row stops being legacy and the next run needs no backfill.
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.ask_trusted is expected
+
+    def test_recorded_trust_decision_is_never_overwritten(self) -> None:
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            comments=[ThreadComment(id=100, author_association="OWNER", body="fix this")],
+        )
+        verdict = _verdict(outcome="fixed", ask_trusted=False)
+
+        # The gate was already decided against this ask. A later owner comment on the thread must
+        # not launder it, and the opening comment is what the gate reads anyway.
+        assert _with_backfilled_ask_trust(self._input(), "unused", thread, verdict).ask_trusted is False
+
+    def test_fix_on_an_untrusted_ask_delivers_warning_and_never_resolves(self) -> None:
+        # The author-permission gate: the turn crossed a prompt floor and committed for a commenter
+        # with no standing in the repository. The commit is real and provably ours, so every other
+        # check passes — only the gate stops it being presented as settled.
+        report = self._report()
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_sha="abc123", ask_trusted=False)
+        with (
+            patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
+            patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}.inspect_fix_commit", return_value=_inspection()),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
+        ):
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
+
+        body = reply.call_args.kwargs["body"]
+        assert "Fix commit:" not in body
+        assert "without write access" in body
+        assert resolve.call_count == 0
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.commit_verified is True
+        assert stored.resolved is False
+
     def test_fail_resolution_idles_the_report_and_marks_where_it_stopped(self) -> None:
         # The workflow-level crash cleanup: it must count only delivered threads against the queued
         # work-list, and a crash before anything was queued must not edit (or create) a comment —
@@ -518,6 +584,39 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             ),
         ):
             return _prepare_run(self._input())
+
+    def test_legacy_fix_awaiting_only_its_resolve_is_not_stranded(self) -> None:
+        # The state the pre-filter would drop: a pre-gate fix whose reply landed and whose resolve
+        # did not. `should_resolve` refuses a fix carrying no trust decision, so the thread reads as
+        # settled, and a backfill downstream of the classification would never see it — the thread
+        # would stay open on every later run with nothing able to advance it.
+        report = self._report()
+        # A bot opened it, so resolve etiquette permits the resolve and the gate clears the ask.
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[
+                ThreadComment(id=100, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="fix this")
+            ],
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict(
+                outcome="fixed",
+                author_is_bot=True,
+                reply_posted=True,
+                resolved=False,
+                ask_trusted=None,
+            ),
+        )
+
+        prepared = self._prepare_with([thread])
+
+        assert isinstance(prepared, _PreparedRun)
+        assert len(prepared.redeliver) == 1
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.ask_trusted is True
 
     def test_prepare_anchors_the_run_and_marks_only_queued_threads(self) -> None:
         # The run's progress anchor must list exactly the queued threads (progress counts verdicts

@@ -100,6 +100,11 @@ async def run_sandbox_review(
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
+        # Every session here opens on a PR head branch somebody else wrote, so the checkout's own
+        # harness config is quarantined before the agent starts. Without it a `.claude/settings.json`
+        # hook on the branch runs at startup with this sandbox's GitHub and PostHog credentials,
+        # which no prompt floor or permission mode can prevent.
+        untrusted_checkout=True,
     )
     return await _run_prompt(
         full_prompt,
@@ -148,6 +153,11 @@ async def start_sandbox_session(
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
+        # Every session here opens on a PR head branch somebody else wrote, so the checkout's own
+        # harness config is quarantined before the agent starts. Without it a `.claude/settings.json`
+        # hook on the branch runs at startup with this sandbox's GitHub and PostHog credentials,
+        # which no prompt floor or permission mode can prevent.
+        untrusted_checkout=True,
     )
     try:
         return await MultiTurnSession.start(

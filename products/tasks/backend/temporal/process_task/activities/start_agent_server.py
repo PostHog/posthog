@@ -30,6 +30,7 @@ from products.tasks.backend.exceptions import (
     SandboxControlPlaneError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxQuarantineError,
 )
 from products.tasks.backend.logic.services.connection_token import (
     create_codex_subscription_run_token,
@@ -182,6 +183,74 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
                     "github_user_integration_id": ctx.github_user_integration_id,
                 },
                 cause=RuntimeError(f"missing repository directory {repo_path}"),
+            )
+
+
+# Harness configuration a repository can commit that executes a command at agent startup, before
+# the model selects a tool and before any approval callback can refuse it. Hooks and stdio MCP
+# servers both name a command to run; `.claude/hooks/` holds the scripts those hooks invoke.
+_UNTRUSTED_AGENT_CONFIG_PATHS = (
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/hooks",
+    ".mcp.json",
+)
+
+
+def _quarantine_untrusted_agent_config(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    """Remove the checkout's own agent configuration before the agent server starts.
+
+    A run marked `untrusted_checkout` has a branch somebody else wrote in its working tree, and
+    this sandbox holds a GitHub installation token and a PostHog key. Claude trusts project
+    settings when permissions are bypassed, which every headless run does, so a `SessionStart`
+    hook committed to that branch runs with those credentials at startup — outside tool approval,
+    so neither the prompt nor a permission mode can stop it. Deleting the files is what makes the
+    branch's own configuration un-runnable; a prompt instruction cannot, because nothing has asked
+    the model anything yet.
+
+    Removes from the WORKING TREE only, and marks the tracked entries assume-unchanged FIRST, so
+    `git status` stays clean afterwards. Otherwise every quarantined repository would carry a
+    ` D .claude/settings.json` the agent's own commit tooling could sweep into a commit, which
+    would land the removal on somebody's PR branch. Order matters: the flag has to be set while the
+    index entry still matches the worktree.
+
+    Fails the launch when any path survives. Nothing in the launch parameters disables project
+    configuration, so a launch that continued past a failed removal would run the branch's hooks
+    with this sandbox's credentials — losing the run costs a sandbox, continuing costs the
+    credentials. The command therefore ENDS by checking that every path is gone, rather than
+    trusting an exit code: `rm -rf` reports success for a path it never had to touch, so its status
+    says nothing about what is left on disk.
+
+    The index-flag step is the one part allowed to fail. It only keeps `git status` clean, and a
+    dirty status is cosmetic where a live hook is not, so its failure is logged and the removal
+    still runs.
+    """
+    if not ctx.untrusted_checkout or not ctx.repositories:
+        return
+    paths = " ".join(shlex.quote(path) for path in _UNTRUSTED_AGENT_CONFIG_PATHS)
+    for repository in ctx.repositories:
+        repo_path = sandbox_repo_path(repository)
+        command = (
+            f"set -u; cd {shlex.quote(repo_path)} || exit 3; "
+            f"{{ git ls-files -z -- {paths} | xargs -0 -r git update-index --assume-unchanged; }} "
+            f'|| echo "could not mark the quarantined paths unchanged" >&2; '
+            f"rm -rf -- {paths}; "
+            f'for path in {paths}; do if [ -e "$path" ]; then echo "still present: $path" >&2; exit 4; fi; done'
+        )
+        result = sandbox.execute(command, timeout_seconds=30)
+        if result.exit_code != 0:
+            raise SandboxQuarantineError(
+                f"Could not quarantine the agent config in {repository}'s checkout, so the agent "
+                "server was not started",
+                {
+                    "task_id": ctx.task_id,
+                    "run_id": ctx.run_id,
+                    "sandbox_id": sandbox.id,
+                    "repository": repository,
+                    "exit_code": result.exit_code,
+                    "stderr": result.stderr,
+                },
+                cause=RuntimeError(f"quarantine command returned {result.exit_code}"),
             )
 
 
@@ -755,6 +824,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
         _ensure_repository_on_disk(ctx, sandbox)
+        _quarantine_untrusted_agent_config(ctx, sandbox)
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
         with StepTimer(
             "agent_server_prepare", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
@@ -988,6 +1058,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         attempt=attempt,
                     )
                     _ensure_repository_on_disk(ctx, sandbox)
+                    _quarantine_untrusted_agent_config(ctx, sandbox)
                     with StepTimer(
                         "agent_server_prepare",
                         boot_path=input.boot_path,

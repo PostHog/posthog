@@ -201,6 +201,19 @@ class SandboxMissingRepositoryError(ProcessTaskFatalError):
     pass
 
 
+class SandboxQuarantineError(ProcessTaskFatalError):
+    """The checkout's own agent configuration could not be proven gone before the agent started.
+
+    A run marked `untrusted_checkout` has somebody else's branch in its working tree, and harness
+    config committed there executes at agent startup, outside any tool approval. Launch parameters
+    do not disable project configuration, so a launch that proceeds here would run that config with
+    the sandbox's credentials. Fail closed instead: losing the run costs a sandbox, and continuing
+    costs the credentials.
+    """
+
+    pass
+
+
 class SandboxNotRunningError(SandboxExecutionError):
     """Sandbox is not in a running state."""
 
