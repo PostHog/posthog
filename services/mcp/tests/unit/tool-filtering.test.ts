@@ -992,52 +992,55 @@ describe('Tool Filtering - Feature Flags', () => {
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
-        const flags = getRequiredFeatureFlags()
-        // Listed rather than counted: the count moves with every flag master adds or drops, while
-        // the point is that a flag a tool gates on appears here.
-        const listed = [
-            'logs-anomalies',
-            'llm-analytics-datasets',
-            'tracing',
-            'visual-review',
-            'user-interviews',
-            'customer-analytics-csp',
-            'customer-analytics-feature-requests',
-            'customer-analytics-customer-tasks',
-            'notebooks-collaboration',
-            'notebook-generated-widgets',
-            'revamped-py-notebooks',
-            'notebook-generated-widgets',
-            'tasks',
-            'tasks-mcp-agent-run-start',
-            'dashboard-widgets',
-            'marketing-analytics-mcp',
-            'product-business-knowledge',
-            'field-notes',
-            'mcp-analytics',
-            'metrics',
-            'endpoints-ai-materialization-fix',
-            'engineering-analytics',
-            'web-analytics-path-cleaning-suggestions',
-            'stamphog',
-            'loops',
-            'review-hog',
-            'warehouse-person-properties',
-            'billing-alerts',
-            'billing-mcp-read-tools',
-            'organization-billing-api',
-            'streamlit-apps',
-            'posthog-connect',
-            'experiment-behavior-comparison',
-            'experiment-setup-context',
-            'data-warehouse-scene',
-            'data-quality-checks',
-            'context-layer',
-            'warehouse-multi-destination',
-            'self-optimising-workflows',
-        ]
-        expect(flags).toEqual(expect.arrayContaining(listed))
-        expect(flags.filter((flag) => !listed.includes(flag))).toEqual([])
+        const allFlags = getRequiredFeatureFlags()
+        expect(allFlags).toContain('self-optimising-workflows')
+        // The flag this branch adds is asserted on the line above and held out of the list and
+        // count below. Those belong to master and move with every flag master adds or drops, so a
+        // stacked branch that adds one does not edit them.
+        const flags = allFlags.filter((flag) => flag !== 'self-optimising-workflows')
+        expect(flags).toEqual(
+            expect.arrayContaining([
+                'logs-anomalies',
+                'llm-analytics-datasets',
+                'tracing',
+                'visual-review',
+                'user-interviews',
+                'customer-analytics-csp',
+                'customer-analytics-feature-requests',
+                'customer-analytics-customer-tasks',
+                'notebooks-collaboration',
+                'notebook-generated-widgets',
+                'revamped-py-notebooks',
+                'notebook-generated-widgets',
+                'tasks',
+                'tasks-mcp-agent-run-start',
+                'dashboard-widgets',
+                'marketing-analytics-mcp',
+                'product-business-knowledge',
+                'field-notes',
+                'mcp-analytics',
+                'metrics',
+                'endpoints-ai-materialization-fix',
+                'engineering-analytics',
+                'web-analytics-path-cleaning-suggestions',
+                'stamphog',
+                'loops',
+                'review-hog',
+                'warehouse-person-properties',
+                'billing-alerts',
+                'billing-mcp-read-tools',
+                'organization-billing-api',
+                'streamlit-apps',
+                'posthog-connect',
+                'experiment-behavior-comparison',
+                'experiment-setup-context',
+                'data-warehouse-scene',
+                'data-quality-checks',
+                'context-layer',
+                'warehouse-multi-destination',
+            ])
+        )
+        expect(flags).toHaveLength(37)
     })
 
     it('every loops tool is gated on the loops flag', () => {
