@@ -7,7 +7,7 @@ from django.core.paginator import Paginator
 
 import structlog
 
-from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, RUNTIME_CONTRACT
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, RUNTIME_CONTRACT, compile_filters_bytecode
 from posthog.cdp.validation import generate_template_bytecode
 from posthog.dataclasses import frozen
 
@@ -17,7 +17,7 @@ logger = structlog.get_logger(__name__)
 
 
 @frozen
-class InputRefresh:
+class Refresh:
     stamped: int
     skipped: int
 
@@ -34,58 +34,118 @@ def _compilable_value(value: Any, item_type: str | None) -> Any:
     return value
 
 
-def refresh_input_templates(hog_function: HogFunction) -> InputRefresh:
+def _item_types(inputs_schema: Any) -> dict[str, str | None]:
+    return {entry.get("key"): entry.get("type") for entry in (inputs_schema or []) if isinstance(entry, dict)}
+
+
+def _mappings(hog_function: HogFunction) -> list[dict[str, Any]]:
+    return [mapping for mapping in (hog_function.mappings or []) if isinstance(mapping, dict)]
+
+
+def _refresh_store(
+    hog_function: HogFunction,
+    store: dict[str, Any],
+    item_types: dict[str, str | None],
+    is_dwh_source: bool,
+    mapping_index: int | None,
+) -> Refresh:
+    stamped = 0
+    skipped = 0
+    for key, item in store.items():
+        if not isinstance(item, dict) or item.get("templating", "hog") != "hog" or "bytecode" not in item:
+            continue
+        try:
+            bytecode = generate_template_bytecode(
+                _compilable_value(item.get("value"), item_types.get(key)),
+                set(),
+                function_type=hog_function.type,
+                is_dwh_source=is_dwh_source,
+                validate_globals=True,
+            )
+        except Exception as e:
+            skipped += 1
+            logger.warning(
+                "hog_function_input_template_no_longer_compiles",
+                hog_function_id=str(hog_function.id),
+                team_id=hog_function.team_id,
+                mapping_index=mapping_index,
+                input_key=key,
+                error=str(e),
+            )
+            continue
+        # The compiler returns opcode enums; the stored form is plain JSON, like a save writes it.
+        item["bytecode"] = json.loads(json.dumps(bytecode))
+        item["bytecode_contract"] = RUNTIME_CONTRACT
+        stamped += 1
+    return Refresh(stamped=stamped, skipped=skipped)
+
+
+def refresh_input_templates(hog_function: HogFunction) -> Refresh:
     """
     Recompile every hog input template from its stored value, the way a save through the API does,
     and stamp it with the runtime it was checked against. The model's save only recompiles filters.
+    This includes the inputs of each mapping, which the runtime merges into the invocation.
 
     An input the current guard refuses keeps its stored bytecode and gets no stamp: it fails at
     run time exactly as before, and an unstamped failure is classified as the owner's to fix.
     """
     is_dwh_source = (hog_function.filters or {}).get("source") in DATA_WAREHOUSE_SOURCES
-    item_types = {
-        entry.get("key"): entry.get("type") for entry in (hog_function.inputs_schema or []) if isinstance(entry, dict)
-    }
-    stamped = 0
-    skipped = 0
+    item_types = _item_types(hog_function.inputs_schema)
+    results: list[Refresh] = []
     for store_name in ("inputs", "encrypted_inputs"):
         store: dict[str, Any] = getattr(hog_function, store_name) or {}
-        changed = False
-        for key, item in store.items():
-            if not isinstance(item, dict) or item.get("templating", "hog") != "hog" or "bytecode" not in item:
-                continue
-            try:
-                bytecode = generate_template_bytecode(
-                    _compilable_value(item.get("value"), item_types.get(key)),
-                    set(),
-                    function_type=hog_function.type,
-                    is_dwh_source=is_dwh_source,
-                    validate_globals=True,
-                )
-            except Exception as e:
-                skipped += 1
-                logger.warning(
-                    "hog_function_input_template_no_longer_compiles",
-                    hog_function_id=str(hog_function.id),
-                    team_id=hog_function.team_id,
-                    input_key=key,
-                    error=str(e),
-                )
-                continue
-            # The compiler returns opcode enums; the stored form is plain JSON, like a save writes it.
-            item["bytecode"] = json.loads(json.dumps(bytecode))
-            item["bytecode_contract"] = RUNTIME_CONTRACT
-            stamped += 1
-            changed = True
-        if changed:
+        result = _refresh_store(hog_function, store, item_types, is_dwh_source, mapping_index=None)
+        if result.stamped:
             setattr(hog_function, store_name, store)
-    return InputRefresh(stamped=stamped, skipped=skipped)
+        results.append(result)
+    for index, mapping in enumerate(_mappings(hog_function)):
+        if isinstance(mapping.get("inputs"), dict):
+            results.append(
+                _refresh_store(
+                    hog_function,
+                    mapping["inputs"],
+                    _item_types(mapping.get("inputs_schema")),
+                    is_dwh_source,
+                    mapping_index=index,
+                )
+            )
+    return Refresh(stamped=sum(r.stamped for r in results), skipped=sum(r.skipped for r in results))
+
+
+def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
+    """
+    Recompile the filters of each mapping, the way a save through the API does. The model's save only
+    recompiles the top-level filters, and on a mapped destination the event filters live in the mappings.
+
+    Filters that no longer compile keep their stored bytecode and get no stamp, the same as inputs.
+    """
+    stamped = 0
+    skipped = 0
+    for index, mapping in enumerate(_mappings(hog_function)):
+        filters = mapping.get("filters")
+        if not isinstance(filters, dict) or "bytecode" not in filters:
+            continue
+        # compile_filters_bytecode nulls the bytecode on error, so it gets a copy.
+        compiled = compile_filters_bytecode({**filters}, hog_function.team)
+        if compiled.get("bytecode_error"):
+            skipped += 1
+            logger.warning(
+                "hog_function_mapping_filters_no_longer_compile",
+                hog_function_id=str(hog_function.id),
+                team_id=hog_function.team_id,
+                mapping_index=index,
+                error=compiled["bytecode_error"],
+            )
+            continue
+        mapping["filters"] = compiled
+        stamped += 1
+    return Refresh(stamped=stamped, skipped=skipped)
 
 
 class Command(BaseCommand):
     help = (
         "Refresh HogFunctions (both enabled and disabled) by re-saving them, which recompiles their "
-        "filters and their hog input templates and stamps both with the current runtime contract"
+        "filters, their hog input templates and their mappings, and stamps them with the current runtime contract"
     )
 
     def add_arguments(self, parser):
@@ -116,6 +176,8 @@ class Command(BaseCommand):
         error_count = 0
         inputs_stamped = 0
         inputs_skipped = 0
+        mapping_filters_stamped = 0
+        mapping_filters_skipped = 0
 
         team_id = options.get("team_id")
         hog_function_id = options.get("hog_function_id")
@@ -156,15 +218,15 @@ class Command(BaseCommand):
                 try:
                     total_processed += 1
                     refreshed = refresh_input_templates(hog_function)
-                    if dry_run:
-                        inputs_stamped += refreshed.stamped
-                        inputs_skipped += refreshed.skipped
-                        continue
-                    hog_function.save()
+                    refreshed_mapping_filters = refresh_mapping_filters(hog_function)
+                    if not dry_run:
+                        hog_function.save()
+                        total_updated += 1
                     # Counted after the save, so the summary reports what reached the database.
                     inputs_stamped += refreshed.stamped
                     inputs_skipped += refreshed.skipped
-                    total_updated += 1
+                    mapping_filters_stamped += refreshed_mapping_filters.stamped
+                    mapping_filters_skipped += refreshed_mapping_filters.skipped
                 except Exception as e:
                     error_count += 1
                     logger.error(
@@ -183,6 +245,8 @@ class Command(BaseCommand):
                 f"Updated: {total_updated}, "
                 f"Inputs stamped: {inputs_stamped}, "
                 f"Inputs skipped: {inputs_skipped}, "
+                f"Mapping filters stamped: {mapping_filters_stamped}, "
+                f"Mapping filters skipped: {mapping_filters_skipped}, "
                 f"Errors: {error_count}"
             )
         )

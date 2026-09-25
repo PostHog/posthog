@@ -143,7 +143,13 @@ class TestRefreshHogFunctions(BaseTest):
         self.assertIn("Found 0 HogFunctions to process", output)
         self.assertIn("No HogFunctions found matching criteria", output)
 
-    def _unstamped(self, inputs: dict, inputs_schema: list, encrypted_inputs: dict | None = None) -> HogFunction:
+    def _unstamped(
+        self,
+        inputs: dict,
+        inputs_schema: list,
+        encrypted_inputs: dict | None = None,
+        mappings: list | None = None,
+    ) -> HogFunction:
         with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
             fn = HogFunction.objects.create(
                 team=self.team,
@@ -155,6 +161,7 @@ class TestRefreshHogFunctions(BaseTest):
                 inputs=inputs,
                 encrypted_inputs=encrypted_inputs,
                 filters={"events": [{"id": "$pageview", "type": "events"}]},
+                mappings=mappings,
             )
         # The model save stamps the filters. Strip it so the fixture is honestly pre-stamping.
         filters = {key: value for key, value in (fn.filters or {}).items() if key != "bytecode_contract"}
@@ -238,6 +245,40 @@ class TestRefreshHogFunctions(BaseTest):
         assert (fn.filters or {})["bytecode_contract"] == RUNTIME_CONTRACT
         assert "Inputs stamped: 1" in out.getvalue()
         assert "Inputs skipped: 1" in out.getvalue()
+
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_stamps_the_inputs_and_filters_of_each_mapping(self, mock_reload):
+        # On a mapped destination the runtime filters and builds inputs per mapping, and reads the
+        # stamps there. A mapping filter the guard now refuses keeps its stored bytecode unstamped.
+        template = json.loads(json.dumps(generate_template_bytecode("{event.uuid}", set())))
+        stale = ["_H", 1, 29]
+        refused_filters = {"properties": [{"type": "hogql", "key": "nosuch.thing"}], "bytecode": stale}
+        fn = self._unstamped(
+            inputs={},
+            inputs_schema=[],
+            mappings=[
+                {
+                    "name": "Pageviews",
+                    "inputs_schema": [{"key": "url", "type": "string"}],
+                    "inputs": {"url": {"value": "{event.uuid}", "bytecode": template}},
+                    "filters": {"events": [{"id": "$pageview", "type": "events"}], "bytecode": stale},
+                },
+                {"name": "Refused", "filters": refused_filters},
+            ],
+        )
+
+        out = StringIO()
+        call_command("refresh_hog_functions", hog_function_id=str(fn.id), stdout=out)
+
+        fn.refresh_from_db()
+        pageviews, refused = fn.mappings or []
+        assert pageviews["inputs"]["url"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert pageviews["filters"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert pageviews["filters"]["bytecode"] != stale
+        assert refused["filters"] == refused_filters
+        assert "Inputs stamped: 1" in out.getvalue()
+        assert "Mapping filters stamped: 1" in out.getvalue()
+        assert "Mapping filters skipped: 1" in out.getvalue()
 
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_dry_run_reports_and_writes_nothing(self, mock_reload):
