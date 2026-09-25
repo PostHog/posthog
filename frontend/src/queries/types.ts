@@ -42,6 +42,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     onDataPointClick?: (series: Pick<InsightActorsQuery, 'day' | 'breakdown' | 'compare'>, data: TrendResult) => void
     /** Refresh behaviour for queries. */
     refresh?: RefreshType
+    /** Refresh type for the loads an insight starts itself, e.g. `force_async` to skip a cached result. */
+    refreshOnLoad?: RefreshType
     /** Extra source feature for Data Tables */
     extraDataTableQueryFeatures?: QueryFeature[]
     /**

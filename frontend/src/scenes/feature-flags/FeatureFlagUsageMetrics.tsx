@@ -34,6 +34,9 @@ export function FeatureFlagUsageMetrics({ id }: { id: number }): JSX.Element {
                         title={chart.title}
                         description={chart.description}
                         query={chart.query}
+                        // A daily chart stays cached for hours, so an empty result cached before the
+                        // first calls arrived would hide the calls the log below already lists.
+                        context={{ refreshOnLoad: 'force_async', ...chart.emptyState }}
                     />
                 ))}
             </div>
