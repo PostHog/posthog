@@ -2,7 +2,7 @@ import json
 import datetime
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -215,23 +215,37 @@ class _FakeVectors:
 class _Captured:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
+        self.scopes = 0
+
+    def record(self, **kwargs: Any) -> None:
+        self.events.append(kwargs)
 
     @contextmanager
     def __call__(self) -> Iterator[Any]:
-        yield lambda **kwargs: self.events.append(kwargs)
+        self.scopes += 1
+        yield self.record
 
 
 class _ScorerTestMixin(_StoreTestMixin):
     def _score(
-        self, report_ids: Sequence[str], vectors: Mapping[str, Mapping[str, ReportVector]], *, persist: bool
+        self,
+        report_ids: Sequence[str],
+        vectors: Mapping[str, Mapping[str, ReportVector]],
+        *,
+        persist: bool,
+        shared_pass: bool = False,
     ) -> tuple[list[scorer.ReportScoringOutcome], _FakeVectors, _Captured]:
         fake_vectors = _FakeVectors(vectors)
         captured = _Captured()
+        serving = load_serving_set() if shared_pass else None
+        capture = cast(Any, captured.record) if shared_pass else None
         with (
             patch.object(scorer, "latest_report_vectors", fake_vectors),
             patch("products.signals.backend.ranking.sinks.ph_scoped_capture", captured),
         ):
-            outcomes = score_reports(self.team_id, report_ids, persist=persist, now=NOW)
+            outcomes = score_reports(
+                self.team_id, report_ids, persist=persist, now=NOW, serving=serving, capture=capture
+            )
         return outcomes, fake_vectors, captured
 
     team_id = 1
@@ -331,7 +345,8 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
     def _report(self, team_id: int) -> str:
         return str(SignalReport.objects.create(team_id=team_id, status=SignalReport.Status.READY, title="A").id)
 
-    def test_persist_writes_one_valid_row_per_scored_report_of_the_team(self) -> None:
+    @parameterized.expand([("own_scope", False), ("shared_pass", True)])
+    def test_persist_writes_one_valid_row_per_scored_report_of_the_team(self, _name: str, shared_pass: bool) -> None:
         self.team_id = self.team.id
         served = self._served()
         title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
@@ -348,6 +363,7 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
                 EMBEDDING_RENDERING_TITLE: {scored: vector},
             },
             persist=True,
+            shared_pass=shared_pass,
         )
 
         assert {outcome.report_id: outcome.reason for outcome in outcomes} == {
@@ -364,6 +380,8 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
             (event["event"], event["properties"]["report_id"], event["properties"]["model_key"])
             for event in captured.events
         ) == sorted([(REPORT_SCORED_EVENT, scored, served.key), (REPORT_SCORED_EVENT, scored, title.key)])
+        assert self.store.reads.count(serving_manifest_key(PREFIX)) == 1
+        assert captured.scopes == (0 if shared_pass else 1)
 
     def test_without_persist_nothing_is_written_or_captured(self) -> None:
         self.team_id = self.team.id

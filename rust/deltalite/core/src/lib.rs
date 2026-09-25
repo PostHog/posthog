@@ -29,6 +29,7 @@
 //! crate (built with maturin, imported as `deltalite`).
 
 pub mod errors;
+pub mod handle;
 pub mod limits;
 pub mod pkset;
 pub mod schema;
@@ -37,6 +38,7 @@ pub mod table;
 pub mod upsert;
 
 pub use errors::{Error, Result};
+pub use handle::TableHandle;
 pub use limits::ProcessLimits;
-pub use table::{open_table, open_table_multipart, MultipartConfig};
-pub use upsert::{upsert, PruneStrategy, UpsertOptions, UpsertStats};
+pub use table::{open_table, open_table_multipart, wrap_multipart, MultipartConfig};
+pub use upsert::{upsert, upsert_cached, PruneStrategy, RelaxCache, UpsertOptions, UpsertStats};
