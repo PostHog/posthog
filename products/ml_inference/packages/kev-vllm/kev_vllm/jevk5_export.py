@@ -43,7 +43,7 @@ FILES = [
 ]
 
 
-def export(repo: str, revision: str, out: Path) -> dict:
+def export(repo: str, revision: str, out: Path) -> dict[str, object]:
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("pin a full 40-character commit, not a branch or tag")
     out.mkdir(parents=True, exist_ok=True)

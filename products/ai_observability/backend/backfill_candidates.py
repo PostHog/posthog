@@ -398,6 +398,25 @@ def _heavy_matches(
     return {str(row[0]) for row in rows}
 
 
+@frozen
+class BackfillScope:
+    """What a window holds, split by whether the evaluation has judged the unit already.
+
+    `to_evaluate` is what the run would grade, so the toggle decides which side of the split it
+    takes. `already_judged` is reported either way: a zero estimate means nothing is left, and
+    without that second number the surface cannot tell that apart from an empty range.
+    """
+
+    to_evaluate: int
+    already_judged: int
+
+
+def _scope_from_counts(rows: list[tuple[Any, ...]], rerun_existing: bool) -> BackfillScope:
+    """Turn the `(total, judged)` pair both count queries return into a scope."""
+    total, judged = (int(rows[0][0]), int(rows[0][1])) if rows else (0, 0)
+    return BackfillScope(to_evaluate=total if rerun_existing else total - judged, already_judged=judged)
+
+
 def count_backfill_candidates(
     *,
     team: Team,
@@ -408,7 +427,9 @@ def count_backfill_candidates(
     window_start: datetime,
     window_end: datetime,
     rerun_existing: bool,
-) -> int:
+) -> BackfillScope:
+    # The scan is the expensive half, so both numbers come out of one pass: the dedupe moves from
+    # the filter into a pair of conditional counts over the same units.
     units = _units_query(
         team=team,
         evaluation_id=evaluation_id,
@@ -418,12 +439,27 @@ def count_backfill_candidates(
         scan_start=window_start,
         window_start=window_start,
         window_end=window_end,
-        rerun_existing=rerun_existing,
+        rerun_existing=True,
     )
+    judged = ast.Call(
+        name="not",
+        args=[
+            _not_already_evaluated(
+                unit_key=ast.Field(chain=["unit_id"]),
+                evaluation_id=evaluation_id,
+                target=target,
+                window_start=window_start,
+                window_end=window_end,
+                settle_horizon=settle_horizon,
+            )
+        ],
+    )
+    # `countIf` over the judged half only, because negating it would put the whole dedupe subquery
+    # in the statement a second time. The other half is the difference from the total.
+    counts: list[ast.Expr] = [ast.Call(name="count", args=[]), ast.Call(name="countIf", args=[judged])]
     if not reads_heavy_properties(conditions):
-        query = ast.SelectQuery(select=[ast.Call(name="count", args=[])], select_from=ast.JoinExpr(table=units))
-        rows = _run(query, team=team, query_type=COUNT_QUERY_TYPE)
-        return int(rows[0][0]) if rows else 0
+        query = ast.SelectQuery(select=counts, select_from=ast.JoinExpr(table=units))
+        return _scope_from_counts(_run(query, team=team, query_type=COUNT_QUERY_TYPE), rerun_existing)
 
     # `events` cannot judge a heavy filter, and the traces to ask ai_events about are exactly what
     # is being counted, so the count asks ai_events for all of it and comes back with one number.
@@ -433,28 +469,19 @@ def count_backfill_candidates(
     ai_units = parse_select(_AI_UNITS_SQL)
     assert isinstance(ai_units, ast.SelectQuery)
     rows = _run_on_ai_events(
-        ast.SelectQuery(select=[ast.Call(name="count", args=[])], select_from=ast.JoinExpr(table=ai_units)),
+        ast.SelectQuery(select=counts, select_from=ast.JoinExpr(table=ai_units)),
         {
             "unit_key": ai_unit_key,
             "max_id_bytes": ast.Constant(value=MAX_CANDIDATE_ID_BYTES),
             "window_start": ast.Constant(value=window_start),
             "window_end": ast.Constant(value=window_end),
             "condition_filter": build_condition_filter(conditions, team, ai_unit_key) or ast.Constant(value=True),
-            "not_already_evaluated": ast.Constant(value=True)
-            if rerun_existing
-            else _not_already_evaluated(
-                unit_key=ai_unit_key,
-                evaluation_id=evaluation_id,
-                target=target,
-                window_start=window_start,
-                window_end=window_end,
-                settle_horizon=settle_horizon,
-            ),
+            "not_already_evaluated": ast.Constant(value=True),
         },
         team=team,
         query_type=COUNT_QUERY_TYPE,
     )
-    return int(rows[0][0]) if rows else 0
+    return _scope_from_counts(rows, rerun_existing)
 
 
 def fetch_backfill_candidates(
