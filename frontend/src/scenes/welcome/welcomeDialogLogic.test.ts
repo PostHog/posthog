@@ -135,6 +135,20 @@ describe('welcomeDialogLogic', () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
     })
 
+    it('keeps the dialog on screen when another tab records the introduction during the load', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+        // The dialog is on screen with its loading state, so the content has not arrived yet.
+        await expectLogic(logic).toDispatchActions(['loadWelcomeData']).toNotHaveDispatchedActions(['markShown'])
+        expect(logic.values.shouldShowDialog).toBe(true)
+
+        window.localStorage.setItem(`posthog_welcome_seen:${INVITED_USER.uuid}:${INVITED_USER.organization?.id}`, '1')
+        logic.actions.acknowledgeStorageChange()
+
+        expect(logic.values.shouldShowDialog).toBe(true)
+    })
+
     it('persists dismissal to localStorage so the dialog does not reopen', async () => {
         userLogic.actions.loadUserSuccess(INVITED_USER)
         logic = welcomeDialogLogic()

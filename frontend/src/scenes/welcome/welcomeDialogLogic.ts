@@ -149,6 +149,7 @@ export interface welcomeDialogLogicValues {
     interactedCards: Record<WelcomeCardKind, boolean>
     inviter: WelcomeInviter | null
     locallyClosed: boolean
+    onScreen: boolean
     organizationName: string
     popularDashboards: WelcomePopularDashboard[]
     productsInUse: string[]
@@ -192,6 +193,9 @@ export interface welcomeDialogLogicActions {
     markCardInteracted: (card: WelcomeCardKind) => {
         card: WelcomeCardKind
     }
+    markOnScreen: () => {
+        value: true
+    }
     markShown: () => {
         value: true
     }
@@ -224,7 +228,7 @@ export interface welcomeDialogLogicMeta {
             user: UserType | null,
             isProvisionedUser: boolean,
             locallyClosed: boolean,
-            shownAt: number | null,
+            onScreen: boolean,
             storageTick: number
         ) => boolean
     }
@@ -251,6 +255,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         trackCardClick: (card: WelcomeCardKind, targetHref: string) => ({ card, targetHref }),
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
         markShown: true,
+        markOnScreen: true,
         setWelcomeDataError: (error: boolean) => ({ error }),
         // Bumped when another tab writes to localStorage (dismisses) so the current tab's
         // shouldShowDialog selector re-evaluates without needing a full page navigation.
@@ -263,6 +268,16 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             {
                 markShown: () => Date.now(),
                 resetForOrgChange: () => null,
+            },
+        ],
+        // True once this tab puts the dialog on screen, which happens before the welcome data
+        // arrives. `shownAt` cannot carry this, because it starts at the data, and it measures how
+        // long the content stayed on screen.
+        onScreen: [
+            false,
+            {
+                markOnScreen: () => true,
+                resetForOrgChange: () => false,
             },
         ],
         interactedCards: [
@@ -364,27 +379,29 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         // already been introduced.
         // `storageTick` is in the dependency list so cross-tab localStorage changes re-run the selector.
         shouldShowDialog: [
-            (s) => [s.user, s.isProvisionedUser, s.locallyClosed, s.shownAt, s.storageTick],
+            (s) => [s.user, s.isProvisionedUser, s.locallyClosed, s.onScreen, s.storageTick],
             (
                 user: null | import('../../types').UserType,
                 isProvisionedUser: boolean,
                 locallyClosed: boolean,
-                shownAt: number | null
+                onScreen: boolean
             ): boolean => {
                 if (!user || (user.is_organization_first_user !== false && !isProvisionedUser)) {
                     return false
                 }
                 const orgId = user.organization?.id
+                // A dismissal is deliberate, so it closes the dialog in every tab, including one
+                // that has it open.
                 if (wasWelcomeDismissed(user.uuid, orgId)) {
                     return false
                 }
                 if (locallyClosed) {
                     return false
                 }
-                // This tab already put the dialog on screen. Two tabs that open together both write
-                // the seen marker, and each one then receives the other's `storage` event, so without
-                // this the dialog is pulled off the screen in both of them.
-                if (shownAt !== null) {
+                // This tab already put the dialog on screen. Another tab that records the
+                // introduction at the same moment must not pull it back off, whether this tab is
+                // still loading the content or already shows it.
+                if (onScreen) {
                     return true
                 }
                 return !hasMarker(LOCAL_SEEN_KEY_PREFIX, user.uuid, orgId)
@@ -409,6 +426,9 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 return
             }
             actions.markShown()
+            // After an organization switch `shouldShowDialog` stays true, so its subscription does
+            // not fire and the content arrives with `onScreen` still false.
+            actions.markOnScreen()
             // Record the introduction as it happens, because the user does not have to close the
             // dialog for it to count as seen.
             rememberMarker(LOCAL_SEEN_KEY_PREFIX, values.user?.uuid, values.user?.organization?.id)
@@ -456,6 +476,9 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             }
         },
         shouldShowDialog: (shouldShow: boolean) => {
+            if (shouldShow && !values.onScreen) {
+                actions.markOnScreen()
+            }
             if (shouldShow && !values.hasLoadedOnce && !values.welcomeDataLoading) {
                 actions.loadWelcomeData()
             }

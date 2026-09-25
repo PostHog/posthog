@@ -43,8 +43,9 @@ describe('navPanelProductPushWelcomeLogic', () => {
         logic.actions.openWelcome(WEB_ANALYTICS)
         logic.actions.closeWelcome('modal_close')
 
-        // A reload or a second tab keeps only what was persisted.
+        // A reload starts from a new kea context, so only what was persisted survives.
         logic.unmount()
+        initKeaTests()
         logic = navPanelProductPushWelcomeLogic()
         logic.mount()
 
