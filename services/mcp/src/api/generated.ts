@@ -50961,6 +50961,8 @@ export namespace Schemas {
     }
 
     export interface LogAttributesQuery {
+      /** Only return these exact attribute keys. Used to check whether specific keys are present. */
+      attributeKeys?: string[] | null;
       attributeType: string;
       dateRange?: DateRange | null;
       filterGroup?: PropertyGroupFilter | null;
