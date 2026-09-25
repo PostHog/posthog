@@ -1,4 +1,6 @@
+import hmac
 import json
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -20,18 +22,24 @@ from django.urls import reverse
 import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import CSPMiddleware, app_csp_header_name, per_request_logging_context_middleware
+from posthog.middleware import (
+    ManagedProxyClientIPMiddleware,
+    ManagedProxyClientIPOutcome,
+    per_request_logging_context_middleware,
+)
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
+from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -42,6 +50,42 @@ from products.product_analytics.backend.facade.models import Insight
 
 def _social_auth_backend() -> BaseAuth:
     return cast(BaseAuth, MagicMock())
+
+
+MANAGED_PROXY_KEY = "managed-proxy-test-key"
+MANAGED_PROXY_OLD_KEY = "managed-proxy-old-key"
+MANAGED_PROXY_NOW = 1_800_000_000
+MANAGED_PROXY_EDGE_IP = "198.51.100.10"
+MANAGED_PROXY_CLIENT_IP = "203.0.113.7"
+# GeoIP resolves these two, so the geo-block can tell them apart.
+MANAGED_PROXY_GERMAN_CLIENT_IP = "45.90.4.87"
+MANAGED_PROXY_NON_GERMAN_EDGE_IP = "28.160.62.192"
+# hex(HMAC-SHA256(MANAGED_PROXY_KEY, f"{MANAGED_PROXY_CLIENT_IP}:{MANAGED_PROXY_NOW}")), computed
+# independently of _managed_proxy_signature so that it pins the format the Worker also asserts.
+MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE = "f825f520f1c3a2ef243b6a055a528b8ce94a3b4b9110bb6f3c2b568191e7b717"
+MANAGED_PROXY_KNOWN_ANSWER_HEADERS = {
+    "HTTP_X_POSTHOG_CLIENT_IP": MANAGED_PROXY_CLIENT_IP,
+    "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": str(MANAGED_PROXY_NOW),
+    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE,
+}
+
+
+def _managed_proxy_signature(key: str, ip: str, timestamp: str) -> str:
+    return hmac.new(key.encode(), f"{ip}:{timestamp}".encode(), hashlib.sha256).hexdigest()
+
+
+def _managed_proxy_headers(
+    ip: str = MANAGED_PROXY_CLIENT_IP,
+    *,
+    key: str = MANAGED_PROXY_KEY,
+    signed_ip: str | None = None,
+    timestamp: int | str = MANAGED_PROXY_NOW,
+) -> dict[str, Any]:  # dict[str, str] does not unpack into the test client's typed keyword arguments
+    return {
+        "HTTP_X_POSTHOG_CLIENT_IP": ip,
+        "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": str(timestamp),
+        "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": _managed_proxy_signature(key, signed_ip or ip, str(timestamp)),
+    }
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -190,6 +234,147 @@ class TestAccessMiddleware(APIBaseTest):
             # Valid IP should work
             response = self.client.get("/", headers={"x-forwarded-for": "192.168.1.1"})
             self.assertNotIn(b"PostHog is not available", response.content)
+
+    @parameterized.expand([("signed", MANAGED_PROXY_KEY, True), ("unsigned", "some-other-key", False)])
+    def test_blocked_geoip_regions_sees_managed_proxy_client_ip(self, _name: str, key: str, blocked: bool) -> None:
+        with (
+            self.settings(
+                BLOCKED_GEOIP_REGIONS=["DE"],
+                USE_X_FORWARDED_HOST=True,
+                TRUST_ALL_PROXIES=True,
+                MANAGED_PROXY_SIGNING_KEYS=[MANAGED_PROXY_KEY],
+            ),
+            time_machine.travel(MANAGED_PROXY_NOW, tick=False),
+        ):
+            response = self.client.get(
+                "/",
+                HTTP_X_FORWARDED_FOR=MANAGED_PROXY_NON_GERMAN_EDGE_IP,
+                **_managed_proxy_headers(MANAGED_PROXY_GERMAN_CLIENT_IP, key=key),
+            )
+
+        assert (b"PostHog is not available" in response.content) is blocked
+
+
+@override_settings(
+    MANAGED_PROXY_SIGNING_KEYS=[MANAGED_PROXY_KEY, MANAGED_PROXY_OLD_KEY],
+    USE_X_FORWARDED_HOST=True,
+    TRUST_ALL_PROXIES=True,
+)
+class TestManagedProxyClientIPMiddleware(SimpleTestCase):
+    def _verification_counts(self) -> dict[str, float]:
+        return {
+            outcome.value: REGISTRY.get_sample_value(
+                "posthog_managed_proxy_client_ip_verifications_total", {"outcome": outcome.value}
+            )
+            or 0.0
+            for outcome in ManagedProxyClientIPOutcome
+        }
+
+    def _run_middleware(self, meta: dict[str, Any], expected_outcome: str | None) -> tuple[str, str | None]:
+        counts_before = self._verification_counts()
+        request = RequestFactory().get("/", REMOTE_ADDR="10.0.0.5", HTTP_X_FORWARDED_FOR=MANAGED_PROXY_EDGE_IP, **meta)
+        # An earlier middleware may read request.headers, which caches a snapshot of META.
+        assert request.headers.get("x-forwarded-for") == MANAGED_PROXY_EDGE_IP
+        seen: dict[str, Any] = {}
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen["ips"] = (get_ip_address(request), get_trusted_client_ip(request))
+            seen["leftover"] = [key for key in request.META if key.startswith("HTTP_X_POSTHOG_CLIENT_IP")] + [
+                name for name in request.headers if name.lower().startswith("x-posthog-client-ip")
+            ]
+            return HttpResponse()
+
+        with time_machine.travel(MANAGED_PROXY_NOW, tick=False):
+            ManagedProxyClientIPMiddleware(get_response)(request)
+
+        assert seen["leftover"] == []
+        expected_counts = dict(counts_before)
+        if expected_outcome:
+            expected_counts[expected_outcome] += 1
+        assert self._verification_counts() == expected_counts
+        return seen["ips"]
+
+    @parameterized.expand(
+        [
+            ("known_answer_vector", MANAGED_PROXY_KNOWN_ANSWER_HEADERS, MANAGED_PROXY_CLIENT_IP),
+            (
+                "uppercase_hex",
+                {
+                    **MANAGED_PROXY_KNOWN_ANSWER_HEADERS,
+                    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE.upper(),
+                },
+                MANAGED_PROXY_CLIENT_IP,
+            ),
+            ("older_key", _managed_proxy_headers(key=MANAGED_PROXY_OLD_KEY), MANAGED_PROXY_CLIENT_IP),
+            ("ipv6", _managed_proxy_headers("2001:db8::1"), "2001:db8::1"),
+            ("oldest_timestamp", _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW - 60), MANAGED_PROXY_CLIENT_IP),
+            ("newest_timestamp", _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW + 5), MANAGED_PROXY_CLIENT_IP),
+        ]
+    )
+    def test_valid_signature_sets_client_ip(self, _name: str, meta: dict[str, Any], expected_ip: str) -> None:
+        assert self._run_middleware(meta, "valid") == (expected_ip, expected_ip)
+
+    @parameterized.expand(
+        [
+            ("no_headers", {}, None),
+            ("unknown_key", _managed_proxy_headers(key="some-other-key"), "bad_signature"),
+            ("signed_for_another_ip", _managed_proxy_headers(signed_ip="192.0.2.1"), "bad_signature"),
+            (
+                "expired_timestamp",
+                _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW - 61),
+                "timestamp_out_of_window",
+            ),
+            (
+                "future_timestamp",
+                _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW + 6),
+                "timestamp_out_of_window",
+            ),
+            ("non_numeric_timestamp", _managed_proxy_headers(timestamp="1800000000.0"), "invalid_input"),
+            ("oversized_timestamp", _managed_proxy_headers(timestamp="1" * 5000), "invalid_input"),
+            ("malformed_ip", _managed_proxy_headers("not-an-ip"), "invalid_input"),
+            (
+                "missing_timestamp",
+                {k: v for k, v in _managed_proxy_headers().items() if k != "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP"},
+                "invalid_input",
+            ),
+            (
+                "empty_signature",
+                {**_managed_proxy_headers(), "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": ""},
+                "invalid_input",
+            ),
+            (
+                "non_ascii_signature",
+                {**_managed_proxy_headers(), "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": "é" * 64},
+                "bad_signature",
+            ),
+        ]
+    )
+    def test_unverified_request_keeps_edge_ip(
+        self, _name: str, meta: dict[str, Any], expected_outcome: str | None
+    ) -> None:
+        assert self._run_middleware(meta, expected_outcome) == (MANAGED_PROXY_EDGE_IP, MANAGED_PROXY_EDGE_IP)
+
+    @parameterized.expand(
+        [
+            ("no_keys", [], "not_configured"),
+            ("empty_key", [""], "not_configured"),
+            ("empty_key_in_list", [MANAGED_PROXY_KEY, ""], "bad_signature"),
+        ]
+    )
+    def test_signing_key_list_keeps_edge_ip(self, _name: str, keys: list[str], expected_outcome: str) -> None:
+        with self.settings(MANAGED_PROXY_SIGNING_KEYS=keys):
+            client_ips = self._run_middleware(_managed_proxy_headers(key="some-other-key"), expected_outcome)
+
+        assert client_ips == (MANAGED_PROXY_EDGE_IP, MANAGED_PROXY_EDGE_IP)
+
+    def test_runs_before_the_middleware_that_logs_the_forwarded_for_header(self) -> None:
+        # per_request_logging_context_middleware reads x-forwarded-for on the request path, so it
+        # only records the signed IP while it stays below this middleware. AllowIPMiddleware and axes
+        # read the client IP at or after the view, so their position does not constrain this one.
+        middleware = list(settings.MIDDLEWARE)
+        assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
+            "posthog.middleware.per_request_logging_context_middleware"
+        )
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
@@ -506,6 +691,17 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(ph_instance_cookie["secure"], True)
         self.assertEqual(ph_instance_cookie["max-age"], 31536000)
 
+        ph_authenticated_cookie = response.cookies["ph_authenticated_us"]
+        self.assertEqual(ph_authenticated_cookie.value, "1")
+        self.assertEqual(ph_authenticated_cookie["path"], "/")
+        self.assertEqual(ph_authenticated_cookie["samesite"], "Lax")
+        self.assertEqual(ph_authenticated_cookie["httponly"], True)
+        self.assertEqual(ph_authenticated_cookie["domain"], "posthog.com")
+        self.assertEqual(ph_authenticated_cookie["secure"], True)
+        self.assertNotIn("ph_authenticated_eu", response.cookies)
+        self.assertLessEqual(ph_authenticated_cookie["max-age"], settings.SESSION_COOKIE_AGE)
+        self.assertGreater(ph_authenticated_cookie["max-age"], settings.SESSION_COOKIE_AGE - 60)
+
         ph_last_login_method_cookie = response.cookies["ph_last_login_method"]
         self.assertEqual(ph_last_login_method_cookie.key, "ph_last_login_method")
         self.assertEqual(ph_last_login_method_cookie.value, "password")
@@ -545,6 +741,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertTrue(response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
         # We don't want to remove the ph_current_instance cookie
         self.assertNotIn("ph_current_instance", response.cookies)
+        # ...but the region cookie has to go, or the OAuth picker redirects into a signed-out region
+        self.assertEqual(response.cookies["ph_authenticated_us"]["expires"], "Thu, 01 Jan 1970 00:00:00 GMT")
 
         # Request a page after logging out
         response = self.client.get("/")
@@ -879,10 +1077,16 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 {},
             ),
             (
+                "warehouse_saved_queries_check_incremental",
+                "warehouse_saved_queries/check_incremental/",
+                {"query": "select 1"},
+            ),
+            (
                 "exports",
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
             ),
+            ("hog_flows_user_blast_radius", "hog_flows/user_blast_radius/", {}),
             ("logs_query", "logs/query/", {}),
             # hyphenated action that the shorter `count` alternative must not shadow
             ("logs_count_ranges", "logs/count-ranges/", {"query": "not-a-dict"}),
@@ -890,6 +1094,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
             ("metrics_explain", "metrics/explain/", {}),
+            ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -910,13 +1115,20 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("logs_alerts", "logs/alerts/"),
             ("logs_views", "logs/views/"),
             ("logs_sampling_rules", "logs/sampling_rules/"),
+            (
+                "warehouse_saved_query_materialize",
+                "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
+            ),
+            ("experiments_create", "experiments/"),
+            ("hog_flow_publish", "hog_flows/00000000-0000-0000-0000-000000000000/publish/"),
+            ("hog_flow_bulk_delete", "hog_flows/bulk_delete/"),
         ]
     )
-    def test_read_only_impersonation_blocks_logs_crud_siblings(self, _name, path_suffix):
+    def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
         self.login_as_other_user_read_only()
 
-        # The logs query allowlist enumerates action names precisely because the same
-        # `logs/` prefix hosts these writing viewsets.
+        # Every allowlist entry names its action exactly, because each of these prefixes also
+        # hosts mutating actions. Widening one to its prefix would reach these.
         response = self.client.post(
             f"/api/projects/{self.team.id}/{path_suffix}",
             data={},
@@ -1906,13 +2118,26 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         self.assertIsNone(self.captured["client"])
 
     def test_long_header_value_is_truncated(self):
-        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH
 
-        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH * 4)
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH)
+
+    @parameterized.expand(
+        [
+            ("lowercase prefix", "scout:signals-scout-errors"),
+            ("upper case prefix", "SCOUT:signals-scout-errors"),
+            ("padded prefix", "  scout:signals-scout-errors  "),
+        ]
+    )
+    def test_header_claiming_a_server_derived_prefix_is_dropped(self, _name: str, header_value: str):
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=header_value)
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["client"])
 
     def test_captures_ip_address_from_remote_addr(self):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
@@ -1938,184 +2163,6 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         self.assertIsNone(self.captured["ip_address"])
-
-
-class TestCSPMiddleware(APIBaseTest):
-    def test_replay_player_frame_carries_its_own_policy_and_reports_nothing(self):
-        # The frame exists so a recorded page stops being judged against the app policy. If the
-        # middleware branch goes, it silently inherits that policy again, along with its report-uri,
-        # and every replayed page resumes reporting a customer's site to our project.
-        response = self.client.get("/replay_player_frame/index.html")
-        assert response.status_code == 200
-        policy = response["Content-Security-Policy"]
-        assert "script-src 'none'" in policy
-        assert "img-src * data: blob:" in policy
-        assert "report-uri" not in policy
-        assert "Content-Security-Policy-Report-Only" not in response
-        assert "Reporting-Endpoints" not in response
-
-    def test_app_policy_allows_framing_the_replay_player_frame(self):
-        # The player frame is same-origin, and an http origin does not match the https: source
-        # that heatmaps need.
-        response = self.client.get("/")
-        assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
-
-    def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
-        # Shared recordings render the player for logged-out viewers.
-        self.client.logout()
-        response = self.client.get("/replay_player_frame/index.html")
-        assert response.status_code == 200
-        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player fall
-        # back to the app document.
-        assert 'id="player-frame-content"' in response.content.decode()
-
-    def test_non_html_response_gets_strict_csp(self):
-        response = self.client.get("/api/users/@me/")
-        assert response.status_code == 200
-        assert response["Content-Security-Policy"] == "default-src 'none'"
-        assert "Content-Security-Policy-Report-Only" not in response
-
-    @parameterized.expand(
-        [
-            ("app_root", "/", True),
-            # No route serves this path, so the app catch-all answers it. It must keep the app
-            # policy, because the frame policy is enforced and its script-src 'none' stops the app
-            # from starting.
-            ("path_under_the_replay_frame_prefix", "/replay_player_frame", True),
-            # A customer's page frames this document, and the enforced list names only PostHog
-            # origins.
-            ("embeddable_document", "/shared/notarealtoken", False),
-        ]
-    )
-    def test_html_response_without_the_flag_enforces_only_frame_ancestors(self, _name, path, enforces_frame_ancestors):
-        response = self.client.get(path)
-        reported = response["Content-Security-Policy-Report-Only"]
-        assert "default-src 'self'" in reported
-        if not enforces_frame_ancestors:
-            assert "Content-Security-Policy" not in response
-            return
-        # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
-        # The enforced list has to be the one the reported policy names, or the two drift apart.
-        enforced = response["Content-Security-Policy"]
-        assert enforced.startswith("frame-ancestors https://posthog.com")
-        assert "default-src" not in enforced
-        assert enforced in reported
-
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self, _mock_flag):
-        # The wiring guard for app_csp_header_name. The matrix of paths lives in
-        # TestAppCspHeaderName, which needs no database.
-        enforced = self.client.get("/")
-        assert "default-src 'self'" in enforced["Content-Security-Policy"]
-        assert "Content-Security-Policy-Report-Only" not in enforced
-
-        embedded = self.client.get("/shared/notarealtoken")
-        assert "Content-Security-Policy" not in embedded
-        assert "frame-ancestors" in embedded["Content-Security-Policy-Report-Only"]
-
-    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
-    def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
-        # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
-        # renaming it silently stops crash ingestion.
-        response = self.client.get("/")
-        header = response["Reporting-Endpoints"]
-        assert 'posthog="https://us.i.posthog.com/report/' in header
-        assert 'default="https://us.i.posthog.com/report/' in header
-        assert f"distinct_id={self.user.distinct_id}" in header
-
-    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
-    def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
-        self.client.logout()
-        response = self.client.get("/login")
-        header = response["Reporting-Endpoints"]
-        assert 'default="https://us.i.posthog.com/report/' in header
-        assert "distinct_id" not in header
-
-    @parameterized.expand(
-        [
-            ("self_hosted_by_default", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}),
-            # DEBUG puts an install in the local run mode rather than the hobby one, and nothing
-            # stops a self-hoster deploying that way, so it must report nowhere as well.
-            ("self_hosted_with_debug", {"CLOUD_DEPLOYMENT": None, "DEBUG": True}),
-            # Cloud would otherwise report, so this case proves the empty value turns it off.
-            ("explicitly_disabled", {"CLOUD_DEPLOYMENT": "US", "CSP_REPORT_ENDPOINT": ""}),
-        ]
-    )
-    def test_no_endpoint_still_sends_the_policy_but_asks_for_no_reports(self, _name, overrides):
-        # A self-hosted install must not report to PostHog, and the policy itself must survive, so
-        # dropping it here would silently remove a security control.
-        with override_settings(**{"CSP_REPORT_ENDPOINT": None, **overrides}):
-            response = self.client.get("/")
-        policy = response["Content-Security-Policy-Report-Only"]
-        assert "default-src 'self'" in policy
-        assert "report-uri" not in policy
-        assert "report-to" not in policy
-        assert "Reporting-Endpoints" not in response
-
-    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
-    def test_report_endpoint_is_configurable(self):
-        # An operator can point reporting at their own install, so nothing may hardcode ours.
-        response = self.client.get("/")
-        policy = response["Content-Security-Policy-Report-Only"]
-        assert "report-uri https://posthog.example.com/report/?sample_rate=0.1" in policy
-        header = response["Reporting-Endpoints"]
-        assert "us.i.posthog.com" not in header
-        assert f"distinct_id={self.user.distinct_id}" in header
-
-    @parameterized.expand(
-        [
-            ("staff", True, "1", "0.1"),
-            ("not_staff", False, "0.1", "1"),
-        ]
-    )
-    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
-    def test_staff_report_every_violation_while_everyone_else_is_sampled(
-        self, _name, is_staff, expected_rate, other_rate
-    ):
-        # Staff get the policy enforced ahead of everyone else, so a violation of theirs is
-        # something already broken for a colleague rather than one sample of a trend. At 0.1 nine
-        # in ten of those never arrive, which defeats the point of rolling out to staff first.
-        self.user.is_staff = is_staff
-        self.user.save()
-
-        response = self.client.get("/")
-
-        policy = response["Content-Security-Policy-Report-Only"]
-        assert f"report-uri https://posthog.example.com/report/?sample_rate={expected_rate}" in policy
-        assert f"sample_rate={other_rate}" not in policy
-        # The crash-reporting endpoint is built by a second call that takes the rate separately, so
-        # it can drift from the directive above.
-        header = response["Reporting-Endpoints"]
-        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in header
-        assert f"sample_rate={other_rate}" not in header
-
-    @parameterized.expand(
-        [
-            ("cloud", {"CLOUD_DEPLOYMENT": "US"}, True),
-            ("self_hosted", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, False),
-        ]
-    )
-    def test_admin_pages_enforce_the_policy_and_follow_the_reporting_default(self, _name, overrides, expects_reporting):
-        # The admin policy is enforced, not report-only, and builds its own Reporting-Endpoints
-        # header, so it can drift from the app policy unnoticed. A non-staff request redirects but
-        # still carries that policy, because the middleware picks its branch by path.
-        with override_settings(CSP_REPORT_ENDPOINT=None, **overrides):
-            response = self.client.get("/admin/")
-        policy = response["Content-Security-Policy"]
-        # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
-        assert "frame-ancestors 'none'" in policy
-        assert "Content-Security-Policy-Report-Only" not in response
-
-        if expects_reporting:
-            assert "report-uri https://us.i.posthog.com/report/" in policy
-            assert "report-to posthog" in policy
-            # Sampling the admin policy too would silently drop violations, so the branches diverge.
-            assert "sample_rate" not in policy
-            assert "Reporting-Endpoints" in response
-        else:
-            assert "report-uri" not in policy
-            assert "report-to" not in policy
-            assert "Reporting-Endpoints" not in response
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
@@ -2237,16 +2284,28 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
 
 
 @pytest.mark.parametrize(
-    "path,query_string,expected_coop",
+    "path,query_string,session_next,expected_coop",
     [
-        ("/connect/vercel/link", "", "unsafe-none"),
-        ("/oauth/callback", "", "unsafe-none"),
-        ("/login", "next=/connect/vercel/link", "unsafe-none"),
-        ("/login", "next=/connect/vercel/link?session=abc", "unsafe-none"),
-        ("/login", "", "same-origin"),
-        ("/login", "next=/dashboard", "same-origin"),
-        ("/login", "next=/connect/vercel/../../admin", "same-origin"),
-        ("/some/other/path", "", "same-origin"),
+        ("/connect/vercel/link", "", None, "unsafe-none"),
+        ("/oauth/callback", "", None, "unsafe-none"),
+        ("/login", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/login", "next=/connect/vercel/link?session=abc", None, "unsafe-none"),
+        ("/login", "", None, "same-origin"),
+        ("/login", "next=/dashboard", None, "same-origin"),
+        ("/login", "next=/connect/vercel/../../admin", None, "same-origin"),
+        ("/some/other/path", "", None, "same-origin"),
+        ("/login/google-oauth2/", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/login/github/", "", None, "same-origin"),
+        ("/login/github/", "next=/dashboard", None, "same-origin"),
+        ("/complete/google-oauth2/", "code=x&state=y", "/connect/vercel/link", "unsafe-none"),
+        ("/complete/google-oauth2/", "code=x&state=y", None, "same-origin"),
+        ("/complete/google-oauth2/", "code=x&state=y", "/dashboard", "same-origin"),
+        ("/signup", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/signup", "", None, "same-origin"),
+        ("/signup", "next=/dashboard", None, "same-origin"),
+        ("/complete/github-link/", "", None, "same-origin"),
+        ("/complete/slack-link/", "", None, "same-origin"),
+        ("/login/not-a-backend/", "", None, "same-origin"),
     ],
     ids=[
         "direct-oauth-vercel",
@@ -2257,9 +2316,22 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "login-next-non-oauth",
         "login-next-path-traversal",
         "unrelated-path",
+        "social-login-start-with-next",
+        "social-login-start-plain",
+        "social-login-start-non-oauth-next",
+        "social-complete-session-oauth",
+        "social-complete-no-session",
+        "social-complete-session-non-oauth",
+        "signup-next-oauth",
+        "signup-no-next",
+        "signup-next-non-oauth",
+        "linking-complete-github",
+        "linking-complete-slack",
+        "login-unknown-backend",
     ],
 )
-def test_oauth_coop_middleware(path, query_string, expected_coop):
+def test_oauth_coop_middleware(path, query_string, session_next, expected_coop):
+    from django.contrib.sessions.backends.signed_cookies import SessionStore
     from django.http import HttpResponse
     from django.test import RequestFactory
 
@@ -2267,6 +2339,10 @@ def test_oauth_coop_middleware(path, query_string, expected_coop):
 
     factory = RequestFactory()
     request = factory.get(path + ("?" + query_string if query_string else ""))
+    if session_next is not None:
+        session = SessionStore()
+        session["next"] = session_next
+        request.session = session
 
     def get_response(req):
         resp = HttpResponse("ok")
@@ -2581,108 +2657,3 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
         assert "mcp_session_id" not in ctx
         assert "mcp_conversation_id" not in ctx
         span.set_attribute.assert_not_called()
-
-
-class TestAppCspHeaderName(SimpleTestCase):
-    def _request(
-        self, path: str, *, distinct_id: str | None = "abc", email: str = "someone@posthog.com"
-    ) -> HttpRequest:
-        request = RequestFactory().get(path)
-        request.user = MagicMock(is_authenticated=distinct_id is not None, distinct_id=distinct_id, email=email)
-        return request
-
-    @parameterized.expand(
-        [
-            ("shared_dashboard", "/shared_dashboard/abc123"),
-            ("shared", "/shared/abc123"),
-            ("embedded", "/embedded/abc123"),
-            ("interview", "/interview/abc123"),
-            ("exporter_with_token", "/exporter/abc123"),
-            ("exporter_render", "/exporter"),
-            ("render_query", "/render_query"),
-            ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177"),
-        ]
-    )
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_embeddable_document_stays_report_only_under_enforcement(self, _name, path, _mock_flag):
-        # A customer's site frames each of these. The app policy names only PostHog origins in
-        # frame-ancestors, so enforcing it here stops the document rendering on their page.
-        assert app_csp_header_name(self._request(path)) == "Content-Security-Policy-Report-Only"
-
-    @parameterized.expand(
-        [
-            ("app_root", "/"),
-            ("project_page", "/project/2/dashboard"),
-            # Neither prefix owns these. A shorter prefix match would hand the app catch-all the
-            # carve-out and quietly exempt an ordinary page from enforcement.
-            ("shared_prefix_without_separator", "/sharedthing"),
-            ("exporter_prefix_without_separator", "/exporterthing"),
-        ]
-    )
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_ordinary_page_is_enforced_for_a_flagged_user(self, _name, path, _mock_flag):
-        assert app_csp_header_name(self._request(path)) == "Content-Security-Policy"
-
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=False)
-    def test_ordinary_page_stays_report_only_without_the_flag(self, _mock_flag):
-        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
-
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_the_flag_lookup_carries_the_email_for_local_evaluation(self, mock_flag):
-        # Local evaluation cannot resolve a condition on email unless the caller supplies it, so a
-        # staff-only rollout would enforce nothing.
-        app_csp_header_name(self._request("/", email="staff@posthog.com"))
-        assert mock_flag.call_args.kwargs["person_properties"] == {"email": "staff@posthog.com"}
-        # Local evaluation keeps a flag network call out of every HTML response.
-        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
-
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_anonymous_request_stays_report_only(self, mock_flag):
-        # Nothing identifies an anonymous viewer, so the flag cannot bucket them. Login and signup
-        # keep the report-only header until enforcement covers everyone.
-        assert app_csp_header_name(self._request("/login", distinct_id=None)) == "Content-Security-Policy-Report-Only"
-        mock_flag.assert_not_called()
-
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
-    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
-        # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
-        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
-
-
-class TestViewManagedCsp(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("custom_policy", "/", False, "default-src 'self'", False),
-            # The workflow asset endpoint sandboxes captured email HTML and leaves frame-ancestors
-            # open so the app can frame it. Enforcement must not replace that policy, because the
-            # app policy drops the sandbox and names a frame-ancestors list the app origin does not
-            # match, which blanks the viewer.
-            ("custom_policy_under_enforcement", "/", True, "sandbox; default-src 'none'", False),
-            ("custom_admin", "/admin/", False, "default-src *", True),
-            ("no_policy", "/", False, None, True),
-        ]
-    )
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_html_response_with_view_managed_csp(
-        self, _name: str, path: str, enforced: bool, policy: str | None, expects_reporting: bool
-    ) -> None:
-        def view(_request: HttpRequest) -> HttpResponse:
-            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
-            if policy is not None:
-                response["Content-Security-Policy"] = policy
-            return response
-
-        request = RequestFactory().get(path)
-        request.user = MagicMock(is_authenticated=True, distinct_id="abc", email="someone@posthog.com")
-        with patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=enforced):
-            response = CSPMiddleware(view)(request)
-
-        if path == "/admin/":
-            assert "frame-ancestors 'none'" in response["Content-Security-Policy"]
-            assert "default-src *" not in response["Content-Security-Policy"]
-        elif policy is not None:
-            assert response["Content-Security-Policy"] == policy
-        else:
-            assert response["Content-Security-Policy"].startswith("frame-ancestors ")
-        assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
-        assert ("Reporting-Endpoints" in response) == expects_reporting

@@ -90,10 +90,22 @@ asked for a draft, a preview, or a review step — see "Draft, then promote" bel
 
 Two ways to publish, both guarded:
 
-- **Whole project** — `canvas-publish-create` with the complete `project`.
-- **Per-file edits** — `canvas-edit-create` with `operations` (each sets a
-  file's complete content, or deletes it with `content: null`). Prefer this for small changes to a
-  large project; the guard is mandatory here because a diff's meaning depends on its base.
+- **Edits** — `canvas-edit-create` with `operations`. This is the default for any change to a canvas that already has source.
+  The guard is mandatory here because an edit's meaning depends on its base.
+- **Whole project** — `canvas-publish-create` with the complete `project`, for a first version or to replace everything.
+
+For an edit with `canvas-edit-create`:
+
+- Use `str_replace` for a change inside a file: `old_string` is text copied from the file you read, with a few surrounding lines so it matches exactly one place.
+  Set `replace_all: true` to change every match, for example a rename.
+- Use `write` with the complete `content` for a new file or a full rewrite, `delete` to remove a file, and `rename` with `new_path` to move one.
+- When the change needs a new capability, for example a `ph.state` scope, also send `capabilities` with the complete new capabilities (the current ones plus the addition) in the same edit.
+  Do not switch to `canvas-publish-create` for that.
+- Put every operation of one change into one call. They apply in order, and the whole edit is rejected if any operation fails.
+- A 400 lists each failed operation by index. `edit_no_match` shows the closest lines of the file and `edit_ambiguous_match` lists the lines that match.
+  Fix those operations from the diagnostic and send the edit again. If one replacement fails twice, `write` that whole file instead.
+- The response returns the new `current_version_id`. Pass it to the next edit.
+  When you published or edited the canvas earlier in this session, do not call `canvas-source-retrieve` before the next edit: you already know the source, and a 409 `version_conflict` tells you when someone else changed it.
 
 For a whole-project publish with `canvas-publish-create`:
 
@@ -112,8 +124,10 @@ The response returns the new `current_version_id`.
 ## After publishing: wait for the build
 
 A publish queues a server-side build of the version. **The canvas does not update until the build
-is ready, and nobody else is watching the result — you own it.** Poll `canvas-builds-retrieve`
-every few seconds (up to ~2 minutes) until the build you queued is terminal:
+is ready, and nobody else is watching the result — you own it.** The publish or edit response
+already carries `build.build_status`. When it is `ready` or `failed`, act on it without another call.
+Only while it is `queued` or `building`, poll `canvas-builds-retrieve` every few seconds (up to ~2 minutes)
+until the build you queued is terminal:
 
 - `queued`/`building` — in progress; poll again shortly.
 - `ready` — the canvas's `published_build_id` advances to this build (unless a newer publish

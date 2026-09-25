@@ -11,6 +11,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
+from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -19,9 +20,11 @@ from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -232,6 +235,32 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             *[{"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features],
         ]
         self.organization.save()
+
+    def test_project_creation_drops_ai_context_account_property_ids(self):
+        self._set_unlimited_projects()
+        from products.customer_analytics.backend.facade.testing import create_custom_property_definition
+
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+
+        created = self.client.post(
+            "/api/projects/",
+            {
+                "name": "Fresh",
+                "conversations_settings": {"ai_context_account_property_ids": [str(definition.id)]},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        # The new project's team owns no property definition, so an id borrowed from another
+        # team must not survive creation.
+        assert created.json()["conversations_settings"]["ai_context_account_property_ids"] == []
+
+        malformed = self.client.post(
+            "/api/projects/",
+            {"name": "Malformed", "conversations_settings": {"ai_context_account_property_ids": ["not-a-uuid"]}},
+            format="json",
+        )
+        assert malformed.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_project_creation_rejects_paid_logs_retention_without_feature(self):
         self._set_unlimited_projects()
@@ -511,6 +540,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""
+        self._mark_project_ingested()
         viewset = ProjectViewSet()
         factory = APIRequestFactory()
         request = factory.delete("/fake")
@@ -577,10 +607,24 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
 
+    def _mark_project_ingested(self) -> None:
+        self.team.ingested_event = True
+        self.team.save(update_fields=["ingested_event"])
+
+    @parameterized.expand(
+        [
+            ("with_ingested_data", True, timedelta(hours=48)),
+            ("without_ingested_data", False, None),
+        ]
+    )
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
-    def test_project_deletion_sets_pending_deletion_flag(self, mock_delete_task):
+    def test_project_deletion_sets_pending_deletion_flag(
+        self, _name, has_ingested_data, expected_delay, mock_delete_task
+    ):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        if has_ingested_data:
+            self._mark_project_ingested()
 
         response = self.client.delete(f"/api/projects/{self.project.id}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -589,19 +633,23 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertTrue(self.project.is_pending_deletion)
         self.assertAlmostEqual(
             self.project.deletion_scheduled_at.timestamp(),
-            (timezone.now() + timedelta(hours=48)).timestamp(),
+            (timezone.now() + (expected_delay or timedelta())).timestamp(),
             delta=5,
         )
         mock_delete_task.assert_called_once()
         start_delay = mock_delete_task.call_args.kwargs["start_delay"]
-        self.assertGreater(start_delay, timedelta(hours=47))
-        self.assertLessEqual(start_delay, timedelta(hours=48))
+        if expected_delay is None:
+            self.assertIsNone(start_delay)
+        else:
+            self.assertLessEqual(start_delay, expected_delay)
+            self.assertGreater(start_delay, expected_delay - timedelta(minutes=1))
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_can_be_canceled(self, mock_delete_task, mock_cancel_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self._mark_project_ingested()
         self.client.delete(f"/api/projects/{self.project.id}")
 
         response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
@@ -679,6 +727,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_project_can_be_deleted_again_after_cancellation(self, mock_start_delete_task, mock_cancel_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self._mark_project_ingested()
         self.client.delete(f"/api/projects/{self.project.id}")
 
         cancel_response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
@@ -1055,6 +1104,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+
+    def test_customer_analytics_config_save_keeps_track_rules_written_meanwhile(self):
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        serializer = TeamCustomerAnalyticsConfigSerializer(config, data={"activity_event": "$pageview"}, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        enabled_at = timezone.now()
+        rules = {**config.account_track_rules, "written": "meanwhile"}
+        TeamCustomerAnalyticsConfig.objects.filter(pk=config.pk).update(
+            account_track_rules=rules, account_track_rules_enabled_at=enabled_at
+        )
+
+        serializer.save()
+
+        config.refresh_from_db()
+        self.assertEqual(config.activity_event, "$pageview")
+        self.assertEqual((config.account_track_rules, config.account_track_rules_enabled_at), (rules, enabled_at))
 
     def test_settings_as_of_action_available_on_projects(self):
         # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.

@@ -177,14 +177,24 @@ class TestMarkdownBlockSpans(SimpleTestCase):
     MARKDOWN = (
         "# Title\n\n"
         "Some prose.\nA second line.\n\n"
+        "<!--ph:phb-anchored-->\nAn anchored paragraph.\n\n"
         '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
         "```python\nx = 1\n\ny = 2\n```\n\n"
         "Closing paragraph."
     )
 
-    def test_every_block_span_slices_back_to_its_source(self) -> None:
-        blocks = list(iter_markdown_blocks(self.MARKDOWN))
-        assert [self.MARKDOWN[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+    @parameterized.expand(
+        [
+            ("no_terminator", ""),
+            ("newline", "\n"),
+            ("crlf", "\r\n"),
+        ]
+    )
+    def test_every_block_span_slices_back_to_its_source(self, _name: str, ending: str) -> None:
+        markdown = self.MARKDOWN + ending
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [markdown[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+        assert blocks[-1].source == "Closing paragraph."
 
     def test_a_fenced_block_stays_whole_across_its_blank_line(self) -> None:
         sources = [block.source for block in iter_markdown_blocks(self.MARKDOWN)]
@@ -222,6 +232,39 @@ class TestMarkdownBlockSpans(SimpleTestCase):
         blocks = list(iter_markdown_blocks("Same text.\n\nSame text."))
         assert len({block.node_id for block in blocks}) == 2
 
+    def test_an_anchored_block_keeps_its_id_when_its_text_changes(self) -> None:
+        edited = self.MARKDOWN.replace("An anchored paragraph.", "A rewritten paragraph.")
+        before = {block.node_id for block in iter_markdown_blocks(self.MARKDOWN)}
+        after = {block.node_id for block in iter_markdown_blocks(edited)}
+        assert "phb-anchored" in before & after
+
+    def test_a_tag_prop_id_wins_over_an_anchor_above_it(self) -> None:
+        markdown = '<!--ph:phb-outer-->\n<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />'
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] == ["s1"]
+
+    def test_a_repeated_anchor_names_only_the_first_block(self) -> None:
+        markdown = "<!--ph:phb-abc-->\nFirst.\n\n<!--ph:phb-abc-->\nSecond."
+        node_ids = [block.node_id for block in iter_markdown_blocks(markdown)]
+        assert node_ids[0] == "phb-abc"
+        assert len(set(node_ids)) == 2
+
+    def test_a_left_behind_anchor_names_no_block(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:phb-abc-->\n\n\nThe next paragraph.\n"))
+        assert [block.source for block in blocks] == ["The next paragraph."]
+        assert blocks[0].node_id != "phb-abc"
+
+    def test_a_comment_that_is_not_a_stored_id_is_not_an_anchor(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:note-->\n\nA paragraph."))
+        assert [block.node_id for block in blocks] != ["note"]
+        assert blocks[0].source == "<!--ph:note-->"
+
+    def test_an_anchor_inside_a_fence_is_not_read_as_one(self) -> None:
+        markdown = "```\n<!--ph:phb-example-->\n```\n\nParagraph."
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] != ["phb-example"]
+        assert blocks[0].source == "```\n<!--ph:phb-example-->\n```"
+
 
 class TestCellCountLimit(SimpleTestCase):
     @parameterized.expand(
@@ -229,16 +272,30 @@ class TestCellCountLimit(SimpleTestCase):
             ("under", MAX_NOTEBOOK_CELLS - 1, True),
             ("at_the_limit", MAX_NOTEBOOK_CELLS, True),
             ("over", MAX_NOTEBOOK_CELLS + 1, False),
+            ("prepared_insights_at_limit", MAX_NOTEBOOK_CELLS, True, "Query"),
+            ("prepared_insights_over_limit", MAX_NOTEBOOK_CELLS + 1, False, "Insight"),
         ]
     )
-    def test_growth_is_refused_past_the_ceiling(self, _name: str, next_count: int, allowed: bool) -> None:
+    def test_growth_is_refused_past_the_ceiling(
+        self, _name: str, next_count: int, allowed: bool, insight_tag: str | None = None
+    ) -> None:
         # Without a ceiling an agent adds cells in a loop, and every SQL or Python cell it adds
         # is a query or a sandbox execution. Nothing else bounds that.
+        content = (
+            cells_markdown(next_count)
+            if insight_tag is None
+            else markdown_content(
+                "\n\n".join(
+                    f'<{insight_tag} nodeId="i{index}" dataframeQuery="select 1" returnVariable="df_{index}" />'
+                    for index in range(next_count)
+                )
+            )
+        )
         if allowed:
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
             return
         with self.assertRaises(NotebookCellLimitExceeded):
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
 
     @parameterized.expand([("unchanged", 0), ("shrinking", -1)])
     def test_a_notebook_already_over_the_ceiling_stays_editable(self, _name: str, delta: int) -> None:

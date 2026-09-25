@@ -4,13 +4,17 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
+import dagster
 import pyarrow as pa
 from parameterized import parameterized
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
+from products.signals.dags.inbox_ranking.dataset import dag, queries
 from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_SCHEMA,
     LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
     assemble_model_rows,
@@ -27,6 +31,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     STATUS_SQL,
     hogql_rows,
     merge_label_streams,
+    region_app_host,
     utc_bound,
     valid_report_uuids,
 )
@@ -67,6 +72,22 @@ def test_cloud_requires_dedicated_bucket(monkeypatch, cloud_deployment, bucket, 
     monkeypatch.setattr(common.settings, "CLOUD_DEPLOYMENT", cloud_deployment)
     monkeypatch.setattr(common.settings, "INBOX_RANKING_DATASET_S3_BUCKET", bucket)
     assert common.dataset_unconfigured() is expected_unconfigured
+
+
+@pytest.mark.parametrize(
+    "cloud_deployment,expected",
+    [
+        ("US", "us.posthog.com"),
+        ("eu", "eu.posthog.com"),
+        (None, "localhost:8010"),
+    ],
+)
+def test_region_app_host_comes_from_the_region_not_the_site_url(monkeypatch, cloud_deployment, expected):
+    # A Dagster deployment sets CLOUD_DEPLOYMENT and leaves SITE_URL at its default, so a host
+    # read from SITE_URL matches no impression event and the shadow read grades nothing.
+    monkeypatch.setattr(queries.settings, "CLOUD_DEPLOYMENT", cloud_deployment)
+    monkeypatch.setattr(queries.settings, "SITE_URL", "http://localhost:8010")
+    assert region_app_host() == expected
 
 
 @pytest.mark.parametrize(
@@ -531,3 +552,74 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
 
         row = self._status_row()
         assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)
+
+
+def _run_embeddings_asset(monkeypatch, asset, rows):
+    """Run one embeddings asset against a stubbed ClickHouse and S3, and return what it wrote."""
+    captured: dict[str, Any] = {}
+
+    def fake_sync_execute(sql, params, **kwargs):
+        captured["params"] = params
+        return rows
+
+    def fake_write_parquet(client, bucket, key, table, **kwargs):
+        captured["key"] = key
+        captured["table"] = table
+
+    monkeypatch.setattr(dag, "sync_execute", fake_sync_execute)
+    monkeypatch.setattr(dag, "write_parquet", fake_write_parquet)
+    monkeypatch.setattr(dag, "skip_unconfigured", lambda context: False)
+    monkeypatch.setattr(dag, "_tag_dagster_queries", lambda context, query_type: None)
+    monkeypatch.setattr(dag, "dataset_bucket", lambda: "test-bucket")
+    monkeypatch.setattr(dag, "s3_client", lambda: None)
+    monkeypatch.setattr(dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+
+    context = dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat())
+    asset(context)
+    return captured
+
+
+@pytest.mark.parametrize(
+    "asset,table,rendering",
+    [
+        (dag.inbox_report_embeddings, "inbox_report_embeddings", EMBEDDING_RENDERING_TITLE_SUMMARY),
+        (dag.inbox_report_title_embeddings, "inbox_report_title_embeddings", EMBEDDING_RENDERING_TITLE),
+    ],
+)
+def test_each_embeddings_asset_snapshots_its_own_rendering(monkeypatch, asset, table, rendering):
+    written = _run_embeddings_asset(monkeypatch, asset, [(2, UUID_A, [0.5, 0.25], False, T1)])
+
+    assert written["params"]["rendering"] == rendering
+    assert written["key"] == common.partition_object_key("inbox_ranking", table, SNAPSHOT_DATE.isoformat())
+    assert written["table"].schema == EMBEDDINGS_SCHEMA
+    assert written["table"].column("embedding_rendering").to_pylist() == [rendering]
+    assert written["table"].column("report_id").to_pylist() == [UUID_A]
+
+
+@pytest.mark.parametrize("asset", [dag.inbox_report_embeddings, dag.inbox_report_title_embeddings])
+def test_an_empty_result_still_writes_the_full_schema(monkeypatch, asset):
+    # A day before a rendering was emitted must read as "present, zero rows", not as missing.
+    written = _run_embeddings_asset(monkeypatch, asset, [])
+
+    assert written["table"].num_rows == 0
+    assert written["table"].schema == EMBEDDINGS_SCHEMA
+
+
+def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():
+    selection = dag.inbox_ranking_dataset_job.selection.resolve(
+        [
+            dag.inbox_report_state,
+            dag.inbox_report_embeddings,
+            dag.inbox_signal_embeddings,
+            dag.inbox_report_labels,
+            dag.inbox_report_model_data,
+            dag.inbox_report_title_embeddings,
+        ]
+    )
+    assert dagster.AssetKey(dag.TITLE_EMBEDDINGS_TABLE) in selection
+
+    model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
+    assert dag.TITLE_EMBEDDINGS_TABLE not in model_data_deps
+
+    title_deps = {key.path[-1] for key in dag.inbox_report_title_embeddings.keys_by_input_name.values()}
+    assert title_deps == {dag.MODEL_DATA_TABLE}

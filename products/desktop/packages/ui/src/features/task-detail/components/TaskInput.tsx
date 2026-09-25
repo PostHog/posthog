@@ -15,6 +15,7 @@ import {
   modelOptionForHarness,
   syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
+import { preferredRunsOnPi } from "@posthog/core/task-detail/previewConfig";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
@@ -66,6 +67,7 @@ import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
 import { pendingTaskPromptStoreApi } from "../../../shell/pendingTaskPromptStore";
+import { shouldFocusOnBackgroundClick } from "../../../utils/backgroundClick";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
@@ -129,6 +131,7 @@ import {
 import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
+import { useTaskRunDefaults } from "../hooks/useTaskRunDefaults";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
@@ -210,6 +213,7 @@ interface TaskInputProps {
    * picker can hold shut mid-submit, like every other chip in the row.
    */
   spaceSelector?: (props: { disabled: boolean }) => ReactNode;
+  heading?: ReactNode;
 }
 
 export function TaskInput({
@@ -241,6 +245,7 @@ export function TaskInput({
   onSuggestionSelect,
   onContextChipClick,
   spaceSelector,
+  heading,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const trpc = useHostTRPC();
@@ -487,6 +492,14 @@ export function TaskInput({
 
   const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
+  const { defaults: runDefaults, isSettled: runDefaultsSettled } =
+    useTaskRunDefaults();
+  const hasLocalModelPick = useSettingsStore(
+    (state) =>
+      state.lastUsedModel != null ||
+      state.lastUsedReasoningEffort != null ||
+      state.lastUsedPiModel != null,
+  );
   const reposReady = areReposReady({
     isLoadingRepos,
     repositoriesCount: repositories.length,
@@ -494,14 +507,28 @@ export function TaskInput({
   });
 
   useEffect(() => {
-    if (didResolveRuntimeRef.current || !settingsHydrated || !flagsLoaded) {
+    if (
+      didResolveRuntimeRef.current ||
+      !settingsHydrated ||
+      !flagsLoaded ||
+      !runDefaultsSettled
+    ) {
       return;
     }
     didResolveRuntimeRef.current = true;
-    setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
-    );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
+    const wantsPi =
+      lastUsedAgentRuntime === "pi" ||
+      (!hasLocalModelPick && preferredRunsOnPi(runDefaults));
+    setRuntime(piHarnessEnabled && wantsPi ? "pi" : "acp");
+  }, [
+    flagsLoaded,
+    hasLocalModelPick,
+    lastUsedAgentRuntime,
+    piHarnessEnabled,
+    runDefaults,
+    runDefaultsSettled,
+    settingsHydrated,
+  ]);
 
   const {
     workspaceMode,
@@ -874,6 +901,10 @@ export function TaskInput({
     modeFallback;
   const currentReasoningLevel =
     thoughtOption?.type === "select" ? thoughtOption.currentValue : undefined;
+  const preferredPiModelId =
+    !hasLocalModelPick && preferredRunsOnPi(runDefaults)
+      ? runDefaults.model
+      : null;
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
     // Pi runs any gateway model, so a session pick outside Pi's curated
@@ -881,14 +912,23 @@ export function TaskInput({
     (selectedPiModelId
       ? syntheticPiModelSelection(modelOption, selectedPiModelId)
       : undefined) ??
+    (preferredPiModelId
+      ? (piModelCatalog.find((model) => model.id === preferredPiModelId) ??
+        syntheticPiModelSelection(modelOption, preferredPiModelId))
+      : undefined) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
+  const preferredPiThinkingLevel =
+    preferredPiModelId && currentPiModel?.id === preferredPiModelId
+      ? (runDefaults.reasoning_effort as PiThinkingLevel | null)
+      : null;
+  const piThinkingFallback = preferredPiThinkingLevel ?? "high";
   const currentPiThinkingLevel = piThinkingLevels.includes(
-    selectedPiThinkingLevel ?? "high",
+    selectedPiThinkingLevel ?? piThinkingFallback,
   )
-    ? (selectedPiThinkingLevel ?? "high")
+    ? (selectedPiThinkingLevel ?? piThinkingFallback)
     : piThinkingLevels[0];
   const supportsPiThinking = piThinkingLevels.some((level) => level !== "off");
   const currentContextWindow =
@@ -929,6 +969,7 @@ export function TaskInput({
 
   useWarmTask({
     claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
+    codexModelAccess: adapter === "codex" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -938,9 +979,11 @@ export function TaskInput({
     allowNoRepo: repoOptional,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
-    runtimeAdapter: adapter ?? null,
+    agentRuntime: runtime,
+    runtimeAdapter: adapter ?? "claude",
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
+    permissionMode: currentExecutionMode,
     sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
     customImageId: cloudIds.customImageId ?? null,
   });
@@ -1353,7 +1396,11 @@ export function TaskInput({
 
   const handleContainerClick = useCallback((e: React.MouseEvent) => {
     if (!e.currentTarget.contains(e.target as Node)) return;
-    if ((e.target as HTMLElement).closest(FOCUSABLE_SELECTOR)) return;
+    if (
+      !shouldFocusOnBackgroundClick(e.target as HTMLElement, FOCUSABLE_SELECTOR)
+    ) {
+      return;
+    }
     editorRef.current?.focus();
   }, []);
 
@@ -1390,15 +1437,24 @@ export function TaskInput({
                 // Note: this is NOT tied to `editorIsEmpty` — the input keeps its
                 // position as the user types so the box doesn't jump down when the
                 // suggestions fade out (and back in when the prompt is cleared).
-                top: suggestions && suggestions.length > 0 ? "38%" : "50%",
+                top: heading
+                  ? "34%"
+                  : suggestions && suggestions.length > 0
+                    ? "38%"
+                    : "50%",
                 transform: "translate(-50%, -50%)",
               }}
               className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
+              {heading}
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                className={
+                  heading
+                    ? "min-w-0 gap-1"
+                    : "absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                }
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
                 {/* One group, so changing the location does not unmount the

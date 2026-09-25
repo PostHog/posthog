@@ -132,10 +132,12 @@ import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
     type SurveyQueryFilters,
+    type SurveyResponseContextColumn,
     type SurveyResponseOutcome,
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildSurveyResponsesQuery,
+    buildSurveyResponsesExportQuery,
     buildSurveyResponseStatsQuery,
     buildSurveyRespondentQuery,
     buildSurveyOptionalBooleanPropertyFilter,
@@ -718,6 +720,8 @@ export interface surveyLogicValues {
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
+    responseContextColumns: SurveyResponseContextColumn[]
+    responsesExportQuery: DataTableNode | null
     resultsFiltersExpanded: boolean
     resultsRequeryInProgress: boolean
     reusableSurveyNotifications: HogFunctionType[]
@@ -1261,6 +1265,13 @@ export interface surveyLogicActions {
         responseValue: any
         specificQuestionIndex: any
     }
+    setResponseContextColumn: (
+        column: SurveyResponseContextColumn,
+        show: boolean
+    ) => {
+        column: 'current_url' | 'person_id' | 'session_id'
+        show: boolean
+    }
     setResponseExpanded: (
         uuid: string,
         expanded: boolean
@@ -1439,7 +1450,16 @@ export interface surveyLogicMeta {
             propertyFilters: AnyPropertyFilter[],
             answerFilters: EventPropertyFilter[],
             timestampFilter: string,
-            archivedResponsesFilter: string
+            archivedResponsesFilter: string,
+            responseContextColumns: ('current_url' | 'person_id' | 'session_id')[]
+        ) => DataTableNode | null
+        responsesExportQuery: (
+            survey: NewSurvey | Survey,
+            propertyFilters: AnyPropertyFilter[],
+            answerFilters: EventPropertyFilter[],
+            timestampFilter: string,
+            archivedResponsesFilter: string,
+            responseContextColumns: ('current_url' | 'person_id' | 'session_id')[]
         ) => DataTableNode | null
         targetingFlagFilters: (survey: NewSurvey | Survey) => FeatureFlagFilters | undefined
         urlMatchTypeValidationError: (survey: NewSurvey | Survey) => string | null
@@ -1589,6 +1609,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
+        setResponseContextColumn: (column: SurveyResponseContextColumn, show: boolean) => ({ column, show }),
         setResponseExpanded: (uuid: string, expanded: boolean) => ({ uuid, expanded }),
         toggleResponseExpansion: (uuid: string) => ({ uuid }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
@@ -2098,7 +2119,8 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
                         const batch = allIds.slice(i, i + BATCH_SIZE)
-                        const response = await api.create(`api/environments/${teamId}/persons/batch_by_distinct_ids/`, {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. personsBatchByDistinctIdsCreate() from 'products/persons/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                        const response = await api.create(`api/projects/${teamId}/persons/batch_by_distinct_ids/`, {
                             distinct_ids: batch,
                         })
 
@@ -2475,6 +2497,18 @@ export const surveyLogic = kea<surveyLogicType>([
             { persist: true },
             {
                 setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
+            },
+        ],
+        responseContextColumns: [
+            [] as SurveyResponseContextColumn[],
+            { persist: true },
+            {
+                setResponseContextColumn: (state, { column, show }) => {
+                    if (show === state.includes(column)) {
+                        return state
+                    }
+                    return show ? [...state, column] : state.filter((key) => key !== column)
+                },
             },
         ],
         resultsRequeryInProgress: [
@@ -3061,13 +3095,21 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataTableQuery: [
-            (s) => [s.survey, s.propertyFilters, s.answerFilters, s.timestampFilter, s.archivedResponsesFilter],
+            (s) => [
+                s.survey,
+                s.propertyFilters,
+                s.answerFilters,
+                s.timestampFilter,
+                s.archivedResponsesFilter,
+                s.responseContextColumns,
+            ],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
                 answerFilters: EventPropertyFilter[],
                 timestampFilter: string,
-                archivedResponsesFilter: string
+                archivedResponsesFilter: string,
+                responseContextColumns: SurveyResponseContextColumn[]
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -3076,11 +3118,15 @@ export const surveyLogic = kea<surveyLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.HogQLQuery,
-                        query: buildSurveyResponsesQuery(survey, {
-                            answerFilters,
-                            timestampFilter,
-                            archivedResponsesFilter,
-                        }),
+                        query: buildSurveyResponsesQuery(
+                            survey,
+                            {
+                                answerFilters,
+                                timestampFilter,
+                                archivedResponsesFilter,
+                            },
+                            responseContextColumns
+                        ),
                         filters: { properties: propertyFilters },
                     },
                     hiddenColumns: ['response'],
@@ -3093,6 +3139,38 @@ export const surveyLogic = kea<surveyLogicType>([
                     showTimings: false,
                     contextKey: `survey:${survey.id}`,
                 }
+            },
+        ],
+        responsesExportQuery: [
+            (s) => [
+                s.survey,
+                s.propertyFilters,
+                s.answerFilters,
+                s.timestampFilter,
+                s.archivedResponsesFilter,
+                s.responseContextColumns,
+            ],
+            (
+                survey: Survey,
+                propertyFilters: AnyPropertyFilter[],
+                answerFilters: EventPropertyFilter[],
+                timestampFilter: string,
+                archivedResponsesFilter: string,
+                responseContextColumns: SurveyResponseContextColumn[]
+            ): DataTableNode | null => {
+                if (survey.id === 'new') {
+                    return null
+                }
+                const query = buildSurveyResponsesExportQuery(
+                    survey,
+                    {
+                        answerFilters,
+                        timestampFilter,
+                        archivedResponsesFilter,
+                    },
+                    responseContextColumns
+                )
+                return { ...query, source: { ...query.source, filters: { properties: propertyFilters } } }
             },
         ],
         targetingFlagFilters: [

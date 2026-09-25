@@ -20,7 +20,12 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerSummaryResponse,
     scanner_from_db,
 )
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.base import (
+    SIGNAL_HEADLINE_MAX_LENGTH,
+    BaseScanner,
+    SignalFinding,
+    SignalsResponse,
+)
 from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
 from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
 
@@ -840,6 +845,7 @@ class TestSignalSideMission:
     # A complete, valid `signal` payload for round-trip tests.
     _VALID_SIGNAL = {
         "problem_type": "bug",
+        "headline": "Checkout CTA does nothing",
         "start_time": 72,
         "end_time": 78,
         "url": "https://app.example.com/cart",
@@ -960,3 +966,13 @@ class TestSignalSideMission:
         # The description is embedded for free-text search, so leaked `(t …)` markers must never reach it.
         signal = SignalFinding.model_validate({**self._VALID_SIGNAL, "description": raw})
         assert signal.description == clean
+
+    def test_signal_headline_strips_markers_and_holds_its_length(self) -> None:
+        # The headline shares the description's marker leak, and a watch feed card lists three of them on one
+        # line, so a model that answers with a sentence instead of a phrase must not reflow the card.
+        marked = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "Checkout CTA (t 844) does nothing"})
+        assert marked.headline == "Checkout CTA does nothing"
+
+        long = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "word " * 40})
+        assert len(long.headline) <= SIGNAL_HEADLINE_MAX_LENGTH
+        assert not long.headline.endswith(" ")

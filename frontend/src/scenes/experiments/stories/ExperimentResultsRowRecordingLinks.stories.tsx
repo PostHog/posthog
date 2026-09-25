@@ -110,6 +110,25 @@ export const ExperimentResultsRowRecordingLinksMeanMenu: Story = {
 }
 
 /**
+ * A metric the Recordings tab can't select: the button stays usable and opens every recording of
+ * the variant, while the two modes that name the metric's population stay refused. The menu is open
+ * because the button itself looks the same either way, so this is the only state a screenshot
+ * separates.
+ */
+export const ExperimentResultsRowRecordingLinksUnselectableMetric: Story = {
+    parameters: { pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id) },
+    decorators: [
+        meanMetricDecorator,
+        mswDecorator({
+            // The metric's only event has never been seen with a session id, which is what makes it
+            // unselectable on the tab.
+            get: { '/api/projects/:team_id/property_definitions/seen_together': { $pageview: false } },
+        }),
+    ],
+    play: openFirstRowMenu,
+}
+
+/**
  * The ~520px of scene a nav sidebar and an open side panel leave, where the button has to hold its
  * column rather than push the rest of the table out of reach.
  */

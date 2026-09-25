@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.
     GRANULARITY_OPTIONS,
     INCREMENTAL_FIELDS,
     PARTITION_KEYS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -118,7 +119,7 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
             group_by=group_by,
         )
 
-        primary_keys = ["usage_date", *group_by] if inputs.schema_name == "Costs" else ["id"]
+        primary_keys = ["usage_date", *group_by] if inputs.schema_name == "Costs" else PRIMARY_KEYS[inputs.schema_name]
         partition_key = PARTITION_KEYS.get(inputs.schema_name)
 
         return SourceResponse(
@@ -140,8 +141,11 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CloudZero",
             caption=(
-                "Enter your CloudZero API key. The key must be granted the `billing:read_costs` and "
-                "`billing:read_dimensions` scopes in CloudZero under Settings > API Keys."
+                "Enter your CloudZero API key. Grant it `billing:read_dimensions` so PostHog can check "
+                "the connection, then add a scope for each table you want to sync: `billing:read_costs` "
+                "for costs, `budgets:read_budgets` for budgets, `insights:read_insights` for insights, "
+                "and `optimize:list_recommendations` plus `optimize:list_recommendation_types` for "
+                "recommendations. You set these in CloudZero under Settings > API Keys."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/cloudzero",
             iconPath="/static/services/cloudzero.png",

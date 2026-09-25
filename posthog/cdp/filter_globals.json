@@ -1,0 +1,702 @@
+{
+    "$comment": "Generated. Do not edit: run `pnpm --filter=@posthog/nodejs run build:filter-globals`. roots are the data globals the CDP filter runtime builds for a hog function. callables are the standard-library names the VM hands back as values and can then invoke, so they are the ones a filter can pass as a callback. functions are every standard-library name a filter can call directly, with the argument count the VM enforces as [min, max]. template_roots are the names an input template can read. Django reads this to refuse a filter or an input the runtime could not evaluate.",
+    "roots": [
+        "$group_0",
+        "$group_1",
+        "$group_2",
+        "$group_3",
+        "$group_4",
+        "distinct_id",
+        "elements_chain",
+        "elements_chain_elements",
+        "elements_chain_href",
+        "elements_chain_ids",
+        "elements_chain_texts",
+        "event",
+        "group_0",
+        "group_1",
+        "group_2",
+        "group_3",
+        "group_4",
+        "pdi",
+        "person",
+        "properties",
+        "timestamp",
+        "uuid",
+        "variables"
+    ],
+    "callables": [
+        "Error",
+        "HogError",
+        "JSONExtract",
+        "JSONExtractArrayRaw",
+        "JSONExtractBool",
+        "JSONExtractFloat",
+        "JSONExtractInt",
+        "JSONExtractString",
+        "JSONHas",
+        "JSONLength",
+        "NotImplementedError",
+        "RetryError",
+        "addDays",
+        "and",
+        "arrayPopBack",
+        "arrayPopFront",
+        "arrayPushBack",
+        "arrayPushFront",
+        "arrayReverse",
+        "arrayReverseSort",
+        "arraySort",
+        "arrayStringConcat",
+        "assumeNotNull",
+        "base64Decode",
+        "base64Encode",
+        "coalesce",
+        "concat",
+        "dateAdd",
+        "dateDiff",
+        "dateTrunc",
+        "decodeURLComponent",
+        "empty",
+        "encodeURLComponent",
+        "equals",
+        "extract",
+        "extractRegex",
+        "floor",
+        "formatDateTime",
+        "fromUnixTimestamp",
+        "fromUnixTimestampMilli",
+        "generateUUIDv4",
+        "greater",
+        "greaterOrEquals",
+        "has",
+        "if",
+        "ifNull",
+        "ilike",
+        "in",
+        "indexOf",
+        "isIPAddressInRange",
+        "isNotNull",
+        "isNull",
+        "isValidJSON",
+        "jsonParse",
+        "jsonStringify",
+        "keys",
+        "length",
+        "less",
+        "lessOrEquals",
+        "like",
+        "lower",
+        "match",
+        "md5",
+        "md5Hex",
+        "min2",
+        "minus",
+        "multiIf",
+        "multiSearchAnyCaseInsensitive",
+        "not",
+        "notEmpty",
+        "notEquals",
+        "notILike",
+        "notLike",
+        "now",
+        "or",
+        "plus",
+        "position",
+        "positionCaseInsensitive",
+        "randomFloat",
+        "range",
+        "replaceAll",
+        "replaceOne",
+        "reverse",
+        "round",
+        "sha1",
+        "sha1Hex",
+        "sha1HmacChain",
+        "sha1HmacChainHex",
+        "sha256",
+        "sha256Hex",
+        "sha256HmacChain",
+        "sha256HmacChainHex",
+        "splitByString",
+        "startsWith",
+        "substring",
+        "toDate",
+        "toDateTime",
+        "toFloat",
+        "toInt",
+        "toIntervalDay",
+        "toIntervalHour",
+        "toIntervalMinute",
+        "toIntervalMonth",
+        "toMonth",
+        "toStartOfDay",
+        "toStartOfHour",
+        "toStartOfMonth",
+        "toStartOfWeek",
+        "toString",
+        "toTimeZone",
+        "toUUID",
+        "toUnixTimestamp",
+        "toUnixTimestampMilli",
+        "toYYYYMM",
+        "toYear",
+        "today",
+        "trim",
+        "trimLeft",
+        "trimRight",
+        "tryBase64Decode",
+        "tryDecodeURLComponent",
+        "tuple",
+        "typeof",
+        "upper",
+        "values"
+    ],
+    "functions": {
+        "Error": [
+            0,
+            2
+        ],
+        "HogError": [
+            1,
+            3
+        ],
+        "JSONExtract": [
+            2,
+            null
+        ],
+        "JSONExtractArrayRaw": [
+            1,
+            null
+        ],
+        "JSONExtractBool": [
+            1,
+            null
+        ],
+        "JSONExtractFloat": [
+            1,
+            null
+        ],
+        "JSONExtractInt": [
+            1,
+            null
+        ],
+        "JSONExtractString": [
+            1,
+            null
+        ],
+        "JSONHas": [
+            1,
+            null
+        ],
+        "JSONLength": [
+            1,
+            null
+        ],
+        "NotImplementedError": [
+            0,
+            2
+        ],
+        "RetryError": [
+            0,
+            2
+        ],
+        "addDays": [
+            2,
+            2
+        ],
+        "and": [
+            1,
+            null
+        ],
+        "arrayPopBack": [
+            1,
+            1
+        ],
+        "arrayPopFront": [
+            1,
+            1
+        ],
+        "arrayPushBack": [
+            2,
+            2
+        ],
+        "arrayPushFront": [
+            2,
+            2
+        ],
+        "arrayReverse": [
+            1,
+            1
+        ],
+        "arrayReverseSort": [
+            1,
+            null
+        ],
+        "arraySort": [
+            1,
+            null
+        ],
+        "arrayStringConcat": [
+            1,
+            2
+        ],
+        "assumeNotNull": [
+            1,
+            1
+        ],
+        "base64Decode": [
+            1,
+            1
+        ],
+        "base64Encode": [
+            1,
+            1
+        ],
+        "coalesce": [
+            1,
+            null
+        ],
+        "concat": [
+            1,
+            null
+        ],
+        "dateAdd": [
+            3,
+            3
+        ],
+        "dateDiff": [
+            3,
+            3
+        ],
+        "dateTrunc": [
+            2,
+            3
+        ],
+        "decodeURLComponent": [
+            1,
+            1
+        ],
+        "empty": [
+            1,
+            1
+        ],
+        "encodeURLComponent": [
+            1,
+            1
+        ],
+        "equals": [
+            2,
+            2
+        ],
+        "extract": [
+            2,
+            2
+        ],
+        "extractRegex": [
+            2,
+            2
+        ],
+        "floor": [
+            1,
+            2
+        ],
+        "formatDateTime": [
+            2,
+            3
+        ],
+        "fromUnixTimestamp": [
+            1,
+            1
+        ],
+        "fromUnixTimestampMilli": [
+            1,
+            1
+        ],
+        "generateUUIDv4": [
+            0,
+            0
+        ],
+        "greater": [
+            2,
+            2
+        ],
+        "greaterOrEquals": [
+            2,
+            2
+        ],
+        "has": [
+            2,
+            2
+        ],
+        "if": [
+            3,
+            3
+        ],
+        "ifNull": [
+            2,
+            2
+        ],
+        "ilike": [
+            2,
+            2
+        ],
+        "in": [
+            2,
+            2
+        ],
+        "indexOf": [
+            2,
+            2
+        ],
+        "isIPAddressInRange": [
+            2,
+            2
+        ],
+        "isNotNull": [
+            1,
+            1
+        ],
+        "isNull": [
+            1,
+            1
+        ],
+        "isValidJSON": [
+            1,
+            1
+        ],
+        "jsonParse": [
+            1,
+            1
+        ],
+        "jsonStringify": [
+            1,
+            2
+        ],
+        "keys": [
+            1,
+            1
+        ],
+        "length": [
+            1,
+            1
+        ],
+        "less": [
+            2,
+            2
+        ],
+        "lessOrEquals": [
+            2,
+            2
+        ],
+        "like": [
+            2,
+            2
+        ],
+        "lower": [
+            1,
+            1
+        ],
+        "match": [
+            2,
+            2
+        ],
+        "md5": [
+            1,
+            2
+        ],
+        "md5Hex": [
+            1,
+            1
+        ],
+        "min2": [
+            2,
+            2
+        ],
+        "minus": [
+            2,
+            2
+        ],
+        "multiIf": [
+            3,
+            null
+        ],
+        "multiSearchAnyCaseInsensitive": [
+            2,
+            2
+        ],
+        "not": [
+            1,
+            1
+        ],
+        "notEmpty": [
+            1,
+            1
+        ],
+        "notEquals": [
+            2,
+            2
+        ],
+        "notILike": [
+            2,
+            2
+        ],
+        "notLike": [
+            2,
+            2
+        ],
+        "now": [
+            0,
+            1
+        ],
+        "or": [
+            1,
+            null
+        ],
+        "plus": [
+            2,
+            2
+        ],
+        "position": [
+            2,
+            3
+        ],
+        "positionCaseInsensitive": [
+            2,
+            3
+        ],
+        "randomFloat": [
+            0,
+            0
+        ],
+        "range": [
+            1,
+            2
+        ],
+        "replaceAll": [
+            3,
+            3
+        ],
+        "replaceOne": [
+            3,
+            3
+        ],
+        "reverse": [
+            1,
+            1
+        ],
+        "round": [
+            1,
+            2
+        ],
+        "sha1": [
+            1,
+            2
+        ],
+        "sha1Hex": [
+            1,
+            1
+        ],
+        "sha1HmacChain": [
+            1,
+            2
+        ],
+        "sha1HmacChainHex": [
+            1,
+            1
+        ],
+        "sha256": [
+            1,
+            2
+        ],
+        "sha256Hex": [
+            1,
+            1
+        ],
+        "sha256HmacChain": [
+            1,
+            2
+        ],
+        "sha256HmacChainHex": [
+            1,
+            1
+        ],
+        "splitByString": [
+            2,
+            3
+        ],
+        "startsWith": [
+            2,
+            2
+        ],
+        "substring": [
+            2,
+            3
+        ],
+        "toDate": [
+            1,
+            1
+        ],
+        "toDateTime": [
+            1,
+            2
+        ],
+        "toFloat": [
+            1,
+            1
+        ],
+        "toInt": [
+            1,
+            1
+        ],
+        "toIntervalDay": [
+            1,
+            1
+        ],
+        "toIntervalHour": [
+            1,
+            1
+        ],
+        "toIntervalMinute": [
+            1,
+            1
+        ],
+        "toIntervalMonth": [
+            1,
+            1
+        ],
+        "toMonth": [
+            1,
+            1
+        ],
+        "toStartOfDay": [
+            1,
+            2
+        ],
+        "toStartOfHour": [
+            1,
+            1
+        ],
+        "toStartOfMonth": [
+            1,
+            1
+        ],
+        "toStartOfWeek": [
+            1,
+            2
+        ],
+        "toString": [
+            1,
+            2
+        ],
+        "toTimeZone": [
+            2,
+            2
+        ],
+        "toUUID": [
+            1,
+            1
+        ],
+        "toUnixTimestamp": [
+            1,
+            2
+        ],
+        "toUnixTimestampMilli": [
+            1,
+            2
+        ],
+        "toYYYYMM": [
+            1,
+            1
+        ],
+        "toYear": [
+            1,
+            1
+        ],
+        "today": [
+            0,
+            0
+        ],
+        "trim": [
+            1,
+            2
+        ],
+        "trimLeft": [
+            1,
+            2
+        ],
+        "trimRight": [
+            1,
+            2
+        ],
+        "tryBase64Decode": [
+            1,
+            1
+        ],
+        "tryDecodeURLComponent": [
+            1,
+            1
+        ],
+        "tuple": [
+            0,
+            null
+        ],
+        "typeof": [
+            1,
+            1
+        ],
+        "upper": [
+            1,
+            1
+        ],
+        "values": [
+            1,
+            1
+        ],
+        "arrayCount": [
+            2,
+            2
+        ],
+        "arrayExists": [
+            2,
+            2
+        ],
+        "arrayFilter": [
+            2,
+            2
+        ],
+        "arrayMap": [
+            2,
+            2
+        ],
+        "arrayReduce": [
+            3,
+            3
+        ],
+        "inCohort": [
+            2,
+            2
+        ],
+        "notInCohort": [
+            2,
+            2
+        ],
+        "sortableSemver": [
+            1,
+            1
+        ]
+    },
+    "template_roots": [
+        "actions",
+        "event",
+        "groups",
+        "inputs",
+        "person",
+        "project",
+        "request",
+        "source",
+        "unsubscribe_url",
+        "unsubscribe_url_one_click",
+        "variables"
+    ]
+}

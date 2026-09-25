@@ -1,0 +1,205 @@
+# serializer version: 1
+# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_respects_date_range[new_events_schema]
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events_json AS events
+              LEFT OUTER JOIN
+                (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+                        toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id
+                 FROM error_tracking_fingerprint_issue_state
+                 WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+                 GROUP BY fp_hash
+                 HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(events__fingerprint_issue_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE lessOrEquals(row_number, 3)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_limit[new_events_schema]
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events_json AS events
+              LEFT OUTER JOIN
+                (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+                        toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id
+                 FROM error_tracking_fingerprint_issue_state
+                 WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+                 GROUP BY fp_hash
+                 HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(events__fingerprint_issue_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE lessOrEquals(row_number, 3)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_null_values[new_events_schema]
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events_json AS events
+              LEFT OUTER JOIN
+                (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+                        toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id
+                 FROM error_tracking_fingerprint_issue_state
+                 WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+                 GROUP BY fp_hash
+                 HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(events__fingerprint_issue_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE lessOrEquals(row_number, 3)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingBreakdownsQueryRunner.test_multiple_breakdown_properties[new_events_schema]
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))))), '$$_posthog_breakdown_null_$$')), tuple('$os', ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os`)), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$os`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$os`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$os`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$os`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$os`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$os`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`)))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events_json AS events
+              LEFT OUTER JOIN
+                (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+                        toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id
+                 FROM error_tracking_fingerprint_issue_state
+                 WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+                 GROUP BY fp_hash
+                 HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(events__fingerprint_issue_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE lessOrEquals(row_number, 3)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---

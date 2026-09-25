@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -26,6 +27,7 @@ import type {
 import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
 import { WorkflowRun, isDecisiveFailure, isPassingConclusion } from '../lib/lifecycle'
+import { withScope } from '../lib/scope'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -176,6 +178,7 @@ export interface pullRequestDetailLogicValues {
     lifecycleLoading: boolean
     loadFailed: boolean
     prCost: PRCostSummaryApi | null
+    prCostFailed: boolean
     prCostLoading: boolean
     prRuns: WorkflowRunDetailApi[]
     prRunsFailed: boolean
@@ -349,7 +352,13 @@ export interface pullRequestDetailLogicMeta {
         pushes: (authoredRuns: WorkflowRunDetailApi[]) => number
         rerunCycles: (authoredRuns: WorkflowRunDetailApi[]) => number
         timeline: (timelines: PullRequestTimelinesApi | null) => PRTimelineApi | null
-        breadcrumbs: (repoOwner: string, repoName: string, number: number) => Breadcrumb[]
+        breadcrumbs: (
+            repoOwner: string,
+            repoName: string,
+            number: number,
+            sourceId: string | null,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -479,6 +488,14 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 loadPrRuns: () => false,
                 loadPrRunsSuccess: () => false,
                 loadPrRunsFailure: () => true,
+            },
+        ],
+        prCostFailed: [
+            false,
+            {
+                loadPrCost: () => false,
+                loadPrCostSuccess: () => false,
+                loadPrCostFailure: () => true,
             },
         ],
         timelinesFailed: [false, { loadTimelines: () => false, loadTimelinesFailure: () => true }],
@@ -658,18 +675,24 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 timelines?.items.find((item) => item.segments.length > 0) ?? null,
         ],
         breadcrumbs: [
-            (_, p) => [p.repoOwner, p.repoName, p.number],
-            (repoOwner: string, repoName: string, number: number): Breadcrumb[] => [
+            (s, p) => [p.repoOwner, p.repoName, p.number, s.sourceId, router.selectors.searchParams],
+            (
+                repoOwner: string,
+                repoName: string,
+                number: number,
+                sourceId: string | null,
+                searchParams: Record<string, string | undefined>
+            ): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
-                    path: urls.engineeringAnalytics(),
+                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {
                     key: 'EngineeringAnalyticsPullRequests',
                     name: 'Pull requests',
-                    path: urls.engineeringAnalyticsPullRequestList(),
+                    path: withScope(urls.engineeringAnalyticsPullRequestList(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {

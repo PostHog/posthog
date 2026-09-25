@@ -29,6 +29,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
+from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
@@ -253,7 +254,7 @@ batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
         ),
         "data_interval_end": DateTimeDatabaseField(
             name="data_interval_end",
-            nullable=False,
+            nullable=True,
             description="End of the time range covered by the run",
         ),
         "status": StringDatabaseField(
@@ -1253,9 +1254,6 @@ session_recordings: PostgresTable = PostgresTable(
         "retention_period_days": IntegerDatabaseField(
             name="retention_period_days", description="How long the recording is retained, in days."
         ),
-        "storage_version": StringDatabaseField(
-            name="storage_version", description="Storage format version of the recording payload."
-        ),
     },
 )
 
@@ -1320,6 +1318,48 @@ teams: PostgresTable = PostgresTable(
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the project was last updated."),
     },
 )
+
+data_deletion_requests: PostgresTable = PostgresTable(
+    name="data_deletion_requests",
+    postgres_table_name="posthog_datadeletionrequest",
+    description="Self-service event deletion requests submitted for the project; one row per immutable HogQL query snapshot.",
+    access_scope="data_deletion",
+    resource_level_access_only=True,
+    postgres_pushdown_values={"request_type": "hogql_event_removal"},
+    predicates=[parse_expr("request_type = 'hogql_event_removal'"), parse_expr("query != ''")],
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Deletion request UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        "request_type": StringDatabaseField(name="request_type", hidden=True),
+        "status": StringDatabaseField(name="status", description="Current request workflow status."),
+        "query": StringDatabaseField(name="hogql_query", description="Immutable HogQL query snapshot."),
+        "variables": StringJSONDatabaseField(
+            name="hogql_variables", description="Variables stored with the immutable HogQL query snapshot."
+        ),
+        "selected_count": IntegerDatabaseField(
+            name="count", nullable=True, description="Number of selected events, if calculated."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who submitted the request."
+        ),
+        "created_by_staff": BooleanDatabaseField(
+            name="created_by_staff",
+            nullable=True,
+            description="Whether the submitting user was a PostHog staff member.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the request was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the request was last updated."),
+        "approved_at": DateTimeDatabaseField(
+            name="approved_at", nullable=True, description="When the request was approved."
+        ),
+        "selection_calculated_at": DateTimeDatabaseField(
+            name="stats_calculated_at",
+            nullable=True,
+            description="When the selected event count was last calculated.",
+        ),
+    },
+)
+
 
 exports: PostgresTable = PostgresTable(
     name="exports",
@@ -2022,15 +2062,15 @@ class _TicketScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
 
     The framework's auto-injected `team_id = X` guard is skipped (the column doesn't exist);
     isolation instead flows from the predicate scoping through `system.support_tickets`, whose
-    own team_id guard the framework re-applies to the inner reference. For the tag junction,
-    the same predicate also prunes non-ticket `posthog_taggeditem` rows (tags on insights,
-    dashboards, accounts, ...), which carry a NULL `ticket_id` and so never match a ticket id.
+    own team_id guard the framework re-applies to the inner reference.
     """
 
     predicates: list[Expr] = [parse_expr("ticket_id IN (SELECT id FROM system.support_tickets)")]
 
 
-ticket_tagged_items: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
+ticket_tagged_items: TaggedItemsTable = TaggedItemsTable(
+    tagged_model="ticket",
+    predicates=[parse_expr("ticket_id IN (SELECT id FROM system.support_tickets)")],
     name="_ticket_tagged_items",
     postgres_table_name="posthog_taggeditem",
     description="Internal junction table (PostgreSQL `posthog_taggeditem`) of tag-to-ticket links; not for direct querying — use `system.support_tickets.tags`.",
@@ -2038,9 +2078,14 @@ ticket_tagged_items: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
         "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
         "tag_id": UUIDDatabaseField(name="tag_id", description="Tag applied to the ticket; join to `system.tags.id`."),
         "ticket_id": StringDatabaseField(
-            name="ticket_id",
+            name="object_uuid",
             nullable=True,
             description="Ticket the tag is applied to; join to `system.support_tickets.id`.",
+        ),
+        "content_type_id": IntegerDatabaseField(
+            name="content_type_id",
+            hidden=True,
+            description="Kind of object the tag is applied to; the table only returns ticket rows.",
         ),
     },
 )
@@ -2957,6 +3002,7 @@ class SystemTables(TableNode):
         "dataset_items": TableNode(name="dataset_items", table=dataset_items),
         "dataset_revisions": TableNode(name="dataset_revisions", table=dataset_revisions),
         "datasets": TableNode(name="datasets", table=datasets),
+        "data_deletion_requests": TableNode(name="data_deletion_requests", table=data_deletion_requests),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),

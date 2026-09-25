@@ -8,7 +8,12 @@ import { Team } from '~/types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { CdpOutput } from '../cdp-services'
-import { BatchResolverState, serializeResolverState } from '../services/hogflows/batch-resolver.types'
+import {
+    BatchResolverState,
+    MAX_RESOLVER_ATTEMPTS,
+    serializeResolverState,
+} from '../services/hogflows/batch-resolver.types'
+import { AudienceFetchTimeoutError } from '../services/hogflows/hogflow-batch-person-query.service'
 import {
     HogInvocationResultRow,
     HogInvocationResultsService,
@@ -375,6 +380,94 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(jest.getTimerCount()).toBe(0)
             await jest.advanceTimersByTimeAsync(20_000)
             expect(heartbeat).toHaveBeenCalledTimes(2)
+        })
+    })
+    describe('permanent audience fetch failure', () => {
+        const buildConsumer = (getBlastRadiusPersons: jest.Mock, queueLogs: jest.Mock): any => {
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, {
+                config: { SITE_URL: 'https://us.posthog.com' },
+                deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
+                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogFunctionMonitoringService: {
+                    queueAppMetrics: jest.fn(),
+                    queueLogs,
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+                invocationResultsService: {
+                    invocationResultsRowsService: { flush: jest.fn().mockResolvedValue(undefined) },
+                },
+            })
+            return consumer
+        }
+
+        const buildJob = (state: BatchResolverState): any => ({
+            id: 'job-last-attempt',
+            teamId: team.id,
+            functionId: hogFlow.id,
+            parentRunId: state.batchJobId,
+            cancelRequestedAt: null,
+            state: serializeResolverState(state),
+            heartbeat: jest.fn().mockResolvedValue(undefined),
+            bulkCreateAndCheckIn: jest.fn().mockResolvedValue({ newJobIds: [] }),
+            reschedule: jest.fn().mockResolvedValue(undefined),
+            ack: jest.fn().mockResolvedValue(undefined),
+            fail: jest.fn().mockResolvedValue(undefined),
+        })
+
+        // One attempt short of the cap, so the failure in each case is the permanent one.
+        const lastAttemptState = (): BatchResolverState => ({
+            batchJobId: 'batch-job-fail',
+            teamId: team.id,
+            hogFlowId: hogFlow.id,
+            cursor: null,
+            filters: { properties: [] },
+            maxAudienceSize: 100,
+            totalEnqueued: 0,
+            pagesProcessed: 0,
+            attempts: MAX_RESOLVER_ATTEMPTS - 1,
+            variables: {},
+            startedAt: '2026-08-11T00:00:00.000Z',
+        })
+
+        it('tells the customer what to change when the audience query timed out', async () => {
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(
+                jest.fn().mockRejectedValue(new AudienceFetchTimeoutError('user_blast_radius_persons', 30_000)),
+                queueLogs
+            )
+            const job = buildJob(lastAttemptState())
+
+            await consumer.processResolverJob(job)
+
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message:
+                            'Batch resolver failed: Audience query timed out after 30s on the last of ' +
+                            `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`,
+                    }),
+                ],
+                'hog_flow'
+            )
+        })
+
+        it('keeps the generic reason for a failure that is not a timeout', async () => {
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(jest.fn().mockRejectedValue(new Error('network down')), queueLogs)
+            const job = buildJob(lastAttemptState())
+
+            await consumer.processResolverJob(job)
+
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message: `Batch resolver failed: Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`,
+                    }),
+                ],
+                'hog_flow'
+            )
         })
     })
 })

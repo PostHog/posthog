@@ -3,11 +3,12 @@ import socket
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.db import InterfaceError, InternalError, OperationalError
 from django.db.models import Prefetch
 
+import redis.exceptions as redis_exceptions
 from jsonpath_ng.exceptions import JSONPathError
 from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
@@ -149,6 +150,9 @@ WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
     }
 )
 
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
 # Opening the parent's Delta table costs a few seconds that paging the vendor listing does not:
 # resolve the table, read the transaction log, start the scan. That cost is fixed, while the
@@ -316,6 +320,17 @@ async def _probe_found_new_data(
         await logger.ainfo("Fast-return probe: source has no new data")
         return False
     return True
+
+
+def v3_pipeline_class(source_response: SourceResponse) -> "type[PipelineV3]":
+    """A source feeding several tables from one read declares lanes; everything else runs the
+    base class untouched."""
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+        LanedPipelineV3,
+        PipelineV3,
+    )
+
+    return LanedPipelineV3 if source_response.lanes else PipelineV3
 
 
 @activity.defn
@@ -712,7 +727,8 @@ async def _handle_import_error(
     by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
     that condition already. A transient object-store hiccup talking to our own data-warehouse
     bucket is re-raised as ``NonReportableError`` the same way, as is a Django
-    ``OperationalError``/``InterfaceError`` (a connection-pool blip against our own app DB).
+    ``OperationalError``/``InterfaceError`` (a connection-pool blip against our own app DB) and a
+    ``redis.exceptions.ConnectionError``/``TimeoutError`` (a blip against our own DATA_WAREHOUSE_REDIS).
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -853,6 +869,17 @@ async def _handle_import_error(
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
+    # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
+    # PostHog's own instance, never anything a customer's source touches. A connectivity blip there
+    # (unreachable, refusing connections while restarting) clears on its own once the instance is
+    # reachable again, so it shouldn't disable the schema or page anyone. Narrowed to
+    # Connection/TimeoutError rather than the broader RedisError so a real command-level defect
+    # (ResponseError) still reaches error tracking.
+    if isinstance(error, redis_exceptions.ConnectionError | redis_exceptions.TimeoutError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient data-warehouse Redis error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
     # A Django OperationalError/InterfaceError/InternalError here comes from a lookup against
     # PostHog's own app DB (e.g. resolving a team or CustomPropertySource for the person-property
     # staging hook) — every source that talks to a customer's own database (Postgres, MySQL,
@@ -918,7 +945,7 @@ async def _run(
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
             logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
-            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
+            pipeline: PipelineV3 | PipelineNonDLT = v3_pipeline_class(source_response)(
                 source_response,
                 logger,
                 job_inputs.run_id,

@@ -1,5 +1,11 @@
 # Troubleshooting
 
+## An image in a local task does not load
+
+Local task messages can show PNG, JPEG, GIF, WebP, and AVIF files that are inside the task workspace. Use an absolute workspace path or a path relative to the workspace. Images outside the workspace and remote image URLs stay blocked.
+
+Cloud task files are not on your computer. Upload those files as task artifacts before you link to them.
+
 ## Conversation is too large to continue
 
 A request can exceed the size limit when a conversation contains large images or tool output.

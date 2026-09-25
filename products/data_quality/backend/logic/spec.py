@@ -11,7 +11,7 @@ Adding anomaly detection or unit tests later means adding a spec, not migrating 
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..facade.enums import CheckType, SubjectType
 from .contracts import CheckPlan, SubjectRef
@@ -22,6 +22,15 @@ class CheckConfig(BaseModel):
     """Base for every check type's config. Unknown keys are a mistake worth reporting, not ignoring."""
 
     model_config = ConfigDict(extra="forbid")
+
+    lookback_hours: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Only examine rows from the last N hours, by the subject's time column. Optional, and "
+            "only for a subject that has one. Without it the check reads the whole table."
+        ),
+    )
 
 
 class NoConfig(CheckConfig):
@@ -39,7 +48,9 @@ class CheckTypeSpec(ABC):
     config_model: ClassVar[type[CheckConfig]]
     requires_column: ClassVar[bool]
     description: ClassVar[str]
-    subject_types: ClassVar[frozenset[SubjectType]] = frozenset({SubjectType.TABLE, SubjectType.VIEW})
+    subject_types: ClassVar[frozenset[SubjectType]] = frozenset(
+        {SubjectType.TABLE, SubjectType.VIEW, SubjectType.POSTHOG_TABLE}
+    )
     reads_beyond_subject: ClassVar[bool] = False
 
     @property

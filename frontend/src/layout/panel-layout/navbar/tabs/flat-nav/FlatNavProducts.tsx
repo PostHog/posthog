@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -10,11 +10,43 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { getCustomIcon } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
+import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { NavLink } from '../../NavLink'
 import { flatNavLogic } from './flatNavLogic'
 import { FlatNavSection } from './FlatNavSection'
+import { FlatNavDashboardsMenuItems } from './menus/FlatNavDashboardsMenuItems'
+import { FlatNavProductAnalyticsMenuItems } from './menus/FlatNavProductAnalyticsMenuItems'
+import { FlatNavProductMenu } from './menus/FlatNavProductMenu'
+import { FlatNavSessionReplayMenuItems } from './menus/FlatNavSessionReplayMenuItems'
+
+// Keyed by product path, the same key the picked-tools list stores
+const PRODUCT_MENUS: Record<string, JSX.Element> = {
+    'Product analytics': (
+        <FlatNavProductMenu icon={<IconPlusSmall />} tooltip="New insight" data-attr="flat-nav-tool-menu-insight">
+            <FlatNavProductAnalyticsMenuItems />
+        </FlatNavProductMenu>
+    ),
+    Dashboards: (
+        <FlatNavProductMenu
+            icon={<IconChevronDown />}
+            tooltip="Pinned dashboards"
+            data-attr="flat-nav-tool-menu-dashboards"
+        >
+            <FlatNavDashboardsMenuItems />
+        </FlatNavProductMenu>
+    ),
+    'Session replay': (
+        <FlatNavProductMenu
+            icon={<IconChevronDown />}
+            tooltip="Saved filters and collections"
+            data-attr="flat-nav-tool-menu-session-replay"
+        >
+            <FlatNavSessionReplayMenuItems />
+        </FlatNavProductMenu>
+    ),
+}
 
 function slugify(path: string): string {
     return path.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -59,18 +91,33 @@ export function FlatNavProducts(): JSX.Element {
                                     <span className="text-xs font-semibold text-tertiary">{group.category}</span>
                                 </div>
                             )}
-                            {group.items.map((item) => (
-                                <NavLink
-                                    key={item.path}
-                                    to={item.href}
-                                    label={item.label}
-                                    icon={iconForType(item.iconType, item.iconColor)}
-                                    isCollapsed={false}
-                                    tag={item.tag}
-                                    data-attr={`flat-nav-tool-${slugify(item.path)}`}
-                                    onClick={() => reportNavItemClicked(item.path, 'tools')}
-                                />
-                            ))}
+                            {group.items.map((item) => {
+                                // A product can register an icon that carries live state, such as the
+                                // support unread counter. iconForType supplies the color wrapper itself,
+                                // so a registered icon needs that wrapper added around it.
+                                const CustomIcon = getCustomIcon(item.type, item.href)
+                                return (
+                                    <NavLink
+                                        key={item.path}
+                                        to={item.href}
+                                        label={item.label}
+                                        icon={
+                                            CustomIcon ? (
+                                                <ProductIconWrapper type={item.iconType} colorOverride={item.iconColor}>
+                                                    <CustomIcon />
+                                                </ProductIconWrapper>
+                                            ) : (
+                                                iconForType(item.iconType, item.iconColor)
+                                            )
+                                        }
+                                        isCollapsed={false}
+                                        tag={item.tag}
+                                        data-attr={`flat-nav-tool-${slugify(item.path)}`}
+                                        onClick={() => reportNavItemClicked(item.path, 'tools')}
+                                        sideAction={PRODUCT_MENUS[item.path]}
+                                    />
+                                )
+                            })}
                         </Fragment>
                     ))
                 )}

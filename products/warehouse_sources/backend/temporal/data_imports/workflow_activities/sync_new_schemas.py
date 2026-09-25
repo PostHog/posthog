@@ -59,11 +59,26 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     )
     if not source_exists:
         delete_discover_schemas_schedule(str(inputs.source_id))
-        raise Exception("Source no longer exists - deleted discover-schemas temporal schedule")
+        logger.info("Source no longer exists, deleted the discover-schemas schedule")
+        return
 
     source = ExternalDataSource.objects.get(team_id=inputs.team_id, id=inputs.source_id)
 
-    source_type_enum = ExternalDataSourceType(source.source_type)
+    try:
+        source_type_enum = ExternalDataSourceType(source.source_type)
+    except ValueError:
+        # A stored source type that this build's enum does not carry cannot be synced by any
+        # code path here, so every discovery run repeats the same failure. Two situations reach
+        # this: a source type that was dropped from the enum while rows still referenced it, and
+        # a source type that web code creates before every worker carries it. The second one
+        # recovers on its own once the worker catches up, so the schedule stays in place instead
+        # of self-destructing.
+        logger.warning(
+            "Skipping schema discovery: stored source type is not a known ExternalDataSourceType",
+            source_type=source.source_type,
+        )
+        return
+
     if SourceRegistry.is_registered(source_type_enum):
         if not source.job_inputs:
             return

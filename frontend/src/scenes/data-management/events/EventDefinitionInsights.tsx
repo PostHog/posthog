@@ -12,7 +12,7 @@ import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { EventDefinition, QueryBasedInsightModel } from '~/types'
+import { EventDefinition, InsightModel } from '~/types'
 
 export function EventDefinitionInsights({ definition }: { definition: EventDefinition }): JSX.Element {
     const event = definition.name
@@ -20,7 +20,7 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
     const { setPage, setFilters } = useActions(eventInsightsLogic({ event }))
     const summarizeInsight = useSummarizeInsight()
 
-    const columns: LemonTableColumns<QueryBasedInsightModel> = [
+    const columns: LemonTableColumns<InsightModel> = [
         {
             key: 'id',
             width: 32,
@@ -45,8 +45,8 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
             },
             sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
         },
-        createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
-        createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        createdByColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
+        createdAtColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
         {
             title: 'Last modified',
             sorter: true,

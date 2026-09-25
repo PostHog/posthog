@@ -45,6 +45,8 @@ export function renderNode({
     setListItemRef,
     setTableCellRef,
     updateNode,
+    onBtw,
+    askAIDisabledReason,
     replaceNodeWithNodes,
     deleteNode,
     deleteNodeAndFocusAdjacent,
@@ -95,6 +97,8 @@ export function renderNode({
     setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    onBtw?: () => void
+    askAIDisabledReason?: string
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNode: () => void
     deleteNodeAndFocusAdjacent: () => void
@@ -195,6 +199,8 @@ export function renderNode({
                 rememberComponentPanels={rememberComponentPanels}
                 setBlockRef={setBlockRef}
                 updateNode={updateNode}
+                onBtw={onBtw}
+                askAIDisabledReason={askAIDisabledReason}
                 deleteNode={deleteNode}
                 deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
                 insertParagraphAfterNode={insertParagraphAfterNode}

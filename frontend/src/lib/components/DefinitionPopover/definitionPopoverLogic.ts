@@ -1,6 +1,7 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
@@ -14,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModel, getReferencedCohortIds, isIndividualInsightPath } from '~/models/cohortsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
@@ -221,6 +222,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         if (values.isAction) {
                             // Action Definitions
                             const _action = definition as ActionType
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use actionsPartialUpdate() from 'products/actions/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/actions/${_action.id}`,
                                 _action
@@ -229,6 +231,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         } else if (values.isEvent) {
                             // Event Definitions
                             const _event = definition as EventDefinition
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use eventDefinitionsPartialUpdate() from 'products/event_definitions/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/event_definitions/${_event.id}`,
                                 {
@@ -243,6 +246,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         ) {
                             // Event Property Definitions
                             const _eventProperty = definition as PropertyDefinition
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use propertyDefinitionsPartialUpdate() from '~/generated/core/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
@@ -253,6 +257,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPartialUpdate() from 'products/cohorts/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/cohorts/${_cohort.id}`,
                                 _cohort
@@ -438,7 +443,13 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values, props, cache }) => ({
-        setDefinition: (_, __, ___, previousState) => {
+        setDefinition: ({ item }, __, ___, previousState) => {
+            if (values.isCohort && isIndividualInsightPath(router.values.location.pathname)) {
+                const ids = getReferencedCohortIds((item as Partial<CohortType>).filters)
+                if (ids.length) {
+                    cohortsModel.findMounted()?.actions.loadCohortsByIds({ ids })
+                }
+            }
             // Reset definition popover to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&

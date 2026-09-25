@@ -95,6 +95,11 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 # distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
 PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
 
+# How long a quorum-skipping caller waits after building before its own read, so the
+# parts can replicate (observed lag between colocated replicas is under a second).
+# Zero in tests and local dev: the single-node ClickHouse there has no replica to lag.
+PREAGGREGATION_REPLICATION_SETTLE_SECONDS: float = 0.0 if TEST or DEBUG else 1.0
+
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
@@ -166,7 +171,7 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
+def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -176,13 +181,20 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     GROUP BY hash table can grow large (high-cardinality breakdowns), and most
     kinds never approach the threshold, so callers enable it deliberately rather
     than paying for it everywhere.
+
+    `read_after_write=False` drops the replica-quorum wait. Quorum's only job is
+    the read-your-own-writes edge case: a SELECT issued right after this INSERT
+    landing on a replica the part hasn't reached yet. A caller whose reads come
+    minutes later (background builders) gets no consistency from it — only the
+    failure mode where a downed or stale-registered replica turns every build
+    into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
     settings.update(
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM if read_after_write else 0,
             "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
@@ -238,6 +250,10 @@ class TtlSchedule:
     non-UTC teams, whose UTC-aligned edge windows can land in a long-TTL band while
     still settling. `None` disables the check.
 
+    `invalidate_at_window_start` rejects jobs computed before their window starts once
+    that start is reached, even within stale grace. A future window can be warmed in
+    advance, but its snapshot must not hide new data after the window begins.
+
     `empty_result_ttl_seconds` caps the TTL of a job that wrote no rows. A zero-row insert is
     indistinguishable from a productive one at the SQL level, but it leaves the window only
     *provisionally* computed: either the source genuinely had no activity, or it hadn't been
@@ -278,6 +294,7 @@ class TtlSchedule:
     empty_result_ttl_seconds: int | None = None
     empty_result_max_age_seconds: int | None = None
     default_ttl_jitter_seconds: int | None = None
+    invalidate_at_window_start: bool = False
 
     def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
         """TTL for a window. `jittered=True` adds the default-band jitter offset.
@@ -335,6 +352,7 @@ def parse_ttl_schedule(
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
     default_ttl_jitter_seconds: int | None = None,
+    invalidate_at_window_start: bool = False,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -372,6 +390,7 @@ def parse_ttl_schedule(
             empty_result_ttl_seconds=empty_result_ttl_seconds,
             empty_result_max_age_seconds=empty_result_max_age_seconds,
             default_ttl_jitter_seconds=default_ttl_jitter_seconds,
+            invalidate_at_window_start=invalidate_at_window_start,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -403,6 +422,7 @@ def parse_ttl_schedule(
         empty_result_ttl_seconds=empty_result_ttl_seconds,
         empty_result_max_age_seconds=empty_result_max_age_seconds,
         default_ttl_jitter_seconds=default_ttl_jitter_seconds,
+        invalidate_at_window_start=invalidate_at_window_start,
     )
 
 
@@ -542,6 +562,7 @@ class LazyComputationTable(StrEnum):
     # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
     WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
+    WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -574,7 +595,7 @@ class LazyComputationQuery:
     cache_key_context: dict[str, str] | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
 
@@ -588,6 +609,23 @@ class LazyComputationResult:
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
     stale: bool = False
+    # True when part of the coverage landed during this call (built inline, or waited on
+    # another executor's build). Callers that skipped the replica quorum
+    # (read_after_write=False) must not read these jobs in the same request: the parts
+    # may not have replicated to the read replica yet, and a wrong result read now would
+    # be cached. Serving live once and letting the next request use the jobs is the
+    # intended reaction.
+    freshly_built: bool = False
+    # Oldest `computed_at` across the served jobs — the moment the stalest window in the
+    # range was last materialized. None when nothing was served (not ready) or a served
+    # job predates the column. Callers surface it as "data as of X".
+    computed_at: datetime | None = None
+
+
+def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
+    """Oldest `computed_at` among served jobs — the stalest window bounds how old the data can be."""
+    stamps = [j.computed_at for j in jobs if j.computed_at is not None]
+    return min(stamps) if stamps else None
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -1186,6 +1224,7 @@ class LazyComputationExecutor:
                             ready=True,
                             job_ids=[j.id for j in covering],
                             stale=True,
+                            computed_at=_oldest_computed_at(covering),
                         )
                         _log_execution("stale_hit", result)
                         return result
@@ -1424,7 +1463,12 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        result = LazyComputationResult(
+            ready=True,
+            job_ids=[j.id for j in final_ready],
+            freshly_built=jobs_created > 0 or bool(waited_job_ids),
+            computed_at=_oldest_computed_at(final_ready),
+        )
         _log_execution("success", result)
         return result
 
@@ -1518,6 +1562,9 @@ class LazyComputationExecutor:
         TTL. `grace_seconds` is only non-zero for the serve-stale path and relaxes both
         caps uniformly.
 
+        `invalidate_at_window_start` is a hard boundary: stale grace cannot make a
+        snapshot taken before the window began cover data arriving after it began.
+
         This is per-query: a job created by executor A with a long TTL may be
         rejected by executor B using a stricter schedule for the same hash.
         """
@@ -1527,6 +1574,8 @@ class LazyComputationExecutor:
         for job in jobs:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
+                continue
+            if self.ttl_schedule.invalidate_at_window_start and job.created_at < job.time_range_start <= now:
                 continue
             desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start, jittered=True)
             fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)
@@ -1562,6 +1611,7 @@ def ensure_precomputed(
     empty_result_max_age_seconds: int | None = None,
     end_is_data_horizon: bool = False,
     cache_key_context: dict[str, str] | None = None,
+    read_after_write: bool = True,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1633,6 +1683,14 @@ def ensure_precomputed(
                       into its own filters, so it stores no rows past it. Job claims
                       then clamp to a historical end instead of claiming the full
                       final day. See LazyComputationExecutor.execute.
+        read_after_write: Set False when no caller SELECTs the inserted rows in the
+                      same request that ran this ensure (background builders whose
+                      readers arrive minutes later). Skips the replica-quorum wait on
+                      the INSERT, so builds keep succeeding while a replica is down
+                      or stale-registered; the cost is that a reader can miss the
+                      newest parts until replication catches up — usually fast, but
+                      with no guaranteed bound. The post-build settle wait covers the
+                      builder's own read-back; later readers accept the residual risk.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1717,7 +1775,7 @@ def ensure_precomputed(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
+                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
                 )
             )
 
@@ -1739,7 +1797,7 @@ def ensure_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
     )
-    return executor.execute(
+    result = executor.execute(
         team,
         query_info,
         time_range_start,
@@ -1747,6 +1805,13 @@ def ensure_precomputed(
         run_insert=_run_manual_insert,
         end_is_data_horizon=end_is_data_horizon,
     )
+    if not read_after_write and result.ready and result.freshly_built and PREAGGREGATION_REPLICATION_SETTLE_SECONDS:
+        # The coverage landed during this call and quorum was skipped, so the parts may
+        # not have reached the caller's read replica yet. Waiting out the replication
+        # lag here is what keeps the caller's immediate read-back (the warmer warming
+        # the query cache) from caching a partial result for the full TTL.
+        time.sleep(PREAGGREGATION_REPLICATION_SETTLE_SECONDS)
+    return result
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

@@ -137,6 +137,14 @@ Connect your Instagram account, then pick the professional account you want to s
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `instagram.py`'s `InstagramClient.get` already retries these in-process via tenacity
+        # (5 attempts, exponential backoff) before re-raising `InstagramRetryableError`. A
+        # 429/5xx/throttle/transient code that survives all 5 attempts is a momentary Meta Graph
+        # API blip, not a bug — Temporal's activity retry recovers once it clears, so keep it out
+        # of error tracking as noise.
+        return {"Instagram API error (retryable)"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,

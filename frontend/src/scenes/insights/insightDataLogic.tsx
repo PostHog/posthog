@@ -29,6 +29,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { cohortsModel, getReferencedCohortIds, isIndividualInsightPath } from '~/models/cohortsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -88,7 +89,7 @@ import type {
     AccessControlLevel,
     DashboardTileBasicType,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
     SetInsightOptions,
     UserBasicType,
 } from '../../types'
@@ -100,9 +101,21 @@ import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
-export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
-    sceneLogic.values.activeSceneId === Scene.Insight &&
-    insightSceneLogic.findMounted()?.values.insightLogicRef?.logic.key === keyForInsightLogicProps('new')(props)
+// insightId/dashboardId are reducers set synchronously by the same action that matches the URL.
+// insightLogicRef is set by a separate listener that rebuilds and mounts a new logic instance, a
+// side effect that can still be running right after the scene mounts. Comparing against the ref
+// can read a stale value while insightId/dashboardId are already correct, letting a save through
+// while the editor is still showing this insight.
+export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
+    if (sceneLogic.values.activeSceneId !== Scene.Insight) {
+        return false
+    }
+    const sceneValues = insightSceneLogic.findMounted()?.values
+    return (
+        sceneValues?.insightId === props.dashboardItemId &&
+        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null)
+    )
+}
 
 const isMatchingSqlQuery = (
     query: Node | null | undefined,
@@ -138,14 +151,15 @@ export interface insightDataLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     insightLoadingTimeSeconds: number // dataNodeLogic
     insightPollResponse: Record<string, QueryStatus | null> | null // dataNodeLogic
     insightQuery: DataNode<Record<string, any>> // dataNodeLogic
     queryId: string | null // dataNodeLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
-    insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
-    savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
+    insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
+    savedInsight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     currentTeamId: number | null // teamLogic
     canEditInSqlEditor: boolean
     exportContext: ExportContext | undefined
@@ -204,6 +218,7 @@ export interface insightDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?:
@@ -235,6 +250,7 @@ export interface insightDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
     } // dataNodeLogic
@@ -373,23 +389,23 @@ export interface insightDataLogicActions {
         }
     } // insightLogic
     setInsight: (
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+        insight: Partial<InsightModel<Node<Record<string, any>>>>,
         options: SetInsightOptions
     ) => {
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+        insight: Partial<InsightModel<Node<Record<string, any>>>>
         options: SetInsightOptions
     } // insightLogic
     setInsightMetadata: (
         metadataUpdate: Partial<
-            Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
+            Pick<InsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
         >
     ) => {
         metadataUpdate: Partial<
-            Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
+            Pick<InsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
         >
     } // insightLogic
-    renameInsightSuccess: (item: QueryBasedInsightModel<Node<Record<string, any>>>) => {
-        item: QueryBasedInsightModel<Node<Record<string, any>>>
+    renameInsightSuccess: (item: InsightModel<Node<Record<string, any>>>) => {
+        item: InsightModel<Node<Record<string, any>>>
     } // insightsModel
     cancelChanges: () => {
         value: true
@@ -414,6 +430,9 @@ export interface insightDataLogicActions {
             name: string
         } | null
         payload?: any
+    }
+    loadReferencedCohorts: () => {
+        value: true
     }
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
@@ -454,7 +473,7 @@ export interface insightDataLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         query: (
             propsQuery: QuerySchema | null | undefined,
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            insight: Partial<InsightModel<Node<Record<string, any>>>>,
             internalQuery: Node<Record<string, any>> | null,
             filterTestAccountsDefault: boolean,
             isDataWarehouseQuery: boolean
@@ -463,11 +482,11 @@ export interface insightDataLogicMeta {
         propsQuery: (arg: any) => QuerySchema | null | undefined
         exportContext: (
             query: Node<Record<string, any>> | null,
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+            insight: Partial<InsightModel<Node<Record<string, any>>>>
         ) => ExportContext | undefined
         queryChanged: (
             query: Node<Record<string, any>> | null,
-            savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            savedInsight: Partial<InsightModel<Node<Record<string, any>>>>,
             filterTestAccountsDefault: boolean
         ) => boolean
         insightData: (
@@ -485,6 +504,7 @@ export interface insightDataLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => Record<string, any>
         hogQL: (insightData: Record<string, any>, query: Node<Record<string, any>> | null) => string | null
@@ -542,6 +562,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     actions({
+        loadReferencedCohorts: true,
         setQuery: (query: Node | null, fromUrl: boolean = false) => ({ query, fromUrl }),
         syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
@@ -640,7 +661,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (
                 propsQuery: null | import('~/queries/schema/schema-general').QuerySchema | undefined,
-                insight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
+                insight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>,
                 internalQuery: Node | null,
                 filterTestAccountsDefault: boolean,
                 isDataWarehouseQuery: boolean
@@ -666,10 +687,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
         exportContext: [
             (s) => [s.query, s.insight],
-            (
-                query: Node | null,
-                insight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>
-            ) => {
+            (query: Node | null, insight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -692,7 +710,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault],
             (
                 query: Node | null,
-                savedInsight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
+                savedInsight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>,
                 filterTestAccountsDefault: boolean
             ) => {
                 let savedOrDefaultQuery
@@ -793,6 +811,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, cache, values, props }) => ({
+        loadReferencedCohorts: () => {
+            if (isIndividualInsightPath(router.values.location.pathname)) {
+                const ids = getReferencedCohortIds(values.query)
+                if (ids.length) {
+                    cohortsModel.actions.loadCohortsByIds({ ids })
+                }
+            }
+        },
+        syncQueryFromProps: () => actions.loadReferencedCohorts(),
         persistDisplayOptions: async ({ query }, breakpoint) => {
             // Never auto-persist while the user is editing this insight in the insight scene.
             // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
@@ -979,6 +1006,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
+            actions.loadReferencedCohorts()
             // A shared link's query (`#q=`) is applied before the saved insight arrives, so re-syncing
             // here would silently discard the date range and interval the sender chose.
             if (values.queryFromUrl) {
@@ -999,6 +1027,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
+            actions.loadReferencedCohorts()
             // When this is the insight scene's own insight, sync the query to the URL
             if (isInsightSceneInstance(props)) {
                 const insightId = insightSceneLogic.findMounted()?.values.insightId
@@ -1103,6 +1132,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         }
     }),
     afterMount(({ actions, props }) => {
+        actions.loadReferencedCohorts()
         // On a dashboard, the first response for a tile can say “we don’t have chart numbers yet”
         // (`result: null`) instead of leaving the field unset. Without a real fetch, the UI can look
         // like a failed load (“Chart data didn’t load”) even though we simply haven’t run the query.

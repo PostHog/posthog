@@ -48,6 +48,9 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         # The trusted/untrusted context tags the frontend wraps messages with.
         assert "<posthog_trusted_context>" in prompt
         assert "<posthog_untrusted_context>" in prompt
+        # The legacy tag the deprecated `context_wrapper.py` bridge still emits needs the same
+        # untrusted framing, or page-derived context arrives on that path with none.
+        assert "`<posthog_context>` is a legacy block" in prompt
         assert "AI observability** (also called AIO, LLM analytics, or LLMA)" in prompt
 
     def test_does_not_inject_groups_billing_core_memory_or_project_context(self):

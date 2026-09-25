@@ -20,6 +20,10 @@ from django.conf import settings
 import requests
 from prometheus_client import Counter
 
+from products.tasks.backend.logic.services.gateway_model_pin import PRODUCT_ALLOWED_MODELS, model_allowed_by_product_pin
+from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
+
 logger = logging.getLogger(__name__)
 
 AI_GATEWAY_TOKEN_MINTS = Counter(
@@ -61,10 +65,16 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
 # review_hog qualifies because validate_origin_product reserves the origin and
 # the resolver requires the server-stamped `internal` flag; rows predating the
-# reservation resolve to posthog_code and cannot mint.
+# reservation resolve to posthog_code and cannot mint. slack_app needs server
+# provenance too (has_slack_provenance), older rows included.
+# workflows qualifies because validate_origin_product reserves its origin for the
+# workflow_tasks endpoint. posthog_ai is API-settable but not internally funded: its token
+# bills the run's own team to AI credits, and the mint refuses an exhausted balance.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "posthog_ai",
         "review_hog",
+        "slack_app",
         "signals_scout",
         "signals_research",
         "signals_implementation",
@@ -81,36 +91,14 @@ MINTABLE_PRODUCTS = frozenset(
 # ceiling. Mirrors the stages `Task.create_run` stamps.
 INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
-# Model pins carried on the minted token: the pipeline's stage pins, the
-# implicit agent-SDK calls (the haiku small/fast utility model and the sonnet
-# generations the explore subagent's bare `sonnet` alias resolves to), and
-# every registry-supported reviewer-arm model. Persisted arms resolve against
-# the live registry with no re-pin step, and a dispatch denial does not fall
-# back to the legacy gateway, so an arm outside the pin would fail its turns
-# outright. Gateway-served models (slash-namespaced) stay out: an entry the
-# gateway cannot resolve fails the whole mint with a 400. A gateway without
-# allowed_models support ignores the field.
-_PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
-    "review_hog": [
-        "claude-haiku-4-5",
-        "claude-sonnet-4-5",
-        "claude-sonnet-4-6",
-        "claude-sonnet-5",
-        "claude-opus-4-5",
-        "claude-opus-4-6",
-        "claude-opus-4-7",
-        "claude-opus-4-8",
-        "claude-opus-5",
-        "claude-fable-5",
-        "claude-fable-5-1",
-        "gpt-5",
-        "gpt-5.5",
-        "gpt-5.6-sol",
-        "gpt-5.6-luna",
-        "gpt-5.6-terra",
-        "gpt-6-astra",
-    ],
-}
+# Interactive runs with no wall-clock cap; their tokens last the sandbox lifetime.
+SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"posthog_ai", "slack_app"})
+
+# The Python gateway bills these mintable products to AI credits and stops them at zero.
+# The Go gateway has no credit check, so the mint checks the balance when the run starts.
+AI_CREDITS_BILLED_PRODUCTS = frozenset({"posthog_ai", "slack_app", "workflows"})
+
+_PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 
 # Minting is optional (no token = Python-gateway fallback), so the total budget
 # stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
@@ -150,17 +138,84 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
     return False
 
 
+def is_slack_origin(origin_product: str | None) -> bool:
+    """Whether this origin is the reserved one the Slack app's server flows set."""
+    return _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "") == "slack_app"
+
+
+def has_slack_provenance(
+    state: dict[str, Any] | None, *, internal: bool = False, prior_slack_run: bool = False
+) -> bool:
+    """Whether a server flow put this run on the Slack product.
+
+    The API refuses the `slack` origin for client tasks and never writes `internal`, so an internal
+    run is server-created. A later run of a Slack task has no stamp, so an earlier stamped run counts.
+    """
+    return is_slack_interaction_state(state) or internal or prior_slack_run
+
+
+def mint_refusal(
+    ai_product: str,
+    *,
+    team_id: int,
+    state: dict[str, Any] | None,
+    model: str | None,
+    runtime: str | None,
+    internal: bool = False,
+    prior_slack_run: bool = False,
+) -> str | None:
+    """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    if ai_product == "slack_app" and not has_slack_provenance(
+        state, internal=internal, prior_slack_run=prior_slack_run
+    ):
+        return "no_slack_provenance"
+    # The Pi harness reads only LLM_GATEWAY_URL.
+    if runtime == "pi":
+        return "pi_runtime"
+    # The gateway denies an off-pin model with no fallback.
+    if not model_allowed_by_product_pin(ai_product, model):
+        return "model_outside_pin"
+    if ai_product not in AI_CREDITS_BILLED_PRODUCTS:
+        return None
+    # An unknown balance is no licence to spend.
+    try:
+        over_budget = _team_over_ai_credit_budget(team_id)
+    except Exception:
+        logger.warning(
+            "ai_gateway_token: ai credit lookup failed, run stays on the Python gateway",
+            extra={"team_id": team_id},
+            exc_info=True,
+        )
+        return "ai_credits_unknown"
+    if over_budget:
+        return "ai_credits_exhausted"
+    return None
+
+
+def _team_over_ai_credit_budget(team_id: int) -> bool:
+    from posthog.models import Team  # noqa: PLC0415
+
+    from ee.billing.quota_limiting import is_team_over_ai_credit_budget  # noqa: PLC0415
+
+    api_token = Team.objects.filter(id=team_id).values_list("api_token", flat=True).first()
+    if not api_token:
+        return False
+    return is_team_over_ai_credit_budget(api_token)
+
+
 def _token_ttl_seconds(ai_product: str) -> int:
     """Token lifetime: the explicit setting, else this product's own run-duration cap plus a
     settle buffer, so a capped run cannot outlive its token (expiry under a live run fails
-    every remaining LLM call with no fallback). Only the interactive products are exempt from
-    the background cap, so only they derive the longer ceiling; giving every token the longest
+    every remaining LLM call with no fallback). Only interactive products are exempt from
+    the background cap, so only they derive a longer ceiling; giving every token the longest
     one would widen the window on a leaked background token for no run that could use it.
     A disabled cap derives the 24h mint maximum. Clamped to mint bounds (60s..24h).
     """
     configured = int(settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS or 0)
     if configured <= 0:
-        if ai_product in INTERACTIVE_MINTABLE_PRODUCTS:
+        if ai_product in SANDBOX_BOUND_MINTABLE_PRODUCTS:
+            run_cap = MAX_SANDBOX_TTL_SECONDS
+        elif ai_product in INTERACTIVE_MINTABLE_PRODUCTS:
             # These runs are exempt from the background cap, so their own ceiling is the only
             # one that bounds them; zero means unbounded and derives the mint maximum.
             run_cap = int(getattr(settings, "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 0) or 0)
@@ -199,7 +254,7 @@ def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
     return f"{cap:f}"
 
 
-def _token_cap_usd(team_id: int, ai_product: str) -> str:
+def token_cap_usd(team_id: int, ai_product: str) -> str:
     """Per-run cap: the product override, else the team override, else the default.
 
     The product override wins because run cost tracks the kind of work, not who
@@ -232,7 +287,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
         return None
 
     body: dict[str, Any] = {
-        "cap_usd": _token_cap_usd(team_id, ai_product),
+        "cap_usd": token_cap_usd(team_id, ai_product),
         "ttl_seconds": _token_ttl_seconds(ai_product),
         "product": ai_product,
         "obo": str(team_id),
@@ -274,8 +329,13 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
             time.sleep((0.5 * 2**attempt) + random.uniform(0, 0.25))
 
     AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
+    # The deploy's log formatter drops `extra`, so the message carries the fields.
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and the mint error, never the token or mint key
     logger.warning(
-        "ai_gateway_token: mint failed, run falls back to the Python gateway",
+        "ai_gateway_token: mint failed, run falls back to the Python gateway (ai_product=%s team_id=%s error=%s)",
+        ai_product,
+        team_id,
+        last_error,
         extra={"ai_product": ai_product, "team_id": team_id, "error": last_error},
     )
     return None

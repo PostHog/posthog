@@ -98,12 +98,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2fb6cfd47bf496ff64095c20eaba0c201404ee38714d4142fcfa1dc334fcc7a"
+
+[[package]]
 name = "alloc-stdlib"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94fb8275041c72129eb51b7d0322c29b8387a0386127718b096429201a5d6ece"
 dependencies = [
- "alloc-no-stdlib",
+ "alloc-no-stdlib 2.0.4",
+]
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5c1865780388bfa186411ab5f247819487fc4864c6e9c3106611fa347586e1"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
 ]
 
 [[package]]
@@ -205,7 +220,7 @@ dependencies = [
  "strum_macros 0.27.2",
  "thiserror 2.0.18",
  "uuid",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -1968,9 +1983,20 @@ version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bd8b9603c7aa97359dbd97ecf258968c95f3adddd6db2f7e7a5bef101c84560"
 dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
- "brotli-decompressor",
+ "alloc-no-stdlib 2.0.4",
+ "alloc-stdlib 0.2.2",
+ "brotli-decompressor 5.0.0",
+]
+
+[[package]]
+name = "brotli"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8b851b75c23ca7873623d612fe49bd1989aeb03d08fb9432187eb253d3d4c6b"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
+ "alloc-stdlib 0.3.0",
+ "brotli-decompressor 6.0.0",
 ]
 
 [[package]]
@@ -1979,8 +2005,18 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "874bb8112abecc98cbd6d81ea4fa7e94fb9449648c93cc89aa40c81c24d7de03"
 dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
+ "alloc-no-stdlib 2.0.4",
+ "alloc-stdlib 0.2.2",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46087801e40b785410c352bee60e9b6226312709cf52d5fff92776cdf5cf6490"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
+ "alloc-stdlib 0.3.0",
 ]
 
 [[package]]
@@ -2168,7 +2204,7 @@ dependencies = [
  "axum-client-ip",
  "axum-test-helper",
  "base64 0.22.1",
- "brotli",
+ "brotli 8.0.2",
  "bytes",
  "capture",
  "chrono",
@@ -2220,7 +2256,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -2242,6 +2278,7 @@ dependencies = [
  "limiters",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prometheus-rw-proto",
  "prost 0.13.5",
  "rustls 0.23.37",
  "serde",
@@ -2252,6 +2289,7 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -2259,16 +2297,20 @@ name = "capture-load-gen"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.7.9",
  "clap",
+ "common-metrics",
  "common-types",
  "flate2",
  "governor",
  "hdrhistogram",
  "humantime",
+ "metrics",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2806,8 +2848,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
+ "lz-str",
  "thiserror 2.0.18",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -3010,7 +3053,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -3076,12 +3119,12 @@ version = "0.4.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb7b51a7d9c967fc26773061ba86150f19c50c0d65c887cb1fbe295fd16619b7"
 dependencies = [
- "brotli",
+ "brotli 8.0.2",
  "compression-core",
  "flate2",
  "memchr",
- "zstd",
- "zstd-safe",
+ "zstd 0.13.3",
+ "zstd-safe 7.2.4",
 ]
 
 [[package]]
@@ -3503,7 +3546,7 @@ dependencies = [
  "url",
  "uuid",
  "zip 4.6.1",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -4921,7 +4964,7 @@ dependencies = [
  "rand 0.9.2",
  "tracing",
  "twox-hash",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -6235,6 +6278,7 @@ dependencies = [
  "rand 0.8.5",
  "rdkafka",
  "reqwest 0.12.28",
+ "rstest",
  "rustls 0.23.37",
  "serde",
  "serde_json",
@@ -7198,6 +7242,7 @@ dependencies = [
  "moka",
  "rand 0.8.5",
  "serde_json",
+ "siphasher 1.0.2",
  "strum 0.26.3",
  "tokio",
  "tracing",
@@ -8493,7 +8538,7 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "base64 0.22.1",
- "brotli",
+ "brotli 8.0.2",
  "bytes",
  "chrono",
  "flate2",
@@ -8512,7 +8557,7 @@ dependencies = [
  "thrift",
  "tokio",
  "twox-hash",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -8817,7 +8862,9 @@ dependencies = [
  "envconfig",
  "futures",
  "lifecycle",
+ "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
@@ -9346,7 +9393,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.7.1"
+version = "0.7.3"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -9365,17 +9412,17 @@ dependencies = [
  "sha2 0.10.9",
  "simd-json",
  "url",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
 name = "posthog-rs"
-version = "0.25.5"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0804bdcffb6f2a51f889ddc035505c1a4334da3eb65a2ccbae561a320166d7f2"
+checksum = "e4bf3024d46115813aba6c8ca1aa95bb850a26cb7a36f6e03ca0c12c449c5925"
 dependencies = [
  "backtrace",
- "brotli",
+ "brotli 9.0.0",
  "chrono",
  "derive_builder",
  "findshlibs",
@@ -9390,7 +9437,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "zstd",
+ "zstd 0.14.0",
 ]
 
 [[package]]
@@ -9399,7 +9446,7 @@ version = "0.5.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -12478,7 +12525,7 @@ dependencies = [
  "thiserror 2.0.18",
  "wasmparser 0.243.0",
  "zip 7.2.0",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -14927,7 +14974,7 @@ dependencies = [
  "time",
  "zeroize",
  "zopfli",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -14974,7 +15021,16 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
 dependencies = [
- "zstd-safe",
+ "zstd-safe 7.2.4",
+]
+
+[[package]]
+name = "zstd"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf06bd8162af0734b344780deb55b42a2429ae430870d13fcc12f238e880fe6e"
+dependencies = [
+ "zstd-safe 8.0.0",
 ]
 
 [[package]]
@@ -14987,10 +15043,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
+name = "zstd-safe"
+version = "8.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+checksum = "ae42c0555055784c70058d19ba8e275528e8a99a706684868ace5da4e716a4ab"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.0+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ef0a8027ec3ee71300ab3bcbcd0393f434aa72b91ca6d635a39941deae8eea0"
 dependencies = [
  "cc",
  "pkg-config",

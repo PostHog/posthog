@@ -404,6 +404,15 @@ def push_subscriptions(request: Request):
                     "distinct_id": distinct_id,
                     "stored": False,
                     "push_enabled": False,
+                    # The status code cannot say this: a 4xx would make every SDK retry on every app
+                    # open. Without a reason in the body, a developer whose token goes nowhere sees a
+                    # success and has no way to tell the difference from a working registration.
+                    "reason": "no_push_channel_for_app_id",
+                    "detail": (
+                        f"This project has no push channel for app_id '{app_id}'. The device token was "
+                        "not stored. Add a push channel whose Firebase project id or APNs bundle id "
+                        "matches this app_id, and check the project the SDK is sending to."
+                    ),
                 },
                 status=status.HTTP_200_OK,
             ),
@@ -413,13 +422,12 @@ def push_subscriptions(request: Request):
     verification_mode = _strictest_verification_mode(integrations)
     if verification_mode in ("optional", "required"):
         identity_token = data.get("identity_token")
-        # Public keys can live on more than one matching integration; try them all (verify picks the
-        # one that validates, then falls back to the legacy shared secret).
+        # Public keys can live on more than one matching integration; try them all.
         public_keys = [
             key for integration in integrations for key in (integration.config.get("push_identity_public_keys") or [])
         ]
         verified = isinstance(identity_token, str) and verify_push_identity_token(
-            identity_token, team, distinct_id, app_id, public_keys=public_keys
+            identity_token, distinct_id, app_id, public_keys=public_keys
         )
         PUSH_IDENTITY_VERIFICATION_COUNTER.labels(
             mode=verification_mode,

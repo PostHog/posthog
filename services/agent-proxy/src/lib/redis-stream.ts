@@ -27,6 +27,7 @@ import type { ReadStreamEntriesOptions, ResumeGap, StreamEntryOrKeepalive, TaskR
 import {
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
+    TaskRunStreamCursorTrimmedError,
     TaskRunStreamError,
     TaskRunStreamSequenceGap,
     WRITE_RESULT_DUPLICATE,
@@ -238,6 +239,14 @@ export class TaskRunRedisStream {
         return streamIdLessThan(lastEventId, firstId)
     }
 
+    async cursorUnreachable(cursor: string): Promise<boolean> {
+        if (cursor === '' || cursor === '0' || cursor === '0-0') {
+            return false
+        }
+        const firstId = await this.getFirstStreamId()
+        return firstId === null || streamIdLessThan(cursor, firstId)
+    }
+
     // None for startId in ('0','0-0','$',''). None if stream empty.
     // ResumeGap if startId < firstId.
     async detectResumeGap(startId: string): Promise<ResumeGap | null> {
@@ -271,10 +280,23 @@ export class TaskRunRedisStream {
         // one, so that XREAD BLOCK calls don't queue behind ingest XADD writes
         // on the shared client.
         const xreadClient = opts.blockingRedis ?? this.redis
+        const cursorRecheckAfterStallMs = opts.cursorRecheckAfterStallMs ?? null
 
         let currentId = startId
         const startTime = Date.now()
         let lastYieldTime = startTime
+        let recheckCursor = false
+        let stalledMs = 0
+        const noteConsumerStall = (yieldedAt: number): void => {
+            if (cursorRecheckAfterStallMs === null) {
+                return
+            }
+            stalledMs += Date.now() - yieldedAt
+            if (stalledMs >= cursorRecheckAfterStallMs) {
+                stalledMs = 0
+                recheckCursor = true
+            }
+        }
 
         while (true) {
             const now = Date.now()
@@ -311,6 +333,19 @@ export class TaskRunRedisStream {
                 throw new TaskRunStreamError('Stream read error')
             }
 
+            if (recheckCursor) {
+                recheckCursor = false
+                let unreachable: boolean
+                try {
+                    unreachable = await this.cursorUnreachable(currentId)
+                } catch {
+                    throw new TaskRunStreamError('Connection lost to task run stream')
+                }
+                if (unreachable) {
+                    throw new TaskRunStreamCursorTrimmedError(currentId)
+                }
+            }
+
             // TypeScript 6 incorrectly narrows `messages` to `never` inside an
             // async generator when the catch block always throws — false positive.
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -320,6 +355,7 @@ export class TaskRunRedisStream {
                 if (keepaliveIntervalMs !== null && idleMs >= keepaliveIntervalMs) {
                     lastYieldTime = Date.now()
                     yield null
+                    noteConsumerStall(lastYieldTime)
                 }
                 continue
             }
@@ -360,6 +396,7 @@ export class TaskRunRedisStream {
                     } else {
                         lastYieldTime = Date.now()
                         yield [normalizedId, data]
+                        noteConsumerStall(lastYieldTime)
                     }
                 }
             }

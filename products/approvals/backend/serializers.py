@@ -1,3 +1,5 @@
+from django.db import transaction
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -6,6 +8,7 @@ from posthog.api.shared import UserBasicSerializer
 from products.access_control.backend.models.role import Role
 from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
 from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
+from products.approvals.backend.policies import lock_approval_policies
 
 
 class ChangeRequestSummarySerializer(serializers.ModelSerializer):
@@ -292,14 +295,18 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
 
         return value
 
+    @transaction.atomic
     def create(self, validated_data):
+        lock_approval_policies(validated_data["organization"].id)
         bypass_role_ids = validated_data.pop("bypass_roles", [])
         instance = super().create(validated_data)
         if bypass_role_ids:
             instance.set_bypass_roles([str(rid) for rid in bypass_role_ids])
         return instance
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        lock_approval_policies(instance.organization_id)
         bypass_role_ids = validated_data.pop("bypass_roles", None)
         instance = super().update(instance, validated_data)
         if bypass_role_ids is not None:

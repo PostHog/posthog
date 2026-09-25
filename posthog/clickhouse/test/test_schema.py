@@ -2,15 +2,19 @@ import re
 import json
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+
+from django.conf import settings as django_settings
 
 from posthog.hogql.database.models import DatabaseField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
+from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
@@ -69,6 +73,9 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"CREATE TABLE IF NOT EXISTS {KAFKA_EVENTS_NATIVE_JSON_TABLE}" in kafka_table_query
     assert f"kafka_group_name = '{CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON}'" in kafka_table_query
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
+    assert "JSONCleanPostHogTemporaryProperties(" in mv_query
+    assert "accurateCastOrNull(if(isValidJSON(source.properties)" in mv_query
+    assert "accurateCastOrNull(if(isValidJSON(source.person_properties)" in mv_query
 
 
 @pytest.mark.parametrize(
@@ -106,6 +113,61 @@ def test_person_property_mutation_projection(properties: dict[str, object], expe
         flush=False,
     )
     assert [json.loads(row[2]) for row in rows] == ([] if expected is None else [expected])
+
+
+@pytest.mark.parametrize(
+    "timestamp_offset,observed_delay,retentions,expected_days",
+    [
+        (timedelta(), timedelta(), [90], 90),
+        (timedelta(), timedelta(hours=23), [90], 91),
+        (timedelta(), timedelta(hours=-23), [90], 90),
+        (timedelta(minutes=4, seconds=59), timedelta(), [90], 91),
+        (timedelta(microseconds=1), timedelta(), [90], 91),
+        (timedelta(), timedelta(), [14], 14),
+        (timedelta(), timedelta(), [30, 90], 90),
+        (timedelta(), timedelta(), [-7], 0),
+        (timedelta(), timedelta(), [5000], 3650),
+    ],
+    ids=["aligned", "backdated", "future", "bucket_rounding", "subsecond", "floor", "mixed", "negative", "clamp"],
+)
+def test_logs_volume_bucket_retention_covers_raw_expiry(
+    timestamp_offset: timedelta,
+    observed_delay: timedelta,
+    retentions: list[int],
+    expected_days: int,
+) -> None:
+    bucket_start = datetime(2026, 1, 2, 12, tzinfo=UTC)
+    timestamp = bucket_start + timestamp_offset
+    observed_timestamp = timestamp + observed_delay
+    select = LOGS34_TO_VOLUME_BUCKETS_MV_SELECT().replace(
+        f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.logs34", "FROM retention_input"
+    )
+    rows = sync_execute(
+        """
+        WITH retention_input AS (
+            SELECT
+                42 AS team_id,
+                toDateTime64(%(timestamp)s, 6, 'UTC') AS timestamp,
+                toDateTime64(%(observed_timestamp)s, 6, 'UTC') AS observed_timestamp,
+                observed_timestamp + toIntervalDay(arrayJoin(%(retentions)s)) AS original_expiry_timestamp,
+                'checkout' AS service_name,
+                'INFO' AS severity_text,
+                CAST(map(), 'Map(String, String)') AS resource_attributes
+        )
+        SELECT retention_days, log_count FROM ("""
+        + select
+        + ")",
+        {
+            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "observed_timestamp": observed_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "retentions": retentions,
+        },
+    )
+    assert rows == [(expected_days, len(retentions))]
+    if max(retentions) <= 2580:
+        assert bucket_start + timedelta(days=max(42, rows[0][0])) >= observed_timestamp + timedelta(
+            days=max(retentions)
+        )
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:

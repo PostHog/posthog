@@ -3,6 +3,14 @@ title: Backend coding conventions
 sidebar: Handbook
 ---
 
+#### Query trace correlation
+
+The `query.client_query_id` attribute on `posthog.query.process_query_model` matches the browser `query completed` event's `queryId` and the API response event's `client_query_id`.
+Only UUID-shaped IDs are added to spans; other client IDs remain valid API inputs.
+A matching ID links a request to its processing span. It does not prove that the request delayed page rendering.
+An asynchronous query can continue in a separate trace after the submission request ends.
+Check request timing against browser performance metrics, and inspect child spans and self time before choosing a performance fix.
+
 #### Logging
 
 As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate _log level_.

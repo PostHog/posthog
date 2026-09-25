@@ -13,6 +13,14 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import { buildAppendedInstructions } from "@posthog/harness/extensions/agent-instructions";
+import {
+  applyContextWikiEnv,
+  type ContextWikiEnv,
+  resolveContextWikiPath,
+} from "@posthog/harness/extensions/context-wiki";
+import type { FileEnrichmentDeps } from "@posthog/harness/extensions/enrichment";
+import { resolveRtkPrefix } from "@posthog/harness/extensions/rtk";
 import {
   BEDROCK_LLM_GATEWAY_FLAG,
   type BedrockGatewayVariant,
@@ -21,12 +29,6 @@ import {
   buildPosthogProjectHeaderLines,
   buildPosthogPropertyHeaderLines,
 } from "@posthog/shared/posthog-property-headers";
-import {
-  applyContextWikiEnv,
-  resolveContextWikiPath,
-} from "../../../context-wiki";
-import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
-import type { ContextWikiEnv } from "../../../types";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
@@ -49,10 +51,10 @@ import {
 } from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
-import { buildAppendedInstructions } from "./instructions";
+import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
-import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
+import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
 import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
@@ -131,6 +133,7 @@ export interface BuildOptionsParams {
   machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
+  budgetGuard?: RunBudgetGuard;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 }
@@ -377,6 +380,7 @@ function buildHooks(
   taskState: TaskState,
   onTaskStateChange: (() => Promise<void>) | undefined,
   rtkPrefix: string | undefined,
+  budgetGuard: RunBudgetGuard | undefined,
 ): Options["hooks"] {
   const postToolUseHooks = [
     createReadImageGuardHook(),
@@ -399,6 +403,9 @@ function buildHooks(
     preToolUseHooks.push(
       createSignedCommitGuardHook(logger, onEnsureLocalToolsConnected),
     );
+  }
+  if (budgetGuard) {
+    preToolUseHooks.push(budgetGuard.preToolUseHook());
   }
   // Registered last so the signed-commit guard evaluates the raw command first.
   if (rtkPrefix) {
@@ -695,6 +702,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.taskState,
       params.onTaskStateChange,
       resolveRtkPrefix(process.env),
+      params.budgetGuard,
     ),
     outputFormat: params.outputFormat,
     abortController: getAbortController(

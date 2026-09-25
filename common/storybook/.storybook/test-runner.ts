@@ -540,12 +540,35 @@ async function takeSnapshotWithTheme(
     await waitForPageReady(page, skipIframeWait)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
+        // A lazy image far below the fold stays unfetched until it nears the viewport, and the
+        // element screenshot can bring it into range mid-capture. Switching to eager starts the
+        // fetch now, so the wait below covers it.
+        await page.evaluate(() => {
+            document.querySelectorAll<HTMLImageElement>('img[loading="lazy"]').forEach((img) => {
+                img.loading = 'eager'
+            })
+        })
         await page.waitForFunction(() => {
-            const allImages = Array.from(document.images)
-            const areAllImagesLoaded = allImages.every(
+            // Declared inside the callback because this whole body is serialized into the browser.
+            function isImageAccountedFor(i: HTMLImageElement): boolean {
+                // naturalWidth is set once the header is parsed, before the download completes.
+                if (i.complete && i.naturalWidth) {
+                    return true
+                }
                 // ProseMirror-separator isn't an actual image of any sort, so we ignore those
-                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
-            )
+                if (i.classList.contains('ProseMirror-separator')) {
+                    return true
+                }
+                // A `loading="lazy"` image with no layout box has nothing to intersect, so the
+                // browser can leave it unfetched and this wait can only time out. It is safe to
+                // skip because such an image cannot appear in the screenshot either.
+                // getClientRects() is empty only for display:none, so this still waits for a
+                // visible image that is downloading.
+                return i.getClientRects().length === 0
+            }
+
+            const allImages = Array.from(document.images)
+            const areAllImagesLoaded = allImages.every(isImageAccountedFor)
             if (areAllImagesLoaded) {
                 // Hide gifs to prevent their animations causing flakiness
                 for (const image of allImages) {
@@ -557,6 +580,10 @@ async function takeSnapshotWithTheme(
             }
             return areAllImagesLoaded
         })
+        // `decoding="async"` lets a loaded image paint a frame later, so wait for its pixels.
+        await page.evaluate(() =>
+            Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => undefined)))
+        )
     }
 
     // wait for iframes to load their content

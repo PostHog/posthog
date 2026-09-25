@@ -26,6 +26,7 @@ import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentExposureNode,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
@@ -42,7 +43,7 @@ import {
     MultivariateFlagVariant,
     PropertyFilterType,
     PropertyOperator,
-    type QueryBasedInsightModel,
+    type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -305,20 +306,41 @@ export const DATA_WAREHOUSE_UNLINKABLE_REASON =
     'This metric is measured entirely in the data warehouse, which has no session events to match recordings on.'
 
 /**
+ * Why a metric cannot narrow a recordings list, as a value telemetry can count. The prose the
+ * viewer reads is derived from this, so a copy change can never shift what a report measures.
+ */
+export type ExperimentMetricUnlinkableCode = 'server_side_events' | 'retention' | 'data_warehouse'
+
+/**
  * Why a metric can't narrow a recordings list, or null when it can. A metric is unlinkable when
  * every one of its sources is a never-session-linked event, or when it yields no session filter at
  * all (a retention metric, or one measured only in the data warehouse). Either way its filter could
  * only match zero sessions. Pass an empty `unlinkableEventNames` while the linkability check loads,
  * which fails open, the posture every linkability consumer shares.
  */
-export function getMetricUnlinkableReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+export function getMetricUnlinkableCode(
+    metric: ExperimentMetric,
+    unlinkableEventNames: Set<string>
+): ExperimentMetricUnlinkableCode | null {
     const filters = getMetricSessionFilters(metric)
     if (filters.length === 0) {
-        return isExperimentRetentionMetric(metric) ? RETENTION_UNLINKABLE_REASON : DATA_WAREHOUSE_UNLINKABLE_REASON
+        return isExperimentRetentionMetric(metric) ? 'retention' : 'data_warehouse'
     }
     return filters.every((filter) => isUnlinkableEventFilter(filter, unlinkableEventNames))
-        ? METRIC_UNLINKABLE_REASON
+        ? 'server_side_events'
         : null
+}
+
+const METRIC_UNLINKABLE_REASONS: Record<ExperimentMetricUnlinkableCode, string> = {
+    server_side_events: METRIC_UNLINKABLE_REASON,
+    retention: RETENTION_UNLINKABLE_REASON,
+    data_warehouse: DATA_WAREHOUSE_UNLINKABLE_REASON,
+}
+
+/** The prose for `getMetricUnlinkableCode`, as the tab's own metric dropdown reads it. */
+export function getMetricUnlinkableReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+    const code = getMetricUnlinkableCode(metric, unlinkableEventNames)
+    return code === null ? null : METRIC_UNLINKABLE_REASONS[code]
 }
 
 /**
@@ -619,7 +641,7 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     }
 }
 
-export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel | null): ExperimentMetric | undefined {
+export function getExperimentMetricFromInsight(insight: InsightModel | null): ExperimentMetric | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
         return undefined
     }
@@ -859,7 +881,12 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
 
     const source: ExperimentMetricSource | null = match(metric)
         .when(isExperimentRatioMetric, (ratioMetric) => ratioMetric.numerator)
-        .when(isExperimentRetentionMetric, (retentionMetric) => retentionMetric.start_event)
+        // An exposure-anchored start has no literal event to preview, so show completion-event activity
+        .when(isExperimentRetentionMetric, (retentionMetric) =>
+            isExperimentExposureNode(retentionMetric.start_event)
+                ? retentionMetric.completion_event
+                : retentionMetric.start_event
+        )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
         .otherwise(() => null)
 
@@ -979,6 +1006,30 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
 }
 
 /**
+ * Reshape a saved/shared metric into the inline ExperimentMetric shape, merging the
+ * per-experiment link metadata (breakdown attribution, breakdowns) into the query.
+ */
+function enrichSharedMetric(sharedMetric: Experiment['saved_metrics'][number]): ExperimentMetric {
+    return {
+        ...sharedMetric.query,
+        name: sharedMetric.name,
+        sharedMetricId: sharedMetric.saved_metric,
+        isSharedMetric: true,
+        ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+            breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+            breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+        }),
+        breakdownFilter: {
+            ...sharedMetric.query?.breakdownFilter,
+            breakdowns: sharedMetric.metadata?.breakdowns || [],
+            ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                breakdown_limit: sharedMetric.metadata.breakdown_limit,
+            }),
+        },
+    } as ExperimentMetric
+}
+
+/**
  * Maps metrics to their results and errors in the correct display order
  * This handles the complex logic of:
  * 1. Mapping results by index to original metrics array (including shared metrics)
@@ -1010,29 +1061,7 @@ export function getOrderedMetricsWithResults(
 
     const enrichedSharedMetrics = (experiment.saved_metrics || [])
         .filter((sharedMetric) => sharedMetric.metadata?.type === metricType)
-        .map((sharedMetric) => ({
-            ...sharedMetric.query,
-            name: sharedMetric.name,
-            sharedMetricId: sharedMetric.saved_metric,
-            isSharedMetric: true,
-            /**
-             * Merge per-experiment breakdown attribution from metadata into the query
-             */
-            ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-                breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-                breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-            }),
-            /**
-             * Merge breakdowns from metadata into breakdownFilter
-             */
-            breakdownFilter: {
-                ...sharedMetric.query?.breakdownFilter,
-                breakdowns: sharedMetric.metadata?.breakdowns || [],
-                ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                    breakdown_limit: sharedMetric.metadata.breakdown_limit,
-                }),
-            },
-        })) as ExperimentMetric[]
+        .map(enrichSharedMetric)
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
 
@@ -1165,6 +1194,25 @@ export function conflictPreservedFields(payload: ExperimentUpdatePayload): Parti
     return Object.fromEntries(Object.entries(payload).filter(([key]) => !CONFLICT_UNPRESERVABLE_KEYS.has(key)))
 }
 
+/** Flag config the API projects into `parameters` on read. The linked flag owns these keys, so they
+ * are absent from the type but present at runtime on every response. */
+const PROJECTED_FLAG_CONFIG_KEYS = new Set([
+    'feature_flag_variants',
+    'rollout_percentage',
+    'aggregation_group_type_index',
+    'feature_flag_payloads',
+    'ensure_experience_continuity',
+])
+
+/** Drops the projected flag config, so updating an experiment-owned key does not echo the
+ * deprecated flag dialect back to the API. The `feature_flag` sibling of this is
+ * {@link toExperimentWritePayload}. */
+export function withoutProjectedFlagConfig(parameters: Experiment['parameters'] | undefined): Experiment['parameters'] {
+    return Object.fromEntries(
+        Object.entries(parameters ?? {}).filter(([key]) => !PROJECTED_FLAG_CONFIG_KEYS.has(key))
+    ) as Experiment['parameters']
+}
+
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
 export function toFlagVariantsInput(
     variants: MultivariateFlagVariant[]
@@ -1223,35 +1271,9 @@ export const metricResults =
             type === 'secondary' ? experiment.metrics_secondary || [] : experiment.metrics || []
         ) as ExperimentMetric[]
 
-        /**
-         * Reshape saved/shared metrics into the inline ExperimentMetric shape so both can be merged and
-         * ordered together below.
-         */
         const sharedMetrics = (experiment.saved_metrics || [])
             .filter((sharedMetric) => sharedMetric.metadata?.type === type)
-            .map((sharedMetric) => ({
-                ...sharedMetric.query,
-                name: sharedMetric.name,
-                sharedMetricId: sharedMetric.saved_metric,
-                isSharedMetric: true,
-                /**
-                 * Merge per-experiment breakdown attribution from metadata into the query
-                 */
-                ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-                    breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-                    breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-                }),
-                /**
-                 * Merge breakdowns from metadata into breakdownFilter
-                 */
-                breakdownFilter: {
-                    ...sharedMetric.query?.breakdownFilter,
-                    breakdowns: sharedMetric.metadata?.breakdowns || [],
-                    ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                        breakdown_limit: sharedMetric.metadata.breakdown_limit,
-                    }),
-                },
-            })) as ExperimentMetric[]
+            .map(enrichSharedMetric)
 
         /**
          * Merge inline + shared metrics, dropping any without a uuid (defensive). One entry per metric

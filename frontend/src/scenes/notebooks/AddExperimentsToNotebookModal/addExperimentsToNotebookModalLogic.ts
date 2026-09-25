@@ -117,6 +117,7 @@ export const addExperimentsToNotebookModalLogic = kea<addExperimentsToNotebookMo
                     params.order = order
                 }
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsList() from 'products/experiments/frontend/generated/api' instead.
                 const response = await api.get(`api/projects/${values.currentTeamId}/experiments/?${toParams(params)}`)
 
                 breakpoint()

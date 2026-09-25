@@ -43,6 +43,25 @@ function leadExample(
     }
 }
 
+/**
+ * The lead example with its window flattened one level further: `date_from` beside the
+ * other fields rather than inside `dateRange`. This is the shape callers send most, and
+ * undoing only the outer wrapper leaves it rejected.
+ */
+function flattenedWindowCall(example: Record<string, unknown>): Record<string, unknown> | undefined {
+    const query = example['query'] as Record<string, unknown>
+    const range = query['dateRange']
+    if (typeof range !== 'object' || range === null || Array.isArray(range)) {
+        return undefined
+    }
+    const { date_from: dateFrom, ...otherBounds } = range as Record<string, unknown>
+    if (typeof dateFrom !== 'string' || Object.keys(otherBounds).length > 0) {
+        return undefined
+    }
+    const { dateRange: _window, ...fields } = query
+    return { ...fields, date_from: dateFrom }
+}
+
 /** An example below this offset sits under a workflow section, which a caller reaches after it composed the call. */
 const LEAD_EXAMPLE_MAX_OFFSET = 700
 
@@ -54,6 +73,14 @@ describe('tools whose payload sits under a required `query` object', () => {
 
     it('finds the wrapper tools to check', () => {
         expect(tools.length).toBeGreaterThan(10)
+    })
+
+    it('covers the flattened window on most of them', () => {
+        const withWindow = tools.filter(([name]) =>
+            flattenedWindowCall(leadExample(getToolDefinition(name).description)!.json)
+        )
+
+        expect(withWindow.length).toBeGreaterThan(10)
     })
 
     describe.each(tools)('%s', (name, tool) => {
@@ -85,13 +112,17 @@ describe('tools whose payload sits under a required `query` object', () => {
             expect(message).toContain('resend them as {"query": {')
         })
 
-        it('rewraps that flattened example back into the call the caller meant', () => {
-            const flattened = example!.json['query'] as Record<string, unknown>
+        it.each([
+            ['as the caller sent it', (json: Record<string, unknown>) => json['query'] as Record<string, unknown>],
+            ['with its window flattened too', flattenedWindowCall],
+        ])('rewraps the example flattened %s back into the call the caller meant', (_label, flatten) => {
+            const flattened = flatten(example!.json)
+            if (!flattened) {
+                return
+            }
             const rejected = tool.schema.safeParse(flattened, { reportInput: true })
 
-            const rewrapped = rewrapFlattenedArguments(rejected.error!, flattened, tool.schema)
-
-            expect(rewrapped).toEqual(example!.json)
+            expect(rewrapFlattenedArguments(rejected.error!, flattened, tool.schema)).toEqual(example!.json)
         })
     })
 })

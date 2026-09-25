@@ -1,0 +1,380 @@
+[
+    {
+        "name": "synthetic without stop reason",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/turn_complete"
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "synthetic end turn",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/turn_complete",
+                "params": {
+                    "stopReason": "end_turn"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": true
+        }
+    },
+    {
+        "name": "idle resume",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/turn_complete",
+                "params": {
+                    "stopReason": "idle_resume"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": true,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "synthetic unknown stop reason",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/turn_complete",
+                "params": {
+                    "stopReason": "future_reason"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "synthetic null params",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/turn_complete",
+                "params": null
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "synthetic nonobject params",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/turn_complete",
+                "params": "idle_resume"
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "idle resume in result",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/turn_complete",
+                "result": {
+                    "stopReason": "idle_resume"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "raw end turn",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "result": {
+                    "stopReason": "end_turn"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": true
+        }
+    },
+    {
+        "name": "raw idle reason",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "result": {
+                    "stopReason": "idle_resume"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "raw other stop reason",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "result": {
+                    "stopReason": "max_tokens"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "pi completion",
+        "event": {
+            "type": "pi_event",
+            "event": {
+                "type": "turn_completed"
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "pi end turn",
+        "event": {
+            "type": "pi_event",
+            "event": {
+                "type": "turn_completed",
+                "stopReason": "end_turn"
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": true
+        }
+    },
+    {
+        "name": "pi runtime error",
+        "event": {
+            "type": "pi_event",
+            "event": {
+                "type": "turn_completed",
+                "stopReason": "error"
+            }
+        },
+        "expect": {
+            "turn_complete": true,
+            "idle_resume": false,
+            "pi_error": true,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "pi nonterminal error",
+        "event": {
+            "type": "pi_event",
+            "event": {
+                "type": "assistant_message_chunk",
+                "stopReason": "error"
+            }
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "pi missing event",
+        "event": {
+            "type": "pi_event"
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "pi malformed event",
+        "event": {
+            "type": "pi_event",
+            "event": "turn_completed"
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "session update",
+        "event": {
+            "type": "notification",
+            "notification": {
+                "method": "session/update",
+                "params": {
+                    "stopReason": "idle_resume"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": true,
+            "successful": false
+        }
+    },
+    {
+        "name": "wrong outer type",
+        "event": {
+            "type": "console",
+            "notification": {
+                "method": "_posthog/turn_complete",
+                "params": {
+                    "stopReason": "idle_resume"
+                }
+            }
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "missing notification",
+        "event": {
+            "type": "notification"
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "null notification",
+        "event": {
+            "type": "notification",
+            "notification": null
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "scalar notification",
+        "event": {
+            "type": "notification",
+            "notification": "turn_completed"
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "array notification",
+        "event": {
+            "type": "notification",
+            "notification": []
+        },
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    },
+    {
+        "name": "empty event",
+        "event": {},
+        "expect": {
+            "turn_complete": false,
+            "idle_resume": false,
+            "pi_error": false,
+            "session_update": false,
+            "successful": false
+        }
+    }
+]

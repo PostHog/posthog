@@ -6,6 +6,7 @@ import { IconPlayFilled } from '@posthog/icons'
 import { usePublishNotebookComponentRunHandler } from 'lib/components/MarkdownNotebook/componentRunHandlers'
 import type { NotebookComponentToolbarProps } from 'lib/components/MarkdownNotebook/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -28,7 +29,14 @@ export function NotebookGeneratedWidgetRunButton({
         return null
     }
 
-    return <EditableNotebookGeneratedWidgetRunButton node={node} updateProps={updateProps} />
+    return (
+        <>
+            <LemonTag type="warning" size="small">
+                BETA
+            </LemonTag>
+            <EditableNotebookGeneratedWidgetRunButton node={node} updateProps={updateProps} />
+        </>
+    )
 }
 
 function EditableNotebookGeneratedWidgetRunButton({
@@ -56,7 +64,7 @@ function EditableNotebookGeneratedWidgetRunButton({
         prompt: typeof node.props.prompt === 'string' ? node.props.prompt : '',
         model,
         isEditable: canEditNotebook,
-        prepareInsightDataframes: () => prepareNotebookInsightDataframes(mountedNotebookLogic),
+        prepareInsightDataframes: (names?: string[]) => prepareNotebookInsightDataframes(mountedNotebookLogic, names),
         persistNotebook: async (): Promise<void> => {
             await mountedNotebookLogic.asyncActions.saveNotebook({
                 content: mountedNotebookLogic.values.content,

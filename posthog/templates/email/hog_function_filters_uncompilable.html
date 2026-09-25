@@ -1,0 +1,35 @@
+{% extends "email/base.html" %}
+{% block heading %}Some destinations aren't delivering anything{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        These destinations in project <b>{{ team }}</b> have filters that PostHog can't evaluate, so they haven't been sending events:
+    </p>
+    {% for entry in broken %}
+        <p>
+            <a href="{{ entry.hog_function.url }}"><b>{{ entry.hog_function.name }}</b></a>
+            <br />
+            <i>{{ entry.bytecode_error }}</i>
+            {% if not entry.hog_function.enabled %}
+                <br />
+                This one is also switched off. Fix the filters, then switch it back on.
+            {% endif %}
+        </p>
+    {% endfor %}
+    <p>
+        If an error above is about a cohort, replace the cohort with the person properties it's based on. Cohort
+        membership can't be checked while an event is being processed, so a filter that refers to one can't run.
+        For any other error, edit the filter to remove the expression the error names.
+    </p>
+    <p>
+        One change can break several destinations at once. Filters that apply to your whole project, such as filtering
+        out internal users, are shared by every destination that uses them.
+    </p>
+    <p>Events sent while the filters were broken weren't delivered and can't be recovered.</p>
+{% endblock %}
+{% block footer %}
+    Need help?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+    or
+    <a href="https://posthog.com/docs?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.
+{% endblock %}

@@ -28,6 +28,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
@@ -187,6 +188,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         return None
+
+    def _audit_principal(self, request: Request) -> str:
+        return f"api:{cast(User, request.user).email}"
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
@@ -1028,6 +1032,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request.data.get("database_name"),
             self.team_id,
             request.data.get("schema_name"),
+            triggered_by=self._audit_principal(request),
         )
 
     @extend_schema(
@@ -1053,6 +1058,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="onboard-team", required_scopes=["warehouse_view:write"])
     def onboard_team(self, request: Request, **kwargs) -> Response:
         """Onboard this project onto the organization's existing managed warehouse.
@@ -1067,6 +1073,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             self.team.organization_id,
             self.team.id,
             request.data.get("schema_name"),
+            triggered_by=self._audit_principal(request),
         )
 
     @extend_schema(
@@ -1088,7 +1095,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "deprovision")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.deprovision(self.team.organization_id)
+        return managed_warehouse.deprovision(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         responses={
@@ -1106,6 +1113,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["DELETE"], detail=False, url_path="delete-org", required_scopes=["warehouse_view:write"])
     def delete_org(self, request: Request, **kwargs) -> Response:
         """Remove the organization's provisioning record after teardown, freeing its warehouse name.
@@ -1117,7 +1125,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "delete the provisioning record for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.delete_org(self.team.organization_id)
+        return managed_warehouse.delete_org(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         responses={
@@ -1200,6 +1208,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get managed warehouse monitoring snapshot",
         description="Get tenant-safe live worker, session, queue, and capacity data for the current organization.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["GET"],
         detail=False,
@@ -1238,6 +1247,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get managed warehouse monitoring time series",
         description="Get one allow-listed monitoring metric for the current organization and trailing time window.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["GET"],
         detail=False,
@@ -1275,6 +1285,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(data)
 
     @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["GET"],
         detail=False,
@@ -1292,6 +1303,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         description="Per-schema backfill and live import status for one source, for the Overview tab's "
         "drill-down modal — the main status endpoint only returns a per-source rollup.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["GET"],
         detail=False,
@@ -1319,13 +1331,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="reset-password", required_scopes=["warehouse_view:write"])
     def reset_password(self, request: Request, **kwargs) -> Response:
         """Reset the root password for the managed warehouse."""
         admin_error = self._require_organization_admin(request, "reset the root password for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.reset_password(self.team.organization_id)
+        return managed_warehouse.reset_password(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         parameters=[
@@ -1344,6 +1357,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="check-database-name")
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
@@ -1368,6 +1382,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="check-schema-name")
     def check_schema_name(self, request: Request, **kwargs) -> Response:
         """Check if a schema name is free within the organization's managed warehouse."""

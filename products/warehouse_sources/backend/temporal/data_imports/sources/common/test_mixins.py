@@ -1,5 +1,5 @@
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 from unittest import mock
@@ -10,6 +10,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.temporal.common.errors import NonReportableError
 
@@ -306,11 +307,19 @@ class TestValidateDatabaseHostMixin(SimpleTestCase):
         assert valid
 
 
-@dataclass
+@frozen
+class FakeSSHTunnelAuthConfig:
+    type: str | None = "password"
+    username: str | None = "user"
+    password: str | None = "pass"
+
+
+@frozen
 class FakeSSHTunnelConfig:
     enabled: bool
     host: str
-    port: int = 22
+    port: int | None = 22
+    auth: FakeSSHTunnelAuthConfig = field(default_factory=FakeSSHTunnelAuthConfig)
 
 
 @dataclass
@@ -356,6 +365,23 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host=host))
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert not valid
+
+    # A blank field must not reach `SSHTunnel.from_config`, whose asserts raise a message-less
+    # `AssertionError` that the caller can only report as invalid credentials.
+    @parameterized.expand(
+        [
+            ("blank_host", {"host": ""}, "host is required"),
+            ("blank_port", {"port": None}, "port is required"),
+            ("blank_auth_type", {"auth": FakeSSHTunnelAuthConfig(type=None)}, "authentication type is required"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_blank_tunnel_field_is_named(self, _name: str, overrides: dict, expected: str):
+        mixin = SSHTunnelMixin()
+        tunnel = FakeSSHTunnelConfig(**{"enabled": True, "host": "8.8.8.8", **overrides})
+        valid, error = mixin.ssh_tunnel_is_valid(FakeConfig(ssh_tunnel=tunnel), team_id=999)
+        assert not valid
+        assert expected in error  # type: ignore
 
 
 class TestConnectionOpenLogging(SimpleTestCase):

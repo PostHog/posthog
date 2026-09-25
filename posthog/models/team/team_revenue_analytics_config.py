@@ -1,11 +1,9 @@
-import logging
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.rbac.decorators import field_access_control
 
@@ -13,8 +11,6 @@ from posthog.rbac.decorators import field_access_control
 # is runtime-imported in the accessors that materialize typed objects.
 if TYPE_CHECKING:
     from posthog.schema import RevenueAnalyticsEventItem
-
-logger = logging.getLogger(__name__)
 
 
 # Intentionally not inheriting from UUIDModel/UUIDTModel because we're using a OneToOneField
@@ -65,6 +61,3 @@ class TeamRevenueAnalyticsConfig(models.Model):
             "filter_test_accounts": self.filter_test_accounts,
             "events": [event.model_dump() for event in self.events],
         }
-
-
-register_team_extension_signal(TeamRevenueAnalyticsConfig, logger=logger)

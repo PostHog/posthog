@@ -62,6 +62,13 @@ def _load_notebook_and_user(team_id: int, notebook_short_id: str, user_id: int |
 def dispatch_sql_v2_run_activity(input: SQLV2RunInput) -> None:
     notebook, user = _load_notebook_and_user(input.team_id, input.notebook_short_id, input.user_id)
     run = NotebookNodeRun.objects.for_team(input.team_id).get(id=input.run_id)
+    if run.status != NotebookNodeRun.Status.RUNNING:
+        # Stop already marked this run terminal while its dispatch sat queued. Sending the
+        # code now would execute it after the user was told it stopped, and provision a
+        # kernel to do so, because dispatch starts one when none is up. The row's status is
+        # where the cancellation is recorded, and this is the last point before the code
+        # leaves for the kernel, so it is where the two have to meet.
+        return
     try:
         dispatch_sql_v2_run(
             notebook,

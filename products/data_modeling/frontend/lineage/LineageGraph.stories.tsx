@@ -1,12 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
-import { ModelsLineageTab } from 'scenes/models/tabs/ModelsLineageTab'
-
 import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
+import { ModelsLineageTab } from './ModelsLineageTab'
 
 function mockNode(
     partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>
@@ -45,8 +44,22 @@ const GRAPH_NODES: DataModelingNode[] = [
         sync_interval: '1hour',
     }),
     mockNode({ id: '4', name: 'monthly_report', type: 'view' }),
+    mockNode({ id: '5', name: 'weekly_active_accounts', type: 'metric', metric_id: 'metric-1' }),
+    mockNode({
+        id: '6',
+        name: 'monthly_recurring_revenue',
+        type: 'metric',
+        metric_id: 'metric-2',
+        lineage_issue: { kind: 'unresolved', detail: 'legacy_orders', at: '2024-01-15T10:30:00Z' },
+    }),
 ]
-const GRAPH_EDGES: DataModelingEdge[] = [mockEdge('e1', '1', '3'), mockEdge('e2', '2', '3'), mockEdge('e3', '3', '4')]
+const GRAPH_EDGES: DataModelingEdge[] = [
+    mockEdge('e1', '1', '3'),
+    mockEdge('e2', '2', '3'),
+    mockEdge('e3', '3', '4'),
+    mockEdge('e4', '3', '5'),
+    mockEdge('e5', '4', '6'),
+]
 
 type Story = StoryObj<typeof LineageGraph>
 const meta: Meta<typeof LineageGraph> = {
@@ -61,7 +74,7 @@ const meta: Meta<typeof LineageGraph> = {
     },
     decorators: [
         (StoryFn) => (
-            <div className="h-[500px]">
+            <div className="h-[500px] w-[1200px]">
                 <StoryFn />
             </div>
         ),
@@ -123,4 +136,11 @@ export const SearchFocus: Story = {
             throw new Error('Plain search must keep the rest of the graph visible')
         }
     },
+}
+
+export const DarkMode: Story = {
+    render: () => (
+        <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="5" variant="full" showControls />
+    ),
+    globals: { theme: 'dark' },
 }

@@ -1,31 +1,15 @@
 import './ActivityLog.scss'
 
-import useSize from '@react-hook/size'
-import clsx from 'clsx'
 import { useValues } from 'kea'
-import { router } from 'kea-router'
-import { Suspense, useEffect, useRef, useState } from 'react'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
-import {
-    ACTIVITY_SEARCH_PARAM,
-    ActivityLogLogicProps,
-    activityLogLogic,
-} from 'lib/components/ActivityLog/activityLogLogic'
-import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
-import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { TZLabel } from 'lib/components/TZLabel'
+import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { lazyWithRetry } from 'lib/utils/retryImport'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
@@ -33,8 +17,7 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from 
 import { AccessDenied } from '../AccessDenied'
 import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
-
-const MonacoDiffEditor = lazyWithRetry(() => import('../MonacoDiffEditor'))
+import { ActivityLogRow } from './ActivityLogRow'
 
 export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number
@@ -75,213 +58,6 @@ const Loading = (): JSX.Element => {
             <SkeletonLog />
             <SkeletonLog />
             <SkeletonLog />
-        </div>
-    )
-}
-
-export type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
-
-const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
-    const changes = logItem.unprocessed?.detail.changes
-
-    return (
-        <div className="flex flex-col deprecated-space-y-2 px-2 py-1">
-            <div className="flex flex-col deprecated-space-y-2">
-                {changes?.length ? (
-                    changes.map((change, i) => {
-                        return (
-                            <JsonDiffViewer key={i} field={change.field} before={change.before} after={change.after} />
-                        )
-                    })
-                ) : (
-                    <div className="text-secondary">This item has no changes to compare</div>
-                )}
-            </div>
-        </div>
-    )
-}
-
-interface JsonDiffViewerProps {
-    field: string | undefined
-    before: ActivityChange['before']
-    after: ActivityChange['after']
-}
-
-const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Element => {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [width] = useSize(containerRef)
-    return (
-        <div ref={containerRef} className="flex flex-col space-y-2 w-full">
-            {field ? <h2>{field}</h2> : null}
-            <Suspense fallback={<Spinner className="text-2xl mx-auto my-4" />}>
-                <MonacoDiffEditor
-                    original={JSON.stringify(before, null, 2)}
-                    modified={JSON.stringify(after, null, 2)}
-                    language="json"
-                    width={width}
-                    options={{
-                        renderOverviewRuler: false,
-                        scrollBeyondLastLine: false,
-                        hideUnchangedRegions: {
-                            enabled: true,
-                            contextLineCount: 3,
-                            minimumLineCount: 3,
-                            revealLineCount: 20,
-                        },
-                        diffAlgorithm: 'advanced',
-                    }}
-                />
-            </Suspense>
-        </div>
-    )
-}
-
-export const ActivityLogRow = ({
-    logItem,
-    highlighted,
-}: {
-    logItem: HumanizedActivityLogItem
-    highlighted?: boolean
-}): JSX.Element => {
-    const [isExpanded, setIsExpanded] = useState(false)
-    const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
-    const rowRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (highlighted && rowRef.current) {
-            rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            setIsExpanded(true)
-        }
-    }, [highlighted])
-
-    const handleCopyLink = (): void => {
-        if (!logItem.id) {
-            return
-        }
-        const { pathname, search, hash } = router.values.currentLocation
-        const url = new URL(pathname, window.location.origin)
-        url.search = search || ''
-        url.hash = hash || ''
-        url.searchParams.delete(ACTIVITY_SEARCH_PARAM)
-        url.searchParams.set(ACTIVITY_SEARCH_PARAM, logItem.id)
-        void copyToClipboard(url.toString(), 'activity link')
-    }
-
-    return (
-        <div
-            ref={rowRef}
-            className={clsx(
-                'ActivityLogRow-wrapper flex flex-col px-1 py-0.5',
-                isExpanded && 'border rounded',
-                highlighted && 'ActivityLogRow--highlighted'
-            )}
-        >
-            <div
-                className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
-            >
-                {/* Tooltip merges the trigger props onto its child element, and ProfilePicture drops props
-                    it does not declare, so the trigger must land on the span instead of the avatar. */}
-                <Tooltip
-                    title={
-                        logItem.emailToReveal ? (
-                            <span className="ph-no-capture">{logItem.emailToReveal}</span>
-                        ) : undefined
-                    }
-                >
-                    <span className="flex shrink-0">
-                        <ProfilePicture
-                            showName={false}
-                            user={{
-                                first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
-                                email: logItem.email ?? undefined,
-                            }}
-                            type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
-                            size="xl"
-                        />
-                    </span>
-                </Tooltip>
-                <div className="ActivityLogRow__details flex-grow">
-                    <div className="ActivityLogRow__description">{logItem.description}</div>
-                    {logItem.extendedDescription && (
-                        <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
-                    )}
-                    <AgentAttribution logItem={logItem} />
-                    <div className="text-secondary flex items-center gap-1.5">
-                        <TZLabel time={logItem.created_at} />
-                        {logItem.client && (
-                            <Tooltip title="Self-reported by the API client in the x-posthog-client request header">
-                                <LemonTag size="small" type="muted">
-                                    via {logItem.client === 'mcp' ? 'MCP' : logItem.client}
-                                </LemonTag>
-                            </Tooltip>
-                        )}
-                    </div>
-                </div>
-                {logItem.id && (
-                    <LemonButton
-                        noPadding={true}
-                        icon={<IconLink />}
-                        onClick={handleCopyLink}
-                        tooltip="Copy link to this activity"
-                        className="ActivityLogRow__copy-link"
-                    />
-                )}
-                <LemonButton
-                    noPadding={true}
-                    icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    active={isExpanded}
-                />
-            </div>
-            {isExpanded && (
-                <div className="px-1 py-0.5">
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(key) => setActiveTab(key as ActivityLogTabs)}
-                        tabs={[
-                            logItem.expandedView
-                                ? {
-                                      key: 'details',
-                                      label: logItem.expandedView.label,
-                                      content: logItem.expandedView.content,
-                                  }
-                                : false,
-                            logItem.extendedDescription
-                                ? {
-                                      key: 'extended description',
-                                      label: 'Extended Description',
-                                      tooltip:
-                                          'Some activities have a more detailed description that is not shown when collapsed.',
-                                      content: (
-                                          <div>
-                                              {logItem.extendedDescription
-                                                  ? logItem.extendedDescription
-                                                  : 'This item has no extended description'}
-                                          </div>
-                                      ),
-                                  }
-                                : false,
-                            {
-                                key: 'diff',
-                                label: 'Diff',
-                                tooltip:
-                                    'Show the diff of the changes made to the item. Each activity item could have more than one change.',
-                                content: <ActivityLogDiff logItem={logItem} />,
-                            },
-                            {
-                                key: 'raw',
-                                label: 'Raw',
-                                tooltip: 'Show the raw data of the activity item.',
-                                content: (
-                                    <div>
-                                        <pre>{JSON.stringify(logItem.unprocessed, null, 2)}</pre>
-                                    </div>
-                                ),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
         </div>
     )
 }
