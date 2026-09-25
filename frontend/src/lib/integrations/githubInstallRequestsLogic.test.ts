@@ -2,8 +2,20 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { IntegrationType } from '~/types'
 
 import { githubInstallRequestsLogic } from './githubInstallRequestsLogic'
+import { integrationsLogic } from './integrationsLogic'
+
+const githubIntegration = (installationId: string): IntegrationType =>
+    ({
+        id: 42,
+        kind: 'github',
+        display_name: 'PostHog',
+        icon_url: '',
+        config: { installation_id: installationId },
+        created_at: '2026-08-18T00:00:00Z',
+    }) as IntegrationType
 
 const pendingRequest = {
     id: '018f0000-0000-7000-8000-000000000001',
@@ -29,11 +41,13 @@ const approvedRequest = {
 describe('githubInstallRequestsLogic', () => {
     let logic: ReturnType<typeof githubInstallRequestsLogic.build>
     let results: Record<string, unknown>[]
+    let integrations: IntegrationType[]
     let listCalls: number
     let deletedIds: string[]
 
     beforeEach(() => {
         results = []
+        integrations = []
         listCalls = 0
         deletedIds = []
         useMocks({
@@ -42,6 +56,7 @@ describe('githubInstallRequestsLogic', () => {
                     listCalls += 1
                     return [200, { results, install_url: 'https://github.com/apps/posthog-dev/installations/new' }]
                 },
+                '/api/projects/:team_id/integrations/': () => [200, { results: integrations }],
             },
             delete: {
                 '/api/users/@me/integrations/github/install_requests/:id/': ({ params }) => {
@@ -64,10 +79,33 @@ describe('githubInstallRequestsLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadInstallRequestsSuccess'])
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
 
         expect(logic.values.pendingInstallRequests.map((r) => r.id)).toEqual([pendingRequest.id])
         expect(logic.values.approvedInstallRequests.map((r) => r.id)).toEqual([approvedRequest.id])
         expect(logic.values.installUrl).toBe('https://github.com/apps/posthog-dev/installations/new')
+    })
+
+    it.each([
+        ['its installation is already linked', [githubIntegration('55555')], []],
+        ['another installation is linked', [githubIntegration('99999')], [approvedRequest.id]],
+        ['nothing is linked', [], [approvedRequest.id]],
+    ])('drops an approved request when %s', async (_name, linked, expectedIds) => {
+        results = [approvedRequest]
+        integrations = linked
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadInstallRequestsSuccess'])
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+
+        expect(logic.values.approvedInstallRequests.map((r) => r.id)).toEqual(expectedIds)
+    })
+
+    it('shows no approved request before the linked integrations load', () => {
+        results = [approvedRequest]
+        logic.mount()
+
+        expect(logic.values.approvedInstallRequests).toEqual([])
     })
 
     it.each([

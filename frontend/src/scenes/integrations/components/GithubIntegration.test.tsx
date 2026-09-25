@@ -16,13 +16,15 @@ describe('GithubIntegration', () => {
     let captureSpy: jest.SpyInstance
     let installRequests: Record<string, unknown>[]
     let availableInstallations: Record<string, unknown>[]
+    let integrations: Record<string, unknown>[]
 
     beforeEach(() => {
         installRequests = []
         availableInstallations = []
+        integrations = []
         useMocks({
             get: {
-                '/api/projects/:team_id/integrations': { results: [] },
+                '/api/projects/:team_id/integrations': () => [200, { results: integrations }],
                 '/api/projects/:team_id/integrations/github/available_installations/': () => [
                     200,
                     {
@@ -234,5 +236,41 @@ describe('GithubIntegration', () => {
 
         expect(await screen.findByText(text, { exact: false })).toBeInTheDocument()
         expect(screen.getByText(action)).toBeInTheDocument()
+    })
+
+    // The approved request outlives the connection it unblocked. Left on screen, it sends someone
+    // who is already connected back through the whole OAuth round trip.
+    it('drops the approved install request once its installation is connected', async () => {
+        installRequests = [
+            {
+                id: '018f0000-0000-7000-8000-000000000002',
+                github_login: 'octocat',
+                status: 'approved',
+                installation_id: '55555',
+                account_login: 'posthog-org',
+                account_type: null,
+                requested_at: '2026-08-18T00:00:00Z',
+                resolved_at: '2026-08-18T01:00:00Z',
+            },
+        ]
+        integrations = [
+            {
+                id: 42,
+                kind: 'github',
+                display_name: 'posthog-org',
+                icon_url: '',
+                config: { installation_id: '55555' },
+                created_at: '2026-08-18T01:00:00Z',
+            },
+        ]
+
+        render(
+            <Provider>
+                <GithubIntegration connectSurface="settings" />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Manage on GitHub')).toBeInTheDocument()
+        expect(screen.queryByText('Finish connecting')).not.toBeInTheDocument()
     })
 })

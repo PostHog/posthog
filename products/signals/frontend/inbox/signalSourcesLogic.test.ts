@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -9,7 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
-import { signalSourcesLogic } from './signalSourcesLogic'
+import { dataSourceSetupReturnUrl, signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
 const githubSchema = (id: string, name: string): ExternalDataSourceSchema => ({
@@ -127,6 +128,23 @@ describe('signalSourcesLogic', () => {
         }).toDispatchActions(['toggleCiSignals', action])
 
         expect(logic.values.dataSourceSetupSource).toBe(setup)
+    })
+
+    // An OAuth round trip leaves PostHog, so the setup flow only survives it through the URL.
+    // Landing back on the sources list instead left users redoing the whole connect.
+    it('reopens the setup flow for the source its return URL names, and consumes the param', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push(dataSourceSetupReturnUrl('linear'))
+        }).toDispatchActions(['openDataSourceSetup'])
+
+        expect(logic.values.dataSourceSetupSource).toBe('linear')
+        expect(router.values.searchParams).toEqual({})
+    })
+
+    it('ignores a return URL naming a source it cannot set up', async () => {
+        router.actions.push('/inbox/settings', { connect_source: 'not_a_source' })
+
+        expect(logic.values.dataSourceSetupSource).toBeNull()
     })
 
     it('carries the card guidance onto an error tracking signal type turned on later', async () => {
