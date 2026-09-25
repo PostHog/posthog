@@ -667,7 +667,18 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
  */
 export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
     query: zod.string().describe('HogQL query that selects one event UUID column.'),
-    variables: zod.unknown().optional().describe('Variables referenced by the HogQL query.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.boolean().nullish(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
     submission_id: zod.uuid().describe('Client-generated identifier that makes request submission idempotent.'),
 })
 
@@ -676,7 +687,18 @@ export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
     query: zod.string().describe('HogQL query that selects one event UUID column.'),
-    variables: zod.unknown().optional().describe('Variables referenced by the HogQL query.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.boolean().nullish(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
 })
 
 export const ExportsCreateBody = /* @__PURE__ */ zod

@@ -3,8 +3,8 @@ from typing import Any, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import serializers, status, viewsets
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.data_deletion import (
     DataDeletionActiveRequestLimit,
@@ -50,9 +51,29 @@ class DataDeletionPreviewSustainedThrottle(DataDeletionTeamRateThrottle):
     rate = "30/hour"
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "required": ["code_name", "variableId"],
+            "properties": {
+                "code_name": {"type": "string"},
+                "isNull": {"type": "boolean", "nullable": True},
+                "value": {},
+                "variableId": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+    }
+)
+class HogQLVariablesField(serializers.JSONField):
+    pass
+
+
 class DataDeletionRequestInputSerializer(serializers.Serializer):
     query = serializers.CharField(help_text="HogQL query that selects one event UUID column.")
-    variables = serializers.JSONField(
+    variables = HogQLVariablesField(
         default=dict,
         help_text="Variables referenced by the HogQL query.",
     )
@@ -91,9 +112,16 @@ class DataDeletionPreviewSerializer(serializers.Serializer):
     )
 
 
+class DataDeletionConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(
+        read_only=True,
+        help_text="Reason the deletion request could not be created in the current state.",
+    )
+
+
 class DataDeletionRequestSerializer(serializers.ModelSerializer):
     query = serializers.CharField(source="hogql_query", read_only=True, help_text="Submitted HogQL query snapshot.")
-    variables = serializers.JSONField(
+    variables = HogQLVariablesField(
         source="hogql_variables",
         read_only=True,
         help_text="Submitted HogQL variable snapshot.",
@@ -137,14 +165,14 @@ class DataDeletionRequestSerializer(serializers.ModelSerializer):
 @extend_schema_view(
     list=extend_schema(description="List self-service event deletion requests for this project."),
     retrieve=extend_schema(description="Get one self-service event deletion request for this project."),
-    create=extend_schema(
-        description="Submit a one-column HogQL query for event deletion.",
-        request=DataDeletionRequestCreateSerializer,
-        responses={201: DataDeletionRequestSerializer, 200: DataDeletionRequestSerializer},
-    ),
 )
 @extend_schema(extensions={"x-product": "core"})
-class DataDeletionRequestViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class DataDeletionRequestViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
     scope_object = "data_deletion"
     requires_resource_level_access = True
     queryset = DataDeletionRequest.objects.all()
@@ -164,21 +192,17 @@ class DataDeletionRequestViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def safely_get_queryset(self, queryset: QuerySet[DataDeletionRequest]) -> QuerySet[DataDeletionRequest]:
         return queryset.filter(request_type=RequestType.HOGQL_EVENT_REMOVAL)
 
-    def list(self, request: Request, *args: object, **kwargs: object) -> Response:
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        return Response(self.get_serializer(queryset, many=True).data)
-
-    def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
-        return Response(self.get_serializer(self.get_object()).data)
-
-    def create(self, request: Request, *args: object, **kwargs: object) -> Response:
-        input_serializer = DataDeletionRequestCreateSerializer(data=request.data)
-        input_serializer.is_valid(raise_exception=True)
-        data = input_serializer.validated_data
+    @validated_request(
+        request_serializer=DataDeletionRequestCreateSerializer,
+        responses={
+            200: DataDeletionRequestSerializer,
+            201: DataDeletionRequestSerializer,
+            409: DataDeletionConflictSerializer,
+        },
+        description="Submit a one-column HogQL query for event deletion.",
+    )
+    def create(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        data = request.validated_data
         try:
             deletion_request, created = create_event_deletion_request(
                 query=data["query"],
@@ -189,22 +213,24 @@ class DataDeletionRequestViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             )
         except DjangoValidationError as error:
             raise ValidationError(error.message_dict) from error
-        except DataDeletionSubmissionConflict as error:
-            raise ValidationError(
-                {"submission_id": "This submission ID is already used by a different deletion request."}
-            ) from error
-        except DataDeletionActiveRequestLimit as error:
-            raise ValidationError(
-                {"detail": "This project already has the maximum number of active deletion requests."}
-            ) from error
+        except DataDeletionSubmissionConflict:
+            return Response(
+                {"detail": "This submission ID is already used by a different deletion request."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except DataDeletionActiveRequestLimit:
+            return Response(
+                {"detail": "This project already has the maximum number of active deletion requests."},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(
             DataDeletionRequestSerializer(deletion_request).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
-    @extend_schema(
+    @validated_request(
+        request_serializer=DataDeletionRequestInputSerializer,
         description="Validate a one-column HogQL query and count the selected event UUIDs.",
-        request=DataDeletionRequestInputSerializer,
         responses={200: DataDeletionPreviewSerializer},
     )
     @action(
@@ -212,10 +238,8 @@ class DataDeletionRequestViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         detail=False,
         throttle_classes=[DataDeletionPreviewBurstThrottle, DataDeletionPreviewSustainedThrottle],
     )
-    def preview(self, request: Request, **kwargs: object) -> Response:
-        input_serializer = DataDeletionRequestInputSerializer(data=request.data)
-        input_serializer.is_valid(raise_exception=True)
-        data = input_serializer.validated_data
+    def preview(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        data = request.validated_data
         try:
             count = preview_event_deletion(
                 query=data["query"],

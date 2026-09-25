@@ -24899,10 +24899,26 @@ export namespace Schemas {
       readonly created_by: UserBasic;
     }
 
+    export interface DataDeletionConflict {
+      /** Reason the deletion request could not be created in the current state. */
+      readonly detail: string;
+    }
+
     export interface DataDeletionPreview {
       /** Number of event UUIDs selected when the preview ran. */
       readonly count: number;
     }
+
+    /**
+     * Submitted HogQL variable snapshot.
+     */
+    export type DataDeletionRequestVariables = {[key: string]: {
+      code_name: string;
+      /** @nullable */
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
 
     /**
      * * `draft` - Draft
@@ -24942,7 +24958,7 @@ export namespace Schemas {
       /** Submitted HogQL query snapshot. */
       readonly query: string;
       /** Submitted HogQL variable snapshot. */
-      readonly variables: unknown;
+      readonly variables: DataDeletionRequestVariables;
       /**
          * Client-generated idempotency identifier.
          * @nullable
@@ -24979,20 +24995,42 @@ export namespace Schemas {
       readonly stats_calculated_at: string | null;
     }
 
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestCreateVariables = {[key: string]: {
+      code_name: string;
+      /** @nullable */
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
     export interface DataDeletionRequestCreate {
       /** HogQL query that selects one event UUID column. */
       query: string;
       /** Variables referenced by the HogQL query. */
-      variables?: unknown;
+      variables?: DataDeletionRequestCreateVariables;
       /** Client-generated identifier that makes request submission idempotent. */
       submission_id: string;
     }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestInputVariables = {[key: string]: {
+      code_name: string;
+      /** @nullable */
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
 
     export interface DataDeletionRequestInput {
       /** HogQL query that selects one event UUID column. */
       query: string;
       /** Variables referenced by the HogQL query. */
-      variables?: unknown;
+      variables?: DataDeletionRequestInputVariables;
     }
 
     /**

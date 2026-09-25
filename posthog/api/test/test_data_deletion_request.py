@@ -35,9 +35,15 @@ class TestDataDeletionRequestAPI(APIBaseTest):
 
         first = self.client.post(f"{self.url}/", payload, format="json")
         second = self.client.post(f"{self.url}/", payload, format="json")
+        conflict = self.client.post(
+            f"{self.url}/",
+            {**payload, "query": "SELECT uuid FROM events WHERE event = 'refund'"},
+            format="json",
+        )
 
         assert first.status_code == status.HTTP_201_CREATED, first.json()
         assert second.status_code == status.HTTP_200_OK, second.json()
+        assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
         assert second.json()["id"] == first.json()["id"]
         request = DataDeletionRequest.objects.get(id=first.json()["id"])
         assert request.team_id == self.team.id
@@ -49,6 +55,30 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert request.requires_approval is True
         assert DataDeletionRequest.objects.filter(team_id=self.team.id).count() == 1
         compile_query.assert_called_once()
+
+    @patch(COMPILE_QUERY)
+    def test_create_rejects_requests_above_the_active_limit(self, compile_query, _feature_flag) -> None:
+        for _ in range(5):
+            DataDeletionRequest.objects.create(
+                team_id=self.team.id,
+                request_type=RequestType.HOGQL_EVENT_REMOVAL,
+                status=RequestStatus.PENDING,
+                submission_id=uuid4(),
+            )
+
+        response = self.client.post(
+            f"{self.url}/",
+            {
+                "query": "SELECT uuid FROM events",
+                "variables": {},
+                "submission_id": str(uuid4()),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert DataDeletionRequest.objects.filter(team_id=self.team.id).count() == 5
+        compile_query.assert_not_called()
 
     @parameterized.expand(
         [

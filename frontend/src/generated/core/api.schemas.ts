@@ -3739,6 +3739,19 @@ export const RequestStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * Submitted HogQL variable snapshot.
+ */
+export type DataDeletionRequestApiVariables = {
+    [key: string]: {
+        code_name: string
+        /** @nullable */
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
 export interface DataDeletionRequestApi {
     /** Deletion request identifier. */
     readonly id: string
@@ -3755,7 +3768,7 @@ export interface DataDeletionRequestApi {
     /** Submitted HogQL query snapshot. */
     readonly query: string
     /** Submitted HogQL variable snapshot. */
-    readonly variables: unknown
+    readonly variables: DataDeletionRequestApiVariables
     /**
      * Client-generated idempotency identifier.
      * @nullable
@@ -3801,20 +3814,51 @@ export interface PaginatedDataDeletionRequestListApi {
     results: DataDeletionRequestApi[]
 }
 
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestCreateApiVariables = {
+    [key: string]: {
+        code_name: string
+        /** @nullable */
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
 export interface DataDeletionRequestCreateApi {
     /** HogQL query that selects one event UUID column. */
     query: string
     /** Variables referenced by the HogQL query. */
-    variables?: unknown
+    variables?: DataDeletionRequestCreateApiVariables
     /** Client-generated identifier that makes request submission idempotent. */
     submission_id: string
+}
+
+export interface DataDeletionConflictApi {
+    /** Reason the deletion request could not be created in the current state. */
+    readonly detail: string
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestInputApiVariables = {
+    [key: string]: {
+        code_name: string
+        /** @nullable */
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
 }
 
 export interface DataDeletionRequestInputApi {
     /** HogQL query that selects one event UUID column. */
     query: string
     /** Variables referenced by the HogQL query. */
-    variables?: unknown
+    variables?: DataDeletionRequestInputApiVariables
 }
 
 export interface DataDeletionPreviewApi {
