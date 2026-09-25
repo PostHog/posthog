@@ -2241,11 +2241,12 @@ def cleanup_orphan_slots_activity() -> None:
                 try:
                     if stop_cdc_past_billing_retention(source, cdc_config, adapter):
                         slots_dropped += 1
+                    continue
                 except Exception:
+                    # The source keeps running, so the lag check below still covers it until a later sweep stops it.
                     source_log.exception("failed_to_stop_cdc_past_billing_retention")
                     metrics.get_sweeper_source_errors_metric().add(1)
                     sources_errored += 1
-                continue
 
             # 3. Active sources — check WAL lag
             source_started = dt.datetime.now(tz=dt.UTC)

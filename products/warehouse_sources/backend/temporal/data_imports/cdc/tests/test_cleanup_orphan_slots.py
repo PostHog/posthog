@@ -303,6 +303,7 @@ def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
 
     adapter.drop_resources.assert_called_once()
     mock_pause.assert_not_called()
+    adapter.get_lag_bytes.assert_called_once()
     source.refresh_from_db()
     assert source.status != ExternalDataSource.Status.ERROR
     schema.refresh_from_db()
