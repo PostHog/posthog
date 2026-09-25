@@ -30,7 +30,7 @@ export function ScannerAlertNotifications(): JSX.Element {
         integrationsLoading,
         integrationsFailed,
         slackIntegrations,
-        firstSlackIntegration,
+        selectedSlackIntegration,
         selectedType,
         slackChannelValue,
         webhookUrl,
@@ -42,18 +42,19 @@ export function ScannerAlertNotifications(): JSX.Element {
         removePendingNotification,
         deleteExistingDestination,
         setSelectedType,
+        setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
         loadIntegrations,
     } = useActions(scannerAlertNotificationLogic)
 
-    const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
+    const slackLogic = slackIntegrationLogic({ id: selectedSlackIntegration?.id ?? 0 })
     const { loadAllSlackChannels } = useActions(slackLogic)
     useEffect(() => {
-        if (firstSlackIntegration?.id) {
+        if (selectedSlackIntegration?.id) {
             loadAllSlackChannels()
         }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels])
+    }, [selectedSlackIntegration?.id, loadAllSlackChannels])
 
     const existingDestinations: AlertNotificationDestinationView[] = destinationGroups.map((group) => ({
         key: group.key,
@@ -90,7 +91,8 @@ export function ScannerAlertNotifications(): JSX.Element {
                 integrationsFailed,
                 onRetryIntegrations: loadIntegrations,
                 integrations: slackIntegrations,
-                integration: firstSlackIntegration,
+                integration: selectedSlackIntegration,
+                onIntegrationChange: setSelectedSlackIntegrationId,
                 channelValue: slackChannelValue,
                 onChannelValueChange: setSlackChannelValue,
             }}
