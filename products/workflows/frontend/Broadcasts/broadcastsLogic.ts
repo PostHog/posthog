@@ -15,8 +15,10 @@ import { TeamPublicType, TeamType } from '~/types'
 
 import { hogFlowsBatchJobsList, hogFlowsList } from 'products/workflows/frontend/generated/api'
 import type {
+    HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowMinimalApi,
+    HogFlowScheduleApi,
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -84,6 +86,31 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
         paths.size === 2 &&
         paths.has(`${trigger[0].id}->${email[0].id}`) &&
         paths.has(`${email[0].id}->${exit[0].id}`)
+    )
+}
+
+/** Null batch jobs means they haven't loaded, so whether a send is running is still unknown. */
+export interface StoppableBroadcast {
+    status?: HogFlowApi['status']
+    actions?: FlowStep[] | null
+    edges?: FlowEdge[] | null
+    schedules?: Pick<HogFlowScheduleApi, 'status'>[]
+}
+
+export function canMoveToDraft(
+    broadcast: StoppableBroadcast | null,
+    batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
+): boolean {
+    return (
+        broadcast?.status === 'active' &&
+        // Only a send still to come can be stopped, since relaunching one that went out resends it. The
+        // wizard models a single schedule, so a relaunch would fold several into one.
+        broadcast.schedules?.length === 1 &&
+        broadcast.schedules[0].status !== 'completed' &&
+        batchJobs !== null &&
+        !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
+        // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
+        canEditInWizard(broadcast.actions, broadcast.edges)
     )
 }
 
