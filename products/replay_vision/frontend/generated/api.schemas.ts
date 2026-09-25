@@ -246,7 +246,8 @@ export interface VisionAlertConfigurationApi {
     readonly first_enabled_at: string | null
     /** When the alert was created. */
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    /** User who created the alert; null once that user is deleted. */
+    readonly created_by: UserBasicApi | null
     /**
      * When the alert was last modified.
      * @nullable
@@ -261,6 +262,145 @@ export interface PaginatedVisionAlertConfigurationListApi {
     /** @nullable */
     previous?: string | null
     results: VisionAlertConfigurationApi[]
+}
+
+/**
+ * * `slack` - slack
+ * * `webhook` - webhook
+ */
+export type VisionAlertDestinationTypeEnumApi =
+    (typeof VisionAlertDestinationTypeEnumApi)[keyof typeof VisionAlertDestinationTypeEnumApi]
+
+export const VisionAlertDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
+export interface VisionAlertDestinationConfigApi {
+    /** HogFunctions backing the created destination, one per event kind. */
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook */
+    type: VisionAlertDestinationTypeEnumApi
+    /** Whether every HogFunction in the group is enabled, so the destination notifies on every event kind. */
+    enabled: boolean
+    /** Integration ID of the Slack workspace, for Slack destinations. */
+    slack_workspace_id?: number
+    /** Slack channel ID, for Slack destinations. */
+    slack_channel_id?: string
+    /** Webhook endpoint reduced to scheme and host, because the path, query and userinfo can carry a secret. */
+    webhook_url?: string
+}
+
+export interface VisionAlertConfigurationDetailApi {
+    /** Unique identifier for this alert. */
+    readonly id: string
+    /** Scanner whose observations this alert watches. Immutable after creation. */
+    scanner_id: string
+    /**
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+    enabled?: boolean
+    /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+     *
+     * * `metric` - Metric
+     * * `match` - Match */
+    kind: VisionAlertKindEnumApi
+    /** Which observations count. Empty matches every observation of the scanner. */
+    selection?: VisionAlertSelectionApi
+    /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+     *
+     * * `count` - Count matching observations
+     * * `avg_score` - Average score */
+    metric?: VisionAlertMetricEnumApi
+    /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
+    /**
+     * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+     * @nullable
+     */
+    threshold?: number | null
+    /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+    window_days?: number
+    /**
+     * Metric alerts only: evaluation cadence in minutes, at least 15.
+     * @minimum 15
+     */
+    check_interval_minutes?: number
+    /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state: LogsAlertConfigurationStateEnumApi
+    /**
+     * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
+    snooze_until?: string | null
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
+    readonly last_notified_at: string | null
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /** Consecutive evaluation failures. Resets on success. Server-managed. */
+    readonly consecutive_failures: number
+    /**
+     * When the alert was first enabled. Null means still a draft.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
+    /** When the alert was created. */
+    readonly created_at: string
+    /** User who created the alert; null once that user is deleted. */
+    readonly created_by: UserBasicApi | null
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /** This alert's notification destinations, one entry per destination, with credential-bearing URL parts removed. */
+    readonly destinations: readonly VisionAlertDestinationConfigApi[]
 }
 
 export interface PatchedVisionAlertConfigurationApi {
@@ -361,7 +501,8 @@ export interface PatchedVisionAlertConfigurationApi {
     readonly first_enabled_at?: string | null
     /** When the alert was created. */
     readonly created_at?: string
-    readonly created_by?: UserBasicApi
+    /** User who created the alert; null once that user is deleted. */
+    readonly created_by?: UserBasicApi | null
     /**
      * When the alert was last modified.
      * @nullable
@@ -369,24 +510,12 @@ export interface PatchedVisionAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
-/**
- * * `slack` - slack
- * * `webhook` - webhook
- */
-export type VisionAlertCreateDestinationTypeEnumApi =
-    (typeof VisionAlertCreateDestinationTypeEnumApi)[keyof typeof VisionAlertCreateDestinationTypeEnumApi]
-
-export const VisionAlertCreateDestinationTypeEnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
 export interface VisionAlertCreateDestinationApi {
     /** Notification destination type.
      *
      * * `slack` - slack
      * * `webhook` - webhook */
-    type: VisionAlertCreateDestinationTypeEnumApi
+    type: VisionAlertDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -1021,6 +1150,8 @@ export interface ReplayScannerApi {
     readonly credits_used_against_limit: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached: boolean
+    /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+    readonly sweep_throttle_factor: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -1145,6 +1276,8 @@ export interface PatchedReplayScannerApi {
     readonly credits_used_against_limit?: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached?: boolean
+    /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
+    readonly sweep_throttle_factor?: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -1161,6 +1294,19 @@ export interface PatchedReplayScannerApi {
 }
 
 /**
+ * * `yes` - Yes
+ * * `no` - No
+ * * `inconclusive` - Inconclusive
+ */
+export type ObservationVerdictEnumApi = (typeof ObservationVerdictEnumApi)[keyof typeof ObservationVerdictEnumApi]
+
+export const ObservationVerdictEnumApi = {
+    Yes: 'yes',
+    No: 'no',
+    Inconclusive: 'inconclusive',
+} as const
+
+/**
  * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
  */
 export interface AffectedCohortRequestApi {
@@ -1170,6 +1316,12 @@ export interface AffectedCohortRequestApi {
      * @maximum 90
      */
     window_days?: number
+    /** Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+     *
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive */
+    verdict?: ObservationVerdictEnumApi | null
     /**
      * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
      * @maxLength 100
@@ -1267,7 +1419,7 @@ export interface BulkObserveResponseApi {
  * Who this scanner's findings affected in the window; counted from observations, not estimated.
  */
 export interface ScannerImpactApi {
-    /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+    /** Distinct sessions with an affected observation in the window. For monitors only observations with the requested verdict count (yes by default); for other scanner types every succeeded observation counts. */
     readonly affected_sessions: number
     /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
     readonly affected_users: number
@@ -1304,6 +1456,25 @@ export interface ObserveResponseApi {
     workflow_id: string
 }
 
+export interface SelfDrivingReportApi {
+    /** Signal report ID, for linking to it in the inbox. */
+    id: string
+    /**
+     * Report title. Null until the report is summarized.
+     * @nullable
+     */
+    title: string | null
+    /** The report's inbox status. */
+    status: string
+}
+
+export interface SelfDrivingPullRequestApi {
+    /** URL of the implementation pull request. */
+    url: string
+    /** Whether the pull request has merged. */
+    merged: boolean
+}
+
 /**
  * Response of GET /vision/scanners/:id/self_driving_stats/.
  */
@@ -1316,6 +1487,10 @@ export interface ScannerSelfDrivingStatsApi {
     prs_opened: number
     /** Of the opened PRs, how many have merged. */
     prs_merged: number
+    /** The newest reports counted in `reports_contributed`, at most 20. */
+    reports: SelfDrivingReportApi[]
+    /** The newest PRs counted in `prs_opened`, at most 20. */
+    pull_requests: SelfDrivingPullRequestApi[]
 }
 
 /**
@@ -1371,6 +1546,18 @@ export interface PaginatedReplayScannerBackfillListApi {
     /** @nullable */
     previous?: string | null
     results: ReplayScannerBackfillApi[]
+}
+
+export interface BackfillCreateApi {
+    /** Inclusive lower bound of the historical window to scan. */
+    window_start: string
+    /** Exclusive upper bound of the window; clamped server-side to now. */
+    window_end: string
+    /**
+     * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
+     * @minimum 0
+     */
+    max_total_credits: number
 }
 
 export interface BackfillWindowApi {
@@ -2776,12 +2963,31 @@ export type VisionScannersImpactRetrieveParams = {
      */
     tag?: string | null
     /**
+     * Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.
+     *
+     * * `yes` - Yes
+     * * `no` - No
+     * * `inconclusive` - Inconclusive
+     * @nullable
+     */
+    verdict?: VisionScannersImpactRetrieveVerdict
+    /**
      * Trailing window of observations to count. Defaults to 30 days.
      * @minimum 1
      * @maximum 90
      */
     window_days?: number
 }
+
+export type VisionScannersImpactRetrieveVerdict =
+    | (typeof VisionScannersImpactRetrieveVerdict)[keyof typeof VisionScannersImpactRetrieveVerdict]
+    | null
+
+export const VisionScannersImpactRetrieveVerdict = {
+    Yes: 'yes',
+    No: 'no',
+    Inconclusive: 'inconclusive',
+} as const
 
 export type VisionScannersBackfillsListParams = {
     /**

@@ -341,7 +341,7 @@ async def create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
-):
+) -> tuple[Task, TaskRun]:
     return await _create_task_and_trigger(
         description,
         context,

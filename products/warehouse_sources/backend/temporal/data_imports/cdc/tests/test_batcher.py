@@ -49,6 +49,17 @@ def _make_event(
 
 
 class TestChangeEventBatcher:
+    def test_discarding_a_table_releases_its_share_of_the_flush_budget(self):
+        batcher = ChangeEventBatcher(max_bytes=1)
+        batcher.add(_make_event(table="users"))
+        batcher.add(_make_event(table="orders"))
+
+        batcher.discard("users")
+        batcher.discard("orders")
+
+        assert batcher.event_count == 0
+        assert batcher.should_flush is False
+
     def test_empty_flush(self):
         batcher = ChangeEventBatcher()
         result = batcher.flush()

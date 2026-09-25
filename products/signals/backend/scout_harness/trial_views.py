@@ -29,7 +29,12 @@ from products.signals.backend.scout_harness.trial_launch import (
     create_trial_launch,
     read_trial_launch,
 )
-from products.signals.backend.scout_harness.trial_result import export_trial_result, get_trial_workflow_status
+from products.signals.backend.scout_harness.trial_result import (
+    export_trial_result,
+    get_trial_workflow_status,
+    read_trial_result,
+    trial_result_key,
+)
 from products.signals.backend.scout_harness.trial_serializers import (
     ScoutTrialHistoryQuerySerializer,
     ScoutTrialHistorySerializer,
@@ -197,7 +202,19 @@ class ScoutTrialConfigMixin:
         export_error = None
         error = None
         trial_status = run.task_run.status if run else "pending"
-        if run is None or run.task_run.status in {"queued", "in_progress"}:
+        saved_result = None
+        if run is not None:
+            try:
+                saved_result = read_trial_result(run)
+                if saved_result is None and run.task_run.status in {"completed", "failed", "cancelled"}:
+                    result_key = export_trial_result(run)
+                    saved_result = read_trial_result(run)
+                if saved_result is not None:
+                    result_key = trial_result_key(run)
+                    trial_status = cast(str, saved_result["status"])
+            except (object_storage.ObjectStorageError, ValueError):
+                export_error = "The result export failed. Retry this request to save it again."
+        if saved_result is None and (run is None or run.task_run.status in {"queued", "in_progress"}):
             workflow = get_trial_workflow_status(team_id=config.team_id, launch_id=launch.id)
             if run is None:
                 trial_status = "pending" if workflow.status == "completed" and workflow.run_id else workflow.status
@@ -210,11 +227,6 @@ class ScoutTrialConfigMixin:
                 )
         usage: dict[str, JsonValue] = {}
         if run is not None:
-            if run.task_run.status in {"completed", "failed", "cancelled"}:
-                try:
-                    result_key = export_trial_result(run)
-                except (object_storage.ObjectStorageError, ValueError):
-                    export_error = "The result export failed. Retry this request to save it again."
             private = ScoutTrialStore(run).export()
             stored_reports = private["reports"]
             reports = list(stored_reports.values()) if isinstance(stored_reports, dict) else []

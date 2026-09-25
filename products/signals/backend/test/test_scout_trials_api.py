@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.scoping import team_scope
+from posthog.storage import object_storage
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScratchpad
@@ -23,7 +25,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     load_trial_context,
     load_trial_launch,
 )
-from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus
+from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, memory_snapshot
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill
@@ -357,3 +359,68 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert result.json()["status"] == "pending"
             assert result.json()["cost_usd"] is None
             assert self.client.get(f"{base}trial-result/", {"launch_id": str(uuid4())}).status_code == 404
+
+    @parameterized.expand(
+        [
+            ("completed_task_cancelled_runner", "completed", "cancelled", False),
+            ("failed_task_cancelled_runner", "failed", "cancelled", False),
+            ("task_still_ending", "in_progress", "cancelled", False),
+            ("recover_missing_export", "completed", None, False),
+            ("concurrent_runner_export", "completed", "cancelled", True),
+        ]
+    )
+    def test_poll_preserves_terminal_result(
+        self, _label: str, task_status: str, saved_status: str | None, concurrent_export: bool
+    ) -> None:
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        run = _make_run(
+            self.team,
+            scout_config=self.config,
+            skill_name=self.skill.name,
+            task_run_status=task_status,
+            metadata={"scout_trial": {"version": 1, "launch_id": str(launch.id), "context_id": str(launch.context_id)}},
+        )
+        run.task_run.task.created_by = self.user
+        run.task_run.task.save(update_fields=["created_by"])
+        run.task_run.state = {
+            "runtime_adapter": launch.runtime_adapter,
+            "model": launch.model,
+            "reasoning_effort": launch.reasoning_effort,
+            "service_tier": launch.service_tier,
+        }
+        run.task_run.save(update_fields=["state"])
+        if saved_status is not None and not concurrent_export:
+            export_trial_result(run, status=saved_status)
+
+        def concurrent_write(key: str, content: str, **kwargs: object) -> None:
+            result = json.loads(content)
+            result["status"] = saved_status
+            self.documents[key] = json.dumps(result)
+            extras = kwargs.get("extras")
+            if isinstance(extras, dict) and extras.get("IfNoneMatch") == "*":
+                raise object_storage.ObjectStorageError("A runner export already exists.")
+            self.documents[key] = content
+
+        url = f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/trial-result/"
+        with (
+            patch("products.signals.backend.scout_harness.trial_views.withheld_skills_for_team", return_value=set()),
+            patch(
+                "products.signals.backend.scout_harness.trial_views.get_trial_workflow_status",
+                return_value=TrialWorkflowStatus(status="unknown"),
+            ),
+            patch(
+                "posthog.storage.object_storage.write",
+                side_effect=concurrent_write if concurrent_export else self._write,
+            ),
+        ):
+            first = self.client.get(url, {"launch_id": str(launch.id)})
+            assert first.status_code == 200, first.data
+            result = first.json()
+            assert result["status"] == (saved_status or task_status)
+            assert result["task_status"] == task_status
+            assert result["export_error"] is None
+            saved_content = self.documents[result["result_key"]]
+            second = self.client.get(url, {"launch_id": str(launch.id)})
+        assert second.status_code == 200, second.data
+        assert second.json() == result
+        assert self.documents[result["result_key"]] == saved_content

@@ -8,6 +8,108 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `object` - object
+ * * `parent_object` - parent_object
+ * * `resource` - resource
+ * * `parent_resource` - parent_resource
+ * * `system_default` - system_default
+ * * `org_admin` - org_admin
+ * * `creator` - creator
+ * * `org_membership` - org_membership
+ */
+export type ResolvedAccessSourceEnumApi = (typeof ResolvedAccessSourceEnumApi)[keyof typeof ResolvedAccessSourceEnumApi]
+
+export const ResolvedAccessSourceEnumApi = {
+    Object: 'object',
+    ParentObject: 'parent_object',
+    Resource: 'resource',
+    ParentResource: 'parent_resource',
+    SystemDefault: 'system_default',
+    OrgAdmin: 'org_admin',
+    Creator: 'creator',
+    OrgMembership: 'org_membership',
+} as const
+
+/**
+ * * `member` - member
+ * * `role` - role
+ * * `default` - default
+ */
+export type ResolvedAccessSourceSubjectEnumApi =
+    (typeof ResolvedAccessSourceSubjectEnumApi)[keyof typeof ResolvedAccessSourceSubjectEnumApi]
+
+export const ResolvedAccessSourceSubjectEnumApi = {
+    Member: 'member',
+    Role: 'role',
+    Default: 'default',
+} as const
+
+/**
+ * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+ */
+export interface ProjectAccessSourceApi {
+    /** The access level that applies. */
+    access_level: string
+    /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+     *
+     * * `object` - object
+     * * `parent_object` - parent_object
+     * * `resource` - resource
+     * * `parent_resource` - parent_resource
+     * * `system_default` - system_default
+     * * `org_admin` - org_admin
+     * * `creator` - creator
+     * * `org_membership` - org_membership */
+    source: ResolvedAccessSourceEnumApi
+    /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+     *
+     * * `member` - member
+     * * `role` - role
+     * * `default` - default */
+    source_subject: ResolvedAccessSourceSubjectEnumApi | null
+    /** The resource the deciding rule belongs to. */
+    source_resource: string
+    /**
+     * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+     * @nullable
+     */
+    source_resource_id: string | null
+    /**
+     * The name of the role or member whose rule decided. Null when the default or a bypass decided.
+     * @nullable
+     */
+    subject_name: string | null
+}
+
+export interface MemberProjectAccessEntryApi {
+    /** The project's id. */
+    team_id: number
+    /** The project's name. */
+    team_name: string
+    /** The member's enforced access to the project: none, member or admin. */
+    access_level: string
+    /** The rule that supplies the level. Read `source` and `source_subject` to tell an organization admin's bypass from a member rule, a role rule or the project default. */
+    resolved: ProjectAccessSourceApi | null
+    /**
+     * The id of the role or organization membership whose rule decided. Null when the default or a bypass decided.
+     * @nullable
+     */
+    subject_id: string | null
+}
+
+export interface MemberProjectAccessApi {
+    /** The organization membership id. */
+    organization_membership_id: string
+    /** One entry per project the caller can access, including projects the member cannot. */
+    projects: MemberProjectAccessEntryApi[]
+}
+
+export interface MemberProjectAccessResponseApi {
+    /** One entry per visible organization member. */
+    results: MemberProjectAccessApi[]
+}
+
+/**
  * A stored rule on one object, as configured for a subject.
  */
 export interface AccessControlObjectRuleApi {
@@ -48,6 +150,217 @@ export interface AccessControlPropertyRuleApi {
 export interface AccessControlPropertyRulesResponseApi {
     /** The subject's property rules, sorted by property type and name. */
     results: AccessControlPropertyRuleApi[]
+}
+
+/**
+ * * `account` - account
+ * * `action` - action
+ * * `activity_log` - activity_log
+ * * `ai_observability_clusters` - ai_observability_clusters
+ * * `customer_analytics` - customer_analytics
+ * * `customer_journey` - customer_journey
+ * * `customer_task` - customer_task
+ * * `dashboard` - dashboard
+ * * `dashboard_template` - dashboard_template
+ * * `data_catalog` - data_catalog
+ * * `data_deletion` - data_deletion
+ * * `dataset` - dataset
+ * * `early_access_feature` - early_access_feature
+ * * `endpoint` - endpoint
+ * * `error_tracking` - error_tracking
+ * * `evaluation` - evaluation
+ * * `experiment` - experiment
+ * * `experiment_holdout` - experiment_holdout
+ * * `experiment_saved_metric` - experiment_saved_metric
+ * * `export` - export
+ * * `external_data_source` - external_data_source
+ * * `feature_flag` - feature_flag
+ * * `heatmap` - heatmap
+ * * `hog_flow` - hog_flow
+ * * `insight` - insight
+ * * `llm_analytics` - llm_analytics
+ * * `llm_playground` - llm_playground
+ * * `llm_prompt` - llm_prompt
+ * * `llm_provider_key` - llm_provider_key
+ * * `llm_skill` - llm_skill
+ * * `logs` - logs
+ * * `marketing_analytics` - marketing_analytics
+ * * `mcp_analytics` - mcp_analytics
+ * * `metrics` - metrics
+ * * `notebook` - notebook
+ * * `project` - project
+ * * `property_definition` - property_definition
+ * * `replay_scanner` - replay_scanner
+ * * `revenue_analytics` - revenue_analytics
+ * * `session_recording` - session_recording
+ * * `session_recording_playlist` - session_recording_playlist
+ * * `sharing_configuration` - sharing_configuration
+ * * `stamphog` - stamphog
+ * * `survey` - survey
+ * * `tagger` - tagger
+ * * `ticket` - ticket
+ * * `toolbar` - toolbar
+ * * `tracing` - tracing
+ * * `vision_alert` - vision_alert
+ * * `warehouse_objects` - warehouse_objects
+ * * `warehouse_table` - warehouse_table
+ * * `warehouse_view` - warehouse_view
+ * * `web_analytics` - web_analytics
+ */
+export type RuleResourceEnumApi = (typeof RuleResourceEnumApi)[keyof typeof RuleResourceEnumApi]
+
+export const RuleResourceEnumApi = {
+    Account: 'account',
+    Action: 'action',
+    ActivityLog: 'activity_log',
+    AiObservabilityClusters: 'ai_observability_clusters',
+    CustomerAnalytics: 'customer_analytics',
+    CustomerJourney: 'customer_journey',
+    CustomerTask: 'customer_task',
+    Dashboard: 'dashboard',
+    DashboardTemplate: 'dashboard_template',
+    DataCatalog: 'data_catalog',
+    DataDeletion: 'data_deletion',
+    Dataset: 'dataset',
+    EarlyAccessFeature: 'early_access_feature',
+    Endpoint: 'endpoint',
+    ErrorTracking: 'error_tracking',
+    Evaluation: 'evaluation',
+    Experiment: 'experiment',
+    ExperimentHoldout: 'experiment_holdout',
+    ExperimentSavedMetric: 'experiment_saved_metric',
+    Export: 'export',
+    ExternalDataSource: 'external_data_source',
+    FeatureFlag: 'feature_flag',
+    Heatmap: 'heatmap',
+    HogFlow: 'hog_flow',
+    Insight: 'insight',
+    LlmAnalytics: 'llm_analytics',
+    LlmPlayground: 'llm_playground',
+    LlmPrompt: 'llm_prompt',
+    LlmProviderKey: 'llm_provider_key',
+    LlmSkill: 'llm_skill',
+    Logs: 'logs',
+    MarketingAnalytics: 'marketing_analytics',
+    McpAnalytics: 'mcp_analytics',
+    Metrics: 'metrics',
+    Notebook: 'notebook',
+    Project: 'project',
+    PropertyDefinition: 'property_definition',
+    ReplayScanner: 'replay_scanner',
+    RevenueAnalytics: 'revenue_analytics',
+    SessionRecording: 'session_recording',
+    SessionRecordingPlaylist: 'session_recording_playlist',
+    SharingConfiguration: 'sharing_configuration',
+    Stamphog: 'stamphog',
+    Survey: 'survey',
+    Tagger: 'tagger',
+    Ticket: 'ticket',
+    Toolbar: 'toolbar',
+    Tracing: 'tracing',
+    VisionAlert: 'vision_alert',
+    WarehouseObjects: 'warehouse_objects',
+    WarehouseTable: 'warehouse_table',
+    WarehouseView: 'warehouse_view',
+    WebAnalytics: 'web_analytics',
+} as const
+
+/**
+ * The scope and level of one rule write. On its own it is the default rule, for everyone in the
+ * project without a member or role rule of their own. The subclasses add the subject.
+ */
+export interface AccessControlRuleRequestApi {
+    /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+     *
+     * * `account` - account
+     * * `action` - action
+     * * `activity_log` - activity_log
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `customer_analytics` - customer_analytics
+     * * `customer_journey` - customer_journey
+     * * `customer_task` - customer_task
+     * * `dashboard` - dashboard
+     * * `dashboard_template` - dashboard_template
+     * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `insight` - insight
+     * * `llm_analytics` - llm_analytics
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `replay_scanner` - replay_scanner
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `stamphog` - stamphog
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `vision_alert` - vision_alert
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics */
+    resource: RuleResourceEnumApi
+    /**
+     * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+     * @nullable
+     */
+    resource_id?: string | null
+    /**
+     * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+     * @nullable
+     */
+    access_level: string | null
+}
+
+/**
+ * One stored rule, the same shape for object, resource, project and property rules.
+ */
+export interface AccessControlStoredRuleApi {
+    /** The rule's scope, as sent in the request. */
+    resource: string
+    /**
+     * The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.
+     * @nullable
+     */
+    resource_id: string | null
+    /** The stored level. */
+    access_level: string
+    /**
+     * The organization membership the rule is for. Null unless it is a member rule.
+     * @nullable
+     */
+    member_id: string | null
+    /**
+     * The role the rule is for. Null unless it is a role rule.
+     * @nullable
+     */
+    role_id: string | null
 }
 
 export interface AccessControlResourceDefaultApi {
@@ -94,6 +407,80 @@ export interface AccessControlDefaultsResponseApi {
     object_rule_resources: AccessControlObjectRuleResourceApi[]
 }
 
+/**
+ * A rule for one organization member.
+ */
+export interface AccessControlMemberRuleRequestApi {
+    /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+     *
+     * * `account` - account
+     * * `action` - action
+     * * `activity_log` - activity_log
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `customer_analytics` - customer_analytics
+     * * `customer_journey` - customer_journey
+     * * `customer_task` - customer_task
+     * * `dashboard` - dashboard
+     * * `dashboard_template` - dashboard_template
+     * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `insight` - insight
+     * * `llm_analytics` - llm_analytics
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `replay_scanner` - replay_scanner
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `stamphog` - stamphog
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `vision_alert` - vision_alert
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics */
+    resource: RuleResourceEnumApi
+    /**
+     * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+     * @nullable
+     */
+    resource_id?: string | null
+    /**
+     * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+     * @nullable
+     */
+    access_level: string | null
+    /** The organization membership id, as `organization_membership_id` in the members endpoint. */
+    member_id: string
+}
+
 export interface AccessControlMemberUserApi {
     /** The user's UUID. */
     uuid: string
@@ -117,43 +504,6 @@ export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
-} as const
-
-/**
- * * `object` - object
- * * `parent_object` - parent_object
- * * `resource` - resource
- * * `parent_resource` - parent_resource
- * * `system_default` - system_default
- * * `org_admin` - org_admin
- * * `creator` - creator
- * * `org_membership` - org_membership
- */
-export type ResolvedAccessSourceEnumApi = (typeof ResolvedAccessSourceEnumApi)[keyof typeof ResolvedAccessSourceEnumApi]
-
-export const ResolvedAccessSourceEnumApi = {
-    Object: 'object',
-    ParentObject: 'parent_object',
-    Resource: 'resource',
-    ParentResource: 'parent_resource',
-    SystemDefault: 'system_default',
-    OrgAdmin: 'org_admin',
-    Creator: 'creator',
-    OrgMembership: 'org_membership',
-} as const
-
-/**
- * * `member` - member
- * * `role` - role
- * * `default` - default
- */
-export type ResolvedAccessSourceSubjectEnumApi =
-    (typeof ResolvedAccessSourceSubjectEnumApi)[keyof typeof ResolvedAccessSourceSubjectEnumApi]
-
-export const ResolvedAccessSourceSubjectEnumApi = {
-    Member: 'member',
-    Role: 'role',
-    Default: 'default',
 } as const
 
 /**
@@ -247,6 +597,80 @@ export interface AccessControlMembersResponseApi {
     can_edit: boolean
     /** One entry per organization member. */
     results: AccessControlMemberAccessApi[]
+}
+
+/**
+ * A rule for every member of one role.
+ */
+export interface AccessControlRoleRuleRequestApi {
+    /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+     *
+     * * `account` - account
+     * * `action` - action
+     * * `activity_log` - activity_log
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `customer_analytics` - customer_analytics
+     * * `customer_journey` - customer_journey
+     * * `customer_task` - customer_task
+     * * `dashboard` - dashboard
+     * * `dashboard_template` - dashboard_template
+     * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `insight` - insight
+     * * `llm_analytics` - llm_analytics
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `replay_scanner` - replay_scanner
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `stamphog` - stamphog
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `vision_alert` - vision_alert
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics */
+    resource: RuleResourceEnumApi
+    /**
+     * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+     * @nullable
+     */
+    resource_id?: string | null
+    /**
+     * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+     * @nullable
+     */
+    access_level: string | null
+    /** The role id, as `role_id` in the roles endpoint. */
+    role_id: string
 }
 
 /**
@@ -356,6 +780,13 @@ export interface PropertyAccessControlUpdateApi {
      * @nullable
      */
     role?: string | null
+}
+
+export type MembersProjectAccessRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string
 }
 
 export type OrganizationsProjectsAccessControlMemberObjectsRetrieveParams = {

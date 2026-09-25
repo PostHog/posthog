@@ -2777,7 +2777,7 @@ async def edit_report(
     Content-changing edits pass the same safety judge as `emit_report` before anything is written
     (see `_raise_if_unsafe_edit`); an unsafe edit is rejected whole and the report keeps what it
     had."""
-    _validate_edit_inputs(
+    await database_sync_to_async(_validate_edit_inputs, thread_sensitive=False)(
         team,
         run,
         title,

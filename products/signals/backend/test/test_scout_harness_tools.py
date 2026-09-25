@@ -388,13 +388,18 @@ class TestRecentRunsPerScout(BaseTest):
         assert len(per_skill["signals-scout-hourly"]) == 5
         assert per_skill["signals-scout-daily"] == [str(run.id) for run in daily]
 
-    def test_keeps_each_scouts_newest_runs_and_orders_the_fleet_newest_first(self) -> None:
+    @parameterized.expand([False, True])
+    def test_keeps_each_scouts_newest_runs_and_orders_the_fleet_newest_first(self, null_metadata: bool) -> None:
         self._configure("signals-scout-errors")
         self._configure("signals-scout-surveys")
         newest = self._run_at(skill_name="signals-scout-errors", hours_ago=1)
         older = self._run_at(skill_name="signals-scout-errors", hours_ago=2)
         dropped = self._run_at(skill_name="signals-scout-errors", hours_ago=3)
         other_scout = self._run_at(skill_name="signals-scout-surveys", hours_ago=1.5)
+        if null_metadata:
+            SignalScoutRun.objects.filter(id=newest.id).update(metadata=None)
+        trial = self._run_at(skill_name="signals-scout-errors", hours_ago=0.5)
+        SignalScoutRun.objects.filter(id=trial.id).update(metadata={"scout_trial": {"version": 1}})
 
         hits = recent_runs_per_scout(team_id=self.team.id, per_scout_limit=2)
 

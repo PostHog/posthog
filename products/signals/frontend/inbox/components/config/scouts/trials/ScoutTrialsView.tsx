@@ -16,7 +16,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { scoutTrialsLogicActions, scoutTrialsLogicValues } from '../../../../logics/scoutTrialsLogic'
 import { scoutDisplayName } from '../../../../utils/scoutRunsWindow'
 import { ScoutTrialResultModal } from './ScoutTrialResultModal'
-import { MAX_TRIAL_RUNS, ScoutTrialRow, trialIsActive } from './scoutTrials'
+import { MAX_TRIAL_RUNS, ScoutTrialRow, trialIsActive } from './scoutTrialUtils'
 import { ScoutTrialVariantEditor } from './ScoutTrialVariantEditor'
 
 type ViewAction =

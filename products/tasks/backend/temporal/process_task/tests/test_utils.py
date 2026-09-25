@@ -66,6 +66,44 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
             )
 
 
+class TestRunStateModelAccess(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({}, "posthog-gateway", None),
+            (
+                {"claude_model_access": "own-subscription", "claude_subscription_user_id": 12},
+                "own-subscription",
+                "claude",
+            ),
+            (
+                {
+                    "runtime_adapter": "codex",
+                    "codex_model_access": "own-subscription",
+                    "codex_subscription_user_id": 12,
+                },
+                "own-subscription",
+                "codex",
+            ),
+        ]
+    )
+    def test_decodes_legacy_fields(self, state: dict, kind: str, adapter: str | None) -> None:
+        access = RunState.model_validate(state).model_access
+        assert access.kind == kind
+        assert access.adapter == adapter
+        assert access.owner_id == (12 if adapter else None)
+
+    @parameterized.expand(
+        [
+            ({"claude_model_access": "own-subscription", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "claude", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "codex", "claude_model_access": "own-subscription"},),
+        ]
+    )
+    def test_rejects_incompatible_subscriptions(self, state: dict) -> None:
+        with self.assertRaises(ValueError):
+            _ = RunState.model_validate(state).model_access
+
+
 class TestRunStateResumeCompatibility(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1357,6 +1395,7 @@ class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
 
 
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
+    @parameterized.expand([False, True])
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
         return_value="pub",
@@ -1365,17 +1404,22 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
         "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
         return_value="https://api.example",
     )
-    def test_snapshot_resume_env_includes_otel_config_when_configured(self, _api, _jwt) -> None:
+    def test_snapshot_resume_env_includes_otel_config_when_configured(self, is_trial: bool, _api, _jwt) -> None:
+        ctx, task = _gateway_ctx_task()
+        task.is_scout_experiment = is_trial
         with override_settings(
+            SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
             SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
             SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
             SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
         ):
-            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
+            env = build_sandbox_environment_variables(None, "access-token", ctx, task, otel_telemetry_enabled=True)
 
-        assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
-        assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
-        assert env["POSTHOG_AGENT_OTEL_TRACES_URL"] == "https://us.i.posthog.com/i/v1/traces"
+        assert env.get("POSTHOG_AGENT_OTEL_LOGS_URL") == (None if is_trial else "https://us.i.posthog.com/i/v1/logs")
+        assert env.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "phc_telemetry")
+        assert env.get("POSTHOG_AGENT_OTEL_TRACES_URL") == (
+            None if is_trial else "https://us.i.posthog.com/i/v1/traces"
+        )
 
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",

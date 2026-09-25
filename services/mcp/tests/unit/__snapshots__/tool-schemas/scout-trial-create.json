@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "context_id": {
+            "description": "Saved starting context from a previous launch in this comparison.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        },
+        "launch_id": {
+            "description": "Unique launch ID. Reuse it only when retrying this exact request.",
+            "type": "string"
+        },
+        "model": {
+            "description": "Model identifier for this run.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "note": {
+            "description": "Common investigation note, saved before applying any variant overrides.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "reasoning_effort": {
+            "description": "Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.",
+            "maxLength": 20,
+            "type": "string"
+        },
+        "skill_body": {
+            "description": "Replacement skill body for this run. Supporting files and tool permissions stay pinned.",
+            "maxLength": 100000,
+            "type": "string"
+        },
+        "variant": {
+            "description": "Operator label for this variant.",
+            "maxLength": 100,
+            "type": "string"
+        }
+    },
+    "required": ["id", "launch_id"],
+    "type": "object"
+}

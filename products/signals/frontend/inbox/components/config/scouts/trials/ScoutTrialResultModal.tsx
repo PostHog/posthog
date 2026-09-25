@@ -4,7 +4,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { ScoutTrialResultApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { trialReportText } from './scoutTrials'
+import { trialReportText } from './scoutTrialUtils'
 
 export function ScoutTrialResultModal({
     result,

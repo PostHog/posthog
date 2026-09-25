@@ -73,8 +73,8 @@ Always file every report you decide on with `scout-emit-report`, with the comple
     return rule + body + emit_rule
 
 
-def build() -> list[dict]:
-    copies = []
+def build() -> list[dict[str, str | int]]:
+    copies: list[dict[str, str | int]] = []
     n = 0
     for model in MODELS:
         for page in PAGES:

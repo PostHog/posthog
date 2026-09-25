@@ -4,12 +4,13 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
@@ -22,6 +23,7 @@ from products.signals.backend.scout_harness.tools.report import (
     ReportEvidence,
     ReportLinkInput,
     ReviewerInput,
+    edit_report,
     edit_report_sync,
     emit_report_sync,
 )
@@ -149,7 +151,7 @@ class TestScoutTrialState(APIBaseTest):
 
 
 @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, LLM_GATEWAY_URL="https://gateway.example")
-class TestScoutTrialReportCapture(APIBaseTest):
+class TestScoutTrialReportCapture(NonAtomicAPIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
@@ -385,10 +387,12 @@ class TestScoutTrialReportCapture(APIBaseTest):
         self.judge.assert_not_called()
         assert self.store.reports() == []
 
-    def test_unsupported_report_links_invalidate_comparison(self) -> None:
+    @parameterized.expand([False, True])
+    def test_unsupported_report_links_invalidate_comparison(self, asynchronous: bool) -> None:
         report_id = self._emit()
+        edit = async_to_sync(edit_report) if asynchronous else edit_report_sync
         with self.assertRaisesMessage(InvalidScoutReportError, "Report links are not supported"):
-            edit_report_sync(
+            edit(
                 team=self.team,
                 run=self.scout_run,
                 report_id=report_id,

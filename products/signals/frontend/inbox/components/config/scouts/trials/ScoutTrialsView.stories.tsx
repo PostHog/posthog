@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { createTrialBatch, initialTrialVariants } from './scoutTrials'
+import { createTrialBatch, initialTrialVariants } from './scoutTrialUtils'
 import { trialFixtureConfig, trialFixtureResult, trialFixtureSetup } from './scoutTrialsFixtures'
 import { ScoutTrialsView, ScoutTrialsViewProps } from './ScoutTrialsView'
 

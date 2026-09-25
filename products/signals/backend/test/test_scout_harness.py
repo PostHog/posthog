@@ -1630,15 +1630,16 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("runtime_drift", [False, True])
+@pytest.mark.parametrize("outcome_case", ["completed", "runtime_drift", "cancelled"])
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 @override_settings(
     SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
 )
 async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_scout(
-    ateam: Team, aerrors_skill: LLMSkill, atrial_operator: User, runtime_drift: bool
+    ateam: Team, aerrors_skill: LLMSkill, atrial_operator: User, outcome_case: str
 ) -> None:
+    runtime_drift = outcome_case == "runtime_drift"
     await database_sync_to_async(LLMSkill.objects.filter(pk=aerrors_skill.pk).update)(allowed_tools=["emit_report"])
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(
         team=ateam,
@@ -1717,6 +1718,10 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         assert persisted.state is not None
         assert persisted.state["scout_trial"]["launch_id"] == str(launch.id)
         assert "scout_trial_private" in persisted.state
+        if outcome_case == "cancelled":
+            running_task = asyncio.current_task()
+            assert running_task is not None
+            running_task.cancel()
         return session, result
 
     def read_document(key: str, **kwargs: object) -> str:
@@ -1735,14 +1740,23 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
-        outcome = await arun_signals_scout(
-            team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
-        )
+        if outcome_case == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await arun_signals_scout(
+                    team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
+                )
+            outcome = await arun_signals_scout(
+                team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
+            )
+        else:
+            outcome = await arun_signals_scout(
+                team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
+            )
         replay = await arun_signals_scout(
             team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
         )
 
-    assert outcome.status == ("failed" if runtime_drift else "completed")
+    assert outcome.status == ("failed" if runtime_drift else outcome_case)
     assert replay.run_id == outcome.run_id
     assert len(captured) == 1
     sandbox_context = captured[0]["context"]
@@ -1758,7 +1772,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert export.call_args.args[0] == f"signals/scout-trials/{ateam.id}/results/{bridge.id}.json"
     saved_result = json.loads(export.call_args.args[1])
     assert saved_result["valid_comparison"] is not runtime_drift
-    assert saved_result["status"] == outcome.status
+    assert saved_result["status"] == saved_result["task_status"] == outcome.status
     assert saved_result["token_usage"] == {"input_tokens": 100, "output_tokens": 20}
     assert saved_result["private_state"]["invalid_reason"] == saved_result["invalid_reason"]
     assert "skill_body" not in saved_result

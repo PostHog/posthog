@@ -2739,6 +2739,12 @@ class TestScoutTrialSkillAPI(APIBaseTest):
             first = self.client.get(self._url(f"?{query}body_length=10"))
             rest = self.client.get(self._url("?body_offset=10"))
             guide = self.client.get(self._url(f"/files/guide.md?{query}"))
+            markdown = self.client.get(self._url(f"/skill-md?{query}"))
+            resolved = self.client.get(
+                f"/api/projects/{self.team.id}/llm_skills/resolve/name/{self.source.name}?{query}"
+            )
+            exported = self.client.get(self._url(f"/export?{query}"))
+            listed = self.client.get(f"/api/projects/{self.team.id}/llm_skills/")
             other = self.client.get(
                 f"/api/environments/{self.team.id}/llm_skills/name/another-skill?launch_id={uuid.uuid4()}"
             )
@@ -2749,12 +2755,34 @@ class TestScoutTrialSkillAPI(APIBaseTest):
         assert first.json()["body_next_offset"] == 10
         assert first.json()["version"] == 1
         assert guide.json()["content"] == "saved guide"
+        assert markdown.status_code == resolved.status_code == status.HTTP_200_OK
+        assert exported.status_code == status.HTTP_403_FORBIDDEN
+        assert resolved.json()["skill"]["body"] == self.launch.skill_body
+        assert resolved.json()["skill"]["version"] == 1
+        rendered = markdown.json()["content"]
+        assert parse_skill_md(rendered)["body"] == self.launch.skill_body
+        assert markdown.json()["version"] == 1
+        assert listed.status_code == status.HTTP_200_OK
+        listed_skill = next(skill for skill in listed.json()["results"] if skill["name"] == self.source.name)
+        assert listed_skill["version"] == 1
         assert other.status_code == status.HTTP_200_OK
         assert other.json()["body"] == "other instructions"
         self.source.refresh_from_db()
         self.current.refresh_from_db()
         assert self.source.body == "saved source"
         assert self.current.body == "current source"
+
+    @parameterized.expand([("trial", True), ("regular", False)])
+    def test_full_bundle_cannot_bypass_candidate_instructions(self, _label: str, is_trial: bool) -> None:
+        if not is_trial:
+            self.token.scope = "llm_skill:read signal_scout_internal:write"
+            self.token.save(update_fields=["scope"])
+        url = f"/api/projects/{self.team.id}/llm_skills/bundle/"
+        with patch("products.skills.backend.api.skills.posthog_feature_flag_value", return_value=True):
+            full = self.client.get(url, {"content": "full"})
+            stub = self.client.get(url)
+        assert full.status_code == (status.HTTP_403_FORBIDDEN if is_trial else status.HTTP_200_OK)
+        assert stub.status_code == status.HTTP_200_OK
 
     def test_regular_scout_reads_current_source(self) -> None:
         self.token.scope = "llm_skill:read signal_scout_internal:write"

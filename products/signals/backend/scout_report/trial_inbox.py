@@ -162,7 +162,6 @@ class TrialInboxReads:
         )
         originals = self.view._annotate_artefact_count(originals)
         originals = self.view._annotate_channel_id(originals)
-        originals = self.view._annotate_latest_actionability(originals)
         originals = self.view._prefetch_signal_report_priority_artefacts(originals)
         originals = self.view._annotate_is_suggested_reviewer(originals)
         live = {str(row["id"]): row for row in self.view._serialize_report_list(list(originals))}

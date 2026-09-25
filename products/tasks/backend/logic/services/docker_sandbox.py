@@ -65,6 +65,7 @@ from .sandbox import (
     SandboxStatus,
     SandboxTemplate,
     build_agent_runtime_env_prefix,
+    build_subscription_flags,
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
     wait_for_health_check,
@@ -78,6 +79,7 @@ PI_IMAGE_NAME = "posthog-sandbox-pi"
 AUTORESEARCH_IMAGE_NAME = "posthog-sandbox-autoresearch"
 STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
 SLIM_IMAGE_NAME = "posthog-sandbox-slim"
+STAMPHOG_REVIEW_IMAGE_NAME = "posthog-sandbox-stamphog-review"
 
 # Stamped on the base image so a later run can tell whether it must rebuild: the sha of
 # the Dockerfile that produced it, and the @posthog/agent version baked into the npm layer.
@@ -390,6 +392,19 @@ class DockerSandbox(AgentServerLaunchMixin):
             )
             DockerSandbox._build_image_if_needed(SLIM_IMAGE_NAME, dockerfile_path, needs_skills=False)
             return SLIM_IMAGE_NAME
+
+        if template == SandboxTemplate.STAMPHOG_REVIEW:
+            DockerSandbox._ensure_image_exists(SandboxTemplate.SLIM_BASE)
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-stamphog-review"
+            )
+            DockerSandbox._build_image_if_needed(
+                STAMPHOG_REVIEW_IMAGE_NAME,
+                dockerfile_path,
+                build_args={"BASE_IMAGE": SLIM_IMAGE_NAME},
+                needs_skills=False,
+            )
+            return STAMPHOG_REVIEW_IMAGE_NAME
 
         # Streamlit ships its own standalone image (FROM python:3.11-slim with a `streamlit`
         # user + auth proxy), so it doesn't build on top of the base image like PI does.
@@ -967,6 +982,8 @@ class DockerSandbox(AgentServerLaunchMixin):
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token_file: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -992,7 +1009,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
         )
-        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
+        subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -1018,6 +1035,8 @@ class DockerSandbox(AgentServerLaunchMixin):
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
+        if codex_run_token_file:
+            server_cmd = self._with_codex_run_token_fd(server_cmd, codex_run_token_file)
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
         # (Node fetch) honors it for local-host traffic unless NO_PROXY says otherwise. The
@@ -1302,7 +1321,7 @@ def _base_image_source_sha(dockerfile_path: str) -> str:
     digest = hashlib.sha256()
     for path in [
         Path(dockerfile_path),
-        *sorted(Path(settings.BASE_DIR, "products/desktop/packages/agent-shadow").rglob("*")),
+        *sorted(Path(settings.BASE_DIR, "packages/agent/agent-shadow").rglob("*")),
     ]:
         if path.is_file():
             digest.update(path.read_bytes())

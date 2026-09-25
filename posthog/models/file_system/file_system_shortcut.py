@@ -18,7 +18,7 @@ class FileSystemShortcut(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     path = models.TextField()
     type = models.CharField(max_length=100, blank=True)
-    ref = models.CharField(max_length=100, null=True, blank=True)
+    ref = models.CharField(max_length=4000, null=True, blank=True)
     href = models.TextField(null=True, blank=True)
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now, editable=False)

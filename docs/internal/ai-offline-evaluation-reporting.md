@@ -42,6 +42,15 @@ Trial credentials can upload logs and update the summary, status, and usage of t
 Operator trial MCP tools also omit analytics payloads.
 Task content retrieval tools retain call metrics but omit content spans and free-text intent, so viewing a private transcript does not publish it through MCP analytics.
 
+Private trial tasks, logs, artifacts, and controls are available only to the launching operator or the sandbox bound to that task.
+Other project members do not discover them through ordinary task lists or searches, and trial ownership cannot be transferred.
+Polling preserves the runner's saved completion outcome, including cancellation, and reports the underlying task status separately.
+A poll can recover a missing export without replacing an existing result.
+
+Individual skill reads and markdown downloads serve the run's pinned candidate.
+Trial sandboxes can use stub skill bundles, which fetch each skill through those reads.
+Full-content bundles are rejected because they cannot apply the run's private candidate; ZIP exports remain unavailable to scoped trial credentials.
+
 The [live comparison plan and script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#live-trial-operator-script) describe launch inputs, stored results, and supported scout capabilities.
 Keep downloaded prompts, memory, reports, and transcripts outside version control.
 

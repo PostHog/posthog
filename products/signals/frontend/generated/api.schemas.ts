@@ -2479,6 +2479,7 @@ export interface SignalReportStateRequestApi {
  * * `implementation_dispatch` - Implementation Dispatch
  * * `implementation_replacement` - Implementation Replacement
  * * `implementation_handover` - Implementation Handover
+ * * `ranking_score` - Ranking Score
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2513,6 +2514,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     ImplementationDispatch: 'implementation_dispatch',
     ImplementationReplacement: 'implementation_replacement',
     ImplementationHandover: 'implementation_handover',
+    RankingScore: 'ranking_score',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -3989,7 +3991,7 @@ export interface ScoutMemberApi {
 }
 
 /**
- * A team's enforced scout run caps and current usage.
+ * A team's enforced scout caps and current usage.
  *
  * These are the values the coordinator actually applies at dispatch (resolved per-team override →
  * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -4010,6 +4012,8 @@ export interface ScoutLimitsApi {
      * @nullable
      */
     runs_remaining_today: number | null
+    /** Most scouts the project can have switched on at once. Enabling another past this is rejected. */
+    max_enabled_scouts: number
 }
 
 /**

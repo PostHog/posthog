@@ -1038,6 +1038,7 @@ async def _spawn_and_run(
         # lost and the next run inherits a doubled scan delta.
         fallback_from_text=lambda text: SignalScoutRunSummary(summary=text),
     )
+    end_status = "completed"
     end_error: str | None = None
     try:
         if trial is not None:
@@ -1057,14 +1058,15 @@ async def _spawn_and_run(
             trial=trial is not None,
         )
         return result.summary, str(session.task_run.id)
-    except Exception as error:
+    except BaseException as error:
+        end_status = "failed" if isinstance(error, Exception) else "cancelled"
         end_error = str(error)
         raise
     finally:
-        if end_error is None:
+        if end_status == "completed":
             await session.end()
         else:
-            await session.end(status="failed", error=end_error)
+            await asyncio.shield(session.end(status=end_status, error=end_error))
 
 
 def _get_team(team_id: int) -> Team:

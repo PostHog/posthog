@@ -11,107 +11,135 @@ import re
 import json
 import argparse
 from pathlib import Path
+from typing import TypedDict
 
+type JsonValue = dict[str, JsonValue] | list[JsonValue] | str | int | float | bool | None
 PATH_RE = re.compile(r"(?:posthog|ee|products)/[\w./-]+\.py")
 
 
-def tool_calls(entries: list[dict]) -> list[dict]:
-    calls: dict[str, dict] = {}
+class ToolCall(TypedDict):
+    id: str
+    ts: JsonValue
+    title: str
+    kind: JsonValue
+    input: JsonValue
+    output: str
+
+
+def _object(value: JsonValue) -> dict[str, JsonValue]:
+    return value if isinstance(value, dict) else {}
+
+
+def _text(value: JsonValue) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _content_text(value: JsonValue, *, nested: bool = False) -> str:
+    if not isinstance(value, list):
+        return ""
+    parts = [_object(part) for part in value]
+    if nested:
+        parts = [_object(part.get("content")) for part in parts]
+    return "".join(_text(part.get("text")) for part in parts)
+
+
+def tool_calls(entries: list[dict[str, JsonValue]]) -> list[ToolCall]:
+    calls: dict[str, ToolCall] = {}
     order: list[str] = []
-    for e in entries:
-        n = e.get("notification") or {}
-        if n.get("method") != "session/update":
+    for entry in entries:
+        notification = _object(entry.get("notification"))
+        if notification.get("method") != "session/update":
             continue
-        u = n["params"].get("update") or {}
-        kind = u.get("sessionUpdate")
-        cid = u.get("toolCallId")
-        if not isinstance(cid, str):
+        update = _object(_object(notification.get("params")).get("update"))
+        kind = update.get("sessionUpdate")
+        call_id = update.get("toolCallId")
+        if not isinstance(call_id, str):
             continue
         if kind == "tool_call":
-            calls[cid] = {
-                "id": cid,
-                "ts": e.get("timestamp"),
-                "title": u.get("title"),
-                "kind": u.get("kind"),
-                "input": u.get("rawInput"),
+            calls[call_id] = {
+                "id": call_id,
+                "ts": entry.get("timestamp"),
+                "title": _text(update.get("title")),
+                "kind": update.get("kind"),
+                "input": update.get("rawInput"),
                 "output": "",
             }
-            order.append(cid)
-        elif kind == "tool_call_update" and cid in calls:
-            for part in u.get("content") or []:
-                inner = part.get("content") if isinstance(part, dict) else None
-                if isinstance(inner, dict) and inner.get("text"):
-                    calls[cid]["output"] += inner["text"]
-            ro = u.get("rawOutput")
-            if isinstance(ro, dict):
-                for part in ro.get("content") or []:
-                    if isinstance(part, dict) and part.get("text"):
-                        calls[cid]["output"] += part["text"]
-    return [calls[c] for c in order]
+            order.append(call_id)
+        elif kind == "tool_call_update" and call_id in calls:
+            calls[call_id]["output"] += _content_text(update.get("content"), nested=True)
+            calls[call_id]["output"] += _content_text(_object(update.get("rawOutput")).get("content"))
+    return [calls[call_id] for call_id in order]
 
 
-def exec_command(call: dict) -> str:
-    inp = call.get("input") or {}
-    return inp.get("command", "") if isinstance(inp, dict) else ""
+def exec_command(call: ToolCall) -> str:
+    return _text(_object(call["input"]).get("command")) or call["title"]
 
 
-def parse_call_json(cmd: str, tool: str) -> dict | None:
+def parse_call_json(cmd: str, tool: str) -> dict[str, JsonValue] | None:
     marker = f"call {tool} "
-    i = cmd.find(marker)
-    if i < 0:
+    index = cmd.find(marker)
+    if index < 0:
         return None
+    raw = cmd[index + len(marker) :]
     try:
-        return json.loads(cmd[i + len(marker) :])
+        value: JsonValue = json.loads(raw)
     except json.JSONDecodeError:
-        return {"_raw": cmd[i + len(marker) :]}
+        return {"_raw": raw}
+    return value if isinstance(value, dict) else {"_raw": raw}
 
 
-def facts(entries: list[dict], page: set[str], commit: str | None) -> dict:
+def facts(entries: list[dict[str, JsonValue]], page: set[str], commit: str | None) -> dict[str, JsonValue]:
     calls = tool_calls(entries)
-    bash = [c for c in calls if (c.get("title") or "").startswith("/bin/bash")]
-    pin = next((c for c in bash if "git fetch --depth=1" in (c["title"] or "")), None)
+    bash = [call for call in calls if call["title"].startswith("/bin/bash")]
+    pin = next((call for call in bash if "git fetch --depth=1" in exec_command(call)), None)
     pin_ok = bool(commit and pin and commit in pin["output"] and "HEAD is now at" in pin["output"])
     touched: set[str] = set()
-    for c in bash:
-        touched.update(PATH_RE.findall(c["title"] or ""))
-    reports, memory, forgets = [], [], []
-    for c in calls:
-        cmd = exec_command(c)
-        if "call scout-emit-report " in cmd:
-            reports.append(
-                {"ts": c["ts"], "payload": parse_call_json(cmd, "scout-emit-report"), "response": c["output"][:600]}
-            )
-        elif "call scout-edit-report " in cmd:
+    for call in bash:
+        touched.update(PATH_RE.findall(exec_command(call)))
+    reports: list[JsonValue] = []
+    memory: list[JsonValue] = []
+    forgets: list[JsonValue] = []
+    for call in calls:
+        command = exec_command(call)
+        if "call scout-emit-report " in command:
             reports.append(
                 {
-                    "ts": c["ts"],
-                    "edit": True,
-                    "payload": parse_call_json(cmd, "scout-edit-report"),
-                    "response": c["output"][:600],
+                    "ts": call["ts"],
+                    "payload": parse_call_json(command, "scout-emit-report"),
+                    "response": call["output"][:600],
                 }
             )
-        elif "call scout-scratchpad-remember " in cmd:
-            p = parse_call_json(cmd, "scout-scratchpad-remember") or {}
-            memory.append({"ts": c["ts"], "key": p.get("key"), "content": p.get("content")})
-        elif "call scout-scratchpad-forget " in cmd:
-            p = parse_call_json(cmd, "scout-scratchpad-forget") or {}
-            forgets.append(p.get("key"))
+        elif "call scout-edit-report " in command:
+            reports.append(
+                {
+                    "ts": call["ts"],
+                    "edit": True,
+                    "payload": parse_call_json(command, "scout-edit-report"),
+                    "response": call["output"][:600],
+                }
+            )
+        elif "call scout-scratchpad-remember " in command:
+            payload = parse_call_json(command, "scout-scratchpad-remember") or {}
+            memory.append({"ts": call["ts"], "key": payload.get("key"), "content": payload.get("content")})
+        elif "call scout-scratchpad-forget " in command:
+            payload = parse_call_json(command, "scout-scratchpad-forget") or {}
+            forgets.append(payload.get("key"))
     summaries = [
-        c["input"].get("summary")
-        for c in calls
-        if (c.get("title") or "").endswith("task_summary_update") and isinstance(c.get("input"), dict)
+        _object(call["input"]).get("summary")
+        for call in calls
+        if call["title"].endswith("task_summary_update") and isinstance(call["input"], dict)
     ]
     reads_of_other_copies = sorted(
-        {m for c in calls for m in re.findall(r"api-quality-b\d+", exec_command(c) + c["output"])}
+        {match for call in calls for match in re.findall(r"api-quality-b\d+", exec_command(call) + call["output"])}
     )
     return {
         "tool_calls": len(calls),
         "bash_commands": len(bash),
         "pin_ok": pin_ok,
-        "pin_output": (pin or {}).get("output", "")[:300],
-        "files_touched": sorted(touched),
-        "files_in_page": sorted(touched & page) if page else None,
-        "files_outside_page": sorted(touched - page) if page else None,
+        "pin_output": pin["output"][:300] if pin else "",
+        "files_touched": list[JsonValue](sorted(touched)),
+        "files_in_page": list[JsonValue](sorted(touched & page)) if page else None,
+        "files_outside_page": list[JsonValue](sorted(touched - page)) if page else None,
         "reports": reports,
         "memory_writes": memory,
         "memory_forgets": forgets,
@@ -123,16 +151,17 @@ def facts(entries: list[dict], page: set[str], commit: str | None) -> dict:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("log")
-    ap.add_argument("--page")
-    ap.add_argument("--commit")
-    a = ap.parse_args()
-    entries = json.loads(Path(a.log).read_text())
-    if isinstance(entries, dict):
-        entries = entries.get("results") or entries.get("entries") or []
-    page = set(Path(a.page).read_text().split()) if a.page else set()
-    print(json.dumps(facts(entries, page, a.commit), indent=1))  # noqa: T201 — eval script, stdout is the intended output channel
+    parser = argparse.ArgumentParser()
+    parser.add_argument("log")
+    parser.add_argument("--page")
+    parser.add_argument("--commit")
+    args = parser.parse_args()
+    raw_entries: JsonValue = json.loads(Path(args.log).read_text())
+    if isinstance(raw_entries, dict):
+        raw_entries = raw_entries.get("results") or raw_entries.get("entries") or []
+    entries = [_object(entry) for entry in raw_entries] if isinstance(raw_entries, list) else []
+    page = set(Path(args.page).read_text().split()) if args.page else set()
+    print(json.dumps(facts(entries, page, args.commit), indent=1))  # noqa: T201 — eval script, stdout is the intended output channel
 
 
 if __name__ == "__main__":

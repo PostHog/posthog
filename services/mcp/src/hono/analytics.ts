@@ -65,7 +65,9 @@ function buildBaseProperties(
         $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
         $mcp_transport: requestContext.transport,
         $mcp_session_id: requestContext.mcpSessionId,
-        $mcp_conversation_id: requestContext.mcpConversationId,
+        // Present only when there is a handle. An explicit `undefined` would erase the value the
+        // SDK maps from its own `conversationId` field, because caller properties merge last.
+        ...(requestContext.mcpConversationId ? { $mcp_conversation_id: requestContext.mcpConversationId } : {}),
         $mcp_consumer: clientIdentity.mcpConsumer,
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
@@ -93,10 +95,10 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
             : undefined
-        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -107,6 +109,9 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             groups,
             durationMs: initDurationMs ?? 0,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 $mcp_is_error: false,
@@ -201,6 +206,9 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             ...(captureIntent && analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
             ...(captureIntent && analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
@@ -525,6 +533,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
 export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
@@ -537,6 +546,9 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 tool_count: toolNames.length,

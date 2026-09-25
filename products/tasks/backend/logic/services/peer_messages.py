@@ -113,7 +113,7 @@ def visible_peer_runs(sender_run: TaskRun) -> QuerySet[TaskRun]:
             task__created_by_id=creator_id,
             task__deleted=False,
         )
-        .exclude(task__origin_product=Task.OriginProduct.SIGNALS_SCOUT, task__origin_key__startswith="scout-trial:")
+        .exclude(Task.scout_experiment_q(relation="task"))
         .exclude(id=sender_run.id)
         .select_related("task__created_by")
     )

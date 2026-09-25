@@ -40,7 +40,7 @@ import {
     initialTrialVariants,
     trialFormError,
     trialIsActive,
-} from '../components/config/scouts/trials/scoutTrials'
+} from '../components/config/scouts/trials/scoutTrialUtils'
 
 const TRIAL_POLL_INTERVAL_MS = 10_000
 
@@ -137,7 +137,7 @@ export interface scoutTrialsLogicActions {
     newComparison: () => {
         value: true
     }
-    refreshResults: (force?: any) => {
+    refreshResults: (force?: boolean) => {
         force: boolean
     }
     removeVariant: (id: string) => {
@@ -255,7 +255,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         setPollError: (error: string | null) => ({ error }),
         submitComparison: true,
         newComparison: true,
-        refreshResults: (force = false) => ({ force }),
+        refreshResults: (force: boolean = false) => ({ force }),
         selectResult: (launchId: string | null) => ({ launchId }),
         downloadResults: true,
         cancelRun: (launchId: string) => ({ launchId }),

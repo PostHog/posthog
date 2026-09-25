@@ -37,6 +37,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, PRODUCT_ALLOWED_MODELS
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
@@ -89,6 +90,10 @@ class RunSource(StrEnum):
     MANUAL = "manual"
     SIGNAL_REPORT = "signal_report"
     AGENT = "agent"
+
+
+def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_only", "full"]:
+    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
@@ -339,6 +344,7 @@ class RunState(BaseModel, extra="allow"):
     context_window: str | None = None
     fast_mode: bool | None = None
     claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
     resume_from_import_run: bool = False
     same_run_resume: bool = False
@@ -358,6 +364,10 @@ class RunState(BaseModel, extra="allow"):
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
     sandbox_template: str | None = None
+
+    @property
+    def model_access(self) -> ModelAccess:
+        return resolve_model_access(self.model_dump())
 
     def resume_snapshot_kind(self) -> SnapshotKind:
         if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
@@ -1321,7 +1331,7 @@ def build_sandbox_environment_variables(
     env_vars.update(run_gateway_env_vars(ctx, task))
     env_vars.update(mcp_exec_skills_env_vars(ctx))
 
-    if otel_telemetry_enabled:
+    if otel_telemetry_enabled and task.is_scout_experiment is not True:
         env_vars.update(get_sandbox_otel_env_vars())
 
     return env_vars
@@ -1355,7 +1365,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     """
     if task.is_scout_experiment is True:
         ensure_scout_trial_capture_ready()
-        if ctx.claude_model_access == "own-subscription":
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
             raise GatewayNotConfiguredError("Scout trials require gateway OAuth instead of subscription credentials")
         return {
             **({"LLM_GATEWAY_URL": settings.SANDBOX_LLM_GATEWAY_URL} if settings.SANDBOX_LLM_GATEWAY_URL else {}),
@@ -1366,7 +1376,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             "AI_GATEWAY_PRODUCT": "",
             "AI_GATEWAY_AI_STAGE": "",
         }
-    if ctx.claude_model_access == "own-subscription":
+    if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
         return {}
     try:
         env_vars = ai_gateway_env_vars(

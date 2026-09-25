@@ -146,6 +146,7 @@ class TestModelAliasScoping(BaseTest):
             reconcile_trino_model_aliases(self.team.pk, lambda: None)
         connect.assert_called_once_with(str(self.organization.id))
         publish.assert_called_once_with([alias("reporting.orders")], None)
+        connect.return_value.__enter__.return_value.cursor.return_value.execute.assert_not_called()
 
     def test_disabled_team_stops_before_connecting(self) -> None:
         with (
@@ -162,7 +163,6 @@ class TestModelAliasScoping(BaseTest):
         ):
             cursor = connect.return_value.__enter__.return_value.cursor.return_value
             cursor.fetchall.side_effect = [
-                [],
                 [("old_alias", "VIEW")],
                 [("old_alias", f"posthog:model-alias:{self.team.pk}:old")],
                 [],

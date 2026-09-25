@@ -1,4 +1,4 @@
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from datetime import datetime
 
 from django.db.models import Q
@@ -16,6 +16,7 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.flag_status import (
     ROLLOUT_FULLY_ROLLED_OUT,
     ROLLOUT_NOT_ROLLED_OUT,
@@ -143,15 +144,18 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # boundary be selected by one of them and then classified against the other.
         stale_threshold = stale_flag_threshold()
 
-        stale_candidates = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
+        stale_rows = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
+        stale_candidates = _v1_flags(stale_rows)
         # Only a never-called stale flag can come back from the rollout query too: a usage-stale
         # flag's last call predates the cutoff, which fails the call-recency filter below. Excluding
         # those ids beats fetching the rows again and dropping them in Python, and
-        # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity.
+        # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity. It reads
+        # `stale_rows`, not `stale_candidates`, so a never-called non-v1 row also stays out of the
+        # rollout query instead of being fetched and logged a second time.
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
-        overlap_ids = {flag.id for flag in stale_candidates if flag.last_called_at is None}
+        overlap_ids = {flag.id for flag in stale_rows if flag.last_called_at is None}
         # The prefilter reads configuration only and returns a superset, so the policy that makes
         # one of those flags a cleanup candidate is applied here, and the checker settles each
         # remaining row. A flag created after the cutoff is too new for a constant configuration to
@@ -169,7 +173,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
         )
         full_rollout_candidates = [
             flag
-            for flag in full_rollout_query
+            for flag in _v1_flags(full_rollout_query)
             if not _serves_more_than_one_result(flag)
             and FeatureFlagStatusChecker(feature_flag=flag).is_flag_fully_rolled_out(flag)[0]
         ]
@@ -203,6 +207,21 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 full_rollout_query_issue_count=len(full_rollout_ids - excluded_ids),
             )
         return issues
+
+
+def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
+    """Keep the rows whose `filters` is None or a config format 1 object.
+
+    Drop and log the rest, so `detect` never reports a flag it can't read.
+    """
+    kept = []
+    for flag in flags:
+        filters = flag.filters
+        if filters is None or (isinstance(filters, dict) and detect_config_format(filters).kind == "v1"):
+            kept.append(flag)
+        else:
+            logger.info("stale_feature_flags_skipped_unsupported_config", flag_id=flag.id, team_id=flag.team_id)
+    return kept
 
 
 def _serves_more_than_one_result(flag: FeatureFlag) -> bool:

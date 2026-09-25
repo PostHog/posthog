@@ -23,6 +23,7 @@ import {
     buildMCPSessionAnalyticsProperties,
     getEffectiveMCPClientContext,
     getEffectiveMCPClientIdentity,
+    resolveSessionKey,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -38,6 +39,7 @@ export class RequestContext {
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
     private distinctIdPromise: Promise<string> | undefined
+    private readonly sessionUuidPromises = new Map<string, Promise<string>>()
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
@@ -148,23 +150,37 @@ export class RequestContext {
         return this.sessionManagerInstance
     }
 
+    // Memoized per key because a tool call emits several events and each producer resolved
+    // the same id, and because concurrent producers otherwise race to write the same mapping.
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
         if (!sessionId) {
             return undefined
         }
-        return this.sessionManager.getSessionUuid(sessionId)
+        const cached = this.sessionUuidPromises.get(sessionId)
+        if (cached) {
+            return cached
+        }
+        // Evicted on failure so a later lookup can retry. Three tool-error paths await this
+        // outside a try, so a cached rejection would replace the tool's own error for the rest
+        // of the request.
+        const pending = this.sessionManager.getSessionUuid(sessionId).catch((error: unknown) => {
+            this.sessionUuidPromises.delete(sessionId)
+            throw error
+        })
+        this.sessionUuidPromises.set(sessionId, pending)
+        return pending
     }
 
     /**
-     * Resolves the UUID emitted as `$session_id`. Prefers the explicit
-     * `?sessionId=` param and falls back to the MCP protocol session id, so
-     * sessions are still attributed for clients that don't pass an explicit
-     * session id. Without the fallback `$session_id` is absent on most events
-     * and the MCP analytics dashboard — which aggregates sessions on
-     * `$session_id` — counts zero.
+     * Resolves the UUID emitted as `$session_id` from the first id the request
+     * carried. The agent's `conversation_id` wins because MCP 2026-07-28 removed
+     * `initialize` and the `Mcp-Session-Id` header, so for those clients the other
+     * two are absent and every tool call would ship with no `$session_id` at all.
+     * Every id here is caller-supplied, so `SessionManager` maps it to a UUID this
+     * server minted instead of emitting it.
      */
     async getEffectiveSessionUuid(requestContext: MCPRequestContext): Promise<string | undefined> {
-        return this.getSessionUuid(requestContext.sessionId ?? requestContext.mcpSessionId)
+        return this.getSessionUuid(resolveSessionKey(requestContext))
     }
 
     getDistinctId(): Promise<string> {
