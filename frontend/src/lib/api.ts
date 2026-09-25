@@ -414,23 +414,9 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     try {
         text = await response.text()
     } catch (error) {
-        if (isAbortError(error)) {
-            throw error
-        }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
-        // Error tracking excludes this shape, so this event is the only remaining signal that can
-        // tell a persistent truncation regression from one user's bad connection. The URL is
-        // normalized first, because `handleFetch` records the prepared one and an endpoint that
-        // splits across two pathnames is not aggregatable.
-        captureClientRequestFailure({
-            pathname: requestPathname(normalizeUrl(url)),
-            method,
-            status: response.status,
-            is_shared_view: isSharedView(),
-            failure_reason: 'response_body_read',
-        })
-        throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
+        throw responseBodyReadFailure(error, response, method, url)
     }
     if (!text.trim()) {
         return null
@@ -439,6 +425,48 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
         return JSON.parse(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
+    }
+}
+
+/**
+ * Classify a body read that failed mid-stream, for any body format.
+ *
+ * Error tracking excludes `ResponseBodyReadError`, so the captured event is the only remaining
+ * signal that can tell a persistent truncation regression from one user's bad connection. The URL
+ * is normalized first, because `handleFetch` records the prepared one and an endpoint that splits
+ * across two pathnames is not aggregatable. An abort is not a failure and passes through unchanged.
+ */
+function responseBodyReadFailure(error: unknown, response: Response, method: string, url: string): unknown {
+    if (isAbortError(error)) {
+        return error
+    }
+    const pathname = requestPathname(normalizeUrl(url))
+    captureClientRequestFailure({
+        pathname,
+        method,
+        status: response.status,
+        is_shared_view: isSharedView(),
+        failure_reason: 'response_body_read',
+    })
+    return new ResponseBodyReadError(`Failed to read response body [${method} ${pathname}] (status ${response.status})`)
+}
+
+/**
+ * Read the body of a *successful* response as binary.
+ *
+ * The binary counterpart of `getJSONFromSuccessResponse`: a read that fails mid-stream is a
+ * wire-level failure, not a fault in the request path, so it must surface as a
+ * `ResponseBodyReadError` rather than as the raw `TypeError` the browser throws.
+ */
+async function getArrayBufferFromSuccessResponse(
+    response: Response,
+    method: string,
+    url: string
+): Promise<ArrayBuffer> {
+    try {
+        return await response.arrayBuffer()
+    } catch (error) {
+        throw responseBodyReadFailure(error, response, method, url)
     }
 }
 
@@ -4486,13 +4514,11 @@ const api = {
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
         ): Promise<string[] | Uint8Array> {
+            const request = new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params)
+            const url = request.assembleFullUrl()
             let response: Response
             try {
-                response = await new ApiRequest()
-                    .recording(recordingId)
-                    .withAction('snapshots')
-                    .withQueryString(params)
-                    .getResponse({ headers })
+                response = await request.getResponse({ headers })
             } catch (e) {
                 if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
                     throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
@@ -4500,7 +4526,7 @@ const api = {
                 throw e
             }
 
-            const contentBuffer = new Uint8Array(await response.arrayBuffer())
+            const contentBuffer = new Uint8Array(await getArrayBufferFromSuccessResponse(response, 'GET', url))
 
             // If client requested uncompressed data (decompress=false), return binary data
             if (params.decompress === false) {

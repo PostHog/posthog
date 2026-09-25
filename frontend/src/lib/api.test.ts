@@ -433,6 +433,39 @@ describe('API helper', () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
         })
+
+        // The snapshot blob is read as binary, so it misses the guard the text path applies unless
+        // it classifies the read itself.
+        const failingSnapshotRead = (error: unknown): any => ({
+            ok: true,
+            status: 200,
+            arrayBuffer: () => Promise.reject(error),
+        })
+        const loadSnapshots = (): Promise<string[] | Uint8Array> =>
+            api.recordings.getSnapshots('rec-1', { source: 'blob_v2', decompress: false } as any)
+
+        it('surfaces a snapshot blob that fails mid-read as a ResponseBodyReadError', async () => {
+            fakeFetch.mockResolvedValue(failingSnapshotRead(new TypeError('Failed to fetch')))
+            const error = await loadSnapshots().catch((e) => e)
+            expect(error).toBeInstanceOf(ResponseBodyReadError)
+            expect(shouldReportApiFailure(error)).toBe(false)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: expect.stringContaining('/snapshots'),
+                    method: 'GET',
+                    status: 200,
+                    failure_reason: 'response_body_read',
+                })
+            )
+        })
+
+        it('propagates an aborted snapshot read instead of reporting a body read failure', async () => {
+            const abortError = new DOMException('The operation was aborted', 'AbortError')
+            fakeFetch.mockResolvedValue(failingSnapshotRead(abortError))
+            await expect(loadSnapshots()).rejects.toBe(abortError)
+            expect(posthog.capture).not.toHaveBeenCalledWith('client_request_failure', expect.anything())
+        })
     })
 
     describe('requests that never reach the server', () => {
