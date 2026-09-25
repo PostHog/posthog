@@ -16,19 +16,40 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
     return {
         id: 'broadcast-1',
         name: overrides.name,
+        version: 1,
         status: 'draft',
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', hedgehog_config: null },
         updated_at: overrides.updatedAt,
+        trigger: { type: 'batch', filters: { properties: [] } },
         conversion: null,
         email_sending_rate_limit: null,
         actions: [
-            { id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties: [] } } },
+            {
+                id: 'trigger_node',
+                name: 'Trigger',
+                type: 'trigger',
+                config: { type: 'batch', filters: { properties: [] } },
+            },
             {
                 id: 'email_node',
+                name: 'Email',
                 type: 'function_email',
                 config: { inputs: { email: { value: { subject: overrides.subject } } } },
             },
         ],
-    } as unknown as HogFlowApi
+        abort_action: null,
+        billable_action_types: [],
+        schedules: [],
+        user_access_level: 'editor',
+        draft: null,
+        draft_updated_at: null,
+        action_redirects: null,
+        email_sending_paused_at: null,
+        email_sending_paused_reason: '',
+        email_sending_paused_by: '',
+        email_sending_pause_requires_support: false,
+    }
 }
 
 describe('broadcastWizardLogic', () => {

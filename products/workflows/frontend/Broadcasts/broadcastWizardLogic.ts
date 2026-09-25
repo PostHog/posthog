@@ -1108,6 +1108,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // launch replaces them. The flow stays a draft until the swap is done, and the scheduler
                 // skips drafts, so a failure part way never leaves two live schedules or none.
                 const oldScheduleIds = (values.broadcast?.schedules ?? []).map((existing) => existing.id)
+                // Stop before touching schedules if the assistant saved meanwhile. Otherwise the guarded
+                // activation below would 409 after the old schedule is already gone.
+                const current = await hogFlowsRetrieve(projectId, toActivate)
+                if (current.updated_at !== saved.updated_at) {
+                    throw new EditedElsewhereError(current)
+                }
                 if (values.scheduleMode === 'now') {
                     for (const id of oldScheduleIds) {
                         await hogFlowsSchedulesDestroy(projectId, broadcastId, id)

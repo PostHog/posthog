@@ -61,7 +61,9 @@ export function BroadcastContentStep(): JSX.Element {
                           debouncedWorkflow as unknown as HogFlow,
                           broadcastId,
                           BROADCAST_TEMPLATES,
-                          EMAIL_ACTION_ID
+                          // A workflow shaped like a broadcast keeps its own step ids.
+                          debouncedWorkflow.actions?.find((action) => action.type === 'function_email')?.id ??
+                              EMAIL_ACTION_ID
                       ),
                       BROADCAST_CONTEXT_ITEM,
                   ]
