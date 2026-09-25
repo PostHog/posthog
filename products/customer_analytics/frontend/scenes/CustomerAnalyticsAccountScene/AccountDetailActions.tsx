@@ -41,7 +41,7 @@ export function AccountDetailActions({ projectId }: AccountDetailActionsProps): 
                 data-attr="account-detail-add-view"
                 onClick={openCreateEditor}
             >
-                Add view
+                New view
             </LemonButton>
         </>
     )

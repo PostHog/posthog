@@ -33,7 +33,7 @@ describe('AccountDetailActions', () => {
         logic.mount()
         render(<AccountDetailActions projectId={1} />)
 
-        fireEvent.click(screen.getByText('Add view'))
+        fireEvent.click(screen.getByText('New view'))
         expect(logic.values.editorOpen).toBe(true)
 
         fireEvent.click(screen.getByText('Configure tabs'))
