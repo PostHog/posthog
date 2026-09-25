@@ -12,7 +12,7 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 operations = [
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.trace_spans DROP PROJECTION IF EXISTS projection_index_span_id, "
-        "DROP PROJECTION IF EXISTS projection_index_trace_id",
+        "DROP PROJECTION IF EXISTS projection_index_trace_id SETTINGS alter_sync=0",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=True,
