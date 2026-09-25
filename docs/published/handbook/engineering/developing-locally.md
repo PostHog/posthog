@@ -198,8 +198,11 @@ Missing or invalid gateway configuration keeps the existing search active.
 
 The browser sends the search text and available command metadata; it does not fetch or upload a project's files for ranking.
 Django retrieves up to 48 newest files, 48 files created by the current user, and 32 path text matches, within the current team and web surface.
-It removes duplicate references and ranks these alongside up to 126 commands, favoring text matches when the available command list exceeds that limit.
+It removes duplicate references and combines these with up to 126 commands, favoring text matches when the available command list exceeds that limit.
+Django uses fuzzy text matching across names and descriptions to shortlist 15 candidates for one Jevk5 question, reserving the model's sixteenth option for no match.
+This keeps inference within the single-pass choice limit and avoids slower multi-question batches.
 This is bounded candidate retrieval: older files that neither belong to the user nor match the query text can be missed.
+Semantic matches outside the text shortlist can also be missed.
 File bodies and arbitrary file metadata are excluded.
 
 Typing waits 200 milliseconds before starting a request.

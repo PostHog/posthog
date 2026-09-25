@@ -12,6 +12,7 @@ from django.db.models import Q, QuerySet
 import requests
 import posthoganalytics
 
+from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config, team_distinct_id
 from posthog.models.file_system.file_system import FileSystem, split_path
 from posthog.models.team import Team
@@ -22,6 +23,8 @@ COMMAND_SEARCH_FLAG = "command-search-jev"
 COMMAND_SEARCH_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 MAX_COMMANDS = 512
 COMMAND_CANDIDATE_LIMIT = 126
+# JevK5's single-pass readout has 16 choices; reserve one for no match.
+JEV_CANDIDATE_LIMIT = 15
 MAX_RESULTS = 30
 
 
@@ -46,6 +49,8 @@ class CommandSearchTransport(local):
         self.session = requests.Session()
 
     def scores(self, state: dict[str, object], candidate_count: int, team_id: int) -> dict[str, float]:
+        if not 1 <= candidate_count <= JEV_CANDIDATE_LIMIT:
+            raise ValueError("JevK5 requires between 1 and 15 candidates")
         config = resolve_ai_gateway_config()
         if config is None:
             raise ValueError("AI gateway is not configured")
@@ -188,6 +193,14 @@ class CommandSearch:
     @staticmethod
     def rank(query: str, candidates: list[SearchCandidate], *, team_id: int, user_id: int) -> list[SearchCandidate]:
         fallback = CommandSearch.fallback(query, candidates)
+        if len(candidates) > JEV_CANDIDATE_LIMIT:
+            candidates = fuzzy_filter(
+                query,
+                candidates,
+                key=lambda candidate: f"{candidate['name']} {candidate['description']}",
+                score_cutoff=0,
+                limit=JEV_CANDIDATE_LIMIT,
+            )
         state: dict[str, object] = {
             "query": query,
             "candidates": {

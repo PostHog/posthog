@@ -136,7 +136,29 @@ class TestCommandSearchRanking(SimpleTestCase):
 
     @patch("posthog.helpers.command_search._transport.session.post")
     def test_oversized_state_uses_text_matches_without_consuming_provider_budget(self, infer: MagicMock) -> None:
-        self.candidates = [{**self.candidates[0], "id": str(index), "description": "x" * 400} for index in range(254)]
-        self.assertEqual(CommandSearch.rank("checkout", self.candidates, team_id=1, user_id=1), self.candidates[:30])
+        self.candidates = [{**self.candidates[0], "description": "x" * 60_000}]
+        self.assertEqual(CommandSearch.rank("checkout", self.candidates, team_id=1, user_id=1), self.candidates)
         infer.assert_not_called()
         self.lease.assert_not_called()
+
+    @patch("posthog.helpers.command_search._transport.session.post")
+    def test_large_pool_shortlists_matching_files_before_inference(self, infer: MagicMock) -> None:
+        candidates: list[SearchCandidate] = [
+            {**self.candidates[1], "id": f"command:{index}", "name": f"Settings {index}", "description": "Preferences"}
+            for index in range(253)
+        ]
+        candidates.append(self.candidates[0])
+        infer.return_value.status_code = 200
+        infer.return_value.json.return_value = {
+            "answers": {
+                "match": {
+                    "type": "choice",
+                    "probabilities": {**{str(index): 0.0 for index in range(15)}, "0": 0.9, "none": 0.1},
+                }
+            }
+        }
+        self.assertEqual(CommandSearch.rank("chekout", candidates, team_id=1, user_id=1), self.candidates[:1])
+        body = infer.call_args.kwargs["json"]
+        self.assertEqual(len(body["questions"]["match"]["criteria"]), 16)
+        self.assertEqual(len(body["state"]["candidates"]), 15)
+        self.assertEqual(body["state"]["candidates"]["0"]["name"], "Checkout funnel")
