@@ -1318,9 +1318,8 @@ function decideJsonTargets({
     diffProducts = null,
 }) {
     if (doubled) {
-        const paths = decideJsonTargets({
-            targets, mode, runLegacy, selectedTests, products, skippedProducts, draft, skipReason, runLegacyReason, diffProducts,
-        })
+        // The label asks for the widest events_json coverage, so a product cascade does not narrow it.
+        const paths = decideJsonTargets({ targets, mode, runLegacy, selectedTests, products, skippedProducts, draft })
         // Dagster tests are excluded from the doubled Django suites and have no product job.
         return (paths ?? targets).filter(
             (target) =>

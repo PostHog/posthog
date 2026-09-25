@@ -222,6 +222,17 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
         [{ mode: 'full', skipReason: 'disabled', runLegacyReason: 'non_isolated_product', diffProducts: ['tasks'] }, null],
         [{ mode: 'full', skipReason: 'untrusted', runLegacyReason: 'non_isolated_product', diffProducts: null }, null],
         [{ mode: 'full', doubled: true, products: ['batch-exports', 'web-analytics'] }, ['posthog/dags/tests/test_deletes.py']],
+        [
+            {
+                mode: 'full',
+                doubled: true,
+                skipReason: 'untrusted',
+                runLegacyReason: 'non_isolated_product',
+                diffProducts: ['tasks'],
+                products: ['batch-exports', 'web-analytics'],
+            },
+            ['posthog/dags/tests/test_deletes.py'],
+        ],
         [{ mode: 'skip', doubled: true }, []],
         [{ mode: '', runLegacy: false, products: ['web-analytics'], doubled: true }, []],
         [{ doubled: true, selectedTests: ['posthog/hogql/test/test_query.py'], products: ['web-analytics'] }, []],
