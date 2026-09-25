@@ -21,7 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, look_up_clickhouse_error_code_meta
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
@@ -87,6 +87,37 @@ def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> 
 # posthog/errors.py but not user_safe, so they wrap to InternalCHQueryError, not Exposed.
 _VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
 
+UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the property values in this release condition."
+
+
+def _caller_facing_ch_message(error: ExposedCHQueryError) -> str:
+    """
+    Pick the message a ClickHouse failure may show the caller.
+
+    The release condition editor prints the 400 detail as it arrives, so a ClickHouse message
+    reaches the user unchanged. Engine text names ClickHouse types and generated SQL, which
+    tells nobody which filter to correct, so only copy PostHog wrote is echoed. An error code
+    whose ErrorCodeMeta carries a user_safe string is exactly that: wrap_clickhouse_query_error
+    swaps the engine message for that copy. A code with user_safe=True keeps the engine message,
+    and falls back here.
+    """
+    if isinstance(look_up_clickhouse_error_code_meta(error).user_safe, str):
+        return str(error)
+    return UNEVALUABLE_FILTERS_MESSAGE
+
+
+def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
+    """
+    Tell the property-type resolver which group type the `groups` table rows belong to.
+
+    PropertyFinder reads the group type from the lazy join that an insight query goes through
+    (`group_0`, `group_1`, ...). These queries select from `groups` directly, so the resolver
+    reads context.globals["group_id"] instead. Without it no group PropertyDefinition is loaded,
+    the left side of a comparison stays the raw JSON string, and a Boolean group property
+    compiles to equals(String, UInt8), which ClickHouse refuses.
+    """
+    return {"group_id": group_type_index}
+
 
 @contextmanager
 def unevaluable_filters_as_validation_errors() -> Iterator[None]:
@@ -94,10 +125,13 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # layers reject - behavioral or event filters in person scope, deleted cohort references,
     # malformed regexes, values that don't cast to the property's type - fail deterministically
     # on every request, so they're the caller's input, not a server fault: surface them as a 400
-    # carrying the layer's own message instead of an opaque 500. Only deliberately-exposed error
-    # types are converted across query build and execution - plus ObjectDoesNotExist from cohort
-    # lookups, PropertyValidationError from Property construction during query build (its message
-    # already names the offending property), and the ClickHouse cannot-parse-value codes above.
+    # instead of an opaque 500. HogQL writes its messages for a person to read, so those are
+    # echoed. ClickHouse writes its messages for the engine, so none of them reaches the caller:
+    # an exposed error says only what _caller_facing_ch_message allows, and a cannot-parse-value
+    # code says the actionable line. Only deliberately-exposed error types are converted across
+    # query build and execution - plus ObjectDoesNotExist from cohort lookups and
+    # PropertyValidationError from Property construction during query build, whose message
+    # already names the offending property.
     # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
     # during build/execution still surfaces as a server fault, as does any other
@@ -107,19 +141,16 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     except (
         ExposedHogQLError,
         HogQLNotImplementedError,
-        ExposedCHQueryError,
         ObjectDoesNotExist,
         PropertyValidationError,
     ) as e:
-        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": str(e) or UNEVALUABLE_FILTERS_MESSAGE}) from e
+    except ExposedCHQueryError as e:
+        raise ValidationError({"filters": _caller_facing_ch_message(e)}) from e
     except InternalCHQueryError as e:
         if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
-        # Unlike ExposedCHQueryError, InternalCHQueryError's str() keeps the raw server message.
-        # Rewrap so ExposedCHQueryError.__str__ strips the DB::Exception framing and any stack
-        # trace tail before the message is echoed back to the caller.
-        sanitized = str(ExposedCHQueryError(e.message, code=e.code, code_name=e.code_name))
-        raise ValidationError({"filters": sanitized or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": UNEVALUABLE_FILTERS_MESSAGE}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -157,7 +188,7 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
 
         return Filter(data={"properties": prop_groups.to_dict()}, team=team)
     except ValueError as e:
-        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+        raise ValidationError({"filters": str(e) or UNEVALUABLE_FILTERS_MESSAGE}) from e
 
 
 def get_user_blast_radius(
@@ -322,7 +353,7 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
-        context=HogQLContext(team_id=team.pk, database=database),
+        context=HogQLContext(team_id=team.pk, database=database, globals=_group_property_globals(group_type_index)),
     )
 
     total_affected = response.results[0][0] if response.results else 0
@@ -611,6 +642,7 @@ def _get_group_blast_radius_persons(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
+        context=HogQLContext(team_id=team.pk, globals=_group_property_globals(group_type_index)),
     )
 
     # Extract group keys from results
