@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
@@ -27,6 +27,7 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     NodeKind,
+    isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -147,6 +148,13 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
+    const previousRetentionStart = useRef<{
+        start_event: ExperimentMetricSource
+        start_handling: 'first_seen' | 'last_seen'
+        conversion_window?: number
+        conversion_window_unit?: FunnelConversionWindowTimeUnit
+    } | null>(null)
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -190,7 +198,10 @@ export function ExperimentMetricForm({
                 sources.push(metric.denominator)
             }
         } else if (isExperimentRetentionMetric(metric)) {
-            sources = [metric.start_event]
+            // An exposure-anchored start has no literal event to carry over
+            if (!isExperimentExposureNode(metric.start_event)) {
+                sources = [metric.start_event]
+            }
             if (metric.completion_event) {
                 sources.push(metric.completion_event)
             }
@@ -494,30 +505,82 @@ export function ExperimentMetricForm({
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>
-                            <ActionFilter
-                                bordered
-                                filters={createFilterForSource(metric.start_event)}
-                                setFilters={(filters) => {
-                                    const source = filterToMetricSource(
-                                        filters.actions,
-                                        filters.events,
-                                        filters.data_warehouse
-                                    )
-                                    if (source) {
-                                        handleSetMetric({ ...metric, start_event: source })
+                            <LemonRadio
+                                className="my-1.5"
+                                data-attr="experiment-retention-start-source"
+                                orientation="horizontal"
+                                value={isExperimentExposureNode(metric.start_event) ? 'exposure' : 'custom'}
+                                onChange={(value) => {
+                                    if (value === 'exposure') {
+                                        if (!isExperimentExposureNode(metric.start_event)) {
+                                            previousRetentionStart.current = {
+                                                start_event: metric.start_event,
+                                                start_handling: metric.start_handling,
+                                                conversion_window: metric.conversion_window,
+                                                conversion_window_unit: metric.conversion_window_unit,
+                                            }
+                                        }
+                                        // the backend rejects a conversion window or 'last_seen' start handling on an exposure start
+                                        handleSetMetric({
+                                            ...metric,
+                                            start_event: { kind: NodeKind.ExperimentExposureNode },
+                                            start_handling: 'first_seen',
+                                            conversion_window: undefined,
+                                            conversion_window_unit: undefined,
+                                        })
+                                    } else {
+                                        const previous = previousRetentionStart.current
+                                        handleSetMetric({
+                                            ...metric,
+                                            start_event: previous?.start_event ?? {
+                                                kind: NodeKind.EventsNode,
+                                                event: '$pageview',
+                                                name: '$pageview',
+                                                math: ExperimentMetricMathType.TotalCount,
+                                            },
+                                            start_handling: previous?.start_handling ?? 'first_seen',
+                                            conversion_window: previous?.conversion_window,
+                                            conversion_window_unit: previous?.conversion_window_unit,
+                                        })
                                     }
                                 }}
-                                typeKey="experiment-metric-start-event"
-                                buttonCopy="Add start event"
-                                showSeriesIndicator={false}
-                                hideRename={true}
-                                entitiesLimit={1}
-                                showNumericalPropsOnly={true}
-                                mathAvailability={mathAvailability}
-                                allowedMathTypes={allowedMathTypes}
-                                dataWarehousePopoverFields={dataWarehousePopoverFields}
-                                {...commonActionFilterProps}
+                                options={[
+                                    { value: 'custom', label: 'Custom event' },
+                                    { value: 'exposure', label: 'Experiment exposure' },
+                                ]}
                             />
+                            {isExperimentExposureNode(metric.start_event) ? (
+                                <div className="text-muted text-xs">
+                                    {isSharedMetric
+                                        ? "Retention starts from each user's first exposure. Each experiment using this metric anchors on its own exposure event."
+                                        : "Retention starts from each user's first exposure to the experiment."}
+                                </div>
+                            ) : (
+                                <ActionFilter
+                                    bordered
+                                    filters={createFilterForSource(metric.start_event)}
+                                    setFilters={(filters) => {
+                                        const source = filterToMetricSource(
+                                            filters.actions,
+                                            filters.events,
+                                            filters.data_warehouse
+                                        )
+                                        if (source) {
+                                            handleSetMetric({ ...metric, start_event: source })
+                                        }
+                                    }}
+                                    typeKey="experiment-metric-start-event"
+                                    buttonCopy="Add start event"
+                                    showSeriesIndicator={false}
+                                    hideRename={true}
+                                    entitiesLimit={1}
+                                    showNumericalPropsOnly={true}
+                                    mathAvailability={mathAvailability}
+                                    allowedMathTypes={allowedMathTypes}
+                                    dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                    {...commonActionFilterProps}
+                                />
+                            )}
                         </div>
 
                         <div>
@@ -614,36 +677,42 @@ export function ExperimentMetricForm({
                                     ]}
                                 />
                             </div>
-                            <span className="text-muted text-xs">After the start event</span>
+                            <span className="text-muted text-xs">
+                                {isExperimentExposureNode(metric.start_event)
+                                    ? "After the user's first exposure"
+                                    : 'After the start event'}
+                            </span>
                         </div>
 
-                        <div>
-                            <LemonLabel className="mb-1">
-                                When users have multiple start events
-                                <Tooltip title="Choose how to handle users who perform the start event multiple times during the experiment.">
-                                    <IconInfo className="ml-1 text-muted" />
-                                </Tooltip>
-                            </LemonLabel>
-                            <LemonSelect
-                                value={metric.start_handling || 'first_seen'}
-                                onChange={(value) => {
-                                    handleSetMetric({
-                                        ...metric,
-                                        start_handling: value as 'first_seen' | 'last_seen',
-                                    })
-                                }}
-                                options={[
-                                    {
-                                        label: 'Use first start event',
-                                        value: 'first_seen',
-                                    },
-                                    {
-                                        label: 'Use last start event',
-                                        value: 'last_seen',
-                                    },
-                                ]}
-                            />
-                        </div>
+                        {!isExperimentExposureNode(metric.start_event) && (
+                            <div>
+                                <LemonLabel className="mb-1">
+                                    When users have multiple start events
+                                    <Tooltip title="Choose how to handle users who perform the start event multiple times during the experiment.">
+                                        <IconInfo className="ml-1 text-muted" />
+                                    </Tooltip>
+                                </LemonLabel>
+                                <LemonSelect
+                                    value={metric.start_handling || 'first_seen'}
+                                    onChange={(value) => {
+                                        handleSetMetric({
+                                            ...metric,
+                                            start_handling: value as 'first_seen' | 'last_seen',
+                                        })
+                                    }}
+                                    options={[
+                                        {
+                                            label: 'Use first start event',
+                                            value: 'first_seen',
+                                        },
+                                        {
+                                            label: 'Use last start event',
+                                            value: 'last_seen',
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
             </SceneSection>
@@ -664,8 +733,13 @@ export function ExperimentMetricForm({
                 </div>
             </SceneSection>
             <SceneDivider />
-            <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
-            <SceneDivider />
+            {/* The backend ignores the conversion window for exposure-anchored retention: the retention window already anchors on exposure */}
+            {!(isExperimentRetentionMetric(metric) && isExperimentExposureNode(metric.start_event)) && (
+                <>
+                    <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
             {isExperimentFunnelMetric(metric) && (
                 <>
                     <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />

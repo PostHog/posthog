@@ -12,6 +12,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.activity_logging.model_activity import get_current_trigger
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
@@ -66,6 +67,8 @@ def handle_knowledge_source_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=detail_name,
+            # Job-driven saves stash a Trigger so a user-less row still names the job.
+            trigger=get_current_trigger(),
             context=context,
         ),
     )

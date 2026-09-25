@@ -2,12 +2,13 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dashmap::DashMap;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
+use personhog_common::grpc::NOT_APPLIED_HEADER;
 use personhog_proto::personhog::identity::v1 as identity;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::{
     PersonHogIdentity, PersonHogIdentityServer,
@@ -24,9 +25,10 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
 };
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
-    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
+    CohortMembershipResponse, CountCohortMembersRequest, CountCohortMembersResponse,
+    CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse, CreateGroupRequest,
+    CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
     DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
@@ -42,10 +44,12 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
+    GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest,
+    GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
     SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
@@ -79,6 +83,8 @@ pub struct TestReplicaService {
     pub upsert_inserted_count: i64,
     pub groups: Vec<Group>,
     pub group_type_mappings: Vec<GroupTypeMapping>,
+    pub sheds_remaining: Arc<AtomicUsize>,
+    pub calls: Arc<AtomicUsize>,
 }
 
 impl TestReplicaService {
@@ -91,7 +97,14 @@ impl TestReplicaService {
             upsert_inserted_count: 0,
             groups: vec![],
             group_type_mappings: vec![],
+            sheds_remaining: Arc::new(AtomicUsize::new(0)),
+            calls: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    pub fn sheds(mut self, n: usize) -> Self {
+        self.sheds_remaining = Arc::new(AtomicUsize::new(n));
+        self
     }
 
     pub fn with_person(person: Person) -> Self {
@@ -141,6 +154,18 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self
+            .sheds_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            let mut status = Status::unavailable("Server at capacity");
+            status
+                .metadata_mut()
+                .insert(NOT_APPLIED_HEADER, "load_shed".parse().unwrap());
+            return Err(status);
+        }
         Ok(Response::new(GetPersonResponse {
             person: self.person.clone(),
         }))
@@ -444,7 +469,11 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<DeletePersonsRequest>,
     ) -> Result<Response<DeletePersonsResponse>, Status> {
-        Ok(Response::new(DeletePersonsResponse { deleted_count: 0 }))
+        Ok(Response::new(DeletePersonsResponse {
+            deleted_count: 0,
+            tombstoned: false,
+            tombstones: vec![],
+        }))
     }
 
     async fn delete_persons_batch_for_team(
@@ -461,6 +490,27 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<DeleteTombstonedPersonsRequest>,
     ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
         Ok(Response::new(DeleteTombstonedPersonsResponse::default()))
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _request: Request<GetPersonTombstonesRequest>,
+    ) -> Result<Response<GetPersonTombstonesResponse>, Status> {
+        Ok(Response::new(GetPersonTombstonesResponse::default()))
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _request: Request<AckPersonTombstonesRequest>,
+    ) -> Result<Response<AckPersonTombstonesResponse>, Status> {
+        Ok(Response::new(AckPersonTombstonesResponse::default()))
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        _request: Request<ListPersonTombstoneQueueRequest>,
+    ) -> Result<Response<ListPersonTombstoneQueueResponse>, Status> {
+        Ok(Response::new(ListPersonTombstoneQueueResponse::default()))
     }
 
     async fn split_person(

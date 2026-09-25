@@ -37,10 +37,11 @@ type projectedField struct {
 }
 
 type projectionBudget struct {
-	remaining       int
-	exceeded        bool
-	lookupRemaining int
-	lookupExceeded  bool
+	remaining        int
+	exceeded         bool
+	lookupRemaining  int
+	lookupExceeded   bool
+	relationExceeded bool
 }
 
 type queryScope struct {
@@ -131,10 +132,10 @@ func walkIncludingExcept(expr clickhouse.Expr, visit func(clickhouse.Expr) bool)
 }
 
 func addBinding(scope *queryScope, name, alias string, binding Relation, start, end int) {
-	scope.bindings[strings.ToLower(name)] = binding
+	scope.bindings[name] = binding
 	source := Source{name: name, relation: binding, start: start, end: end}
 	if alias != "" {
-		scope.bindings[strings.ToLower(alias)] = binding
+		scope.bindings[alias] = binding
 		source.name = alias
 	}
 	scope.sources = append(scope.sources, source)
@@ -175,7 +176,7 @@ func resolveCTE(scope *queryScope, name string, position int) *cteBinding {
 	for current := scope; current != nil; current = current.parent {
 		ctes := current.visibleCTEs(position)
 		for index := len(ctes) - 1; index >= 0; index-- {
-			if strings.EqualFold(ctes[index].name, name) {
+			if ctes[index].name == name {
 				return ctes[index]
 			}
 		}
@@ -250,7 +251,7 @@ func (s *queryScope) provenanceSources(name string) []Relation {
 			if !s.budget.lookup(len(name) + 1) {
 				return nil
 			}
-			key := strings.ToLower(source.name)
+			key := source.name
 			if seen[key] {
 				continue
 			}
@@ -299,9 +300,9 @@ func (s *queryScope) unqualifiedPropertyNamespace(name string) (string, bool, bo
 	return resolved.name, resolved.ok, resolved.matched
 }
 
-func normalizeHogQLTableReferences(query string) (string, map[string]string) {
+func normalizeHogQLTableReferences(query string) (string, map[int]string) {
 	normalized := []byte(query)
-	originalNames := map[string]string{}
+	originalNames := map[int]string{}
 	for _, indexes := range tableReferencePattern.FindAllStringSubmatchIndex(query, -1) {
 		start, end := indexes[2], indexes[3]
 		name := query[start:end]
@@ -314,7 +315,7 @@ func normalizeHogQLTableReferences(query string) (string, map[string]string) {
 				normalized[index] = '_'
 			}
 		}
-		originalNames[strings.ToLower(string(normalized[start:end]))] = name
+		originalNames[start] = name
 	}
 	return string(normalized), originalNames
 }
@@ -412,7 +413,10 @@ func bindingPropertyNamespace(binding Relation, name string) (string, bool) {
 		if _, ok := binding.table.Fields.Exact(name); !ok {
 			return "", false
 		}
-		return propertyresolver.Resolve([]string{binding.name, name, "property"}, map[string]string{strings.ToLower(binding.name): binding.name})
+		if traversal, ok := binding.table.Fields.Traversal(name); ok {
+			return traversal.PropertyNamespace, traversal.PropertyNamespace != ""
+		}
+		return propertyresolver.Resolve([]string{binding.table.Name, name, "property"}, nil)
 	}
 	if binding.cte == nil {
 		return "", false
@@ -512,13 +516,13 @@ func (c *cteBinding) appendFields(fields []projectedField) {
 func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
 	bindings := visibleBindings(scope)
 	if qualifier != "" {
-		c.appendBindingFields(bindings[strings.ToLower(qualifier)], scope.hasDuplicateSource(qualifier))
+		c.appendBindingFields(bindings[qualifier], scope.hasDuplicateSource(qualifier))
 		return
 	}
 	seen := map[string]bool{}
 	for current := scope; current != nil; current = current.parent {
 		for _, source := range current.sources {
-			key := strings.ToLower(source.name)
+			key := source.name
 			if current != scope && seen[key] {
 				continue
 			}
@@ -565,6 +569,9 @@ func projectedPropertyNamespace(scope *queryScope, expr clickhouse.Expr, positio
 	bindings := visibleBindings(scope)
 	switch typed := expr.(type) {
 	case *clickhouse.Ident:
+		if IsBooleanLiteral(typed) {
+			return "", false
+		}
 		if alias, ok := (Bindings{scope: scope, position: position}).selectAlias(typed.Name); ok {
 			return alias.propertyNamespace, alias.propertyNamespace != ""
 		}
@@ -575,7 +582,7 @@ func projectedPropertyNamespace(scope *queryScope, expr clickhouse.Expr, positio
 			if scope.hasDuplicateSource(typed.Fields[0].Name) {
 				return "", false
 			}
-			if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
+			if binding, ok := bindings[typed.Fields[0].Name]; ok {
 				return bindingPropertyNamespace(binding, typed.Fields[1].Name)
 			}
 		}
@@ -584,7 +591,7 @@ func projectedPropertyNamespace(scope *queryScope, expr clickhouse.Expr, positio
 			if scope.hasDuplicateSource(typed.Ident.Name) {
 				return "", false
 			}
-			if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
+			if binding, ok := bindings[typed.Ident.Name]; ok {
 				return bindingPropertyNamespace(binding, typed.DotIdent.Name)
 			}
 		}
@@ -623,6 +630,9 @@ func projectedType(scope *queryScope, expr clickhouse.Expr) string {
 	bindings := visibleBindings(scope)
 	switch typed := expr.(type) {
 	case *clickhouse.Ident:
+		if IsBooleanLiteral(typed) {
+			return "boolean"
+		}
 		if field, ok := (Bindings{scope: scope, position: int(expr.Pos())}).SelectAlias(typed.Name); ok {
 			return field.Type
 		}
@@ -636,7 +646,7 @@ func projectedType(scope *queryScope, expr clickhouse.Expr) string {
 		}
 	case *clickhouse.Path:
 		if len(typed.Fields) >= 2 {
-			if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
+			if binding, ok := bindings[typed.Fields[0].Name]; ok {
 				if field, exists := bindingField(binding, typed.Fields[1].Name); exists {
 					return field.Type
 				}
@@ -644,7 +654,7 @@ func projectedType(scope *queryScope, expr clickhouse.Expr) string {
 		}
 	case *clickhouse.NestedIdentifier:
 		if typed.DotIdent != nil {
-			if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
+			if binding, ok := bindings[typed.Ident.Name]; ok {
 				if field, exists := bindingField(binding, typed.DotIdent.Name); exists {
 					return field.Type
 				}

@@ -425,6 +425,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
                         }
 
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.stream('/api/llm_proxy/completion', {
                             method: 'POST',
                             data: requestData,

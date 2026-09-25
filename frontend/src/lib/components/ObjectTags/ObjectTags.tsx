@@ -24,8 +24,12 @@ interface ObjectTagsPropsBase {
     inputPlaceholder?: string
     /** Makes each displayed tag clickable, e.g. to filter by it. */
     onTagClick?: (tag: string) => void
+    /** Called before opening the tag editor. */
+    onEdit?: () => void
     /** Maximum number of tags to show before showing the rest in a popover. */
     maxVisibleTags?: number
+    /** Adds "more" to the overflow tag count. */
+    showOverflowLabel?: boolean
     /**
      * Let a long tag wrap and shrink rather than overflow its container. For narrow containers like a
      * sidebar column — off by default, since it lowers the min-content width and so shifts how much
@@ -61,6 +65,7 @@ const COLOR_OVERRIDES: Record<string, LemonTagType> = {
 export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
+    onEdit,
     onBlur,
     saving, // Required unless `staticOnly`
     tagsAvailable,
@@ -74,6 +79,7 @@ export function ObjectTags({
     inputPlaceholder = 'try "official"',
     onTagClick,
     maxVisibleTags,
+    showOverflowLabel = false,
     wrap = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
@@ -156,6 +162,7 @@ export function ObjectTags({
                                 aria-label={`Show ${overflowTags.length} more ${overflowTags.length === 1 ? 'tag' : 'tags'}`}
                             >
                                 +{overflowTags.length}
+                                {showOverflowLabel ? ' more' : ''}
                             </LemonButton>
                         </Popover>
                     )}
@@ -163,7 +170,10 @@ export function ObjectTags({
                         <span className="inline-flex font-normal">
                             <LemonTag
                                 type="none"
-                                onClick={() => setEditingTags(true)}
+                                onClick={() => {
+                                    onEdit?.()
+                                    setEditingTags(true)
+                                }}
                                 data-attr="button-add-tag"
                                 icon={hasTags ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed"

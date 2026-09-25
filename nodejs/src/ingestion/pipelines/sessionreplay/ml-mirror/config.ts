@@ -1,5 +1,3 @@
-import os from 'node:os'
-
 import { overrideConfigWithEnv } from '~/common/config/config'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
 import { RedisConnectionConfig } from '~/common/utils/db/redis'
@@ -15,6 +13,10 @@ export type MlMirrorConfig = {
     AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
     AI_RESEARCH_REPLAY_S3_PREFIX: string
+    /** Bucket of the v3 dataset, which holds only AISR03 frames. Empty until the cutover by session start timestamp selects it. */
+    AI_RESEARCH_REPLAY_S3_BUCKET: string
+    /** Block prefix inside the v3 bucket. Each dataset version has its own, so a bucket policy grants only the versions it holds. */
+    AI_RESEARCH_REPLAY_S3_V3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
@@ -96,8 +98,10 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
-    /** Kafka group members per image-fetch worker. Their batches join into one fetch pass. */
+    /** Kafka group members per image-fetch worker. */
     SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: number
+    /** While true, the batches of all group members in one worker join into one fetch pass. While false, each batch starts its own pass. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES: boolean
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
@@ -170,7 +174,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
-    // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
+    // Real peak memory is about 5x this: the running batch's staged images, one hand-off queued, and one hand-off writing, which is copied by Buffer.concat and again by the encryption envelope (MAX_WRITES_IN_FLIGHT in image-batcher.ts).
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
     /**
@@ -179,7 +183,7 @@ export type MlMirrorConfig = {
      * per entry, of which lru-cache commits about an eighth up front by preallocating its backing
      * arrays. Sized against the 2000M consumer container in
      * https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-image-scrub/values.yaml,
-     * which also has to hold MAX_BYTES of scrubbed images at ~2x during a flush. Start low and raise
+     * which also has to hold about 5x MAX_BYTES of scrubbed images while the write lane is full. Start low and raise
      * it off ml_mirror_ref_cache_capacity_probe_total rather than guessing.
      *
      * 0 disables only this cross-batch cache; duplicates within a poll batch always collapse.
@@ -205,17 +209,17 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
     /** Where images the sidecar cannot process are parked so they stop holding their partition. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: string
-    /** Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s). */
-    SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
-    // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
-    SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
     /**
-     * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
-     * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
-     * compression). <= 0 (the default) resolves to min(available CPUs, threadpool size); an
-     * explicit positive value is used verbatim; 1 restores fully sequential scrubbing.
+     * Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s), and sets
+     * how much of a batch the window drain at its end costs: the last scrubConcurrency images finish
+     * unevenly with slots idling, so a larger batch amortizes that tail over more images. A saturated
+     * sidecar scrubs a 150-message batch in tens of seconds, far inside the interval. The server caps
+     * the poll below this so that every image can time out once at the sidecar and the batch still
+     * returns inside the interval (boundedImageScrubBatchSize).
      */
-    SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: number
+    SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
+    // Per-write timeout (the S3 client has no built-in one). A hand-off writes its shard groups concurrently, each as a shard, an index and per-image lookups, so a hand-off bounds at 3x this plus the lookup budget.
+    SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -231,6 +235,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: 300_000,
         AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
         AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
+        AI_RESEARCH_REPLAY_S3_BUCKET: '',
+        AI_RESEARCH_REPLAY_S3_V3_PREFIX: 'rrweb_3',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
         AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
@@ -253,6 +259,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
         SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 2,
+        SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES: true,
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
@@ -286,9 +293,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 45 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 150,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
-        SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
 }
 
@@ -303,23 +309,6 @@ export function getMlMirrorConfig(env: Record<string, string | undefined> = proc
         AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT:
             env.AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT ?? env.SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT,
     })
-}
-
-const DEFAULT_UV_THREADPOOL_SIZE = 4
-
-/**
- * `os.availableParallelism()` respects cgroup CPU limits, so in-container this sees the pod's
- * cores, not the node's.
- */
-export function resolveMlAnonymizeMaxConcurrency(
-    configured: number,
-    availableParallelism: number = os.availableParallelism(),
-    uvThreadpoolSize: number = parseInt(process.env.UV_THREADPOOL_SIZE ?? '', 10) || DEFAULT_UV_THREADPOOL_SIZE
-): number {
-    if (configured > 0) {
-        return configured
-    }
-    return Math.max(1, Math.min(availableParallelism, uvThreadpoolSize))
 }
 
 /**

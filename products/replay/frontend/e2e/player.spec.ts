@@ -125,7 +125,7 @@ function snappyBlocks(texts: string[]): Buffer {
 async function mockRecordingApi(page: Page): Promise<void> {
     for (const [sessionId, recording] of Object.entries(RECORDINGS)) {
         await page.route(
-            new RegExp(`/api/environments/\\d+/session_recordings/${sessionId}/snapshots/?(\\?.*)?$`),
+            new RegExp(`/api/projects/\\d+/session_recordings/${sessionId}/snapshots/?(\\?.*)?$`),
             async (route) => {
                 const url = new URL(route.request().url())
                 // Content requests carry ?source=blob_v2 (+ a blob key range); listing requests don't.
@@ -164,7 +164,7 @@ async function mockRecordingApi(page: Page): Promise<void> {
                 })
             }
         )
-        await page.route(new RegExp(`/api/environments/\\d+/session_recordings/${sessionId}/?(\\?.*)?$`), (route) =>
+        await page.route(new RegExp(`/api/projects/\\d+/session_recordings/${sessionId}/?(\\?.*)?$`), (route) =>
             route.fulfill({ status: 200, json: recording.meta })
         )
     }

@@ -1,23 +1,23 @@
 import { useActions, useValues } from 'kea'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { FilterBar } from 'lib/components/FilterBar'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { ActivityChart } from './dashboard/ActivityChart'
 import { HarnessBarChart } from './dashboard/HarnessBarChart'
 import { KpiTiles } from './dashboard/KpiTiles'
 import { ModelBarChart } from './dashboard/ModelBarChart'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
+import { RecentToolCallsCard } from './dashboard/RecentToolCallsCard'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
+import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
+import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
@@ -33,6 +33,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         modelRows,
+        modelRowsLoading,
         hasModelData,
         dailyActivity,
         activityRowsLoading,
@@ -44,11 +45,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsLoading,
         dateFilter,
         interval,
-        filterTestAccounts,
-        propertyFilters,
         queryFilters,
+        canShowFeedback,
+        feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction } = useActions(mcpDashboardOverviewLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -56,38 +57,35 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="@container/mcp-overview flex min-w-0 flex-col gap-6">
-            <FilterBar
-                left={
-                    <>
-                        <McpDateFilter
-                            dateFrom={dateFilter.dateFrom}
-                            dateTo={dateFilter.dateTo}
-                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                            dataAttr="mcp-dashboard-date-filter"
-                        />
-                        <div data-attr="mcp-dashboard-property-filter">
-                            <PropertyFilters
-                                pageKey="mcp-dashboard-overview"
-                                propertyFilters={propertyFilters}
-                                onChange={setPropertyFilters}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.MCPProperties,
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                ]}
-                                eventNames={['$mcp_tool_call']}
-                                buttonText="Add filter"
-                            />
-                        </div>
-                    </>
+            <McpSharedFilters
+                pageKey="mcp-dashboard-overview"
+                dataAttrPrefix="mcp-dashboard"
+                onRefresh={reloadAll}
+                refreshing={
+                    kpisLoading ||
+                    usersLoading ||
+                    sessionRowsLoading ||
+                    harnessRowsLoading ||
+                    modelRowsLoading ||
+                    activityRowsLoading ||
+                    toolDailyRowsLoading ||
+                    toolRowsLoading
                 }
-                right={
-                    <TestAccountFilterSwitch
-                        checked={filterTestAccounts}
-                        onChange={setFilterTestAccounts}
-                        data-attr="mcp-dashboard-test-account-filter"
-                    />
-                }
+            >
+                <McpDateFilter
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    onChange={(dateFrom, dateTo) => {
+                        setDateFilter(dateFrom, dateTo)
+                        markFilterInteraction()
+                    }}
+                    dataAttr="mcp-dashboard-date-filter"
+                />
+            </McpSharedFilters>
+            <MCPAnalyticsFeedbackPrompt
+                contextKey={feedbackContextKey}
+                eligible={canShowFeedback}
+                prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
             />
             <MCPAnalyticsFirstLook />
             <section className="flex min-w-0 flex-col gap-4" data-quill>
@@ -142,6 +140,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
                 </div>
             </section>
+            <RecentToolCallsCard filters={queryFilters} />
         </div>
     )
 }

@@ -39,6 +39,10 @@ class PaddlePermissionError(Exception):
     pass
 
 
+class PaddleUnreachableError(Exception):
+    pass
+
+
 class PaddlePaginator(JSONResponsePaginator):
     """Follows ``meta.pagination.next``, gated on ``meta.pagination.has_more``.
 
@@ -184,6 +188,11 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         )
         if status == 403:
             raise PaddlePermissionError(f"Missing permissions for {endpoint}")
+        if status is None:
+            # validate_via_probe reports a missing status for any transport or session failure, so
+            # Paddle never judged the key. That is not the same as Paddle rejecting it, and the
+            # caller has to say so rather than tell the customer to replace a working key.
+            raise PaddleUnreachableError(f"No response from Paddle for {endpoint}")
         if not ok:
             return False
 

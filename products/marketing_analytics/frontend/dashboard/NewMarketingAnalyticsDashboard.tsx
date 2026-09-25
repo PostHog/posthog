@@ -15,7 +15,6 @@ import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import {
-    MarketingAnalyticsTab,
     SetupSection,
     marketingAnalyticsLogic,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
@@ -38,6 +37,7 @@ import { ChartDisplayType } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
+import { MarketingQueryError } from './MarketingQueryError'
 import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
 import { TRAFFIC_CHART_METRICS } from './trafficChartSeries'
 
@@ -103,22 +103,17 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     } = useValues(marketingAcquisitionLogic)
     const { setCustomerGoalId, toggleTrafficSort, setTrafficChartMetric } = useActions(marketingAcquisitionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
-    const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { setDates, setCompareFilter, openSetup, reportDashboardSectionViewed, reportDashboardControlUsed } =
+        useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
     const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
     const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', false)
     const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
-    const reviewSources = (): void => {
-        setSetupSection(SetupSection.SOURCES)
-        setActiveTab(MarketingAnalyticsTab.SETUP)
-    }
+    const reviewSources = (): void => openSetup(SetupSection.SOURCES, 'dashboard_source_suggestions')
 
     const [goalsExpanded, setGoalsExpanded] = useLocalStorage('marketing-goal-suggestions-expanded', false)
     const goalSuggestions = suggestionsForSection(visibleSuggestions, SetupSection.CONVERSION_GOALS)
-    const reviewGoals = (): void => {
-        setSetupSection(SetupSection.CONVERSION_GOALS)
-        setActiveTab(MarketingAnalyticsTab.SETUP)
-    }
+    const reviewGoals = (): void => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_goal_suggestions')
 
     const requestedSetupPlan = useRef(false)
     useEffect(() => {
@@ -127,6 +122,20 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             loadSetupPlan()
         }
     }, [setupPlan, setupPlanLoading, loadSetupPlan])
+
+    const reportedSection = useRef<string | null>(null)
+    useEffect(() => {
+        if (currentTeamLoading || reportedSection.current === activeSection) {
+            return
+        }
+        reportedSection.current = activeSection
+        reportDashboardSectionViewed(activeSection, {
+            customerGoal: !!customerConversionGoal,
+            revenueGoal: !!revenueQuery,
+        })
+    }, [activeSection, currentTeamLoading, customerConversionGoal, revenueQuery, reportDashboardSectionViewed])
+    const reportControl = (control: string, value?: string | boolean): void =>
+        reportDashboardControlUsed(activeSection, control, value)
 
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
     const query: WebOverviewQuery = {
@@ -138,7 +147,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
     }
     const overviewLogic = dataNodeLogic({ query, key: 'marketing-acquisition-overview' })
-    const { response, responseLoading, responseError } = useValues(overviewLogic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(overviewLogic)
     const { loadData } = useActions(overviewLogic)
     const overview = response as WebOverviewQueryResponse | undefined
     const customerOverviewLogic = dataNodeLogic({
@@ -150,13 +159,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         response: customerResponse,
         responseLoading: customersLoading,
         responseError: customersError,
+        responseErrorObject: customersErrorObject,
+        queryId: customersQueryId,
     } = useValues(customerOverviewLogic)
     const { loadData: loadCustomers } = useActions(customerOverviewLogic)
     const customerOverview = customerResponse as WebOverviewQueryResponse | undefined
-    const reviewCustomerGoals = (): void => {
-        setSetupSection(SetupSection.CONVERSION_GOALS)
-        setActiveTab(MarketingAnalyticsTab.SETUP)
-    }
+    const reviewCustomerGoals = (): void => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -172,6 +180,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                 (activeSection === 'acquisition' && !!customerConversionGoal && customersLoading)
                             }
                             onClick={() => {
+                                reportControl('reload_summary')
                                 loadData('force_async')
                                 if (activeSection === 'acquisition' && customerConversionGoal) {
                                     loadCustomers('force_async')
@@ -193,7 +202,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                             embedded
                             size="small"
                             activeKey={sourcesExpanded ? 'sources' : null}
-                            onChange={(key) => setSourcesExpanded(key !== null)}
+                            onChange={(key) => {
+                                reportControl('source_suggestions', key !== null)
+                                setSourcesExpanded(key !== null)
+                            }}
                             panels={[
                                 {
                                     key: 'sources',
@@ -226,7 +238,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                             embedded
                             size="small"
                             activeKey={goalsExpanded ? 'goals' : null}
-                            onChange={(key) => setGoalsExpanded(key !== null)}
+                            onChange={(key) => {
+                                reportControl('goal_suggestions', key !== null)
+                                setGoalsExpanded(key !== null)
+                            }}
                             panels={[
                                 {
                                     key: 'goals',
@@ -272,12 +287,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             <div id="marketing-dashboard-section" className="flex flex-col gap-4">
                 {isTraffic &&
                     (responseError ? (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Retry', onClick: () => loadData('force_async') }}
-                        >
-                            Could not load traffic metrics. Try again.
-                        </LemonBanner>
+                        <MarketingQueryError
+                            message="Could not load traffic metrics. Try again."
+                            queryId={responseErrorObject?.queryId ?? queryId}
+                            onRetry={() => loadData('force_async')}
+                            loading={responseLoading}
+                        />
                     ) : (
                         [
                             { key: 'acquisition', title: 'Acquisition', keys: ['visitors', 'sessions', 'views'] },
@@ -315,6 +330,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                 configured={!!customerConversionGoal}
                                                 loading={customersLoading || responseLoading}
                                                 error={!!customersError}
+                                                queryId={customersErrorObject?.queryId ?? customersQueryId}
                                                 customerResults={customerOverview?.results}
                                                 trafficResults={overview?.results}
                                                 samplingRate={customerOverview?.samplingRate}
@@ -329,7 +345,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                             <LemonSelect
                                                 aria-label="Customer goal"
                                                 value={selectedCustomerGoal?.conversion_goal_id}
-                                                onChange={setCustomerGoalId}
+                                                onChange={(value) => {
+                                                    reportControl('customer_goal')
+                                                    setCustomerGoalId(value)
+                                                }}
                                                 options={customerGoals.map((goal) => ({
                                                     value: goal.conversion_goal_id,
                                                     label: goal.conversion_goal_name,
@@ -377,7 +396,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                     />
                                     <LemonSelect
                                         value={selectedRevenueGoalId}
-                                        onChange={(value) => value && setRevenueGoalId(value)}
+                                        onChange={(value) => {
+                                            if (value) {
+                                                reportControl('revenue_goal')
+                                                setRevenueGoalId(value)
+                                            }
+                                        }}
                                         options={revenueGoals.map((goal) => ({
                                             value: goal.conversion_goal_id,
                                             label: goal.conversion_goal_name,
@@ -386,7 +410,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                     />
                                     <LemonSelect
                                         value={breakdownBy}
-                                        onChange={setBreakdownBy}
+                                        onChange={(value) => {
+                                            reportControl('revenue_breakdown', value)
+                                            setBreakdownBy(value)
+                                        }}
                                         options={Object.values(MarketingAnalyticsAttributionBreakdown).map((value) => ({
                                             value,
                                             label: BREAKDOWN_LABELS[value],
@@ -408,10 +435,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                 type="info"
                                 action={{
                                     children: 'Review in Setup',
-                                    onClick: () => {
-                                        setSetupSection(SetupSection.CONVERSION_GOALS)
-                                        setActiveTab(MarketingAnalyticsTab.SETUP)
-                                    },
+                                    onClick: () => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_revenue_banner'),
                                 }}
                             >
                                 Choose an event or action goal that sums an amount and mark it as Revenue in Setup.
@@ -430,7 +454,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                     <LemonSelect
                                         size="small"
                                         value={trafficChartMetric}
-                                        onChange={(value) => value && setTrafficChartMetric(value)}
+                                        onChange={(value) => {
+                                            if (value) {
+                                                reportControl('chart_metric', value)
+                                                setTrafficChartMetric(value)
+                                            }
+                                        }}
                                         options={TRAFFIC_CHART_METRICS.map(({ value, label }) => ({
                                             value,
                                             label,
@@ -477,7 +506,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                     <span>Breakdown by</span>
                                     <LemonSelect
                                         value={trafficBreakdown}
-                                        onChange={setTrafficBreakdown}
+                                        onChange={(value) => {
+                                            reportControl('traffic_breakdown', value)
+                                            setTrafficBreakdown(value)
+                                        }}
                                         options={TRAFFIC_BREAKDOWNS}
                                         aria-label="Traffic breakdown"
                                     />

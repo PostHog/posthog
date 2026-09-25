@@ -25,6 +25,8 @@ import {
     notebookNodeGeneratedWidgetLogic,
     notebookNodeGeneratedWidgetSettingsLogic,
 } from './notebookNodeGeneratedWidgetLogic'
+import { NotebookWidgetBetaNotice } from './NotebookWidgetBetaNotice'
+import { NotebookWidgetGenerationCost } from './NotebookWidgetGenerationCost'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { DEFAULT_WIDGET_MODEL, DEFAULT_WIDGET_PROMPT, WIDGET_MODEL_OPTIONS } from './widgetModels'
@@ -206,7 +208,12 @@ export function NotebookNodeGeneratedWidgetSettings({
             ) : (
                 <>
                     <div>
-                        <LemonLabel htmlFor={versionId}>Version history</LemonLabel>
+                        <div className="flex items-center justify-between gap-2">
+                            <LemonLabel htmlFor={versionId}>Version history</LemonLabel>
+                            {selectedVersion ? (
+                                <NotebookWidgetGenerationCost cost={selectedVersion.generation_cost_usd} />
+                            ) : null}
+                        </div>
                         <LemonSelect
                             id={versionId}
                             value={selectedVersionId ?? undefined}
@@ -277,6 +284,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                 </>
             )}
 
+            {!hasVersions && !isWorking ? <NotebookWidgetBetaNotice /> : null}
             <div className="flex flex-wrap items-start gap-2">
                 {isWorking && workingStatus ? (
                     <>

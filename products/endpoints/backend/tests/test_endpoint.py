@@ -1299,7 +1299,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         }
         v2_dag_ids_patcher = mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            side_effect=lambda candidate_dag_ids=None, **_kwargs: set(candidate_dag_ids or []),
         )
         v2_dag_ids_patcher.start()
         self.addCleanup(v2_dag_ids_patcher.stop)

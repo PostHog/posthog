@@ -78,6 +78,10 @@ class AlertExtractionError(Exception):
     """
 
 
+class AlertDataUnavailableError(AlertExtractionError):
+    """This check lacks usable data; keep the alert enabled for future checks."""
+
+
 def lookback_intervals_for(condition: AlertCondition) -> int:
     """How many trailing intervals an extractor must fetch for this condition.
 

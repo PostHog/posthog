@@ -43,8 +43,10 @@ STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the
 # bot-labeler-skip) to the ReviewHog trigger endpoint. Kept here so the activity references the same
 # scalar the workflow gates on.
 STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
-# The posthog-owners resolver package, expected by the engine as a sibling of its own dir
-# (gates.py resolves `../owners` for the hogli-resolver ownership format).
+# The owners-yaml resolver package, expected by the engine as a sibling of its own dir
+# (gates.py resolves `../owners` for the hogli-resolver ownership format). This stays a sibling of
+# the engine dir although the monorepo source moved to packages/owners-yaml, because downstream repos
+# vendor the engine with the resolver beside it and the engine resolves the two layouts by offset.
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
 
@@ -67,6 +69,8 @@ STAMPHOG_OPTIONAL_POLICY_PATHS: tuple[str, ...] = (STAMPHOG_STEERING_PATH,)
 
 # Per-activity start-to-close timeouts.
 FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
+# Two engine pre-check runs and one short LLM call, each capped at 30 seconds, plus the token mint.
+PRE_GATES_TIMEOUT = timedelta(minutes=3)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
 
 # Ceilings for the steps inside the review activity. They add up to more than RUN_REVIEW_TIMEOUT on
@@ -74,7 +78,7 @@ RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
 # run_review_in_sandbox caps what the steps can spend between them. Granting each step its own
 # independent budget was the bug — the clone alone could hold the activity for twice its ceiling.
 CLONE_STEP_TIMEOUT_SECONDS = 5 * 60
-PREFETCH_BLAME_TIMEOUT_SECONDS = 3 * 60
+PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS = 3 * 60
 REVIEWER_TIMEOUT_SECONDS = 25 * 60
 # Held back from the deadline so a step that runs to its limit still leaves room for the sandbox
 # teardown and the terminal save that follow it.

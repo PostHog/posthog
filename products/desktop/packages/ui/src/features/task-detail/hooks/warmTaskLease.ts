@@ -10,6 +10,7 @@ export interface WarmTaskLeaseKeyParts {
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
+  permissionMode?: string | null;
   sandboxEnvironmentId?: string | null;
   customImageId?: string | null;
 }
@@ -22,6 +23,7 @@ export function buildWarmTaskLeaseKey(parts: WarmTaskLeaseKeyParts): string {
     parts.branch ?? "",
     parts.runtimeAdapter ?? "",
     parts.model ?? "",
+    parts.permissionMode ?? "",
     parts.sandboxEnvironmentId ?? "",
     parts.customImageId ?? "",
   ].join(":");

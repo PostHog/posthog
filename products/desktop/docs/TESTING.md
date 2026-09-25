@@ -9,6 +9,13 @@
 - `pnpm test:e2e`: run Playwright E2E tests.
 - `pnpm --filter <pkg> test`: run tests for one package.
 
+## Live agent tests
+
+Before running `pnpm --filter @posthog/agent test:e2e`, build its workspace dependencies with `pnpm exec turbo build --filter=@posthog/agent^...` from `products/desktop`.
+This includes the harness extensions imported by the agent source.
+Desktop CI uses the same dependency graph so new workspace dependencies are built before the live tests start.
+The suite requires `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY`, a reachable `POSTHOG_CODE_E2E_GATEWAY_URL`, and the bundled Codex binary.
+
 ## Test Types
 
 Use unit tests when the code can run without Electron.
@@ -49,6 +56,28 @@ Run the focus and submission checks with:
 ```bash
 pnpm --filter @posthog/ui test src/features/sessions/components/CommentComposer.integration.test.tsx
 ```
+
+## Continue a completed report chat
+
+Open a report whose linked cloud task has completed. In the chat, select
+Advanced > Model and choose a model from another provider. Check that the
+reasoning and permission controls match the selected model. Send a message.
+The new run must use that model and retain the previous conversation.
+An active run keeps the models supported by its current runtime.
+
+## Composer text selection
+
+In the new-session and session composers, select text and release the mouse outside the editor.
+The selection must remain visible, including when you release over the surrounding padding.
+A plain click on that padding must still focus the editor.
+Buttons and menus must keep their own actions.
+
+## Profile pictures
+
+In Settings > Account, check a Gravatar with a transparent background. The picture must not show initials behind it.
+Refresh the picture, close Settings, then open Settings again. The refreshed picture must remain visible without another refresh.
+Other avatars for the same email must use the refreshed URL, including avatars at different sizes. Refresh state lasts until the app reloads.
+The `Settings/AccountSettings` stories cover transparent pictures, missing pictures, and loading states.
 
 ## File Location
 

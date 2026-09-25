@@ -42,6 +42,7 @@ import {
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -335,6 +336,7 @@ function CanvasBreadcrumb({
 
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
+  const workLayout = useWorkLayout();
   const pathname = useRouterState({
     select: (s) =>
       s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
@@ -386,7 +388,7 @@ export function ShellLayout() {
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =
-    Boolean(channelId) && pathname === `${base}/canvases`;
+    !workLayout && Boolean(channelId) && pathname === `${base}/canvases`;
 
   // Whether the single toolbar should render: the canvases grid, or any single
   // canvas (so Edit lives here too).
@@ -406,7 +408,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <ChromeBar inset="control">
+        <ChromeBar inset="title">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}

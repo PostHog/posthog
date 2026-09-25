@@ -44,6 +44,30 @@ const hogFunctionFilterOutcomes = new Counter({
     labelNames: ['result', 'result_type'],
 })
 
+/**
+ * Where a filter threw, rather than how many threw.
+ *
+ * This counts every exception the catch block below sees. The `filtering_failed` app metric is
+ * pushed onto the returned `metrics` array in that same block, but most callers discard the array.
+ * This counter therefore covers a strictly larger population than the app metric, so read its
+ * per-caller rate on its own rather than as a share of that metric.
+ *
+ * That rate is what the dead-letter work needs, because only the two `build_*` callers turn a
+ * filter error into a parked record.
+ */
+const hogFunctionFilterErrors = new Counter({
+    name: 'cdp_hog_function_filter_error',
+    help: 'A filter threw while being evaluated, by the code path that asked for it',
+    labelNames: ['caller', 'type', 'reason'],
+})
+
+/**
+ * `not_compiled` and `no_bytecode` break every event for a destination, the rest only the events
+ * whose shape the filter cannot handle. The thrown message never becomes a label, because it
+ * carries filter expressions and its cardinality is unbounded.
+ */
+type FilterErrorReason = 'not_compiled' | 'no_bytecode' | 'prefilter' | 'vm_error' | 'unknown'
+
 const hogFunctionPreFilterCounter = new Counter({
     name: 'cdp_hog_function_prefilter_result',
     help: 'Count of pre-filter results',
@@ -347,13 +371,32 @@ function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: Hog
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
  */
+/**
+ * Named so a filter error can be attributed to the code path that asked for it.
+ *
+ * Only the two `build_*` callers run before an invocation exists, so only their errors become
+ * dead-letter records. Everything else here is either the ingestion transformer or a filter
+ * evaluated while an invocation is already running.
+ */
+export type FilterCaller =
+    | 'build_hog_function_invocations'
+    | 'build_hogflow_invocations'
+    | 'execute_hog_function'
+    | 'hogflow_conditional_branch'
+    | 'hogflow_conversion'
+    | 'hogflow_exit_condition'
+    | 'hogflow_skip_action'
+    | 'hogflow_trigger_action'
+    | 'transformation'
+
 export async function filterFunctionInstrumented(options: {
     fn: HogFunctionType | HogFlow
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
+    caller: FilterCaller
 }): Promise<HogFilterResult> {
-    const { fn, filters, filterGlobals } = options
+    const { fn, filters, filterGlobals, caller } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const logs: LogEntry[] = []
@@ -367,6 +410,8 @@ export async function filterFunctionInstrumented(options: {
     }
 
     let preFilterMatch = null
+    // Narrows what the catch block can blame. Each step sets it before the call that can throw.
+    let reason: FilterErrorReason = 'unknown'
 
     try {
         // If there are no filters (only bytecode exists then on the filter object)
@@ -380,6 +425,7 @@ export async function filterFunctionInstrumented(options: {
         // check whether we have a match with our pre-filter
         // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
         if (filters?.events?.length && !filters?.actions?.length) {
+            reason = 'prefilter'
             preFilterMatch = preFilterResult(filters, filterGlobals)
             if (preFilterMatch === false) {
                 hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
@@ -396,9 +442,11 @@ export async function filterFunctionInstrumented(options: {
         }
 
         if (!filters?.bytecode) {
+            reason = filters?.bytecode_error ? 'not_compiled' : 'no_bytecode'
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
+        reason = 'vm_error'
         const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
 
         if (execHogOutcome) {
@@ -439,6 +487,8 @@ export async function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
+        hogFunctionFilterErrors.inc({ caller, type, reason })
+
         logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,

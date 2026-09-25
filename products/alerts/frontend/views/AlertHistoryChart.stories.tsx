@@ -8,7 +8,7 @@ import {
     AlertState,
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
-import type { QueryBasedInsightModel } from '~/types'
+import type { InsightModel } from '~/types'
 import type { UserBasicType } from '~/types'
 
 import { CHART_CHECKS_LIMIT } from '../logic/alertLogic'
@@ -23,7 +23,7 @@ const STORY_USER: UserBasicType = {
     email: 'story@example.com',
 }
 
-const EMPTY_INSIGHT = {} as QueryBasedInsightModel
+const EMPTY_INSIGHT = {} as InsightModel
 
 /**
  * Point labels land on the x-axis, so a live clock moves the snapshot on every visual-regression

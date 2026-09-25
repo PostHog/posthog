@@ -169,6 +169,82 @@ export const ExperimentRecordingsEmptyMetricFilterFailed: Story = {
     play: pickFiredNone,
 }
 
+// A results-row link for a metric the tab can't select. It carries no metric and no mode, so the
+// caption strip is the only thing that says the list is every recording of the variant, and why.
+const DROPPED_METRIC_URL = `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&entry=results_button&metric_unavailable=server_side_events`
+const DROPPED_METRIC_CAPTION = '[data-attr="experiment-recordings-dropped-metric-caption"]'
+
+export const ExperimentRecordingsDroppedMetric: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: { waitForSelector: DROPPED_METRIC_CAPTION },
+    },
+}
+
+/**
+ * The ~520px of scene a nav sidebar and an open side panel leave. The caption is a long sentence,
+ * so this is where it has to wrap rather than clip.
+ */
+export const ExperimentRecordingsDroppedMetricNarrow: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: {
+            waitForSelector: DROPPED_METRIC_CAPTION,
+            viewport: { width: 767, height: 1200 },
+        },
+    },
+}
+
+/**
+ * A flag that aggregates by group exposes groups rather than people, and the backend refuses to
+ * match those exposures to recordings. The tab states that instead of mounting a list, so none of
+ * the facet controls render either: every one of them describes a list.
+ */
+export const ExperimentRecordingsUnavailableGroupAggregated: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-unavailable-group-aggregated"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [EXPERIMENT_PATH]: {
+                    ...EXPERIMENT_WITH_FUNNEL_METRIC,
+                    feature_flag: {
+                        ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag,
+                        filters: {
+                            ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag.filters,
+                            aggregation_group_type_index: 0,
+                        },
+                    },
+                },
+            },
+        }),
+    ],
+}
+
+/**
+ * A list load the backend refused for a reason that passes on its own. The caption carries the
+ * backend's own message and a retry, where the playlist's banner below it can only say that
+ * something failed.
+ */
+export const ExperimentRecordingsListLoadFailed: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-list-error-caption"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/session_recordings': [
+                    400,
+                    {
+                        detail: 'Exposed users for this experiment are still being computed. Try again in a few minutes.',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 /**
  * The same matched-nothing state, reached by a results-row link rather than by hand. This is the
  * one place the whole deep link runs end to end: the scene keeps the params through its first URL

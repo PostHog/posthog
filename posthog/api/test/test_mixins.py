@@ -179,11 +179,36 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.data["type"] == "server_error"
 
+    # drf-spectacular accepts a bare serializer where an OpenApiResponse would go, and
+    # `responses` is passed straight to it. Reading `.response` unconditionally turned the bare
+    # form into an AttributeError under DEBUG, so an endpoint declaring one passed every test
+    # and 500ed on a dev stack. Both forms have to reach the same validation.
     @parameterized.expand(
         [
-            ("class", EventCaptureResponseSerializer, {"wrong_field": "value"}, "EventCaptureResponseSerializer"),
-            ("instance", EventCaptureResponseSerializer(), {"wrong_field": "value"}, "EventCaptureResponseSerializer"),
-            ("many", EventCaptureResponseSerializer(many=True), [{"wrong_field": "value"}], "ListSerializer"),
+            (
+                "class",
+                OpenApiResponse(response=EventCaptureResponseSerializer),
+                {"wrong_field": "value"},
+                "EventCaptureResponseSerializer",
+            ),
+            (
+                "instance",
+                OpenApiResponse(response=EventCaptureResponseSerializer()),
+                {"wrong_field": "value"},
+                "EventCaptureResponseSerializer",
+            ),
+            (
+                "many",
+                OpenApiResponse(response=EventCaptureResponseSerializer(many=True)),
+                [{"wrong_field": "value"}],
+                "ListSerializer",
+            ),
+            (
+                "bare_serializer",
+                EventCaptureResponseSerializer,
+                {"wrong_field": "value"},
+                "EventCaptureResponseSerializer",
+            ),
         ]
     )
     def test_invalid_response_data_logs_warning(self, _name, declared_response, response_data, serializer_class_name):
@@ -191,9 +216,7 @@ class TestValidatedRequestDecorator(SimpleTestCase):
 
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
-            responses={
-                200: OpenApiResponse(response=declared_response),
-            },
+            responses={200: declared_response},
         )
         def mock_endpoint(view_self, request):
             # Missing required fields in response

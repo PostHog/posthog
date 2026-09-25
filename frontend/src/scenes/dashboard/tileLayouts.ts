@@ -11,7 +11,7 @@ import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isMetricInsightQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 
@@ -203,11 +203,8 @@ export function defaultSmLayoutAtBottom(smLayout: Layout | undefined, w: number,
     return { x: 0, y: maxBottom, w, h }
 }
 
-export const sortTilesByLayout = (
-    tiles: Array<DashboardTile<QueryBasedInsightModel>>,
-    col: DashboardLayoutSize
-): Array<DashboardTile<QueryBasedInsightModel>> => {
-    return [...tiles].sort((a: DashboardTile<QueryBasedInsightModel>, b: DashboardTile<QueryBasedInsightModel>) => {
+export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLayoutSize): Array<DashboardTile> => {
+    return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
         const ax = a.layouts?.[col]?.x ?? 0
         const ay = a.layouts?.[col]?.y ?? 0
         const bx = b.layouts?.[col]?.x ?? 0
@@ -221,9 +218,7 @@ export const sortTilesByLayout = (
         return 0
     })
 }
-export const calculateLayouts = (
-    tiles: DashboardTile<QueryBasedInsightModel>[]
-): Partial<Record<DashboardLayoutSize, Layout>> => {
+export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
         tiles
@@ -237,7 +232,7 @@ export const calculateLayouts = (
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
         const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
 
-        let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
+        let sortedDashboardTiles: DashboardTile[] | undefined
         if (referenceOrder === undefined) {
             sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
         } else {

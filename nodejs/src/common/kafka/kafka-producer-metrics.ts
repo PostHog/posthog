@@ -34,10 +34,10 @@ export const kafkaProducerCallbackQueueDepth = new Gauge({
     labelNames: ['producer_name'],
 })
 
-export const kafkaProducerAnyBrokersDown = new Gauge({
-    name: 'kafka_producer_any_brokers_down',
-    help: '1 if any broker the producer knows about is not in the UP state, 0 otherwise.',
-    labelNames: ['producer_name'],
+export const kafkaProducerBrokers = new Gauge({
+    name: 'kafka_producer_brokers',
+    help: 'Number of brokers the producer knows about, by librdkafka connection state (INIT, DOWN, UP, ...). Bootstrap entries are excluded.',
+    labelNames: ['producer_name', 'state'],
 })
 
 export const kafkaProducerTopicBatchSizeBytesAvg = new Gauge({
@@ -61,6 +61,8 @@ export const kafkaProducerTopicBatchCountAvg = new Gauge({
  */
 export class ProducerStatsTracker {
     private producerName: string
+    /** States reported at least once, so a state no broker is in any more is reset to zero rather than left stale. */
+    private reportedBrokerStates = new Set<string>()
 
     constructor(producerName: string) {
         this.producerName = producerName
@@ -107,10 +109,23 @@ export class ProducerStatsTracker {
         }
 
         if (stats.brokers) {
-            const brokers = Object.values(stats.brokers)
-            if (brokers.length > 0) {
-                const anyDown = brokers.some((b) => b.state !== 'UP')
-                kafkaProducerAnyBrokersDown.set(labels, anyDown ? 1 : 0)
+            const countsByState = new Map<string, number>()
+            for (const broker of Object.values(stats.brokers)) {
+                // librdkafka lists configured bootstrap servers with nodeid -1 next to the learned brokers.
+                const isBootstrap = broker.nodeid !== undefined && broker.nodeid < 0
+                if (broker.state === undefined || isBootstrap) {
+                    continue
+                }
+                countsByState.set(broker.state, (countsByState.get(broker.state) ?? 0) + 1)
+            }
+            for (const state of this.reportedBrokerStates) {
+                if (!countsByState.has(state)) {
+                    kafkaProducerBrokers.set({ ...labels, state }, 0)
+                }
+            }
+            for (const [state, count] of countsByState) {
+                kafkaProducerBrokers.set({ ...labels, state }, count)
+                this.reportedBrokerStates.add(state)
             }
         }
 

@@ -67,7 +67,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
@@ -121,6 +121,7 @@ class HogQLQueryExecutor:
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
+    clickhouse_settings: Optional[HogQLGlobalSettings] = None
     direct_context: Optional[HogQLContext] = None
     direct_sql: Optional[str] = None
     direct_source_id: Optional[str] = None
@@ -357,6 +358,7 @@ class HogQLQueryExecutor:
             LimitContext.COHORT_CALCULATION,
             LimitContext.NOTEBOOK_MATERIALIZE,
             LimitContext.QUERY_ASYNC,
+            LimitContext.SQL_ALERT,
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,
             LimitContext.POSTHOG_AI,
@@ -627,11 +629,13 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self, *, include_settings: bool = True):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
+        self.clickhouse_settings = settings
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,
             LimitContext.NOTEBOOK_MATERIALIZE,
             LimitContext.QUERY_ASYNC,
+            LimitContext.SQL_ALERT,
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,
             LimitContext.POSTHOG_AI,
@@ -835,6 +839,8 @@ class HogQLQueryExecutor:
                         tree=self.clickhouse_prepared_ast,
                         context=clickhouse_context,
                         rows_read=query_stats.last_rows_read(),
+                        lookup=get_query_tag_value("lookup"),
+                        settings=self.clickhouse_settings,
                     )
 
         if self.debug and self.error is None:

@@ -10,7 +10,12 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
-from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
+from products.slack_app.backend.services.integration_resolver import (
+    load_integrations,
+    pick_a_project_message,
+    resolve_from_candidates,
+    resolve_user_for_workspace,
+)
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"
@@ -78,12 +83,36 @@ class TestResolveIntegration:
         integration: Integration,
         channel: str = "C1",
         thread_ts: str = "123.456",
-    ) -> SlackThreadTaskMapping:
+        mapping_kind: str = "task",
+    ) -> None:
+        if mapping_kind == "fork":
+            from products.slack_app.backend.services.slack_fork_context import PendingFork, store_pending_fork
+
+            store_pending_fork(
+                integration.id,
+                channel,
+                thread_ts,
+                PendingFork(source_channel="CSOURCE", source_thread_ts="100.1", is_ext_shared=True),
+            )
+            return
+        if mapping_kind == "report":
+            SignalReport = apps.get_model("signals", "SignalReport")
+            SignalReportSlackThread = apps.get_model("signals", "SignalReportSlackThread")
+            report = SignalReport.objects.create(team=team, title="Report", summary="Summary")
+            SignalReportSlackThread.objects.for_team(team.id).create(
+                team=team,
+                report=report,
+                integration=integration,
+                slack_workspace_id=integration.integration_id,
+                channel=channel,
+                thread_ts=thread_ts,
+            )
+            return
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(team=team, title="t")
         task_run = TaskRun.objects.create(team=team, task=task)
-        return SlackThreadTaskMapping.objects.create(
+        SlackThreadTaskMapping.objects.create(
             team=team,
             integration=integration,
             slack_workspace_id=WORKSPACE,
@@ -94,14 +123,16 @@ class TestResolveIntegration:
             mentioning_slack_user_id=SLACK_USER,
         )
 
-    def test_thread_mapping_wins_over_everything(self):
-        self._mk_thread_mapping(team=self.team_b, integration=self.integration_b)
-        # Even with an unrelated user_default pointing at A, the thread mapping wins.
-        SlackSettings.objects.create(
-            default_integration=self.integration_a,
-            slack_workspace_id=WORKSPACE,
-            slack_user_id=SLACK_USER,
-        )
+    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    @pytest.mark.parametrize("has_default", [False, True])
+    def test_thread_mapping_wins_over_everything(self, mapping_kind, has_default):
+        self._mk_thread_mapping(team=self.team_b, integration=self.integration_b, mapping_kind=mapping_kind)
+        if has_default:
+            SlackSettings.objects.create(
+                default_integration=self.integration_a,
+                slack_workspace_id=WORKSPACE,
+                slack_user_id=SLACK_USER,
+            )
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -115,12 +146,13 @@ class TestResolveIntegration:
         assert result.source == "thread"
         assert result.integration == self.integration_b
 
-    def test_thread_mapping_ignored_when_user_lacks_access(self):
+    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    def test_thread_mapping_ignored_when_user_lacks_access(self, mapping_kind):
         # Thread mapping targets team_c, which the user has no membership in
         # (it's in `other_org`). The thread match must be skipped — a user
         # whose access was revoked or who never had access can't drive the
         # thread just by replying to it.
-        self._mk_thread_mapping(team=self.team_c, integration=self.integration_c)
+        self._mk_thread_mapping(team=self.team_c, integration=self.integration_c, mapping_kind=mapping_kind)
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -136,7 +168,8 @@ class TestResolveIntegration:
         assert result.source == "needs_picker"
         assert {i.id for i in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
-    def test_thread_mapping_remaps_to_sibling_when_mapped_integration_out_of_lookup(self):
+    @pytest.mark.parametrize("mapping_kind", ["task", "report"])
+    def test_thread_mapping_remaps_to_sibling_when_mapped_integration_out_of_lookup(self, mapping_kind):
         # Older mapping points at a sibling Integration row of a different kind
         # for the same team in this workspace. The resolver must remap to the
         # in-set sibling and keep the mapping's task_run linkage rather than
@@ -147,7 +180,7 @@ class TestResolveIntegration:
             integration_id=WORKSPACE,
             sensitive_config={"access_token": "xoxb-legacy"},
         )
-        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration)
+        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration, mapping_kind=mapping_kind)
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -161,7 +194,8 @@ class TestResolveIntegration:
         assert result.source == "thread"
         assert result.integration == self.integration_b
 
-    def test_thread_mapping_falls_through_when_no_sibling_for_team(self):
+    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    def test_thread_mapping_falls_through_when_no_sibling_for_team(self, mapping_kind):
         # The mapping points at an Integration whose team has no candidate in
         # the current lookup at all (kind drift left no replacement). Without a
         # sibling to remap to, the resolver must fall through to the next
@@ -173,7 +207,7 @@ class TestResolveIntegration:
             integration_id=WORKSPACE,
             sensitive_config={"access_token": "xoxb-legacy"},
         )
-        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration)
+        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration, mapping_kind=mapping_kind)
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -187,6 +221,23 @@ class TestResolveIntegration:
         # Only integration_a remains accessible → resolves as sole candidate.
         assert result.source == "sole_candidate"
         assert result.integration == self.integration_a
+
+    def test_report_thread_routes_after_integration_is_reconnected(self):
+        self._mk_thread_mapping(team=self.team_b, integration=self.integration_b, mapping_kind="report")
+        self.integration_b.delete()
+        replacement = self._mk_integration(self.team_b)
+
+        result = resolve_from_candidates(
+            self._workspace_integrations(),
+            slack_team_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+            user=self.user,
+            channel="C1",
+            thread_ts="123.456",
+        )
+
+        assert result.source == "thread"
+        assert result.integration == replacement
 
     def test_user_default_used_when_accessible(self):
         SlackSettings.objects.create(
@@ -719,3 +770,52 @@ class TestLoadIntegrationsAuthStateFilter:
         assert {c.id for c in result.candidates} == {self.integration_new.id}
         assert result.integration == self.integration_new
         assert result.source == "sole_candidate"
+
+
+class TestPickAProjectMessage:
+    # No database: the message builder only reads names and ids off the objects handed to
+    # it, so unsaved instances exercise it exactly as saved ones would.
+    @staticmethod
+    def _candidate(team_id: int, org_name: str, team_name: str) -> Integration:
+        organization = Organization(name=org_name)
+        team = Team(id=team_id, organization=organization, name=team_name)
+        return Integration(team=team, kind="slack", integration_id=WORKSPACE)
+
+    def test_lists_every_project_and_both_ways_to_set_one(self):
+        message = pick_a_project_message(
+            "You can route your mentions to:",
+            [self._candidate(1, "Acme", "Production"), self._candidate(2, "Acme", "Staging")],
+            set_command="/posthog",
+            home_tab_url="slack://app?team=T_WS&id=A1&tab=home",
+        )
+
+        assert "`1` — Acme · Production" in message
+        assert "`2` — Acme · Staging" in message
+        # The Home tab is the one-click route, so it leads and the command follows.
+        assert message.index("<slack://app?team=T_WS&id=A1&tab=home|Home tab>") < message.index(
+            "`/posthog project <id>`"
+        )
+
+    def test_home_tab_stays_plain_text_when_the_install_has_no_deep_link(self):
+        message = pick_a_project_message(
+            "You can route your mentions to:",
+            [self._candidate(1, "Acme", "Production")],
+            set_command="/posthog",
+            home_tab_url=None,
+        )
+
+        assert "the app's Home tab," in message
+        assert "|Home tab>" not in message
+        assert "None" not in message
+
+    def test_project_names_cannot_inject_slack_control_syntax(self):
+        message = pick_a_project_message(
+            "You can route your mentions to:",
+            [self._candidate(1, "<!channel>", "<https://evil.example|Open PostHog>")],
+            set_command="/posthog",
+            home_tab_url=None,
+        )
+
+        assert "<!channel>" not in message
+        assert "&lt;!channel&gt;" in message
+        assert "<https://evil.example|Open PostHog>" not in message

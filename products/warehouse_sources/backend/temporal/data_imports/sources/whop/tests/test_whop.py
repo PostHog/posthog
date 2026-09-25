@@ -409,6 +409,8 @@ class TestCreateWebhook:
 
         assert result.success is False
         assert result.error is not None
+        # Vendor status codes belong in error tracking, not in what the customer reads.
+        assert str(status_code) not in result.error
 
     @mock.patch(WHOP_SESSION_PATCH)
     def test_missing_secret_is_a_failure(self, MockSession):

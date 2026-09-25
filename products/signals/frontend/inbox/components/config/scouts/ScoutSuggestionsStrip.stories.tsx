@@ -146,6 +146,16 @@ export const LastScanFailed: Story = {
     ],
 }
 
+// A project too quiet for a scheduled scan keeps its prior picks, so the footer is what says the
+// scan was skipped rather than run.
+export const LowActivity: Story = {
+    decorators: [
+        mswDecorator({
+            get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ status: 'low_activity' })] },
+        }),
+    ],
+}
+
 // Every pick acted on or dismissed. No strip at all: an empty box helps nobody, and the scene
 // header's "Suggest a scout" button is what asks for a new batch.
 export const NothingLeft: Story = {

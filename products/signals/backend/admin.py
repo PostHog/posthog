@@ -5,6 +5,8 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.slack.formatting import channel_id_from_target
+
 from .models import (
     SignalReport,
     SignalReportArtefact,
@@ -242,7 +244,7 @@ class SignalTeamConfigAdminForm(forms.ModelForm):
         if not value:
             return None
         # Only the channel id is required; an optional "|#name" suffix is allowed for readability.
-        channel_id = value.split("|", 1)[0].strip()
+        channel_id = channel_id_from_target(value)
         if not _SLACK_CHANNEL_ID_RE.match(channel_id):
             raise forms.ValidationError(
                 "Use 'CHANNELID|#name' form, or just the channel id. The id looks like 'C0123ABCD' "

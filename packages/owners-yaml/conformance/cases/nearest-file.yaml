@@ -1,0 +1,206 @@
+cases:
+    - name: a single root file owns every path
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+      expect:
+          x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+          deep/a/b.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a nearer file replaces the owners of an ancestor
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          billing/owners.yaml: |
+              version: 1
+              owners: team-b
+      expect:
+          billing/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+          billing/deep/y.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+          other/z.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a child file that sets only owners keeps the parent's status
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              status: deprecated
+          billing/owners.yaml: |
+              version: 1
+              owners: team-b
+      expect:
+          billing/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: deprecated
+              source: billing/owners.yaml
+              slack: '#team-b'
+
+    - name: a child file with an empty owners list keeps the parent's owners
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          billing/owners.yaml: |
+              version: 1
+              owners: []
+              status: generated
+      expect:
+          billing/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a path with no ownership file on its walk is unowned
+      files:
+          billing/owners.yaml: |
+              version: 1
+              owners: team-b
+      expect:
+          other/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+          README.md:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+
+    - name: a root file with an empty owners list leaves paths unowned
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+      expect:
+          x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+
+    - name: a file applies only to its own directory and the directories below it
+      files:
+          billing/owners.yaml: |
+              version: 1
+              owners: team-b
+      expect:
+          billing-extra/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+          billing.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+          billing/owners.yaml:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+
+    - name: owners null marks paths as unowned by design
+      files:
+          owners.yaml: |
+              version: 1
+              owners: null
+      expect:
+          x.py:
+              owners: []
+              unowned_by_design: true
+              status: active
+              source: owners.yaml
+              slack: null
+
+    - name: a deeper file with owners replaces an ancestor's owners null
+      files:
+          owners.yaml: |
+              version: 1
+              owners: null
+          sub/owners.yaml: |
+              version: 1
+              owners: team-a
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: sub/owners.yaml
+              slack: '#team-a'
+          x.py:
+              owners: []
+              unowned_by_design: true
+              status: active
+              source: owners.yaml
+              slack: null
+
+    - name: a deeper file with owners null replaces an owned ancestor
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          vendor/owners.yaml: |
+              version: 1
+              owners: null
+      expect:
+          vendor/lib.py:
+              owners: []
+              unowned_by_design: true
+              status: active
+              source: vendor/owners.yaml
+              slack: null
+
+    - name: an empty owners list below owners null keeps the path unowned by design
+      files:
+          owners.yaml: |
+              version: 1
+              owners: null
+          sub/owners.yaml: |
+              version: 1
+              owners: []
+              status: deprecated
+      expect:
+          sub/x.py:
+              owners: []
+              unowned_by_design: true
+              status: deprecated
+              source: owners.yaml
+              slack: null

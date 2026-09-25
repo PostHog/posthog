@@ -313,6 +313,50 @@ const visualReviewReposRunsList = (): ToolBase<
     },
 })
 
+const VisualReviewReposTolerationPileupsRetrieveSchema = () => {
+    const VisualReviewReposTolerationPileupsRetrieveParams =
+        orvalSchemas.VisualReviewReposTolerationPileupsRetrieveParams()
+    const VisualReviewReposTolerationPileupsRetrieveQueryParams =
+        orvalSchemas.VisualReviewReposTolerationPileupsRetrieveQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['repo_id'] }),
+        VisualReviewReposTolerationPileupsRetrieveParams.omit({ project_id: true })
+            .extend(VisualReviewReposTolerationPileupsRetrieveQueryParams.shape)
+            .extend({
+                id: VisualReviewReposTolerationPileupsRetrieveParams.shape['id'].describe(
+                    "The repo's UUID, from `visual-review-repos-list`."
+                ),
+            })
+    )
+}
+
+const visualReviewReposTolerationPileupsRetrieve = (): ToolBase<
+    ReturnType<typeof VisualReviewReposTolerationPileupsRetrieveSchema>,
+    Schemas.TolerationPileups
+> => ({
+    name: 'visual-review-repos-toleration-pileups-retrieve',
+    schema: VisualReviewReposTolerationPileupsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof VisualReviewReposTolerationPileupsRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TolerationPileups>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/toleration-pileups/`,
+            query: {
+                include_quarantined: params.include_quarantined,
+                limit: params.limit,
+                min_automatic_tolerations: params.min_automatic_tolerations,
+                min_tolerations: params.min_tolerations,
+                run_type: params.run_type,
+                window_days: params.window_days,
+            },
+        })
+        return result
+    },
+})
+
 const VisualReviewRunsApproveCreateSchema = () => {
     const VisualReviewRunsApproveCreateBody = orvalSchemas.VisualReviewRunsApproveCreateBody()
     const VisualReviewRunsApproveCreateParams = orvalSchemas.VisualReviewRunsApproveCreateParams()
@@ -608,6 +652,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
     'visual-review-repos-runs-counts-retrieve': visualReviewReposRunsCountsRetrieve,
     'visual-review-repos-runs-list': visualReviewReposRunsList,
+    'visual-review-repos-toleration-pileups-retrieve': visualReviewReposTolerationPileupsRetrieve,
     'visual-review-runs-approve-create': visualReviewRunsApproveCreate,
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,

@@ -160,19 +160,43 @@ class SlackAppModelOverride(BaseModel):
     reasoning_effort: str | None = None
 
 
-@dataclass
+class SlackAppProjectRouteInput(BaseModel):
+    """Single-argument input for the project-route classifier activity.
+
+    ``integration_id`` is the project routing already resolved, which the classifier
+    reads as the default it may move the run off.
+    """
+
+    integration_id: int
+    slack_team_id: str
+    event_text: str
+    user_id: int
+    slack_user_id: str
+
+
+class SlackAppProjectRoute(BaseModel):
+    """The project a message asked to be answered from.
+
+    ``integration_id`` is always an install the mentioner can reach (the activity offers
+    the classifier a list bounded by their access and drops anything off it), and never
+    the one routing already resolved. The activity returns ``None`` rather than this when
+    the message named no project, which is the overwhelming majority of mentions.
+    """
+
+    integration_id: int
+
+
+@frozen
 class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]
     integration_ids: list[int]
     slack_team_id: str
-    # Resolved at routing time on the mention path. The slash surface passes
-    # ``None`` on purpose — it defers user resolution into the workflow's first
-    # activity to keep its webhook ack under Slack's 3s budget — so the
-    # in-workflow resolve fallback is permanent, not a legacy shim.
+    # ``None`` defers resolution into the workflow's first activity, keeping the webhook ack under
+    # Slack's 3s budget. The workflow branches on this, so removing either the field or the branch
+    # changes a recorded command sequence and breaks replay for runs in flight.
     user_id: int | None = None
-    # The invoking surface's prefix, used verbatim in user-facing help/error copy:
-    # ``@PostHog`` for mentions, ``/posthog`` for the slash command.
-    command_prefix: str = "@PostHog"
+    # Read from the payload rather than hardcoded, because a workspace can rename the command.
+    command_prefix: str = "/posthog"
 
 
 @frozen
@@ -207,12 +231,6 @@ class SlackRepoSelectionOutcome:
     reason: str
     repo_research_task_id: str | None = None
     repo_research_run_id: str | None = None
-
-
-@dataclass
-class PostHogCodeRulesCommandResult:
-    status: str  # "not_a_command" | "handled" | "needs_picker"
-    pending_rule_text: str | None = None
 
 
 @dataclass

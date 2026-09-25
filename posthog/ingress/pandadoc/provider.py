@@ -36,6 +36,9 @@ class PandaDocProvider(WebhookProvider):
     unconfigured_status = 404
     # A body naming the reason would hand back what the two 404s above withhold.
     explains_rejections = False
+    # 500 is what this endpoint answered before it moved here, and PandaDoc redelivers after one,
+    # so a signature the consumer failed to record is sent again instead of being lost.
+    retry_status = 500
 
     def __init__(self, *, enabled: Callable[[], bool] | None = None) -> None:
         self._enabled = enabled

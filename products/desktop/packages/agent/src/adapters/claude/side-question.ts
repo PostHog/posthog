@@ -4,7 +4,10 @@
  */
 
 import { RequestError } from "@agentclientprotocol/sdk";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKAssistantMessage,
+  SDKMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 
 export const SIDE_QUESTION_TIMEOUT_MS = 120_000;
 
@@ -14,10 +17,12 @@ export const SIDE_QUESTION_TIMEOUT_MS = 120_000;
  */
 export async function collectSideQuestionAnswer(
   messages: AsyncIterable<SDKMessage>,
+  onAssistantMessage?: (message: SDKAssistantMessage) => void,
 ): Promise<string> {
   const chunks: string[] = [];
   for await (const message of messages) {
     if (message.type === "assistant") {
+      onAssistantMessage?.(message);
       for (const block of message.message.content) {
         if (block.type === "text") {
           chunks.push(block.text);

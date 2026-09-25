@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   BellIcon,
+  BlueprintIcon,
   BookOpenTextIcon,
   BrainIcon,
   EnvelopeSimple,
@@ -18,6 +19,7 @@ import type { ReactNode } from "react";
 export type TabAppView = Extract<
   AppViewType,
   | "activity"
+  | "canvases"
   | "home"
   | "inbox"
   | "report"
@@ -39,6 +41,7 @@ export const TAB_APP_VIEW_META: Record<
     label: "Activity",
     icon: <BellIcon size={14} />,
   },
+  canvases: { label: "Canvases", icon: <BlueprintIcon size={14} /> },
   home: { label: "Home", icon: <SquaresFourIcon size={14} /> },
   inbox: { label: "Self-driving", icon: <TrayIcon size={14} /> },
   report: { label: "Report", icon: <FileTextIcon size={14} /> },

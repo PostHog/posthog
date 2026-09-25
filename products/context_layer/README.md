@@ -33,14 +33,23 @@ org/                 mission, ICP, personas, teams, business model
 areas/<area>.md      one hub page per product area
 decisions/<date>-<slug>.md   product decisions: what, why, who, source
 projects/<project-id>/overview.md              project identity and context
-projects/<project-id>/spaces/<slug>.md         one page per Desktop Space (frontmatter: team_id, channel_id)
+projects/<project-id>/spaces/<slug>.md         one page per Desktop Space (frontmatter: team_id, channel_id, and the goals/reading/watching lists the Context page renders)
 scripts/lint         the structure linter (also run server-side at land)
 scripts/publish      the server-owned publishing client
 ```
 
 The root file is AGENTS.md because the layer must work for every model and harness; the CLAUDE.md symlink covers Claude-native tooling.
 
+The `goals`, `reading`, and `watching` frontmatter lists are checked against the schema the Desktop Context page reads (`products/desktop/packages/core/src/canvas/contextDocument.ts`).
+The linter is stdlib-only, so it reads a strict subset of YAML: block lists and mappings, one-line plain or quoted text, and `|` literal blocks.
+Anything outside that subset, an unknown key, or a value of the wrong type rejects the commit with the path of the offending field.
+
 During enablement, malformed wiki-link brackets in legacy Space context are encoded as readable HTML entities instead of blocking setup. The imported page includes a note asking the dreaming agent to review and repair those links. Later wiki edits still pass through the strict structure linter.
+
+Enablement and nightly reconciliation also migrate legacy `channels/*.md` pages into their public Space's project directory.
+The migration preserves the page content, adds `team_id`, and updates wiki links to the moved pages.
+It stops without publishing if a channel cannot be resolved, a destination already exists, or a path uses a symlink.
+Resolve those conflicts before retrying reconciliation. Existing pages are never overwritten.
 
 ## Dreaming
 

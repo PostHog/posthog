@@ -16,27 +16,54 @@ from django.http import HttpRequest, HttpResponse
 
 from rest_framework.throttling import BaseThrottle
 
+from posthog import regions
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.verify.schemes import SignatureScheme, Verification
+from posthog.ingress.verify.schemes import SignatureScheme, Verification, VerificationOutcome
 
 # Every incarnation module, imported lazily. An incarnation exposes `SPECS` (what it accepts)
 # and may expose `CORE_CONSUMERS` (consumers core owns rather than a product).
 _INCARNATION_MODULES = (
     "posthog.ingress.github.provider",
     "posthog.ingress.slack.provider",
+    "posthog.ingress.teams.provider",
     "posthog.ingress.pandadoc.provider",
     "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
+    "posthog.ingress.vercel.provider",
 )
 
 
 class InvalidPayload(Exception):
-    """A body the provider could not decode.
+    """A body the provider refuses, raised from `parse` or from `deliveries`.
 
-    Carries the decoder's own message, which the view logs and never answers with: what the
-    parser tripped over is a hint to an unauthenticated caller about how PostHog reads a body.
+    `parse` raises it for a body it cannot decode. `deliveries` raises it for a body it decoded
+    and will not accept, which is where a provider holds the body to what the signature proved:
+    Teams refuses an activity whose `serviceUrl` the token did not sign. Either way the view
+    answers 400 and no consumer runs.
+
+    Carries the provider's own message, which the view logs and never answers with: what the
+    provider tripped over is a hint to an unauthenticated caller about how PostHog reads a body.
+    A message that quotes a value the caller sent, or one the token carried, writes that value
+    into the log of an endpoint a stranger can drive, so name the field instead of either value.
     """
+
+
+class UnknownApp(ValueError):
+    """A builder was handed an app name no spec of that provider declares."""
+
+
+def require_known_app(provider: str, app: str, specs: Sequence[ProviderSpec]) -> None:
+    """Refuse an app name the provider's `SPECS` do not declare.
+
+    A typo otherwise builds a working endpoint: consumers register against the declared names,
+    so nothing matches and every delivery is receipted and dropped, or the app has no secret
+    getter and every delivery answers `NOT_CONFIGURED`. Both fail at the first real delivery
+    rather than at import, so the mistake is caught here instead.
+    """
+    known = sorted(spec.app for spec in specs if spec.provider == provider)
+    if app not in known:
+        raise UnknownApp(f"Unknown {provider} app {app!r}, expected one of {known}")
 
 
 def decode_json(raw: str | bytes) -> Any:
@@ -80,6 +107,12 @@ class WebhookProvider(ABC):
     # An incarnation that answers 404 to withhold the endpoint's existence sets this False, so the
     # body does not name the reason the status code was chosen to hide.
     explains_rejections: bool = True
+    # Whether a missing secret also reaches error tracking, on top of the log line every provider
+    # writes. Off by default: an endpoint that answers an unconfigured request like an unknown
+    # route (SNS) would let an unauthenticated prober fill error tracking from the outside. Turn it
+    # on for an endpoint whose deliveries are lost while the secret is unset and where nothing else
+    # would notice.
+    reports_unconfigured: bool = False
     # How long the forward to the owning region may take. The default suits a small JSON body; a
     # provider whose deliveries carry uploaded files needs longer, because the forward rebuilds
     # and re-sends every part.
@@ -95,10 +128,28 @@ class WebhookProvider(ABC):
 
         `facts` is what the signature scheme proved on the way, such as a signed token's
         verified claims. It is empty for a scheme that only checks an HMAC.
+
+        Raise `InvalidPayload` for a body this provider will not accept, and the view answers
+        400 before any consumer runs. That is how a provider holds a body field to the claim
+        that signs it, rather than handing a consumer a delivery it has to distrust.
         """
 
+    def receiving_region_domain(self) -> str:
+        """The region whose URL this App is registered against.
+
+        That region receives every delivery, and forwards the ones another region owns. Almost
+        every third party holds the primary region's URL, which is why this is not a field: a
+        provider that needs the other one overrides the method, and nothing else has to know.
+        """
+        return regions.PRIMARY_REGION_DOMAIN
+
     def verify(self, request: HttpRequest) -> Verification:
-        return self.scheme().verify(body=request.body, headers=request.headers)
+        scheme = self.scheme()
+        # Asked before `request.body`, so an unsigned probe cannot make every endpoint here
+        # read a body of up to the request limit before the signature header is even looked at.
+        if scheme.rejects_headers(request.headers):
+            return Verification(outcome=VerificationOutcome.INVALID)
+        return scheme.verify(body=request.body, headers=request.headers)
 
     def parse(self, request: HttpRequest) -> Any:
         """Decode the verified body into the value `deliveries` reads.

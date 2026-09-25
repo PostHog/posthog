@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, kea, path } from 'kea'
+import { MakeLogicType, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -8,6 +8,8 @@ import { DataModelingEdge, DataModelingNode } from '~/types'
 export interface lineageDataLogicValues {
     nodes: DataModelingNode[]
     nodesLoading: boolean
+    nodesLoaded: boolean
+    nodesFailed: boolean
     edges: DataModelingEdge[]
     edgesLoading: boolean
 }
@@ -49,6 +51,23 @@ export const lineageDataLogic = kea<lineageDataLogicType>([
             __default: [] as DataModelingEdge[],
             loadEdges: async () => loadAllPages(() => api.dataModelingEdges.list()),
         },
+    }),
+    reducers({
+        nodesLoaded: [
+            false,
+            {
+                loadNodesSuccess: () => true,
+                loadNodesFailure: () => false,
+            },
+        ],
+        nodesFailed: [
+            false,
+            {
+                loadNodes: () => false,
+                loadNodesSuccess: () => false,
+                loadNodesFailure: () => true,
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadNodes()

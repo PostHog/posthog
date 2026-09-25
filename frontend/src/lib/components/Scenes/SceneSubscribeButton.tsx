@@ -7,7 +7,7 @@ import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightShortId, InsightModel } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 import {
@@ -18,7 +18,7 @@ import {
 import { SceneDataAttrKeyProps } from './utils'
 
 interface SceneSubscribeButtonProps extends SubscriptionBaseProps, SceneDataAttrKeyProps {
-    insight?: Partial<QueryBasedInsightModel>
+    insight?: Partial<InsightModel>
     dashboardId?: number
 }
 

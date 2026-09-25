@@ -512,6 +512,19 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     schemas are active, deletes the schedule.
     """
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.source_management import source_type_supports_cdc
+
+    if not source_type_supports_cdc(source.source_type):
+        # Nothing can read a change stream from this source type, so the schedule could only fire
+        # and fail on every interval. Drop any an earlier call left behind, because the extraction
+        # activity deletes its own schedule for the same reason and this must not recreate it.
+        logger.warning(
+            "Refusing a CDC extraction schedule — source type does not support CDC",
+            source_id=str(source.id),
+            source_type=source.source_type,
+        )
+        delete_cdc_extraction_schedule(str(source.id))
+        return
 
     # `source__deleted=True` is excluded so a deleted source (whose schemas may have been
     # left non-deleted by `soft_delete`) collapses to the "no active CDC schemas" branch below
