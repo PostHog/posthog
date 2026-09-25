@@ -938,11 +938,11 @@ def _product_owned_name_prefix(name: str) -> str:
 
 
 def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
-    """Move a logical skill to `new_name`, keeping its versions, files, and owners.
+    """Move a logical skill to `new_name`, keeping its versions, files, owners, and tags.
 
-    Every version row carries the name, and owners are keyed on `(team, skill_name)`, so the rename
-    has to move all of them together or it loses history and ownership — which is exactly what the
-    duplicate-then-archive workaround did.
+    Every version row carries the name, and owners and tags are keyed on `(team, skill_name)`, so the
+    rename has to move all of them together or it loses history, ownership, and grouping — which is
+    exactly what the duplicate-then-archive workaround did.
     """
     blocked_prefix = _product_owned_name_prefix(skill_name) or _product_owned_name_prefix(new_name)
     if blocked_prefix:
@@ -975,6 +975,7 @@ def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
             version.stamp_digest()
         LLMSkill.objects.bulk_update(locked_versions, ["name", "updated_at", *LLMSkill.DIGEST_FIELDS])
         rename_skill_owners(team, skill_name, new_name)
+        rename_skill_tags(team, skill_name, new_name)
 
     return _renamed_skill_or_missing(team, new_name)
 
@@ -1229,6 +1230,17 @@ def set_skill_tags(team: Team, skill_name: str, tags: list[str]) -> list[str]:
     return sorted(wanted)
 
 
+def rename_skill_tags(team: Team, skill_name: str, new_name: str) -> None:
+    """Move every tag row of a logical skill onto `new_name`, so a rename keeps its grouping.
+
+    Mirrors `rename_skill_owners`, including the pre-delete: tag rows already on `new_name` can only
+    be leftovers from a name nothing active holds, and the `(team, skill_name, name)` unique
+    constraint would otherwise reject the move.
+    """
+    _tag_qs(team).filter(skill_name=new_name).delete()
+    _tag_qs(team).filter(skill_name=skill_name).update(skill_name=new_name)
+
+
 def clear_skill_tags(team: Team, skill_name: str) -> None:
     """Drop every tag row for a logical skill — called on archive, like `clear_skill_owners`, so a
     later skill that reuses the name doesn't inherit the archived skill's grouping."""
@@ -1256,6 +1268,11 @@ def skill_names_with_any_tag(team: Team, tags: list[str]) -> list[str]:
     return list(_tag_qs(team).filter(name__in=normalized).values_list("skill_name", flat=True).distinct())
 
 
-def team_skill_tag_names(team: Team) -> list[str]:
-    """Every tag the team has applied to a skill, alphabetical — the tag picker's options."""
-    return sorted(_tag_qs(team).values_list("name", flat=True).distinct())
+def skill_tag_names_for_skills(team: Team, skills: "QuerySet[LLMSkill]") -> list[str]:
+    """Every tag carried by `skills`, alphabetical — the tag picker's options.
+
+    Takes the readable skill queryset rather than the whole team because object-level access can hide
+    a skill from someone who still reaches this endpoint, and a tag name is the team's own words —
+    the same narrowing the list endpoint applies to the skills themselves.
+    """
+    return sorted(_tag_qs(team).filter(skill_name__in=skills.values("name")).values_list("name", flat=True).distinct())

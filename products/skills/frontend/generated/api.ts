@@ -627,10 +627,11 @@ export const getLlmSkillsTagsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Every tag this team has applied to a skill.
+ * Every tag applied to a skill this caller can read.
  *
- * Backs the tag filter on the Skills page, which needs the team's whole vocabulary rather than
- * the tags of the skills on the current page.
+ * Backs the tag filter on the Skills page, which needs the whole vocabulary rather than the
+ * tags of the skills on the current page. Same object-level filter the list endpoint applies,
+ * so the picker never offers a tag that only exists on a skill the list would hide.
  */
 export const llmSkillsTagsRetrieve = async (
     projectId: string,

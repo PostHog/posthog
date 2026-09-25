@@ -490,7 +490,7 @@ export function LLMSkillsScene(): JSX.Element {
         githubLogin,
     } = useValues(llmSkillsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { availableTags } = useValues(skillTagsModel)
+    const { availableTags, availableTagsLoading } = useValues(skillTagsModel)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -578,6 +578,7 @@ export function LLMSkillsScene(): JSX.Element {
                     <TagSelect
                         logicKey="skills"
                         availableTags={availableTags}
+                        availableTagsLoading={availableTagsLoading}
                         value={filters.tags}
                         onChange={(tags) => setFilters({ tags, page: 1 })}
                     >

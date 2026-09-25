@@ -1657,12 +1657,13 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Rename ---
 
-    def test_rename_moves_every_version_with_its_files_and_owners(self):
+    def test_rename_moves_every_version_with_its_files_owners_and_tags(self):
         v1 = self.create_skill(name="typoo", version=1, is_latest=False)
         v2 = self.create_skill(name="typoo", version=2)
         LLMSkillFile.objects.create(skill=v2, path="scripts/run.sh", content="#!/bin/bash")
         member = User.objects.create_and_join(self.organization, "rename-owner@example.com", None)
         set_skill_owners(self.team, "typoo", [member])
+        set_skill_tags(self.team, "typoo", ["growth"])
         updated_at_before = v2.updated_at
 
         response = self.client.post(
@@ -1684,6 +1685,11 @@ class TestLLMSkillAPI(APIBaseTest):
         assert [f["path"] for f in data["files"]] == ["scripts/run.sh"]
         assert [o.email for o in resolve_skill_owners(self.team, "typo-free")] == [member.email]
         assert resolve_skill_owners(self.team, "typoo") == []
+        # Tags are keyed on the logical name like owners, so leaving them behind would both strip the
+        # renamed skill of its grouping and leave rows for the next skill created under the old name.
+        assert data["tags"] == ["growth"]
+        assert resolve_skill_tags(self.team, "typo-free") == ["growth"]
+        assert resolve_skill_tags(self.team, "typoo") == []
         # The marketplace plugin version is max(updated_at) across the team, so the rename has to
         # advance it or installs keep the old directory name.
         v1.refresh_from_db()
@@ -2465,6 +2471,36 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             format="json",
         )
         assert update_response.status_code == status.HTTP_200_OK
+
+    def test_tag_options_exclude_tags_on_skills_the_caller_cannot_read(self):
+        # AccessControlPermission.has_permission passes anyone holding an object-level grant, so a
+        # member with "none" at the resource level still reaches this endpoint. Tag names are the
+        # team's own words, so the picker narrows to readable skills the way the list does — without
+        # that, one grant discloses how the whole project is organized.
+        hidden = LLMSkill.objects.create(
+            team=self.team,
+            name="hidden-skill",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(self.skill.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        set_skill_tags(self.team, self.skill.name, ["shared-with-me"])
+        set_skill_tags(self.team, hidden.name, ["unreleased-launch"])
+
+        response = self.client.get(self._url("tags"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["shared-with-me"]
 
     @patch(COMMUNITY_FLAG, return_value=True)
     def test_an_object_level_grant_on_one_skill_does_not_allow_publishing_another(self, _mock_flag):
