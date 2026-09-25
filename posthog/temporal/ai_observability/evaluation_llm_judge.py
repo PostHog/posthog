@@ -446,14 +446,21 @@ def call_llm_judge(
         raise
 
     provider = resolved.provider
-    if provider == "typesafe" and output_type != "boolean":
-        raise ApplicationError("This System One evaluation output type is not supported.", non_retryable=True)
-    if provider == "typesafe" and not system_one_evaluations_enabled(team_id):
-        raise ApplicationError("System One evaluations are not available for this project.", non_retryable=True)
     model = resolved.model
     provider_key = resolved.provider_key
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
+
+    if provider == "typesafe":
+        if output_type != "boolean":
+            raise ApplicationError("This System One evaluation output type is not supported.", non_retryable=True)
+        base_url = (
+            provider_key.encrypted_config.get("base_url", SystemOneClient.BASE_URL)
+            if provider_key
+            else SystemOneClient.BASE_URL
+        )
+        if not system_one_evaluations_enabled(team_id, base_url=base_url):
+            raise ApplicationError("System One evaluations are not available for this project.", non_retryable=True)
 
     type_config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     response_format = type_config.response_format
@@ -483,9 +490,7 @@ def call_llm_judge(
                 )
             system_one_result = SystemOneClient.evaluate(
                 api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
-                base_url=provider_key.encrypted_config.get("base_url", SystemOneClient.BASE_URL)
-                if provider_key
-                else SystemOneClient.BASE_URL,
+                base_url=base_url,
                 model=model,
                 state=user_prompt,
                 questions=questions,

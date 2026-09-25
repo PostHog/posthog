@@ -38,10 +38,17 @@ from products.ai_observability.backend.llm.errors import (
 )
 
 
-def system_one_evaluations_enabled(team_id: int) -> bool:
+def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
+    try:
+        host = (urlsplit(base_url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
+    except ValueError:
+        return False
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    # Staff access to a customer project does not make its data eligible for this experiment.
-    if str(team.organization_id) not in settings.POSTHOG_INTERNAL_ORG_IDS:
+    # Customer connections use their own provider account or deployment, never PostHog's gateway.
+    if (
+        host in {"ai-gateway.us.posthog.com", "ai-gateway.eu.posthog.com"}
+        and str(team.organization_id) not in settings.POSTHOG_INTERNAL_ORG_IDS
+    ):
         return False
     return (
         get_feature_flag_or_none(

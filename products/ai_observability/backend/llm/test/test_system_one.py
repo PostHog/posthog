@@ -36,10 +36,22 @@ def isolated_egress_budget() -> Iterator[None]:
 
 
 @pytest.mark.parametrize(
-    "internal,flag,enabled", [(False, True, False), (True, False, False), (True, None, False), (True, True, True)]
+    "base_url,internal,flag,enabled",
+    [
+        (SystemOneClient.BASE_URL, False, True, True),
+        ("https://decisions.example.com/v1", False, True, True),
+        ("https://decisions.example.com/v1", False, False, False),
+        (SystemOneClient.BASE_URL, False, None, False),
+        ("https://ai-gateway.us.posthog.com/v1", False, True, False),
+        ("https://ai-gateway.eu.posthog.com/v1", False, True, False),
+        ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", False, True, False),
+        ("https://ａｉ-gateway.us.posthog.com/v1", False, True, False),
+        ("https://ai-gateway.us.posthog.com/v1", True, False, False),
+        ("https://ai-gateway.us.posthog.com/v1", True, True, True),
+    ],
 )
-def test_system_one_experiment_requires_internal_project_and_flag(
-    internal: bool, flag: bool | None, enabled: bool
+def test_system_one_connections_require_flag_and_reserve_posthog_gateway_for_internal_projects(
+    base_url: str, internal: bool, flag: bool | None, enabled: bool
 ) -> None:
     team = Team(id=1, organization_id=uuid4(), uuid=uuid4())
     with (
@@ -48,7 +60,7 @@ def test_system_one_experiment_requires_internal_project_and_flag(
         patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
     ):
         teams.return_value.get.return_value = team
-        assert system_one_evaluations_enabled(team.id) is enabled
+        assert system_one_evaluations_enabled(team.id, base_url=base_url) is enabled
 
 
 @pytest.mark.parametrize("status, expected_state", [(200, "ok"), (401, "invalid"), (403, "invalid"), (500, "error")])
@@ -123,6 +135,7 @@ def test_invalid_usage_does_not_become_a_billable_evaluation(usage: dict[str, ob
         )
 
 
+@override_settings(TYPESAFE_API_KEY="example-instance-key")
 def test_typesafe_requires_a_key() -> None:
     with (
         patch("requests.Session.request") as request,

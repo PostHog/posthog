@@ -71,7 +71,9 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
 
 def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    if provider == LLMProvider.TYPESAFE and not system_one_evaluations_enabled(team_id):
+    if provider == LLMProvider.TYPESAFE and not system_one_evaluations_enabled(
+        team_id, base_url=kwargs.get("base_url", SystemOneClient.BASE_URL)
+    ):
         raise exceptions.PermissionDenied("System One evaluations are not available for this project.")
     try:
         return Client.validate_key(provider, api_key, **kwargs)

@@ -123,24 +123,33 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.organization_membership.save()
 
     @parameterized.expand([("create",), ("update",), ("validate",), ("prevalidate",)])
-    def test_system_one_customer_project_cannot_make_requests(self, operation: str) -> None:
+    def test_system_one_customer_project_cannot_use_posthog_gateway_or_disabled_feature(self, operation: str) -> None:
+        gateway_url = "https://ai-gateway.us.posthog.com/v1"
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="typesafe",
             name="Example connection",
-            encrypted_config={"api_key": "example-token"},
+            encrypted_config={"api_key": "example-token", "base_url": gateway_url},
             created_by=self.user,
         )
         base_url = f"/api/environments/{self.team.id}/llm_analytics/"
         with (
             self.settings(POSTHOG_INTERNAL_ORG_IDS=[]),
-            patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True),
+            patch(
+                "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
+                return_value=operation != "prevalidate",
+            ),
             patch("requests.Session.request") as request,
         ):
             if operation == "create":
                 response = self.client.post(
                     f"{base_url}provider_keys/",
-                    {"provider": "typesafe", "name": "Example connection", "api_key": "example-token"},
+                    {
+                        "provider": "typesafe",
+                        "name": "Example connection",
+                        "api_key": "example-token",
+                        "base_url": gateway_url,
+                    },
                 )
             elif operation == "update":
                 response = self.client.patch(f"{base_url}provider_keys/{key.id}/", {"api_key": "new-example-token"})
@@ -190,9 +199,9 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
     @patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True)
     @patch("requests.Session.request")
-    @patch("products.ai_observability.backend.api.provider_keys.system_one_evaluations_enabled", return_value=True)
+    @patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True)
     def test_custom_system_one_connection_round_trip(
-        self, _enabled: Mock, request: Mock, _budget: Mock, _dns: Mock
+        self, _flag: Mock, request: Mock, _budget: Mock, _dns: Mock
     ) -> None:
         request.return_value = Mock(status_code=200)
         request.return_value.json.return_value = {

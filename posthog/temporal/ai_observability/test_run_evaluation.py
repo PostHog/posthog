@@ -7,6 +7,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import posthoganalytics
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
@@ -186,16 +188,28 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
     request.assert_not_called()
 
 
-def test_system_one_disabled_experiment_does_not_send_evaluation_data() -> None:
+@pytest.mark.parametrize(
+    "base_url,flag",
+    [("https://decisions.example.com/v1", False), ("https://ai-gateway.us.posthog.com/v1", True)],
+)
+def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url: str, flag: bool) -> None:
     with (
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=False
-        ),
+        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
         patch("requests.Session.request") as request,
         pytest.raises(ApplicationError) as error,
     ):
-        spec.return_value.resolve.return_value = MagicMock(provider="typesafe")
+        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="typesafe",
+            model="custom-model",
+            provider_key=MagicMock(
+                provider="typesafe", encrypted_config={"base_url": base_url, "api_key": "example-token"}
+            ),
+            is_byok=True,
+        )
         call_llm_judge(
             evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is this a greeting?"}},
             system_prompt="",
