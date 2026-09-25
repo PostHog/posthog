@@ -27,8 +27,9 @@ export interface EmailTemplateRow {
 
 export type WorkflowListRow = WorkflowRow | EmailTemplateRow
 
-// `Owner:` must start the text, a line or a clause, so `Co-owner:` and `Previous owner:` don't count.
-const OWNER_PATTERN = /(?<=^|[.(,;|]\s*)owner:\s*@([\w.-]+)/gim
+// `Owner:` must start the text, a line (after indent, `-`, `*`, `•` or `>`) or a clause, so `Co-owner:`
+// and `Previous owner:` don't count.
+const OWNER_PATTERN = /(?<=^[\s>*•-]*|[.(,;|]\s*)owner:\s*@([\w.-]+)/gim
 
 function creatorHandle(user: UserBasicApi | null): string | null {
     if (!user) {

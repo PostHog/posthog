@@ -1,11 +1,15 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { EmailTemplateRow, WorkflowRow } from './workflowListRows'
 import {
     FIXTURE_TEMPLATES,
     FIXTURE_USERS,
@@ -107,6 +111,52 @@ describe('workflowsListV2Logic', () => {
         await expectLogic(logic).toDispatchActions(['loadListFailure'])
         expect(logic.values.loadFailed).toBe(true)
         expect(requests).toBeLessThanOrEqual(100)
+    })
+
+    it('sends every request to the team id, which can differ from the project id', async () => {
+        const TEAM_ID = 4242
+        const paths: string[] = []
+        const record =
+            (body: unknown) =>
+            ({ request }: { request: Request }): [number, unknown] => {
+                paths.push(`${request.method} ${new URL(request.url).pathname}`)
+                return [200, body]
+            }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': record(paginated(FIXTURE_WORKFLOWS)),
+                '/api/projects/:team_id/messaging_templates/summaries/': record(paginated(FIXTURE_TEMPLATES)),
+                '/api/projects/:team_id/hog_flows/:id/': record({ ...FIXTURE_WORKFLOWS[0], actions: [], edges: [] }),
+            },
+            post: { '/api/projects/:team_id/hog_flows/': record({}) },
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': record({}),
+                '/api/projects/:team_id/messaging_templates/:id': record({}),
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: TEAM_ID })
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadListSuccess'])
+
+        const workflow = logic.values.rows.find((row) => row.id === 'wf-renewal') as WorkflowRow
+        const template = logic.values.rows.find((row) => row.id === 'tpl-receipt') as EmailTemplateRow
+        await expectLogic(logic, () => logic.actions.toggleWorkflowStatus(workflow)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.duplicateWorkflow(workflow)).toDispatchActions(['loadListSuccess'])
+        await expectLogic(logic, () => logic.actions.deleteTemplate(template)).toFinishAllListeners()
+
+        expect(paths.filter((path) => !path.includes(`/projects/${TEAM_ID}/`))).toEqual([])
+        expect(new Set(paths)).toEqual(
+            new Set([
+                `GET /api/projects/${TEAM_ID}/hog_flows/summaries/`,
+                `GET /api/projects/${TEAM_ID}/messaging_templates/summaries/`,
+                `PATCH /api/projects/${TEAM_ID}/hog_flows/wf-renewal/`,
+                `GET /api/projects/${TEAM_ID}/hog_flows/wf-renewal/`,
+                `POST /api/projects/${TEAM_ID}/hog_flows/`,
+                `PATCH /api/projects/${TEAM_ID}/messaging_templates/tpl-receipt/`,
+            ])
+        )
     })
 
     it('shows a load error instead of an empty list', async () => {

@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { serializeFacetQuery } from 'lib/components/FacetSearchBar/facetQuery'
 import { FacetSearchBar } from 'lib/components/FacetSearchBar/FacetSearchBar'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -56,6 +57,8 @@ export function WorkflowsListV2(): JSX.Element {
         }
         return (
             <LemonTable
+                // A new filter starts again on page one, as the flag-off list does.
+                key={`${serializeFacetQuery(value.filters)}\n${value.text}`}
                 size="small"
                 dataSource={filteredRows}
                 loading={!listLoaded}

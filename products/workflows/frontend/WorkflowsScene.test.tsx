@@ -20,6 +20,7 @@ import {
     buildWorkflowRow,
     paginated,
 } from './Workflows/WorkflowsListV2/workflowsListV2Fixtures'
+import { workflowsListV2Logic } from './Workflows/WorkflowsListV2/workflowsListV2Logic'
 import { WorkflowsScene } from './WorkflowsScene'
 
 const shownRowNames = (): string[] =>
@@ -76,11 +77,11 @@ describe('WorkflowsScene', () => {
         expect(input).toHaveValue('')
     })
 
-    it('pages past the first 100 rows', async () => {
-        workflows = Array.from({ length: 150 }, (_, i) =>
+    it('pages past the first 100 rows, and a new filter starts again on page one', async () => {
+        workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
                 id: `wf-${i}`,
-                name: `Flow ${String(i).padStart(3, '0')}`,
+                name: `Flow ${String(i).padStart(3, '0')} ${i % 2 ? 'odd' : 'even'}`,
                 updated_at: new Date(Date.UTC(2026, 9, 1) - i * 60_000).toISOString(),
             })
         )
@@ -91,12 +92,15 @@ describe('WorkflowsScene', () => {
                 <WorkflowsScene />
             </Provider>
         )
-        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000'))
+        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
 
         await user.click(document.querySelector('[aria-label="Next page"]')!)
-        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 100'))
-        // The last 50 workflows plus the 2 email templates, which are older than all of them.
-        expect(shownRowNames()).toHaveLength(52)
+        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 100 even'))
+        expect(shownRowNames()).toHaveLength(100)
+
+        // 125 rows match, so a kept page would still show matches 101 and up.
+        act(() => workflowsListV2Logic.actions.setValue({ filters: [], text: 'odd' }))
+        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 001 odd'))
     })
 
     it('ignores a saved column the list no longer has', async () => {

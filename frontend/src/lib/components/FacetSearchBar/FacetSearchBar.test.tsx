@@ -148,6 +148,14 @@ describe('FacetSearchBar', () => {
         expect(input()).toHaveValue('')
     })
 
+    it('adds a pasted token once, even when the paste repeats it', async () => {
+        const user = setup()
+        await user.click(input())
+        await user.paste('status:active status:active ')
+        expect(shown('query')).toEqual('status:active')
+        expect(document.querySelectorAll('[aria-label="Remove filter Status: Active"]')).toHaveLength(1)
+    })
+
     it('Shift+Tab moves focus back instead of applying a filter', async () => {
         const user = setup()
         await user.click(input())

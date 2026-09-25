@@ -402,7 +402,15 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             // Typed or pasted `facet:value` tokens become pills as soon as they are complete.
             const { filters, remaining } = extractCompleteFilters(input, props.facets)
             const known = new Set(props.value.filters.map(facetFilterKey))
-            const added = filters.filter((filter) => !known.has(facetFilterKey(filter)))
+            const added = filters.filter((filter) => {
+                const key = facetFilterKey(filter)
+                // A pasted query can repeat a token; each pill is added once.
+                if (known.has(key)) {
+                    return false
+                }
+                known.add(key)
+                return true
+            })
             const nextInput = filters.length ? remaining : input
             const text = textOf(nextInput, parseFacetDraft(nextInput, props.facets))
             if (filters.length) {
