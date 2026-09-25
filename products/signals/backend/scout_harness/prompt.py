@@ -878,7 +878,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     # The only grant that reaches a person outside this project. Every other write stays in
     # PostHog and can be undone; a message that is sent cannot.
     ticket_reach = (
-        "\n- **A ticket reply reaches the customer, and it cannot be taken back.** It goes out over the ticket's channel, which can be email, Slack, Teams, or GitHub. Post a private note (`is_private: true`) unless your skill body asks in plain words for a customer-facing reply. Status, priority, assignee, and tags are the safe writes here. You can edit and delete only notes you wrote yourself, and you cannot delete a ticket."
+        "\n- **A ticket reply reaches the customer, and it cannot be taken back.** It goes out over the ticket's channel, which can be email, Slack, Teams, or GitHub. Post a private note (`is_private: true`) unless your skill body asks in plain words for a customer-facing reply. A status, priority, or assignee change can start a workflow that this project set up, and that workflow can also message the customer. You can edit and delete only notes you wrote yourself, and you cannot delete a ticket."
         if "ticket:write" in write_scopes
         else ""
     )
