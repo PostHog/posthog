@@ -2,6 +2,7 @@ import re
 import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
@@ -11,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.settings import (
     AZURE_COST_MANAGEMENT_ENDPOINTS,
@@ -50,8 +52,22 @@ RETRY_AFTER_HEADERS = (
 COMMAND_NAME = "PostHogDataWarehouse"
 
 
+# Shared by the raise site and the source's non-retryable map, which matches on the message.
+NO_COST_HISTORY_ERROR_PREFIX = "Azure Cost Management has no cost history on this scope"
+
+
 class AzureCostManagementRetryableError(Exception):
     """Transient upstream failure (throttle or 5xx) worth retrying."""
+
+    pass
+
+
+class AzureCostManagementNoCostHistoryError(NonReportableError):
+    """Azure holds no cost history on this scope to answer the request from.
+
+    Always the state of the customer's subscription rather than a PostHog defect, so it is not
+    worth an error-tracking issue however the caller handles it.
+    """
 
     pass
 
@@ -380,6 +396,12 @@ class AzureCostManagementClient:
                 self._sleep(delay)
                 continue
 
+            # Cost Management answers 424 when it cannot compute an answer from the scope's own
+            # cost history, which the forecast endpoint reads as an empty result rather than a
+            # failure — so this is raised apart from the generic HTTP error, and not logged.
+            if response.status_code == HTTPStatus.FAILED_DEPENDENCY:
+                raise AzureCostManagementNoCostHistoryError(f"{NO_COST_HISTORY_ERROR_PREFIX}: url={url}")
+
             if not response.ok:
                 self._logger.error(
                     f"Azure Cost Management error: status={response.status_code}, body={response.text}, url={url}"
@@ -484,7 +506,13 @@ def get_rows(
         pending_next_link = None
 
         while True:
-            payload = client.request("POST", _validated_next_link(next_link) if next_link else url, body)
+            try:
+                payload = client.request("POST", _validated_next_link(next_link) if next_link else url, body)
+            except AzureCostManagementNoCostHistoryError:
+                if config.kind != "forecast":
+                    raise
+                logger.debug("Azure Cost Management: no cost history on this scope yet, so no forecast")
+                return
             rows, next_link = rows_from_query_result(payload, normalized_scope)
             if rows:
                 yield rows

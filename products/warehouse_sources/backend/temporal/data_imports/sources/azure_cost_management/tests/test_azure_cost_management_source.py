@@ -3,6 +3,9 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
+    NO_COST_HISTORY_ERROR_PREFIX,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -117,6 +120,7 @@ class TestAzureCostManagementSource:
             "401 Client Error: Unauthorized for url: https://login.microsoftonline.com",
             "401 Client Error: Unauthorized for url: https://management.azure.com",
             "403 Client Error: Forbidden for url: https://management.azure.com — no access",
+            f"{NO_COST_HISTORY_ERROR_PREFIX}: url=https://management.azure.com/q",
         ],
     )
     def test_non_retryable_errors_match_credential_and_permission_failures(self, observed_error: str) -> None:

@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
     LOGIN_HOST,
     MANAGEMENT_HOST,
     AzureCostManagementClient,
+    AzureCostManagementNoCostHistoryError,
     AzureCostManagementResumeConfig,
     AzureCostManagementRetryableError,
     _parse_usage_date,
@@ -118,6 +119,14 @@ def _query_response(
                 "nextLink": next_link,
             }
         },
+    )
+
+
+def _no_cost_history_response() -> _FakeResponse:
+    return _FakeResponse(
+        424,
+        {"error": {"code": "BadRequest", "message": "Can't do forecast - cost training data is empty"}},
+        reason="Failed Dependency",
     )
 
 
@@ -693,6 +702,26 @@ class TestGetRows:
         assert "/forecast?" in url
         assert kwargs["json"]["timePeriod"]["from"].startswith(self.today.isoformat())
         assert kwargs["json"]["includeActualCost"] is False
+
+    def test_forecast_without_cost_history_yields_nothing(self) -> None:
+        # A scope with no spend yet cannot be forecast. Reporting that as a failure burns the
+        # activity's whole retry budget and tells the customer nothing they can act on.
+        session = _FakeSession([_token_response(), _no_cost_history_response()])
+
+        assert _run_rows(session, "forecast", _FakeResumeManager()) == []
+        # Token plus one forecast call: the 424 is not retried.
+        assert len(session.calls) == 2
+
+    def test_cost_endpoint_without_cost_history_still_fails(self) -> None:
+        session = _FakeSession([_token_response(), _no_cost_history_response()])
+
+        with pytest.raises(AzureCostManagementNoCostHistoryError):
+            _run_rows(
+                session,
+                "cost_by_service",
+                _FakeResumeManager(),
+                start_date=(self.today - timedelta(days=2)).isoformat(),
+            )
 
     @parameterized.expand([("2025-03-01",), ("2026-06-01",)])
     def test_pinned_api_version_reaches_the_request_url(self, api_version: str) -> None:
