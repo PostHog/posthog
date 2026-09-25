@@ -1,5 +1,13 @@
-import type { Task, TaskRun, UserBasic } from "@posthog/shared/domain-types";
+import { buildChannelItems } from "@posthog/core/canvas/channelItems";
+import type {
+  Task,
+  TaskChannel,
+  TaskRun,
+  UserBasic,
+} from "@posthog/shared/domain-types";
+import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChannelFeedView } from "./ChannelFeedView";
 
 const adam: UserBasic = {
@@ -191,6 +199,43 @@ export const PendingKickoffList: Story = {
   args: {
     ...PendingKickoff.args,
     rowStyle: "list",
+  },
+};
+
+function space(id: string, name: string): TaskChannel {
+  return {
+    id,
+    name,
+    channel_type: "public",
+    starred: false,
+    created_at: "2026-06-01T09:00:00Z",
+  };
+}
+
+export const SelectableList: Story = {
+  decorators: [
+    (Story) => {
+      useQueryClient().setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, [
+        space("space-growth", "growth"),
+        space("space-onboarding", "onboarding"),
+        space("space-sdk", "sdk-releases"),
+      ]);
+      return <Story />;
+    },
+  ],
+  args: {
+    tasks,
+    composer: <MockComposer />,
+    compact: true,
+    rowStyle: "list",
+    selectable: true,
+    spaceItems: buildChannelItems({
+      dashboards: [],
+      feedTasks: tasks,
+      archivedTaskIds: new Set(),
+      pinnedTaskIds: new Set(),
+      ownedBy: null,
+    }),
   },
 };
 
