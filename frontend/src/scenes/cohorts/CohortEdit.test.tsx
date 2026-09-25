@@ -539,7 +539,7 @@ describe('cohortEditLogic', () => {
             document.body.appendChild(panelHost)
             const layoutLogic = sceneLayoutLogic()
             layoutLogic.mount()
-            layoutLogic.actions.registerScenePanelElement(panelHost)
+            layoutLogic.actions.registerScenePanelElement('inline', panelHost)
             render(<CohortEdit id={cohortId} />)
         }
 

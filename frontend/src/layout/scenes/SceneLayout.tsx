@@ -1,7 +1,7 @@
 import './SceneLayout.css'
 
 import { useActions, useValues } from 'kea'
-import React, { PropsWithChildren, useEffect } from 'react'
+import React, { PropsWithChildren, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { ShortcutMenu } from 'lib/components/Shortcuts/ShortcutMenu'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { sceneLayoutLogic } from './sceneLayoutLogic'
@@ -21,18 +22,28 @@ type SceneLayoutProps = {
 
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
     const { scenePanelElement } = useValues(sceneLayoutLogic)
-    const { setScenePanelIsPresent } = useActions(sceneLayoutLogic)
-    // HACKY: Show the panel only if this element in in the DOM
+    const { registerScenePanel, unregisterScenePanel } = useActions(sceneLayoutLogic)
+    const { activeSceneId } = useValues(sceneLogic)
+    // The host is shared by every scene, so a panel may only write to it while the scene that
+    // opened it is still on screen. Without this a scene that outlives its own scene change
+    // keeps its actions in the panel under the next page.
+    const ownerSceneId = useRef(activeSceneId)
+    const ownsPanel = ownerSceneId.current === activeSceneId
+
     useEffect(() => {
-        setScenePanelIsPresent(true)
-        return () => {
-            setScenePanelIsPresent(false)
+        if (!ownsPanel) {
+            return
         }
-    }, [setScenePanelIsPresent])
+        registerScenePanel()
+        return () => {
+            unregisterScenePanel()
+        }
+    }, [ownsPanel, registerScenePanel, unregisterScenePanel])
 
     return (
         <>
-            {children &&
+            {ownsPanel &&
+                children &&
                 scenePanelElement &&
                 createPortal(<div className="flex flex-col gap-2">{children}</div>, scenePanelElement)}
         </>

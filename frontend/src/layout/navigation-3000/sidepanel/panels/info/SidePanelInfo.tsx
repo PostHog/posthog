@@ -16,10 +16,10 @@ export function SidePanelInfo(): JSX.Element {
 
     useEffect(() => {
         if (ref.current) {
-            registerScenePanelElement(ref.current)
+            registerScenePanelElement('sidePanel', ref.current)
         }
         return () => {
-            registerScenePanelElement(null)
+            registerScenePanelElement('sidePanel', null)
         }
     }, [registerScenePanelElement])
 

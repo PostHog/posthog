@@ -17,16 +17,23 @@ describe('sceneLayoutLogic', () => {
         // registerScenePanelElement listener. If that listener is removed, the
         // stale cached element pins the departed scene's whole fiber/DOM tree.
         const element = document.createElement('div')
-        logic.actions.registerScenePanelElement(element)
+        logic.actions.registerScenePanelElement('inline', element)
         expect(logic.values.scenePanelElement).toBe(element)
 
-        logic.actions.registerScenePanelElement(null)
+        const readPanelElement = jest.spyOn(logic.selectors, 'scenePanelElement')
+        logic.actions.registerScenePanelElement('inline', null)
 
-        // `lastResult` is a reselect 5 internal, not a public API — if a future
-        // kea/reselect upgrade renames it, this cast fails mechanically (TypeError),
-        // it isn't a behavioural regression in the fix itself.
-        const lastResult = (logic.selectors.scenePanelElement as unknown as { lastResult: () => HTMLElement | null })
-            .lastResult
-        expect(lastResult()).toBe(null)
+        expect(readPanelElement).toHaveBeenCalled()
+        expect(logic.values.scenePanelElement).toBe(null)
+    })
+
+    it('counts scene panels so one closing does not take the host down', () => {
+        logic.actions.registerScenePanel()
+        logic.actions.registerScenePanel()
+        logic.actions.unregisterScenePanel()
+        expect(logic.values.scenePanelIsPresent).toBe(true)
+
+        logic.actions.unregisterScenePanel()
+        expect(logic.values.scenePanelIsPresent).toBe(false)
     })
 })

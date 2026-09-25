@@ -52,36 +52,12 @@ export function Navigation({
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    const inlinePanelRef = useRef<HTMLDivElement | null>(null)
+    // Each host owns its own slot, so the callback ref's null call on unmount is enough cleanup.
     const inlinePanelCallbackRef = useCallback(
-        (node: HTMLDivElement | null) => {
-            inlinePanelRef.current = node
-            registerScenePanelElement(node)
-        },
+        (node: HTMLDivElement | null) => registerScenePanelElement('inline', node),
         [registerScenePanelElement]
     )
 
-    // SidePanelInfo overrides scenePanelElement while the Info tab is open and
-    // clears it on unmount, leaving it null even though Navigation's inline
-    // panel div is still in the DOM. Re-register it when the side panel closes.
-    useEffect(() => {
-        if (!sidePanelOpen && inlinePanelRef.current) {
-            registerScenePanelElement(inlinePanelRef.current)
-        }
-    }, [sidePanelOpen, registerScenePanelElement])
-
-    // Null the registration on Navigation unmount so the detached inline
-    // panel div is not pinned by sceneLayoutLogic's reducer. Kept in its own
-    // empty-deps effect so it fires only on final unmount, not on every
-    // sidePanelOpen toggle (which would briefly blank SceneLayout's portal).
-    useEffect(() => {
-        return () => {
-            registerScenePanelElement(null)
-        }
-    }, [registerScenePanelElement])
-
-    // Unlike the inline panel above, nothing else ever overrides this registration, so the
-    // callback ref's own null call on unmount is enough cleanup.
     const takeoverCallbackRef = useCallback(
         (node: HTMLDivElement | null) => registerSceneTakeoverElement(node),
         [registerSceneTakeoverElement]

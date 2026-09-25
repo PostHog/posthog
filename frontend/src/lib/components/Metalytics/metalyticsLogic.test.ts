@@ -52,7 +52,7 @@ describe('metalyticsLogic', () => {
                     activity_scope: ActivityScope.INSIGHT,
                     activity_item_id: 'insight2',
                 })
-                sceneLayoutLogic.actions.setScenePanelIsPresent(true)
+                sceneLayoutLogic.actions.registerScenePanel()
             }).toFinishAllListeners()
             expect(api.queryHogQL).toHaveBeenCalledTimes(4)
             expect(
@@ -69,7 +69,7 @@ describe('metalyticsLogic', () => {
                     activity_scope: ActivityScope.INSIGHT,
                     activity_item_id: 'insight3',
                 })
-                sceneLayoutLogic.actions.setScenePanelIsPresent(true)
+                sceneLayoutLogic.actions.registerScenePanel()
             }).toFinishAllListeners()
             expect(api.queryHogQL).toHaveBeenCalledTimes(4)
         }
@@ -102,7 +102,7 @@ describe('metalyticsLogic', () => {
                 activity_scope: ActivityScope.INSIGHT,
                 activity_item_id: 'insight2',
             })
-            sceneLayoutLogic.actions.setScenePanelIsPresent(true)
+            sceneLayoutLogic.actions.registerScenePanel()
         })
             .toFinishAllListeners()
             .toMatchValues({ viewCount: null, recentUsers: [], viewCountLoading: false, recentUsersLoading: false })
@@ -134,7 +134,7 @@ describe('metalyticsLogic', () => {
                 activity_scope: ActivityScope.INSIGHT,
                 activity_item_id: 'insight2',
             })
-            sceneLayoutLogic.actions.setScenePanelIsPresent(true)
+            sceneLayoutLogic.actions.registerScenePanel()
         }).toDispatchActions(['loadViewCountSuccess', 'loadUsersLast30daysSuccess'])
 
         await expectLogic(logic, () => {
