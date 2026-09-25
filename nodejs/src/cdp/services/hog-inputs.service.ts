@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { isHogVMErrorKind } from '../utils/hog-error-classification'
+import { isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -52,7 +52,11 @@ export class HogInputsService {
                 return formatLiquidInput(input.value, newGlobals, key, liquidBudget)
             }
             if (templating === 'hog' && input?.bytecode) {
-                return await formatHogInput(input.bytecode, newGlobals, key)
+                try {
+                    return await formatHogInput(input.bytecode, newGlobals, key)
+                } catch (error) {
+                    throw withBytecodeContract(error, input.bytecode_contract)
+                }
             }
 
             return input.value
