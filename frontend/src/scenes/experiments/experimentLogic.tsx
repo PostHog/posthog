@@ -15,7 +15,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { isApprovalRequiredError } from 'lib/api-error'
+import { isApprovalRequiredError, readableErrorMessage } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -88,6 +88,7 @@ import {
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
 } from 'products/experiments/frontend/legacy/calculations/legacyExperimentCalculations'
+import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import {
     experimentsLogic,
     getShippedVariantKey,
@@ -2684,9 +2685,28 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             try {
                 await updatePromise
-            } catch {
+            } catch (error: any) {
+                // The metric editor is the only place the rejected metric can be corrected, so the
+                // outcome of the save belongs there rather than in a toast the modal outlives.
+                // Reorders and deletes reach this listener from surfaces that never render the
+                // editor, so the logic is not always mounted.
+                experimentMetricModalLogic
+                    .findMounted()
+                    ?.actions.setMetricSaveError(
+                        readableErrorMessage(error) ?? 'Could not save this metric. Try again.'
+                    )
+                // The list behind the modal shows local state, so drop the metric the server
+                // refused. The editor keeps the draft, so a corrected save still has it.
+                const unmodified = values.unmodifiedExperiment
+                if (unmodified) {
+                    actions.setExperiment({
+                        metrics: unmodified.metrics,
+                        metrics_secondary: unmodified.metrics_secondary,
+                    })
+                }
                 return
             }
+            experimentMetricModalLogic.findMounted()?.actions.closeExperimentMetricModal()
 
             // Metric results are positional. Once the metric list has saved, keeping the previous arrays
             // around can briefly pair a result with the wrong metric (and gives no feedback while the

@@ -202,8 +202,9 @@ export function ExperimentView(): JSX.Element {
                                     : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
                             })
 
+                            // The modal stays open until the save lands: experimentLogic closes it on
+                            // success, or fills in its inline error when the server rejects the metric.
                             updateExperimentMetrics()
-                            closeExperimentMetricModal()
                         }}
                         onDelete={(metric, context) => {
                             if (!metric.uuid) {

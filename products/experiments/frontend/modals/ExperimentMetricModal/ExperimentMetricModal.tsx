@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
 import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
@@ -22,8 +22,13 @@ export function ExperimentMetricModal({
     onSave: (metric: ExperimentMetric, context: MetricContext) => void
     onDelete: (metric: ExperimentMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
-    const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
+    const { isModalOpen, metric, context, isCreateMode, isEditMode, isSaving, saveError } =
+        useValues(experimentMetricModalLogic)
+    const {
+        closeExperimentMetricModal,
+        setMetric: setModalMetric,
+        submitMetric,
+    } = useActions(experimentMetricModalLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
 
     if (!isModalOpen || !metric) {
@@ -72,7 +77,11 @@ export function ExperimentMetricModal({
                         </LemonButton>
                         <LemonButton
                             form="edit-experiment-metric-form"
-                            onClick={() => onSave(metric, context)}
+                            onClick={() => {
+                                submitMetric()
+                                onSave(metric, context)
+                            }}
+                            loading={isSaving}
                             type="primary"
                             data-attr="save-experiment-metric"
                         >
@@ -82,6 +91,11 @@ export function ExperimentMetricModal({
                 </div>
             }
         >
+            {saveError && (
+                <LemonBanner type="error" className="mb-4">
+                    {saveError}
+                </LemonBanner>
+            )}
             <div className="mb-4">
                 <LemonLabel className="mb-1">Name (optional)</LemonLabel>
                 <LemonInput

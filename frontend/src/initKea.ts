@@ -9,7 +9,12 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
+import {
+    isAccessDeniedError,
+    isUnavailableEndpointError,
+    isUnknownMetricEventsError,
+    shouldReportApiFailure,
+} from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -101,6 +106,12 @@ generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlag
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
+
+/*
+Write actions whose own logic renders the unknown-event 400 (code `unknown_metric_events`) inside
+the experiment metric editor, so the generic toast would repeat it away from the field it is about.
+*/
+const UNKNOWN_METRIC_EVENTS_SELF_HANDLED = new Set(['updateExperiment'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -197,6 +208,8 @@ export function initKea({
                         DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
                     const isHasDependentsError =
                         error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
+                    const isSelfHandledUnknownMetricEvents =
+                        isUnknownMetricEventsError(error) && UNKNOWN_METRIC_EVENTS_SELF_HANDLED.has(String(actionKey))
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -214,9 +227,10 @@ export function initKea({
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
                         isFeatureFlagDuplicateKey ||
-                        isHasDependentsError
+                        isHasDependentsError ||
+                        isSelfHandledUnknownMetricEvents
                     ) {
-                        // These are handled by their own dedicated toasts elsewhere.
+                        // These are handled by their own dedicated toast or inline UI elsewhere.
                         errorMessage = null
                     }
                     if (errorMessage) {

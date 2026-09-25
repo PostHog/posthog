@@ -39,7 +39,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.event_usage import EventSource, report_user_action
+from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -192,6 +192,10 @@ FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
+
+# DRF code on the rejection for a metric whose event the project has never ingested. The experiment
+# scene keys its inline handling on this, so keep it in sync with the frontend constant.
+UNKNOWN_METRIC_EVENTS_CODE = "unknown_metric_events"
 
 # Deprecated flag-config sub-keys under `parameters` that should move to the `feature_flag` object.
 # Kept in sync with the model's `parameters` deprecation comment. Used to attribute deprecated-field
@@ -1198,8 +1202,25 @@ class ExperimentService:
                 "Each ActionsNode must reference an existing action belonging to this project."
             )
 
+    def _caller_is_agent(self, serializer_context: dict | None, event_source: EventSource | None) -> bool:
+        """Whether an LLM drives this write, rather than a person in the app.
+
+        Direct service callers name their surface with ``event_source``; HTTP callers are
+        resolved from the request, the same way the analytics events are attributed.
+        """
+        if event_source is not None:
+            return event_source in AGENT_EVENT_SOURCES
+        request = (serializer_context or {}).get("request")
+        if request is None:
+            return False
+        return get_event_source(request) in AGENT_EVENT_SOURCES
+
     def validate_metric_event_names(
-        self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
+        self,
+        metrics: list[dict] | None,
+        *,
+        known_event_names: set[str] | None = None,
+        agent_caller: bool = False,
     ) -> None:
         """Validate that all EventsNode event names have been seen by this project.
 
@@ -1208,6 +1229,10 @@ class ExperimentService:
         Callers that intentionally reference not-yet-ingested events (e.g. setting up
         an experiment before deploying the emitting code) can pass
         ``allow_unknown_events=True`` to bypass this check.
+
+        ``agent_caller`` selects the wording of the rejection. An agent must be told what
+        the retry flag is and that it may not set the flag on its own. A person reading a
+        toast in the app cannot send that flag at all, so the same text only strands them.
 
         ``known_event_names`` exempts names the caller has established are already in
         use, so an update can be checked for what it introduces rather than for
@@ -1247,15 +1272,19 @@ class ExperimentService:
                 metrics_count=len(metrics) if metrics else 0,
             )
             unknown_str = ", ".join(f"'{name}'" for name in sorted(unknown))
-            raise ValidationError(
-                f"Event(s) {unknown_str} not found. "
-                "No events with these names have been ingested by this project. "
-                "If you meant a different event, please correct it. "
-                "Only if the user has explicitly confirmed they want to proceed with "
-                "the unknown event (e.g. they will instrument it shortly), "
-                "call again with allow_unknown_events=True. "
-                "Do not flip the flag silently to bypass this check."
+            noun = "event" if len(unknown) == 1 else "events"
+            message = (
+                f"PostHog hasn't received the {noun} {unknown_str} from this project yet. "
+                "Check the name for typos, or pick an event the project already sends."
             )
+            if agent_caller:
+                message += (
+                    " Only if the user has explicitly confirmed they want to proceed with "
+                    f"the unknown {noun} (e.g. they will instrument it shortly), "
+                    "call again with allow_unknown_events=True. "
+                    "Do not flip the flag silently to bypass this check."
+                )
+            raise ValidationError(message, code=UNKNOWN_METRIC_EVENTS_CODE)
 
     @transaction.atomic
     def create_experiment(
@@ -1314,8 +1343,9 @@ class ExperimentService:
         self.validate_metric_action_ids(metrics, self.team.id)
         self.validate_metric_action_ids(metrics_secondary, self.team.id)
         if not allow_unknown_events:
-            self.validate_metric_event_names(metrics)
-            self.validate_metric_event_names(metrics_secondary)
+            agent_caller = self._caller_is_agent(serializer_context, event_source)
+            self.validate_metric_event_names(metrics, agent_caller=agent_caller)
+            self.validate_metric_event_names(metrics_secondary, agent_caller=agent_caller)
         enforce_warehouse_metric_access(
             [
                 *(metrics or []),
@@ -3671,12 +3701,22 @@ class ExperimentService:
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
 
+        # Resolved once for both metric arrays, and only when one of them is being validated:
+        # reading the source off the request can cost an OAuth grant lookup.
+        agent_caller = False
+        if not allow_unknown_events and ("metrics" in update_data or "metrics_secondary" in update_data):
+            agent_caller = self._caller_is_agent(serializer_context, event_source)
+
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
             if not allow_unknown_events:
-                self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
+                self.validate_metric_event_names(
+                    update_data["metrics"],
+                    known_event_names=persisted_event_names,
+                    agent_caller=agent_caller,
+                )
         if "metrics_secondary" in update_data:
             update_data["metrics_secondary"] = self._assign_uuids_to_metrics(
                 update_data["metrics_secondary"], seen=seen_metric_uuids
@@ -3687,7 +3727,9 @@ class ExperimentService:
             )
             if not allow_unknown_events:
                 self.validate_metric_event_names(
-                    update_data["metrics_secondary"], known_event_names=persisted_event_names
+                    update_data["metrics_secondary"],
+                    known_event_names=persisted_event_names,
+                    agent_caller=agent_caller,
                 )
 
         enforce_warehouse_metric_access(

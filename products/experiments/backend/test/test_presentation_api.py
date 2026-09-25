@@ -1822,6 +1822,32 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "metrics")
 
+    def test_unknown_metric_event_is_rejected_with_a_human_message(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Unknown event experiment",
+                "feature_flag_key": "unknown-event-flag",
+                "parameters": {},
+                "filters": {},
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "never_ingested"},
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], "unknown_metric_events")
+        self.assertIn("never_ingested", body["detail"])
+        # A session request is the web app, which has no way to send the opt-in flag.
+        self.assertNotIn("allow_unknown_events", body["detail"])
+
     def test_accepts_metrics_with_array_properties(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",

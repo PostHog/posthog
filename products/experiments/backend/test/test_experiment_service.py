@@ -6934,6 +6934,25 @@ class TestExperimentService(APIBaseTest):
                 ],
             )
         assert "nonexistent_event" in str(ctx.exception.detail)
+        # The web app cannot send the flag, so naming it only strands the person reading this.
+        assert "allow_unknown_events" not in str(ctx.exception.detail)
+
+    def test_unknown_event_tells_an_agent_caller_about_the_opt_in(self):
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Agent Caller",
+                feature_flag_key="agent-caller-flag",
+                event_source=EventSource.MCP,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "nonexistent_event"},
+                    },
+                ],
+            )
+        assert "allow_unknown_events" in str(ctx.exception.detail)
 
     # ------------------------------------------------------------------
     # Event/action validation on update_experiment
