@@ -15,10 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.queries import VALIDATION_QUERY
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.settings import (
     DAGSTER_CLOUD_ENDPOINTS,
+    DAGSTER_CLOUD_INSIGHTS_ENTITY_LIMIT,
+    DAGSTER_CLOUD_INSIGHTS_GRANULARITY,
+    DAGSTER_CLOUD_INSIGHTS_LOOKBACK_DAYS,
     DAGSTER_CLOUD_PAGE_SIZE,
     REPOSITORIES_PARENT_CONFIG,
     DagsterCloudEndpointConfig,
     DagsterCloudFanOutConfig,
+    DagsterCloudInsightsConfig,
     WindowUnit,
 )
 
@@ -207,8 +211,31 @@ def _execute_query(sess: requests.Session, url: str, query: str, variables: dict
     return _validate_response(response, url)
 
 
+def _read_extra_list_rows(
+    payload: dict[str, Any],
+    endpoint_config: DagsterCloudEndpointConfig,
+    logger: FilteringBoundLogger | None,
+) -> list[dict[str, Any]]:
+    """Read the sibling root fields whose rows belong in the same table as the main field's."""
+    rows: list[dict[str, Any]] = []
+    for extra in endpoint_config.extra_list_fields:
+        value = payload["data"].get(extra.response_field)
+        if extra.results_key is not None:
+            value = (value or {}).get(extra.results_key)
+        extra_rows = list(value or [])
+        if extra.truncation_cap is not None and len(extra_rows) >= extra.truncation_cap and logger is not None:
+            logger.warning(
+                f"Dagster Cloud {endpoint_config.name}: {extra.response_field} returned its maximum "
+                f"{extra.truncation_cap} rows, so some may be missing"
+            )
+        rows.extend(extra_rows)
+    return rows
+
+
 def _extract_rows(
-    payload: dict[str, Any], endpoint_config: DagsterCloudEndpointConfig
+    payload: dict[str, Any],
+    endpoint_config: DagsterCloudEndpointConfig,
+    logger: FilteringBoundLogger | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
     """Unwrap the OrError union member holding the rows.
 
@@ -217,9 +244,10 @@ def _extract_rows(
     children, so a parent deleted in between must be skipped rather than fail the sync.
     """
     container = payload["data"][endpoint_config.response_field]
+    extra_rows = _read_extra_list_rows(payload, endpoint_config, logger)
     if endpoint_config.success_typename is None:
         # The root field returns the row list directly rather than an OrError union (assetNodes).
-        return {}, list(container or [])
+        return {}, list(container or []) + extra_rows
 
     typename = container.get("__typename")
     if typename in endpoint_config.skip_typenames:
@@ -227,7 +255,7 @@ def _extract_rows(
     if typename != endpoint_config.success_typename:
         message = container.get("message", "")
         raise Exception(f"Dagster Cloud {endpoint_config.response_field} returned {typename}: {message}")
-    return container, list(container.get(endpoint_config.results_key) or [])
+    return container, list(container.get(endpoint_config.results_key) or []) + extra_rows
 
 
 def _read_next_cursor(
@@ -244,6 +272,7 @@ def _iter_cursor_pages(
     url: str,
     endpoint_config: DagsterCloudEndpointConfig,
     variables: dict[str, Any],
+    logger: FilteringBoundLogger | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
     """Walk a cursor-paginated list endpoint, yielding raw rows with the cursor that follows them.
 
@@ -255,7 +284,7 @@ def _iter_cursor_pages(
 
     while True:
         payload = _execute_query(sess, url, endpoint_config.query, variables)
-        extracted = _extract_rows(payload, endpoint_config)
+        extracted = _extract_rows(payload, endpoint_config, logger)
         if extracted is None:
             return
         container, rows = extracted
@@ -293,7 +322,9 @@ def _make_paginated_request(
     url = build_graphql_url(organization, deployment)
     sess = _make_session(api_token)
 
-    variables: dict[str, Any] = {"limit": DAGSTER_CLOUD_PAGE_SIZE}
+    variables: dict[str, Any] = dict(endpoint_config.static_variables)
+    if endpoint_config.cursor_mode is not None:
+        variables["limit"] = DAGSTER_CLOUD_PAGE_SIZE
     if runs_filter is not None:
         variables["filter"] = runs_filter
 
@@ -303,7 +334,7 @@ def _make_paginated_request(
         logger.debug(f"Dagster Cloud: resuming {endpoint_name} from saved cursor")
 
     try:
-        for rows, next_cursor in _iter_cursor_pages(sess, url, endpoint_config, variables):
+        for rows, next_cursor in _iter_cursor_pages(sess, url, endpoint_config, variables, logger):
             yield [_normalize_row(row, endpoint_config) for row in rows]
 
             # Checkpoint the next page to fetch AFTER yielding this one, so a crash re-fetches the
@@ -336,6 +367,32 @@ def _iter_asset_parents(sess: requests.Session, url: str) -> Iterator[dict[str, 
             yield {"assetId": row.get("id"), "assetKeyPath": path, "assetKeyInput": {"path": path}}
 
 
+def _iter_run_parents(
+    sess: requests.Session,
+    url: str,
+    watermark_epoch: float | None,
+    sync_start_epoch: float,
+) -> Iterator[dict[str, Any]]:
+    """Walk the runs whose `updateTime` falls in this sync's window, newest first.
+
+    logsForRun takes no timestamp filter, so the only way an incremental sync avoids re-reading
+    every run's whole log is to narrow the parent walk instead. `updatedBefore` pins the top of
+    the window to the instant the walk started: the walk pages backwards from the newest run, so
+    a run that moves while it is in progress would otherwise never be fetched, and the watermark
+    would still advance past it.
+    """
+    endpoint_config = DAGSTER_CLOUD_ENDPOINTS["runs"]
+    runs_filter: dict[str, float] = {"updatedBefore": sync_start_epoch}
+    if watermark_epoch is not None:
+        runs_filter["updatedAfter"] = watermark_epoch
+    variables: dict[str, Any] = {"limit": DAGSTER_CLOUD_PAGE_SIZE, "filter": runs_filter}
+    for rows, _ in _iter_cursor_pages(sess, url, endpoint_config, variables):
+        for row in rows:
+            # The child rows checkpoint on this, not on their own event timestamp, so the next
+            # window starts where this one ended.
+            yield {"runId": row.get("runId"), "runUpdateTime": _epoch_to_iso(row.get("updateTime"))}
+
+
 def _iter_instigation_state_parents(sess: requests.Session, url: str) -> Iterator[dict[str, Any]]:
     endpoint_config = DAGSTER_CLOUD_ENDPOINTS["instigation_states"]
     for repository in _iter_repository_parents(sess, url):
@@ -354,11 +411,19 @@ def _iter_instigation_state_parents(sess: requests.Session, url: str) -> Iterato
             }
 
 
-def _iter_parents(sess: requests.Session, url: str, fan_out: DagsterCloudFanOutConfig) -> Iterator[dict[str, Any]]:
+def _iter_parents(
+    sess: requests.Session,
+    url: str,
+    fan_out: DagsterCloudFanOutConfig,
+    watermark_epoch: float | None,
+    sync_start_epoch: float,
+) -> Iterator[dict[str, Any]]:
     if fan_out.parent_kind == "repositories":
         yield from _iter_repository_parents(sess, url)
     elif fan_out.parent_kind == "assets":
         yield from _iter_asset_parents(sess, url)
+    elif fan_out.parent_kind == "runs":
+        yield from _iter_run_parents(sess, url, watermark_epoch, sync_start_epoch)
     else:
         yield from _iter_instigation_state_parents(sess, url)
 
@@ -402,6 +467,49 @@ def _inject_parent_fields(
     return enriched
 
 
+def _iter_forward_cursor_pages(
+    sess: requests.Session,
+    url: str,
+    endpoint_config: DagsterCloudEndpointConfig,
+    parent: dict[str, Any],
+    variables: dict[str, Any],
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Yield one parent's child rows through an opaque forward cursor plus a `hasMore` flag."""
+    fan_out = endpoint_config.fan_out
+    assert fan_out is not None and fan_out.cursor_variable is not None and fan_out.has_more_key is not None
+
+    row_index = 0
+    previous_cursor: str | None = None
+
+    while True:
+        payload = _execute_query(sess, url, endpoint_config.query, variables)
+        extracted = _extract_rows(payload, endpoint_config)
+        if extracted is None:
+            return
+        container, rows = extracted
+
+        page: list[dict[str, Any]] = []
+        for row in rows:
+            enriched = _inject_parent_fields(_normalize_row(row, endpoint_config), parent, fan_out)
+            if fan_out.row_index_field is not None:
+                enriched = {**enriched, fan_out.row_index_field: row_index}
+            row_index += 1
+            page.append(enriched)
+
+        # No mid-parent checkpoint: the row index is only stable when the parent is read from its
+        # start, so a resume has to restart this parent rather than pick up at its cursor.
+        yield page, None
+
+        if not container.get(fan_out.has_more_key):
+            return
+        cursor = container.get("cursor")
+        # Nothing else bounds this walk, so a cursor that repeats would replay one page forever.
+        if not cursor or cursor == previous_cursor:
+            raise Exception(f"Dagster Cloud {endpoint_config.name}: page cursor did not advance")
+        previous_cursor = cursor
+        variables[fan_out.cursor_variable] = cursor
+
+
 def _iter_child_pages(
     sess: requests.Session,
     url: str,
@@ -419,6 +527,11 @@ def _iter_child_pages(
     variables: dict[str, Any] = {"limit": DAGSTER_CLOUD_PAGE_SIZE}
     for variable_name, parent_key in fan_out.parent_variables.items():
         variables[variable_name] = parent.get(parent_key)
+
+    if fan_out.cursor_variable is not None:
+        yield from _iter_forward_cursor_pages(sess, url, endpoint_config, parent, variables)
+        return
+
     if fan_out.after_variable is not None and watermark_epoch is not None:
         variables[fan_out.after_variable] = _window_from_epoch_seconds(watermark_epoch, fan_out.window_unit)
     if before_variable is not None and start_window:
@@ -480,6 +593,7 @@ def _iter_fanout_rows(
     resumable_source_manager: ResumableSourceManager[DagsterCloudResumeConfig],
     resume_config: DagsterCloudResumeConfig | None,
     watermark_epoch: float | None,
+    sync_start_epoch: float,
 ) -> Iterator[list[dict[str, Any]]]:
     fan_out = endpoint_config.fan_out
     assert fan_out is not None
@@ -493,7 +607,7 @@ def _iter_fanout_rows(
     index = parents_done - 1
     batch: list[dict[str, Any]] = []
 
-    for index, parent in enumerate(_iter_parents(sess, url, fan_out)):
+    for index, parent in enumerate(_iter_parents(sess, url, fan_out, watermark_epoch, sync_start_epoch)):
         if index < parents_done:
             continue
 
@@ -541,6 +655,151 @@ def _make_fanout_request(
 
     try:
         yield from _iter_fanout_rows(
+            sess,
+            url,
+            endpoint_config,
+            logger,
+            resumable_source_manager,
+            resume_config,
+            watermark_epoch,
+            datetime.now(tz=UTC).timestamp(),
+        )
+    finally:
+        sess.close()
+
+
+def _fetch_metric_names(sess: requests.Session, url: str, insights: DagsterCloudInsightsConfig) -> list[str]:
+    payload = _execute_query(sess, url, insights.metric_types_query, {})
+    container = payload["data"][insights.metric_types_field] or {}
+    typename = container.get("__typename")
+    if typename != "MetricTypeList":
+        raise Exception(
+            f"Dagster Cloud {insights.metric_types_field} returned {typename}: {container.get('message', '')}"
+        )
+    return [
+        metric["metricName"] for metric in container.get("metricTypes") or [] if metric and metric.get("metricName")
+    ]
+
+
+def _flatten_reporting_entity(entity: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+    """Reduce a ReportingObjet union member to a stable id plus the columns identifying it."""
+    typename = entity.get("__typename")
+    columns = {key: value for key, value in entity.items() if key != "__typename"}
+    if typename == "ReportingJob":
+        parts = ("codeLocationName", "repositoryName", "jobName")
+        return "/".join(str(entity.get(part) or "") for part in parts), columns
+    if typename == "ReportingAsset":
+        return "/".join((entity.get("assetKey") or {}).get("path") or []), columns
+    if typename == "DagsterCloudDeployment":
+        return str(entity.get("deploymentId")), columns
+    return None, columns
+
+
+def _expand_metric_entries(
+    metric_name: str, entries: list[dict[str, Any]], timestamps: list[Any]
+) -> list[dict[str, Any]]:
+    """Flatten one metric's response into a row per entity per bucket.
+
+    Insights returns the bucket starts once and each entity's values positionally against them.
+    """
+    iso_timestamps = [_epoch_to_iso(timestamp) for timestamp in timestamps]
+    rows: list[dict[str, Any]] = []
+    for entry in entries:
+        if not entry:
+            continue
+        entity = entry.get("entity") or {}
+        entity_id, entity_columns = _flatten_reporting_entity(entity)
+        if entity_id is None:
+            continue
+        for iso_timestamp, value in zip(iso_timestamps, entry.get("values") or []):
+            # A null bucket means the metric reported nothing in that window, and a row per empty
+            # bucket per entity would dwarf the measurements.
+            if value is None:
+                continue
+            rows.append(
+                {
+                    "metricName": metric_name,
+                    "entityId": entity_id,
+                    "entityType": entity.get("__typename"),
+                    "timestamp": iso_timestamp,
+                    "value": value,
+                    "granularity": DAGSTER_CLOUD_INSIGHTS_GRANULARITY,
+                    **entity_columns,
+                }
+            )
+    return rows
+
+
+def _iter_insights_rows(
+    sess: requests.Session,
+    url: str,
+    endpoint_config: DagsterCloudEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[DagsterCloudResumeConfig],
+    resume_config: DagsterCloudResumeConfig | None,
+    watermark_epoch: float | None,
+) -> Iterator[list[dict[str, Any]]]:
+    insights = endpoint_config.insights
+    assert insights is not None
+
+    before = datetime.now(tz=UTC).timestamp()
+    after = watermark_epoch if watermark_epoch is not None else before - DAGSTER_CLOUD_INSIGHTS_LOOKBACK_DAYS * 86400
+
+    metric_names = _fetch_metric_names(sess, url, insights)
+    metrics_done = resume_config.parents_done if resume_config else 0
+    if metrics_done:
+        logger.debug(f"Dagster Cloud: resuming {endpoint_config.name} after {metrics_done} metrics")
+
+    for index, metric_name in enumerate(metric_names):
+        if index < metrics_done:
+            continue
+
+        variables: dict[str, Any] = {
+            "metricsSelector": {
+                "after": after,
+                "before": before,
+                "metricName": metric_name,
+                "granularity": DAGSTER_CLOUD_INSIGHTS_GRANULARITY,
+            },
+            "metricsFilter": {"limit": DAGSTER_CLOUD_INSIGHTS_ENTITY_LIMIT},
+        }
+        payload = _execute_query(sess, url, endpoint_config.query, variables)
+        extracted = _extract_rows(payload, endpoint_config)
+        if extracted is None:
+            continue
+        container, entries = extracted
+
+        # The resolver bounds its entity list with that filter limit and offers no cursor, so a
+        # response at the cap is the only signal that entities were left out.
+        if len(entries) >= DAGSTER_CLOUD_INSIGHTS_ENTITY_LIMIT:
+            logger.warning(
+                f"Dagster Cloud {endpoint_config.name}: metric {metric_name} returned its maximum "
+                f"{DAGSTER_CLOUD_INSIGHTS_ENTITY_LIMIT} entities, so some may be missing"
+            )
+
+        yield _expand_metric_entries(metric_name, entries, container.get("timestamps") or [])
+        resumable_source_manager.save_state(DagsterCloudResumeConfig(parents_done=index + 1))
+
+
+def _make_insights_request(
+    organization: str,
+    deployment: str,
+    api_token: str,
+    endpoint_name: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[DagsterCloudResumeConfig],
+    watermark_epoch: float | None = None,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint_config = DAGSTER_CLOUD_ENDPOINTS.get(endpoint_name)
+    if not endpoint_config or endpoint_config.insights is None:
+        raise ValueError(f"Unknown Dagster Cloud insights endpoint: {endpoint_name}")
+
+    url = build_graphql_url(organization, deployment)
+    sess = _make_session(api_token)
+    resume_config = resumable_source_manager.load_state()
+
+    try:
+        yield from _iter_insights_rows(
             sess, url, endpoint_config, logger, resumable_source_manager, resume_config, watermark_epoch
         )
     finally:
@@ -570,6 +829,18 @@ def dagster_cloud_source(
             and db_incremental_field_last_value is not None
         ):
             watermark_epoch = _to_epoch_seconds(db_incremental_field_last_value)
+
+        if endpoint_config.insights is not None:
+            yield from _make_insights_request(
+                organization=organization,
+                deployment=deployment,
+                api_token=api_token,
+                endpoint_name=endpoint_name,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                watermark_epoch=watermark_epoch,
+            )
+            return
 
         if endpoint_config.fan_out is not None:
             if watermark_epoch is not None:

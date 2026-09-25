@@ -1163,6 +1163,35 @@ class TestPostgresSourceNonRetryableErrors:
         assert "allow list" in friendly[0]
 
     @pytest.mark.parametrize(
+        "error_msg,expected_fragment",
+        [
+            (
+                'connection failed: connection to server at "203.0.113.30", port 5432 failed: ERROR:  This IP '
+                "address 198.51.100.7 is not allowed to connect to this endpoint.\n"
+                'connection to server at "203.0.113.30", port 5432 failed: ERROR:  connection is insecure',
+                "allow list",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.31", port 5432 failed: ERROR:  This '
+                "connection is trying to access this endpoint from a blocked network.\n"
+                'connection to server at "203.0.113.31", port 5432 failed: ERROR:  connection is insecure',
+                "public access",
+            ),
+        ],
+    )
+    def test_neon_network_policy_rejection_is_non_retryable_with_friendly_message(
+        self, source, error_msg, expected_fragment
+    ):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [
+            reason
+            for pattern, reason in non_retryable.items()
+            if error_message_matches(error_msg, [pattern]) and reason
+        ]
+        assert friendly, f"Network policy rejection should be non-retryable with an actionable message: {error_msg}"
+        assert expected_fragment in friendly[0]
+
+    @pytest.mark.parametrize(
         "error_msg",
         [
             # A Neon-style proxy rejects the connection for a specific branch before the SSL-required
