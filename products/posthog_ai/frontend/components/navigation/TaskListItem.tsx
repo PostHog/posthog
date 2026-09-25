@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconArchive } from '@posthog/icons'
+import { IconArchive, IconPencil } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -16,6 +16,7 @@ import { TaskRunEnvironment } from '../../types/taskTypes'
 import type { Task } from '../../types/taskTypes'
 import { TaskEnvironmentIcon } from '../TaskEnvironmentIcon'
 import { TaskRunLivenessDot } from '../TaskRunLivenessDot'
+import { openRenameTaskDialog } from './openRenameTaskDialog'
 
 function compactTimeAgo(iso: string): string {
     const seconds = dayjs().diff(dayjs(iso), 'second')
@@ -62,14 +63,28 @@ function Content({ task }: { task: Task }): JSX.Element {
     )
 }
 
-function Actions({ taskId }: { taskId: string }): JSX.Element {
-    const { deleteTask } = useActions(tasksLogic)
+function Actions({ task }: { task: Task }): JSX.Element {
+    const { deleteTask, renameTask } = useActions(tasksLogic)
 
     return (
         <LinkListItem.Actions>
             <DropdownMenuGroup>
                 <DropdownMenuItem asChild>
-                    <ButtonPrimitive menuItem variant="danger" onClick={() => deleteTask({ taskId })}>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() =>
+                            openRenameTaskDialog(task.title || task.slug, (title) =>
+                                renameTask({ taskId: task.id, title })
+                            )
+                        }
+                        data-attr="task-rename"
+                    >
+                        <IconPencil className="size-4 text-tertiary" />
+                        Rename
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <ButtonPrimitive menuItem variant="danger" onClick={() => deleteTask({ taskId: task.id })}>
                         <IconArchive className="size-4 text-danger" />
                         <span className="text-danger">Archive task</span>
                     </ButtonPrimitive>

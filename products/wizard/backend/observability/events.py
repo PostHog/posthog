@@ -3,13 +3,19 @@ from uuid import NAMESPACE_URL, uuid5
 from posthog.models import User
 from posthog.ph_client import ph_background_capture
 
-from products.wizard.backend.facade.contracts import WizardRunDTO
+from products.wizard.backend.facade.contracts import (
+    WizardRunArtifactDTO,
+    WizardRunDTO,
+    WizardRunGitDiffArtifactDTO,
+    WizardRunPullRequestArtifactDTO,
+)
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStage
 from products.wizard.backend.observability.config import (
-    WIZARD_PULL_REQUEST_CREATED_EVENT,
-    WIZARD_RUN_CREATED_EVENT,
+    WIZARD_RUN_ARTIFACT_CREATED_EVENT,
     WIZARD_RUN_DISPATCH_FINISHED_EVENT,
+    WIZARD_RUN_FINISHED_EVENT,
     WIZARD_RUN_STAGE_ENTERED_EVENT,
+    WIZARD_RUN_STARTED_EVENT,
     WIZARD_WORKER_USAGE_RECORDED_EVENT,
 )
 from products.wizard.backend.observability.contracts import WizardRunDispatchOutcome, WizardWorkerUsageObservation
@@ -19,7 +25,15 @@ type WizardEventProperties = dict[str, WizardEventProperty]
 
 
 def enqueue_run_created(run: WizardRunDTO) -> None:
-    _enqueue_run_event(run, WIZARD_RUN_CREATED_EVENT, "created")
+    _enqueue_run_event(
+        run,
+        WIZARD_RUN_STARTED_EVENT,
+        "started",
+        {
+            "location": "wizard_library",
+            "program": run.program.name,
+        },
+    )
 
 
 def enqueue_dispatch_finished(run: WizardRunDTO, outcome: WizardRunDispatchOutcome) -> None:
@@ -40,7 +54,7 @@ def enqueue_stage_entered(run: WizardRunDTO, stage: WizardRunStage) -> None:
     )
 
 
-def enqueue_run_finished(run: WizardRunDTO, failure_stage: WizardRunStage | None, event: str) -> None:
+def enqueue_run_finished(run: WizardRunDTO, failure_stage: WizardRunStage | None) -> None:
     properties: WizardEventProperties = {
         "status": run.status.value,
         "error_code": run.error_code,
@@ -50,7 +64,7 @@ def enqueue_run_finished(run: WizardRunDTO, failure_stage: WizardRunStage | None
     if run.started_at is not None and run.finished_at is not None:
         properties["duration_seconds"] = max((run.finished_at - run.started_at).total_seconds(), 0)
 
-    _enqueue_run_event(run, event, f"terminal:{run.status.value}", properties)
+    _enqueue_run_event(run, WIZARD_RUN_FINISHED_EVENT, f"terminal:{run.status.value}", properties)
 
 
 def enqueue_worker_usage(run: WizardRunDTO, usage: WizardWorkerUsageObservation) -> None:
@@ -69,8 +83,17 @@ def enqueue_worker_usage(run: WizardRunDTO, usage: WizardWorkerUsageObservation)
     )
 
 
-def enqueue_pull_request_created(run: WizardRunDTO) -> None:
-    _enqueue_run_event(run, WIZARD_PULL_REQUEST_CREATED_EVENT, "artifact:pull_request")
+def enqueue_artifact_created(run: WizardRunDTO, artifact: WizardRunArtifactDTO) -> None:
+    if isinstance(artifact, WizardRunPullRequestArtifactDTO):
+        properties: WizardEventProperties = {
+            "type": "pull_request",
+            "url": artifact.url,
+            "name": f"Pull request #{artifact.number}",
+        }
+    elif isinstance(artifact, WizardRunGitDiffArtifactDTO):
+        properties = {"type": "diff", "url": None, "name": "Git diff"}
+
+    _enqueue_run_event(run, WIZARD_RUN_ARTIFACT_CREATED_EVENT, f"artifact:{artifact.id}", properties)
 
 
 def _enqueue_run_event(
