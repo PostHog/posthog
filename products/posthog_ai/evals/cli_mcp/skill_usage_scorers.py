@@ -18,8 +18,9 @@ from typing import Any, cast
 from braintrust import Score
 from braintrust_core.score import Scorer
 
+from products.posthog_ai.backend.exec_commands import normalize_tool_name
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
-from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, normalize_tool_name
+from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
     _exec_command,
