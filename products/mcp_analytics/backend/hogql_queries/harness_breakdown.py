@@ -123,7 +123,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
             FROM (
                 SELECT
                     {token} AS h,
-                    $session_id AS session_id,
+                    {conversation_id} AS session_id,
                     toBool(properties.$mcp_is_error) AS is_error
                 FROM events
                 WHERE {where}
@@ -134,6 +134,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
             placeholders={
                 "label": parse_expr(mcp_harness.harness_label_sql("h")),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
+                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "where": self._where(),
             },
         )

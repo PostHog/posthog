@@ -247,6 +247,13 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         assert "OpenAI Codex" in by_harness
         assert "Cursor" not in by_harness
 
+    @parameterized.expand([("posthog_session_id", "$session_id"), ("mcp_session_id", "$mcp_session_id")])
+    def test_sessions_count_either_session_id_without_tool_name(self, _name: str, session_key: str) -> None:
+        self._emit(session_id="", properties={"$mcp_client_name": "codex-mcp-client", session_key: "a"})
+        flush_persons_and_events()
+
+        assert self._breakdown()["OpenAI Codex"].sessions == 1
+
     def test_harness_sessions_is_none_when_tool_name_unset(self) -> None:
         self._emit(properties={"$mcp_client_name": "codex-mcp-client"})
         flush_persons_and_events()
