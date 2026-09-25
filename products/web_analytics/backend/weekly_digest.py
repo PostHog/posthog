@@ -1,7 +1,9 @@
 from collections.abc import Iterable
+from datetime import datetime
 from typing import TypeVar
 
 from django.conf import settings
+from django.db import models
 
 import structlog
 
@@ -22,10 +24,15 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.tasks.email_utils import compute_week_over_week_change
@@ -37,6 +44,20 @@ from products.web_analytics.backend.hogql_queries.web_overview import WebOvervie
 logger = structlog.get_logger(__name__)
 
 DEFAULT_DIGEST_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+DIGEST_METRIC_NOTES = [
+    "Visitors, sessions, bounce rate and session duration count only sessions that contain at least one "
+    "$pageview or $screen event. A direct count of the sessions table also includes sessions with other events, "
+    "so it can be higher.",
+    "Events from test accounts are excluded, as set in the project's test account filters.",
+    "The period starts at the start of the day `days` days ago and ends now, in the project timezone.",
+]
+
+
+class DigestDataStatus(models.TextChoices):
+    OK = "ok", "OK"
+    NO_WEB_SESSIONS = "no_web_sessions", "No web sessions"
+    NO_SESSIONS = "no_sessions", "No sessions"
 
 
 DigestResponse = TypeVar("DigestResponse", WebOverviewQueryResponse, WebStatsTableQueryResponse, WebGoalsQueryResponse)
@@ -254,6 +275,50 @@ def get_goals_for_team(
     return results
 
 
+def _digest_date_range(team: Team, days: int) -> QueryDateRange:
+    return QueryDateRange(
+        date_range=DateRange(date_from=f"-{days}d"),
+        team=team,
+        timezone_info=team.timezone_info,
+        interval=None,
+        now=datetime.now(team.timezone_info),
+    )
+
+
+def _has_sessions_in_range(team: Team, date_range: QueryDateRange) -> bool:
+    tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:session_probe")
+    query = parse_select(
+        "SELECT 1 FROM events WHERE timestamp >= {date_from} AND timestamp < {date_to} "
+        "AND notEmpty(events.$session_id) LIMIT 1",
+        placeholders={
+            "date_from": ast.Constant(value=date_range.date_from()),
+            "date_to": ast.Constant(value=date_range.date_to()),
+        },
+    )
+    response = execute_hogql_query(query_type="web_analytics_digest_session_probe", query=query, team=team)
+    return bool(response.results)
+
+
+def get_digest_metadata(team: Team, overview: dict, days: int = 7) -> dict:
+    date_range = _digest_date_range(team, days)
+    if overview["sessions"]["current"] or overview["pageviews"]["current"]:
+        data_status = DigestDataStatus.OK
+    elif _has_sessions_in_range(team, date_range):
+        # A plain zero reads as "no traffic", but the project has sessions that the web definition excludes.
+        data_status = DigestDataStatus.NO_WEB_SESSIONS
+    else:
+        data_status = DigestDataStatus.NO_SESSIONS
+
+    return {
+        "data_status": data_status.value,
+        "date_from": date_range.date_from(),
+        "date_to": date_range.date_to(),
+        "timezone": team.timezone,
+        "filter_test_accounts": True,
+        "notes": DIGEST_METRIC_NOTES,
+    }
+
+
 def build_team_digest(
     team: Team,
     days: int = 7,
@@ -273,6 +338,7 @@ def build_team_digest(
         "top_pages": top_pages,
         "top_sources": top_sources,
         "goals": goals,
+        "metadata": get_digest_metadata(team, overview, days=days),
         "dashboard_url": f"{settings.SITE_URL}/project/{team.pk}/web?utm_source=web_analytics_weekly_digest&utm_medium=email",
     }
 
