@@ -253,24 +253,57 @@ describe('createSetupDetectionLogic', () => {
             const next = buildCached(detect, false)
             next.mount()
             await expectLogic(next).toFinishAllListeners()
+            next.unmount()
             return detect.mock.calls.length > 0
         }
 
-        it('opens the gate at once, then flips to needs-setup and drops the cache when the data is gone', async () => {
-            await seedCachedHasData()
+        function mountWithPendingRevalidation(): {
+            logic: ReturnType<typeof buildCached>
+            answer: (status: ProductSetupStatus) => void
+        } {
             let answer: (status: ProductSetupStatus) => void = () => {}
-            const detect = jest.fn<Promise<ProductSetupStatus | null>, []>(
-                () => new Promise((resolve) => (answer = resolve))
+            const logic = buildCached(
+                jest.fn<Promise<ProductSetupStatus | null>, []>(() => new Promise((resolve) => (answer = resolve))),
+                true
             )
-            const logic = buildCached(detect, true)
             logic.mount()
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
-            expect(detect).toHaveBeenCalledTimes(1)
+            return { logic, answer: (status) => answer(status) }
+        }
 
+        function switchTeam(id: number): void {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id })
+        }
+
+        it.each(['needs-setup', 'waiting-for-data'] as const)(
+            'keeps the mounted scene on has-data and drops the cache when the check answers %s',
+            async (noData) => {
+                await seedCachedHasData()
+                const { logic, answer } = mountWithPendingRevalidation()
+                expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
+
+                answer(noData)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
+                logic.unmount()
+                expect(await nextMountDetects()).toBe(true)
+            }
+        )
+
+        it('clears only the original team cache when the team changes mid-check', async () => {
+            const otherTeamId = MOCK_DEFAULT_TEAM.id + 1
+            switchTeam(otherTeamId)
+            await seedCachedHasData()
+            switchTeam(MOCK_DEFAULT_TEAM.id)
+            await seedCachedHasData()
+
+            const { logic, answer } = mountWithPendingRevalidation()
+            switchTeam(otherTeamId)
             answer('needs-setup')
             await expectLogic(logic).toFinishAllListeners()
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
             logic.unmount()
+
+            expect(await nextMountDetects()).toBe(false)
+            switchTeam(MOCK_DEFAULT_TEAM.id)
             expect(await nextMountDetects()).toBe(true)
         })
 
@@ -306,7 +339,8 @@ describe('createSetupDetectionLogic', () => {
             projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
             await expectLogic(logic).toFinishAllListeners()
             expect(detect).toHaveBeenCalledTimes(1)
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
+            logic.unmount()
+            expect(await nextMountDetects()).toBe(true)
         })
     })
 

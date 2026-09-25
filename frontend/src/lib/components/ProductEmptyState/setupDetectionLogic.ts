@@ -63,8 +63,8 @@ export interface SetupDetectionLogicOptions {
     cacheHasData?: boolean
     /**
      * With `cacheHasData`, re-run detection once in the background after a cached has-data
-     * answer, for data users can delete or that ages out of the probe's window. A no-data
-     * answer clears the cache and brings the empty state back; anything else keeps has-data.
+     * answer, for data users can delete or that ages out of the probe's window. A no-data answer
+     * clears the cache so the next visit shows the empty state. It never replaces the mounted scene.
      */
     revalidateCachedHasData?: boolean
 }
@@ -86,10 +86,6 @@ export interface SetupDetectionActions {
     ) => { detectedStatus: ProductSetupStatus | null }
     detectStatusFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     setDetectedStatus: (status: ProductSetupStatus) => { status: ProductSetupStatus }
-    applyDetectedStatus: (
-        status: ProductSetupStatus,
-        teamId: number | null
-    ) => { status: ProductSetupStatus; teamId: number | null }
 }
 
 export type SetupDetectionLogicType = MakeLogicType<SetupDetectionValues, SetupDetectionActions>
@@ -171,7 +167,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
     return buildKea<SetupDetectionLogicType>([
         path(options.path),
         connect(() => ({
-            actions: [productSetupStatusLogic({ productKey }), ['setDetectedStatus', 'applyDetectedStatus']],
+            actions: [productSetupStatusLogic({ productKey }), ['setDetectedStatus']],
             values: [
                 productSetupStatusLogic({ productKey }),
                 ['status as setupStatus'],
@@ -203,15 +199,11 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                     },
                 ])
             ),
-            revalidateCachedStatus: async (_, breakpoint) => {
+            revalidateCachedStatus: async () => {
+                const teamId = values.currentTeamId
                 const status = await detectOrNull(detect)
-                breakpoint()
                 if (isNoDataStatus(status)) {
-                    clearCachedHasData(values.currentTeamId, productKey)
-                    // Bypasses the guard in setDetectedStatus that stops needs-setup replacing has-data.
-                    actions.applyDetectedStatus(status, values.currentTeamId)
-                    onDetected?.(status)
-                    startPoll(cache, actions, values, pollIntervalMs)
+                    clearCachedHasData(teamId, productKey)
                 }
             },
             detectStatusSuccess: ({ detectedStatus }) => {
