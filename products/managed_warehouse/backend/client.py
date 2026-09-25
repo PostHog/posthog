@@ -6,10 +6,16 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import psycopg
-from psycopg import sql as psql
+from prometheus_client import Counter
+from psycopg import (
+    InterfaceError,
+    OperationalError,
+    sql as psql,
+)
 from psycopg.conninfo import make_conninfo
 
 from posthog.hogql.database.s3_table import S3Table, parse_duckdb_s3_source
+from posthog.hogql.direct_sql.pgwire import MANAGED_WAREHOUSE_CONNECTION_ERROR
 
 from products.managed_warehouse.backend.common import (
     get_duckgres_config_for_org,
@@ -21,6 +27,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeQueryResult,
     DuckLakeS3Secret,
     DuckLakeTableResult,
+    ManagedWarehouseQueryConnectionError,
 )
 from products.managed_warehouse.backend.service_credentials import ServiceCredential
 from products.managed_warehouse.backend.table_binding import bind_tables_to_ducklake
@@ -34,6 +41,64 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 logger = logging.getLogger(__name__)
+
+DUCKLAKE_QUERY_CONNECTION_FAILURE_TOTAL = Counter(
+    "managed_warehouse_ducklake_query_connection_failure_total",
+    "Managed warehouse DuckLake query connection failures by phase and stable reason code.",
+    labelnames=["phase", "reason"],
+)
+
+# What duckgres reports once the connection is up. A failed connect carries no SQLSTATE, so
+# the message table below is the only signal for that phase.
+_CONNECTION_FAILURE_SQLSTATES: dict[str, str] = {
+    "53300": "capacity",
+    "57P01": "connection_lost",
+    "57P02": "connection_lost",
+    "57P03": "unreachable",
+    "28000": "auth",
+    "28P01": "auth",
+}
+
+# Matched against the lowercased driver message, first hit wins.
+_CONNECTION_FAILURE_REASONS: tuple[tuple[str, str], ...] = (
+    ("activate tenant", "tenant_activation"),
+    ("attachment failed", "tenant_activation"),
+    ("timeout", "timeout"),
+    ("timed out", "timeout"),
+    ("too many clients", "capacity"),
+    ("connection refused", "unreachable"),
+    ("could not connect", "unreachable"),
+    ("could not translate host name", "unreachable"),
+    ("server closed the connection", "connection_lost"),
+    ("connection is closed", "connection_lost"),
+    ("authentication", "auth"),
+)
+
+
+def _connection_failure_reason(exc: Exception) -> str:
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate:
+        if sqlstate in _CONNECTION_FAILURE_SQLSTATES:
+            return _CONNECTION_FAILURE_SQLSTATES[sqlstate]
+        # Class 08 is every connection exception Postgres defines.
+        if sqlstate.startswith("08"):
+            return "connection_lost"
+    lowered = str(exc).lower()
+    for pattern, reason in _CONNECTION_FAILURE_REASONS:
+        if pattern in lowered:
+            return reason
+    return "unknown"
+
+
+def _clean_connection_error(exc: Exception, *, phase: str, team_id: int) -> ManagedWarehouseQueryConnectionError:
+    detail = str(exc)
+    reason = _connection_failure_reason(exc)
+    DUCKLAKE_QUERY_CONNECTION_FAILURE_TOTAL.labels(phase=phase, reason=reason).inc()
+    logger.exception(
+        "ducklake_query_connection_failed",
+        extra={"team_id": team_id, "phase": phase, "reason": reason, "error": detail},
+    )
+    return ManagedWarehouseQueryConnectionError(MANAGED_WAREHOUSE_CONNECTION_ERROR)
 
 
 def make_duckgres_conninfo(
@@ -308,19 +373,24 @@ def execute_ducklake_query(
 
     assert sql is not None
 
+    phase = "connect"
     conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id, application_name="endpoints-shadow")
     _connect_start = time.monotonic()
-    with psycopg.connect(conninfo) as conn:
-        connect_ms = (time.monotonic() - _connect_start) * 1000
-        _configure_s3_secrets(conn, s3_secrets)
-        _set_search_path(conn)
-        with conn.cursor() as cur:
-            _query_start = time.monotonic()
-            cur.execute(sql, values or None)
-            columns = [desc.name for desc in cur.description] if cur.description else []
-            types = [str(desc.type_code) for desc in cur.description] if cur.description else []
-            rows = cur.fetchall()
-            query_ms = (time.monotonic() - _query_start) * 1000
+    try:
+        with psycopg.connect(conninfo) as conn:
+            connect_ms = (time.monotonic() - _connect_start) * 1000
+            _configure_s3_secrets(conn, s3_secrets)
+            _set_search_path(conn)
+            with conn.cursor() as cur:
+                _query_start = time.monotonic()
+                phase = "execute"
+                cur.execute(sql, values or None)
+                columns = [desc.name for desc in cur.description] if cur.description else []
+                types = [str(desc.type_code) for desc in cur.description] if cur.description else []
+                rows = cur.fetchall()
+                query_ms = (time.monotonic() - _query_start) * 1000
+    except (OperationalError, InterfaceError) as exc:
+        raise _clean_connection_error(exc, phase=phase, team_id=team_id) from exc
     return DuckLakeQueryResult(
         columns=columns,
         types=types,

@@ -36,6 +36,7 @@ __all__ = [
     "ManagedWarehouseTrinoConnection",
     "ManagedWarehouseTrinoConnectionUnavailable",
     "ManagedWarehouseProvisionStatus",
+    "ManagedWarehouseQueryConnectionError",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
     "ManagedWarehouseSourceJobStatus",
@@ -129,6 +130,12 @@ class ManagedWarehouseTrinoConnection:
 
 class ManagedWarehouseTrinoConnectionUnavailable(RuntimeError):
     pass
+
+
+class ManagedWarehouseQueryConnectionError(RuntimeError):
+    """The duckgres connection failed before or during a query. Its message is safe to show a
+    user: the driver message names internal hosts and per-tenant databases, so it stays in the
+    server logs and never reaches this exception."""
 
 
 @frozen
