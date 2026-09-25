@@ -1136,6 +1136,9 @@ def extract_json_from_text(text: str | None, label: str, required_keys: Collecti
         for value in reversed(values):
             if isinstance(value, dict) and all(key in value for key in required_keys):
                 return value
+    elif values:
+        # Without keys the first value is the answer, so a cut-off object after it does not matter.
+        return values[0]
     if truncated:
         raise TruncatedAgentOutputError(label)
     if values:
