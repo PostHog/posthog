@@ -14,6 +14,7 @@ from posthog.schema import (
     EventsNode,
     IntervalType,
     NodeKind,
+    PropertyMathType,
     TrendsFilter,
     TrendsQuery,
 )
@@ -431,3 +432,66 @@ class TestSimulateDetectorBreakdowns:
         assert result["interval"] is None  # SQL insights have no chart interval
         assert result["anomaly_count"] >= 1  # the trailing spike is flagged — the full path scored
         assert len(result["scores"]) == result["total_points"]
+
+
+# Counts whose median is 3, spiking to 13 at the penultimate position so the value survives the
+# "drop the incomplete interval" trim. A real new maximum, and an unremarkable move at this size.
+LOW_VOLUME_COUNTS = [float(v) for v in [2, 3, 4, 3, 2, 3, 5, 3, 2, 4] * 4] + [13.0, 3.0]
+
+COUNT_SERIES = EventsNode(event="signed_up", math=BaseMathType.TOTAL)
+PROPERTY_SERIES = EventsNode(event="checkout", math=PropertyMathType.SUM, math_property="seats")
+
+
+def _run_floor(series: EventsNode, detector_config: dict[str, Any], trends_filter: TrendsFilter) -> bool:
+    query = TrendsQuery(series=[series], trendsFilter=trends_filter, interval=IntervalType.DAY)
+    with patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight") as mock_calc:
+        mock_calc.return_value = InsightResult(
+            result=[_make_trend_result("series", LOW_VOLUME_COUNTS)],
+            columns=[],
+            timezone="UTC",
+            last_refresh=None,
+            cache_key="",
+            is_cached=False,
+        )
+        extracted = extract_detector_series(
+            MagicMock(spec=Insight),
+            MagicMock(),
+            query,
+            detector_config,
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+    return bool(evaluate_with_detector(extracted, detector_config).breaches)
+
+
+class TestVolumeFloorAppliesToCountMetricsOnly:
+    """The floor calls a median of 3 too small to judge. That only holds when the series counts
+    things — a sum of seats or a formula can sit at 3 and still be worth alerting on."""
+
+    LINE_GRAPH = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH)
+
+    @parameterized.expand(
+        [
+            ("count math is floored", COUNT_SERIES, LINE_GRAPH, False),
+            ("property math is not", PROPERTY_SERIES, LINE_GRAPH, True),
+            (
+                "a formula is not",
+                COUNT_SERIES,
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A * 2"),
+                True,
+            ),
+        ]
+    )
+    def test_only_a_count_metric_gets_the_floor_by_default(
+        self, _name: str, series: EventsNode, trends_filter: TrendsFilter, expect_anomaly: bool
+    ) -> None:
+        assert _run_floor(series, {"type": "zscore", "threshold": 0.95, "window": 10}, trends_filter) is expect_anomaly
+
+    def test_an_explicit_floor_applies_whatever_the_metric_measures(self) -> None:
+        config = {"type": "zscore", "threshold": 0.95, "window": 10, "min_baseline": 5}
+
+        assert _run_floor(PROPERTY_SERIES, config, self.LINE_GRAPH) is False
+
+    def test_an_explicit_zero_opts_a_count_metric_out(self) -> None:
+        config = {"type": "zscore", "threshold": 0.95, "window": 10, "min_baseline": 0}
+
+        assert _run_floor(COUNT_SERIES, config, self.LINE_GRAPH) is True

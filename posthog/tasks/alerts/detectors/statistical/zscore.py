@@ -2,7 +2,7 @@ import numpy as np
 
 from posthog.schema import DetectorType
 
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
+from posthog.tasks.alerts.detectors.base import PointScore, RollingWindowDetector
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
@@ -23,7 +23,7 @@ def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
 
 
 @register_detector(DetectorType.ZSCORE)
-class ZScoreDetector(BaseDetector):
+class ZScoreDetector(RollingWindowDetector):
     """
     Z-Score based anomaly detector.
 
@@ -39,114 +39,27 @@ class ZScoreDetector(BaseDetector):
         window: int - Rolling window size (default: 30)
     """
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
-        """Check if the most recent point is an anomaly based on z-score."""
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
-        # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
-        # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
-        # is introduced regardless of the configured magnitude.
-        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
-        offset = max(self.training_offset, 1)
-
-        if not self._validate_data(data, min_length=window + offset + diffs_n):
-            return DetectionResult(is_anomaly=False)
-
-        original_length = len(data)
-        data = self.preprocess(data)
-        values = data if data.ndim == 1 else data[:, 0]
-        # Differencing prepends synthetic (zero-valued) points to keep the array
-        # length unchanged - drop them so the training window only ever sees
-        # genuine differenced values.
-        values = values[diffs_n:]
-
-        # Use rolling window for mean/std, honoring training_offset to exclude
-        # points closest to the one being scored, so a live check agrees with
-        # detect_batch().
-        window_data = values[-(window + offset) : -offset]
+    def score_point(self, window_data: np.ndarray, value: float) -> PointScore:
         mean = np.mean(window_data)
         std = np.std(window_data)
 
-        current_value = values[-1]
-
         if std == 0:
-            is_anomaly = abs(current_value - mean) > 0
-            return DetectionResult(
-                is_anomaly=is_anomaly,
-                score=1.0 if is_anomaly else 0.0,
-                triggered_indices=[original_length - 1] if is_anomaly else [],
-                all_scores=[1.0 if is_anomaly else 0.0],
-                metadata={"mean": float(mean), "std": 0.0, "value": float(current_value), "raw_zscore": None},
+            return PointScore(
+                probability=1.0 if abs(value - mean) > 0 else 0.0,
+                metadata={"mean": float(mean), "std": 0.0, "value": value, "raw_zscore": None},
             )
 
-        z_score = abs((current_value - mean) / std)
+        z_score = abs((value - mean) / std)
         window_zscores = np.abs((window_data - mean) / std)
-        prob = _zscore_to_probability(z_score, window_zscores)
 
-        return DetectionResult(
-            is_anomaly=prob > threshold,
-            score=prob,
-            triggered_indices=[original_length - 1] if prob > threshold else [],
-            all_scores=[prob],
+        return PointScore(
+            probability=_zscore_to_probability(z_score, window_zscores),
             metadata={
                 "mean": float(mean),
                 "std": float(std),
-                "value": float(current_value),
+                "value": value,
                 "raw_zscore": float(z_score),
             },
-        )
-
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        """Check all points for z-score anomalies."""
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
-        # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
-        # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
-        # is introduced regardless of the configured magnitude.
-        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
-        offset = max(self.training_offset, 1)
-
-        if not self._validate_data(data, min_length=window + offset + diffs_n):
-            return DetectionResult(is_anomaly=False)
-
-        data = self.preprocess(data)
-        values = data if data.ndim == 1 else data[:, 0]
-        # Keep indices aligned with the original series: scores/triggers below
-        # are shifted back by diffs_n before being returned.
-        values = values[diffs_n:]
-
-        triggered = []
-        scores: list[float | None] = [None] * (diffs_n + window + offset - 1)
-
-        for i in range(window + offset - 1, len(values)):
-            window_data = values[i - window - offset + 1 : i - offset + 1]
-            mean = np.mean(window_data)
-            std = np.std(window_data)
-
-            current_val = values[i]
-
-            if std == 0:
-                if abs(current_val - mean) > 0:
-                    scores.append(1.0)
-                    triggered.append(i + diffs_n)
-                else:
-                    scores.append(0.0)
-                continue
-
-            z_score = abs((current_val - mean) / std)
-            window_zscores = np.abs((window_data - mean) / std)
-            prob = _zscore_to_probability(z_score, window_zscores)
-            scores.append(prob)
-
-            if prob > threshold:
-                triggered.append(i + diffs_n)
-
-        return DetectionResult(
-            is_anomaly=len(triggered) > 0,
-            score=scores[-1] if scores else None,
-            triggered_indices=triggered,
-            all_scores=scores,
-            metadata={"threshold": threshold, "window": window},
         )
 
     @classmethod

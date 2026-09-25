@@ -8,9 +8,11 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
@@ -1703,6 +1705,28 @@ class TestInvestigationAgentValidation(TrendsInsightAPITest):
         assert "investigation_gates_notifications" in response.json().get("attr", "")
 
 
+class TestDetectorParamRangeValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("in_range", 10, 10.0),
+            ("at_min", 0, 0.0),
+            ("at_max", 1_000_000, 1_000_000.0),
+        ]
+    )
+    def test_accepts_a_floor_inside_the_range(self, _name: str, value: int, expected: float) -> None:
+        config: dict[str, Any] = {"type": "zscore", "min_baseline": value}
+
+        assert AlertSerializer().validate_detector_config(config)["min_baseline"] == expected
+
+    @parameterized.expand([("above_max", 2_000_000), ("below_min", -1)])
+    def test_rejects_a_floor_outside_the_range(self, _name: str, value: int) -> None:
+        config: dict[str, Any] = {"type": "zscore", "min_baseline": value}
+
+        with self.assertRaises(ValidationError) as ctx:
+            AlertSerializer().validate_detector_config(config)
+        assert "Minimum volume" in str(ctx.exception)
+
+
 class TestAlertSimulate(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
@@ -1847,12 +1871,17 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
-    def test_simulate_invalid_detector_config_returns_400(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_type", {"type": "nonexistent_detector"}),
+        ]
+    )
+    def test_simulate_invalid_detector_config_returns_400(self, _name: str, detector_config: dict[str, Any]) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
                 "insight": self.insight["id"],
-                "detector_config": {"type": "nonexistent_detector"},
+                "detector_config": detector_config,
                 "series_index": 0,
             },
         )

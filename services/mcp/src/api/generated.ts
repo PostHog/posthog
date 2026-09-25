@@ -10294,6 +10294,8 @@ export namespace Schemas {
     } as const;
 
     export interface ZScoreDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -10311,6 +10313,8 @@ export namespace Schemas {
     } as const;
 
     export interface MADDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -10328,6 +10332,8 @@ export namespace Schemas {
     } as const;
 
     export interface IQRDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
       multiplier?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10362,6 +10368,8 @@ export namespace Schemas {
     } as const;
 
     export interface ECODDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
@@ -10379,6 +10387,8 @@ export namespace Schemas {
     } as const;
 
     export interface COPODDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
@@ -10396,6 +10406,8 @@ export namespace Schemas {
     } as const;
 
     export interface IsolationForestDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Number of trees in the forest (default: 100) */
       n_estimators?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10426,6 +10438,8 @@ export namespace Schemas {
     export interface KNNDetectorConfig {
       /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
       method?: Method | null;
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Number of neighbors to consider (default: 5) */
       n_neighbors?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10445,6 +10459,8 @@ export namespace Schemas {
     } as const;
 
     export interface HBOSDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Number of histogram bins (default: 10) */
       n_bins?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10464,6 +10480,8 @@ export namespace Schemas {
     } as const;
 
     export interface LOFDetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Number of neighbors for LOF (default: 20) */
       n_neighbors?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10485,6 +10503,8 @@ export namespace Schemas {
     export interface OCSVMDetectorConfig {
       /** SVM kernel type (default: "rbf") */
       kernel?: string | null;
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Upper bound on training errors fraction (default: 0.1) */
       nu?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10504,6 +10524,8 @@ export namespace Schemas {
     } as const;
 
     export interface PCADetectorConfig {
+      /** Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */

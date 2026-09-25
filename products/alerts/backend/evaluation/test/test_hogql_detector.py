@@ -213,3 +213,25 @@ def test_saved_query_explicit_limit(sql, expected, wrapped):
     if wrapped:
         query = {"kind": "DataVisualizationNode", "source": query}
     assert _explicit_limit(MagicMock(query=query)) == expected
+
+
+# Whole numbers whose median is 3, ending on a new maximum of 13. A SQL query can return whole
+# minutes of lag or days since a sync, so a small median here is not evidence of a count metric.
+LOW_VOLUME_COUNTS = [float(v) for v in [2, 3, 4, 3, 2, 3, 5, 3, 2, 4] * 4]
+
+
+@pytest.mark.parametrize(
+    "min_baseline,expect_anomaly",
+    [
+        (None, True),  # a SQL row carries no count semantics, so no floor is assumed for it
+        (5, False),  # a floor the alert sets itself still applies
+    ],
+)
+def test_a_sql_alert_is_floored_only_when_it_asks_to_be(min_baseline, expect_anomaly):
+    config = {"type": "zscore", "threshold": 0.95, "window": 10}
+    if min_baseline is not None:
+        config["min_baseline"] = min_baseline
+
+    evaluation = evaluate_with_detector(_extract([*LOW_VOLUME_COUNTS, 13.0], detector_config=config), config)
+
+    assert bool(evaluation.breaches) is expect_anomaly

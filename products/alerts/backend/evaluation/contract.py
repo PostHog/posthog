@@ -54,6 +54,12 @@ class ExtractionResult:
     # alerts set this so a resolved label column surfaces, e.g. "(Burn rate 24h)". Breakdowns already
     # name every row via ``is_breakdown``; this covers the one-series case where the name is meaningful.
     include_series_label: bool = False
+    # Detector-path-only: True means the series counts events, people, sessions or groups, so a
+    # value of "3" means three of something and the volume floor can judge it. Anything else —
+    # a property aggregate, a formula, a bare SQL row — carries no such promise, and a small
+    # value there can be exactly what the alert watches, so the floor stays off unless the alert
+    # sets one explicitly.
+    is_count_metric: bool = False
     # Optional per-value display formatter mirroring the insight's axis format (currency, prefix/postfix,
     # decimals, duration, %). None → the comparator falls back to raw ``f"{value}{unit}"``. Only the
     # trends extractor sets it today; the PERCENTAGE-threshold path ignores it (relative % ratios).
