@@ -88,7 +88,7 @@ class TestDecideRequestValidation(SimpleTestCase):
         serializer = DecideRequestSerializer(data={"state": "text", "questions": QUESTIONS})
 
         assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["model"] == "posthog/hogference/jevk5-bf16-0.2"
+        assert serializer.validated_data["model"] == "posthog/hogference/jevk5-bf16-0.3"
 
 
 class TestDecideEndpoint(APIBaseTest):
