@@ -1009,6 +1009,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "explicit order=-id should override relevance ranking and put newer insight first"
         )
 
+    def test_list_without_order_sorts_by_last_modified_at_descending(self):
+        now = timezone.now()
+        older = Insight.objects.create(
+            name="older",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=1,
+            last_modified_at=now - timedelta(days=2),
+        )
+        newer = Insight.objects.create(
+            name="newer",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=2,
+            last_modified_at=now - timedelta(days=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids.index(newer.id) < result_ids.index(older.id), (
+            "the default list order must be newest-modified first, not the vestigial `order` column"
+        )
+
     def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):
             Insight.objects.create(name=name, team=self.team, filters={"events": [{"id": "$pageview"}]})

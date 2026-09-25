@@ -12,7 +12,7 @@ interface LLMASessionEvaluationsDisplayProps {
 
 export function LLMASessionEvaluationsDisplay({ sessionId }: LLMASessionEvaluationsDisplayProps): JSX.Element | null {
     const { sessionEvaluations } = useValues(aiObservabilitySessionEvaluationsLogic({ sessionId }))
-    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
+    const { detectorEvaluationIds, evaluations } = useValues(llmEvaluationsLogic)
 
     // A session that resumes after being evaluated can be graded again; collapse to the newest
     // verdict per evaluation so a stale tag never sits beside a fresh one. Same helper the trace
@@ -28,6 +28,8 @@ export function LLMASessionEvaluationsDisplay({ sessionId }: LLMASessionEvaluati
             {summaries.map((summary) => {
                 const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
                     trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
+                    passingRule: evaluations?.find((evaluation) => evaluation.id === summary.latestRun.evaluation_id)
+                        ?.output_config.passing_rule,
                 })
                 return (
                     <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>

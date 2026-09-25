@@ -128,13 +128,17 @@
       "models": {
         "@cf/zai-org/glm-5.2": {
           "cost_multiplier": "≈0.57×",
+          "offered": false,
           "reasoning_efforts": [
             "high",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "claude-fable-5": {
           "cost_multiplier": "5×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
@@ -142,10 +146,13 @@
             "xhigh",
             "max",
             "ultracode"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": false
         },
         "claude-fable-5-1": {
           "cost_multiplier": "5×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
@@ -153,28 +160,37 @@
             "xhigh",
             "max",
             "ultracode"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": false
         },
         "claude-opus-4-5": {
           "cost_multiplier": "2.5×",
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",
             "high"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "claude-opus-4-6": {
           "cost_multiplier": "2.5×",
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "claude-opus-4-7": {
           "cost_multiplier": "2.5×",
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",
@@ -182,10 +198,13 @@
             "xhigh",
             "max",
             "ultracode"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": true
         },
         "claude-opus-4-8": {
           "cost_multiplier": "2.5×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
@@ -193,10 +212,13 @@
             "xhigh",
             "max",
             "ultracode"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": true
         },
         "claude-opus-5": {
           "cost_multiplier": "2.5×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
@@ -204,10 +226,13 @@
             "xhigh",
             "max",
             "ultracode"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": true
         },
         "claude-opus-5-5": {
           "cost_multiplier": "2×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
@@ -215,18 +240,24 @@
             "xhigh",
             "max",
             "ultracode"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": true
         },
         "claude-sonnet-4-6": {
           "cost_multiplier": "1.5×",
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",
             "high"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": false
         },
         "claude-sonnet-5": {
           "cost_multiplier": "1×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
@@ -234,29 +265,43 @@
             "xhigh",
             "max",
             "ultracode"
-          ]
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": false
         },
         "deepseek-ai/deepseek-v4-flash-0731": {
           "cost_multiplier": "≈0.05×",
-          "reasoning_efforts": []
+          "offered": true,
+          "reasoning_efforts": [],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "moonshotai/kimi-k3": {
           "cost_multiplier": "1.5×",
-          "reasoning_efforts": []
+          "offered": true,
+          "reasoning_efforts": [],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "zai-org/glm-5.3": {
           "cost_multiplier": "≈0.57×",
+          "offered": true,
           "reasoning_efforts": [
             "high",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "zai-org/glm-5.3-flash": {
           "cost_multiplier": "≈0.06×",
+          "offered": true,
           "reasoning_efforts": [
             "high",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         }
       },
       "provider": "anthropic"
@@ -271,80 +316,104 @@
       "models": {
         "gpt-5": {
           "cost_multiplier": null,
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "gpt-5.5": {
           "cost_multiplier": "≈2.8×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "gpt-5.6-luna": {
           "cost_multiplier": "≈0.55×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "gpt-5.6-sol": {
           "cost_multiplier": "≈2.8×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "gpt-5.6-terra": {
           "cost_multiplier": "≈1.4×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "gpt-6-astra": {
           "cost_multiplier": "5×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "gpt-6-luna": {
           "cost_multiplier": "0.05×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         },
         "gpt-6-sol": {
           "cost_multiplier": "1×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",
             "high",
             "xhigh",
             "max"
-          ]
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         }
       },
       "provider": "openai"
