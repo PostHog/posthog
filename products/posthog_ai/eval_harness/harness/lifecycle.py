@@ -96,12 +96,17 @@ class SandboxedEvalHarness:
     and the shared semaphores that bound sandbox load and serialize team setup.
     """
 
-    def __init__(self, options: HarnessOptions) -> None:
+    def __init__(
+        self,
+        options: HarnessOptions,
+        *,
+        engine: EvalEngine | None = None,
+        suites: Sequence[EvalSuite] | None = None,
+    ) -> None:
         self.options = options
         self.provider: SandboxProviderStrategy | None = None
-        # The execution/reporting backend for this run. No --engine flag yet, so
-        # this is the registry default; it feeds preflight and every suite's run.
-        self._engine: EvalEngine = resolve_engine()
+        self._engine: EvalEngine = engine if engine is not None else resolve_engine()
+        self._suites = suites
         self._stack = ExitStack()
         self._database: EvalDatabase | None = None
         self._live_server: EvalLiveServer | None = None
@@ -112,7 +117,7 @@ class SandboxedEvalHarness:
     def run(self) -> int:
         # Discover before anything is provisioned: a typo'd selector should cost a
         # module import, not a database build and a Hedgebox seed.
-        suites = discover_suites(self.options.selectors)
+        suites = list(self._suites) if self._suites is not None else discover_suites(self.options.selectors)
 
         if self.options.list_only:
             for suite in suites:

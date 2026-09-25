@@ -9,12 +9,14 @@ from __future__ import annotations
 import uuid
 import logging
 import datetime
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
 from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
@@ -25,6 +27,9 @@ from products.dashboards.backend.models import Dashboard, DashboardTile
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
+
+if TYPE_CHECKING:
+    from products.posthog_ai.eval_harness.harness.django_env import NullDbBlocker
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +175,43 @@ def ensure_master_demo_team(django_db_blocker) -> int:
         return team.id
 
 
+@frozen
+class EvalProject:
+    organization: Organization
+    team: Team
+    user: User
+
+
+def create_empty_team(
+    django_db_blocker: NullDbBlocker,
+    *,
+    label: str,
+    is_demo: bool = False,
+) -> EvalProject:
+    suffix = uuid.uuid4().hex[:8]
+    org_name = f"{'Hedgebox' if is_demo else 'Eval'} ({label}-{suffix})"
+    email = f"eval-{label}-{suffix}@posthog.test"
+
+    with django_db_blocker.unblock(), transaction.atomic():
+        org = Organization.objects.create(name=org_name)
+        user = User.objects.create_and_join(
+            org,
+            email,
+            None,
+            EVAL_USER_FULL_NAME,
+            OrganizationMembership.Level.ADMIN,
+            theme_mode="system",
+            role_at_organization="engineering",
+        )
+        team = Team.objects.create(
+            organization=org,
+            ingested_event=is_demo,
+            completed_snippet_onboarding=True,
+            is_demo=is_demo,
+        )
+    return EvalProject(organization=org, team=team, user=user)
+
+
 def copy_demo_data_to_new_team(
     master_team_id: int,
     django_db_blocker,
@@ -185,30 +227,12 @@ def copy_demo_data_to_new_team(
     actions, cohorts, and feature flags.
     """
 
-    suffix = uuid.uuid4().hex[:8]
-    org_name = f"Hedgebox ({label}-{suffix})"
-    email = f"eval-{label}-{suffix}@posthog.test"
-
     with django_db_blocker.unblock():
         master_team = Team.objects.get(id=master_team_id)
-
-        with transaction.atomic():
-            org = Organization.objects.create(name=org_name)
-            user = User.objects.create_and_join(
-                org,
-                email,
-                None,
-                EVAL_USER_FULL_NAME,
-                OrganizationMembership.Level.ADMIN,
-                theme_mode="system",
-                role_at_organization="engineering",
-            )
-            team = Team.objects.create(
-                organization=org,
-                ingested_event=True,
-                completed_snippet_onboarding=True,
-                is_demo=True,
-            )
+        project = create_empty_team(django_db_blocker, label=label, is_demo=True)
+        org = project.organization
+        team = project.team
+        user = project.user
 
         copy_params = {"source_team_id": master_team_id, "target_team_id": team.id}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)

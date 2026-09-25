@@ -9,10 +9,9 @@ from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
 from django.db import connections
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.backends.sqlite3.creation import DatabaseCreation as SQLiteDatabaseCreation
+from django.test import override_settings
 
 import uvicorn
-
-from posthog.asgi import application
 
 from .ports import DJANGO_LIVE_PORT
 
@@ -44,6 +43,10 @@ class EvalLiveServer:
     """
 
     def __init__(self, port: int = DJANGO_LIVE_PORT) -> None:
+        # Django is already initialized; importing ASGI must preserve the caller's logging configuration.
+        with override_settings(LOGGING_CONFIG=None):
+            from posthog.asgi import application  # noqa: PLC0415 — defer ASGI initialization until the server starts
+
         # If using in-memory SQLite, share the main thread's connection with the
         # server thread. Postgres needs no override.
         connections_override: dict[str, BaseDatabaseWrapper] = {}

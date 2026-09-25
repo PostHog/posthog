@@ -144,6 +144,8 @@ def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[P
 def bulk_create_events(
     events: list[dict[str, Any]],
     person_mapping: Optional[dict[str, Person]] = None,
+    *,
+    skip_entity_lookups: bool = False,
 ) -> None:
     """
     TEST ONLY
@@ -214,7 +216,11 @@ def bulk_create_events(
         team_id = event.get("team_id") or event["team"].pk
         person_mode = event.get("person_mode", "full")
         person_created_at: Any
-        if person_mapping and person_mapping.get(event["distinct_id"]):
+        if skip_entity_lookups:
+            person_properties = {}
+            person_id = event.get("person_id", uuid.uuid4())
+            person_created_at = event.get("person_created_at") or datetime64_default_timestamp
+        elif person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
             person_id = person.uuid
@@ -243,7 +249,8 @@ def bulk_create_events(
         # Populate group properties as well
         from posthog.models.group.util import get_group_by_key
 
-        for property_key, value in (event.get("properties") or {}).items():
+        group_properties = {} if skip_entity_lookups else event.get("properties") or {}
+        for property_key, value in group_properties.items():
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
                 try:
@@ -274,7 +281,7 @@ def bulk_create_events(
             "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
-            "created_at": timestamp,
+            "created_at": format_clickhouse_timestamp(event["created_at"]) if event.get("created_at") else timestamp,
             "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
             "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
             "person_created_at": (
@@ -304,20 +311,14 @@ def bulk_create_events(
             "person_mode": person_mode,
         }
 
-        params = {
-            **params,
-            **{"{}_{}".format(key, index): value for key, value in event.items()},
-        }
+        params.update({"{}_{}".format(key, index): value for key, value in event.items()})
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             json_event = {
                 **event,
                 "properties": _json_dumps_for_clickhouse(properties),
                 "person_properties": _json_dumps_for_clickhouse(person_properties_for_insert),
             }
-            json_params = {
-                **json_params,
-                **{"{}_{}".format(key, index): value for key, value in json_event.items()},
-            }
+            json_params.update({"{}_{}".format(key, index): value for key, value in json_event.items()})
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         sync_execute(
             BULK_INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE, values=", ".join(inserts)),

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["run_eval_case"]
+__all__ = ["parse_agent_artifacts", "run_eval_case"]
 
 # Word-boundary matches so a tool title like "latest release" doesn't read as a
 # test run, and "blueprint" doesn't read as a lint run. These artifacts feed the
@@ -155,7 +155,7 @@ async def run_eval_case(
 
         duration = time.monotonic() - start
         logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
-        artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
+        artifacts = parse_agent_artifacts(full_log, duration, agent_finished=True)
         completion_task = asyncio.create_task(_finish_workflow(state.handle, status="completed", reason=None))
         cleanup_confirmed = await asyncio.shield(completion_task)
         if not cleanup_confirmed:
@@ -276,7 +276,7 @@ def _slice_turn_logs(full_log: str, line_marks: list[int]) -> list[str] | None:
     return ["\n".join(lines[bounds[i] : bounds[i + 1]]) for i in range(len(line_marks))]
 
 
-def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
+def parse_agent_artifacts(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
     """Extract scoring artifacts from JSONL agent logs."""
     tool_outputs: list[dict] = []
     agent_errors: list[str] = []
@@ -335,8 +335,9 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
         elif isinstance(content, str):
             text = content
 
-        # Detect git diff output
-        if "git diff" in title and text:
+        # A `git diff --name-only` or `--stat` title still contains "git diff", so gate on the
+        # unified-diff header to keep a bare file list from overwriting a real diff.
+        if "git diff" in title and "diff --git " in text:
             git_diff = text
 
         # Detect git status / changed files

@@ -140,6 +140,7 @@ def validate_eval_env(
     *,
     kinds: Collection[SuiteKind] = (SuiteKind.SANDBOXED,),
     engine_env: Collection[EnvVarSpec] = (),
+    env_hint: str | None = None,
 ) -> None:
     """Fail fast, before any infrastructure boots, if a required variable is unset.
 
@@ -179,9 +180,12 @@ def validate_eval_env(
                 description = fields[name].description if name in fields else ""
                 lines.append(f"  - {name}: {description}")
     if lines:
-        raise PreflightError(
-            "Missing required environment variables:\n"
-            + "\n".join(lines)
-            + f"\nExport them in your shell, add them to {REPO_ROOT / '.env'} (loaded automatically), "
-            "or keep them in .env.local and run via `hogli evals:sandboxed`."
+        hint = (
+            env_hint
+            if env_hint is not None
+            else (
+                f"Export them in your shell, add them to {REPO_ROOT / '.env'} (loaded automatically), "
+                "or keep them in .env.local and run via `hogli evals:sandboxed`."
+            )
         )
+        raise PreflightError("Missing required environment variables:\n" + "\n".join(lines) + f"\n{hint}")

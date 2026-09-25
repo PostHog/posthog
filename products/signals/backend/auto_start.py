@@ -326,7 +326,11 @@ def _superseded_pr_instruction(supersede: SupersedeDecision) -> str:
     )
 
 
-def _build_autostart_task_description(
+def build_implementation_task_prompt(description: str, head_branch: str) -> str:
+    return description + _head_branch_instruction(head_branch)
+
+
+def build_implementation_task_description(
     *,
     report_id: str,
     team_id: int,
@@ -575,7 +579,7 @@ def _create_implementation_task_if_absent(
     # Create the task before the provider issue. A failed task creation must not leave an external
     # issue that says Self-driving started work when no run exists.
     head_branch = _generate_self_driving_head_branch(title)
-    description = description + _head_branch_instruction(head_branch)
+    description = build_implementation_task_prompt(description, head_branch)
 
     exempt_reason: str | None = None
     task_id: str | None = None
@@ -826,7 +830,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
             team_id=request.team_id,
             report_id=request.report_id,
             title=report.title,
-            description=_build_autostart_task_description(
+            description=build_implementation_task_description(
                 report_id=request.report_id,
                 team_id=request.team_id,
                 summary=report.summary,
@@ -1306,7 +1310,7 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             title=title,
             expected_content=expected_content,
-            description=_build_autostart_task_description(
+            description=build_implementation_task_description(
                 report_id=report_id,
                 team_id=team_id,
                 summary=summary,

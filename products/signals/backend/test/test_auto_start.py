@@ -26,7 +26,6 @@ from products.signals.backend.auto_start import (
     ReportSteering,
     ReviewerContent,
     SupersedeDecision,
-    _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
     _has_unimplemented_work,
@@ -35,6 +34,7 @@ from products.signals.backend.auto_start import (
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
+    build_implementation_task_description,
     load_report_steering,
     maybe_autostart_from_report_artefacts,
     maybe_autostart_implementation_task,
@@ -750,7 +750,7 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
     ],
 )
 def test_autostart_description_lists_source_issues_only_when_references_exist(source_references, expect_references):
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -772,7 +772,7 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
 
 
 def test_autostart_description_opens_the_pr_before_the_simplify_pass():
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -806,7 +806,7 @@ def test_autostart_description_opens_the_pr_before_the_simplify_pass():
     ],
 )
 def test_autostart_description_appends_fix_loop_instructions_only_for_metric_reports(summary, expect_fix_loop):
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary=summary,
@@ -831,7 +831,7 @@ def test_autostart_description_appends_fix_loop_instructions_only_for_metric_rep
 def test_autostart_description_carries_steering_only_when_the_team_left_some():
     # The bug this closes: a note the team wrote reaches the scout and stops there, so the run that
     # writes the code never sees it. The description is the only channel it has.
-    steered = _build_autostart_task_description(
+    steered = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -845,7 +845,7 @@ def test_autostart_description_carries_steering_only_when_the_team_left_some():
     )
     assert "the auth panel is frozen this quarter" in steered
 
-    plain = _build_autostart_task_description(
+    plain = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -1215,7 +1215,7 @@ def test_autostart_description_names_the_pr_it_replaces(allowed):
         if allowed
         else NO_SUPERSEDE
     )
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="report-1",
         team_id=1,
         summary="s",

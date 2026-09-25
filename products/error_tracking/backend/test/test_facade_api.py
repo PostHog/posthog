@@ -14,7 +14,7 @@ from posthog.models import Team
 from posthog.models.integration import GitLabIntegrationError, Integration
 
 from products.access_control.backend.models.role import Role
-from products.error_tracking.backend.facade import api, contracts
+from products.error_tracking.backend.facade import api, contracts, testing
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
@@ -73,6 +73,24 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         with self.assertRaises(api.IssueNotFoundError):
             api.get_issue(issue_id=issue.id, team_id=other_team.id)
+
+    def test_clear_fixture_issues_preserves_other_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        issue_id = testing.create_issue(team_id=self.team.id, name="Fixture issue")
+        other_issue_id = testing.create_issue(team_id=other_team.id, name="Other fixture issue")
+        fingerprint_id = testing.create_issue_fingerprint(
+            team_id=self.team.id, issue_id=issue_id, fingerprint="fixture-fingerprint"
+        )
+        other_fingerprint_id = testing.create_issue_fingerprint(
+            team_id=other_team.id, issue_id=other_issue_id, fingerprint="fixture-fingerprint"
+        )
+
+        testing.clear_issues(team_id=self.team.id)
+
+        assert not api.issue_exists(team_id=self.team.id)
+        assert api.get_fingerprint(team_id=self.team.id, fingerprint_id=fingerprint_id) is None
+        assert api.get_issue(issue_id=other_issue_id, team_id=other_team.id).name == "Other fixture issue"
+        assert api.get_fingerprint(team_id=other_team.id, fingerprint_id=other_fingerprint_id) is not None
 
     @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.list_teams")
     def test_create_external_reference_rejects_invalid_linear_team_id(self, mock_list_teams):
