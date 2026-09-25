@@ -1001,6 +1001,47 @@ class LockPhaseTransactionPolicy(MigrationPolicy):
         return violations
 
 
+class GeneratedNameDropPolicy(MigrationPolicy):
+    """Block a hand-typed drop of a constraint or index whose name Django generated.
+
+    Django names an unnamed unique_together, index or foreign key with an eight-character
+    hash of its columns. A name typed from a local database or an older migration can differ
+    from the one a long-lived database holds, and `IF EXISTS` turns that miss into a migration
+    that succeeds and drops nothing. Rules left behind this way stay in production while every
+    fresh database lacks them. The helpers find the rule in the catalog instead. Only forward
+    SQL is checked, because a reverse drops what its own forward just created.
+    """
+
+    _DROP = re.compile(
+        r"DROP\s+(?:CONSTRAINT|INDEX(?:\s+CONCURRENTLY)?)\s+(?:IF\s+EXISTS\s+)?\"?(\w+)\"?",
+        re.IGNORECASE,
+    )
+    # The hash must hold a letter, so a date such as _20260923 in a chosen name does not match.
+    _GENERATED = re.compile(r"_(?=[0-9]*[a-f])[0-9a-f]{8}(?:_(?:uniq|like|check|fk_\w+))?$")
+
+    def check_operation(self, op) -> list[str]:
+        if op.__class__.__name__ != "RunSQL":
+            return []
+        sql = str(getattr(op, "sql", ""))
+        sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+        sql = re.sub(r"--[^\n]*", "", sql)
+        names = sorted({name for name in self._DROP.findall(sql) if self._GENERATED.search(name)})
+        if not names:
+            return []
+        return [
+            f"❌ BLOCKED: RunSQL drops {', '.join(names)} by a name Django generated. A long-lived database "
+            "can hold the rule under another name, or hold rules no migration names any more, and IF EXISTS "
+            "hides the miss. Find it in the catalog: DropColumnConstraints(table, columns=[...]) for the check "
+            "and unique rules on a retiring column, DropForeignKey for a foreign key, or Django's own "
+            "AlterUniqueTogether and RemoveIndex, which resolve the name from state or by column."
+        ]
+
+    def check_migration(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+        return [violation for op in _descend(migration.operations) for violation in self.check_operation(op)]
+
+
 POSTHOG_POLICIES = [
     UUIDPrimaryKeyPolicy(),
     AtomicFalsePolicy(),
@@ -1008,4 +1049,5 @@ POSTHOG_POLICIES = [
     HotTableAlterPolicy(),
     OrphanedForeignKeyPolicy(),
     LockPhaseTransactionPolicy(),
+    GeneratedNameDropPolicy(),
 ]

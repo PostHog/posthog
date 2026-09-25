@@ -12,6 +12,7 @@ from posthog.management.migration_analysis.models import MigrationRisk, Operatio
 from posthog.management.migration_analysis.policies import (
     AtomicFalsePolicy,
     ConcurrentIndexIdempotencyPolicy,
+    GeneratedNameDropPolicy,
     HotTableAlterPolicy,
     LockPhaseTransactionPolicy,
     OrphanedForeignKeyPolicy,
@@ -3023,3 +3024,49 @@ class TestLockPhaseTransactionPolicy:
         for violation, fragment in zip(violations, expected):
             assert violation.startswith("❌ BLOCKED")
             assert fragment in violation
+
+
+class TestGeneratedNameDropPolicy:
+    @parameterized.expand(
+        [
+            (
+                "unique_together_with_if_exists",
+                'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "posthog_x_tag_id_owner_id_734394e1_uniq"',
+                None,
+                ["posthog_x_tag_id_owner_id_734394e1_uniq"],
+            ),
+            (
+                "foreign_key",
+                "ALTER TABLE posthog_x DROP CONSTRAINT posthog_x_owner_id_9a1bc3de_fk_posthog_team_id",
+                None,
+                ["posthog_x_owner_id_9a1bc3de_fk_posthog_team_id"],
+            ),
+            (
+                "index_dropped_concurrently",
+                'DROP INDEX CONCURRENTLY IF EXISTS "posthog_x_owner_id_5a6b7c8d"',
+                None,
+                ["posthog_x_owner_id_5a6b7c8d"],
+            ),
+            ("a_chosen_name", 'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "exactly_one_owner"', None, []),
+            ("a_date_in_a_chosen_name", 'DROP INDEX IF EXISTS "posthog_x_backfill_20260923"', None, []),
+            (
+                "only_the_reverse",
+                'ALTER TABLE "posthog_x" ADD CONSTRAINT "posthog_x_tag_id_owner_id_734394e1_uniq" UNIQUE (tag_id)',
+                'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "posthog_x_tag_id_owner_id_734394e1_uniq"',
+                [],
+            ),
+            ("inside_a_comment", '-- DROP CONSTRAINT "posthog_x_tag_id_owner_id_734394e1_uniq"\nSELECT 1', None, []),
+        ]
+    )
+    def test_a_generated_name_is_not_typed_into_a_drop(self, _name, sql, reverse_sql, expected):
+        run_sql = migrations.RunSQL(sql, reverse_sql or migrations.RunSQL.noop)
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [migrations.SeparateDatabaseAndState(database_operations=[run_sql])]
+
+        violations = GeneratedNameDropPolicy().check_migration(migration)
+
+        assert len(violations) == (1 if expected else 0)
+        for name in expected:
+            assert name in violations[0]

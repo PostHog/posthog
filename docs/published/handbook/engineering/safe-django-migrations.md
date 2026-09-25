@@ -335,7 +335,7 @@ migrations.SeparateDatabaseAndState(
 )
 ```
 
-It finds every check, unique and exclusion constraint and every unique index that covers the columns in the catalog, and drops them under one bounded lock on the table. Do not hand-write `DROP CONSTRAINT IF EXISTS <name>` or `DROP INDEX IF EXISTS <name>` for this. Django names a `unique_together` constraint with a hash suffix, and a long-lived database can hold unique indexes that earlier constraint swaps left behind and no migration file names any more. A typed name finds neither, and `IF EXISTS` hides the miss. Keep this operation alone in its migration too.
+It finds every check, unique and exclusion constraint and every unique index that covers the columns in the catalog, and drops them under one bounded lock on the table. Do not hand-write `DROP CONSTRAINT IF EXISTS <name>` or `DROP INDEX IF EXISTS <name>` for this. Django names a `unique_together` constraint with a hash suffix, and a long-lived database can hold unique indexes that earlier constraint swaps left behind and no migration file names any more. A typed name finds neither, and `IF EXISTS` hides the miss. The migration risk analyzer blocks a forward drop of a name with Django's hash suffix. Keep this operation alone in its migration too.
 
 ### If you must drop the column
 
