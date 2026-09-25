@@ -3,8 +3,8 @@
  * Detection floors for faces and codes, against the floor at which each still carries information in
  * the stored artifact. The text version of this lives in glyph-floor.ts; the same question has to be
  * asked separately for each detector, because their inputs are sized on different rules: DBNet scales
- * with the frame, YuNet reads up to a 640px long side and never enlarges, and zxing reads the frame at
- * the plan's code scale.
+ * with the frame, YuNet reads at most a 640px long side and never enlarges, and zxing reads the frame at the plan's
+ * code scale.
  *
  * For each subject size it reports two things:
  *   detected   – the production detector finds it at the detection resolution

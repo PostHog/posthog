@@ -26,7 +26,6 @@ import { type Src, srcSharp } from './src-image.ts'
 const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
-// The dynamic-shape export takes any input whose sides are multiples of its largest stride.
 const LARGEST_STRIDE = 32
 const PAD = 0.25 // expand each detected face box so hairline/chin/ears are covered
 

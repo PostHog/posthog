@@ -41,9 +41,9 @@ export interface ScalePlan {
 }
 
 export interface PlanLimits {
-    /** Aspect past which the face detector tiles rather than reading the whole frame in one pass, and
-     *  the aspect of each tile. The planner has to know these: modelling the detector as one pass over
-     *  the whole frame understates how much of a long frame it really sees. */
+    /** Aspect past which the face detector tiles rather than reading the whole frame in one pass, and the
+     *  aspect of each tile. The planner has to know these: modelling the detector as a single
+     *  pass understates how much of a long frame it really sees. */
     faceTileAbove: number
     faceTileAspect: number
     /** Area budget for the decoded frame. */
@@ -66,8 +66,8 @@ const atLeastOne = (n: number): number => Math.max(1, Math.floor(n))
  *  disagree, which is how a legal stored size produced an illegal frame size. */
 const MIN_FRAME_PIXELS = 96 * 96
 
-/** The face detector's input size and tiling rule, owned here because the plan has to model them.
- *  yunet.ts imports these rather than declaring its own, so the model and the plan cannot disagree. */
+/** The face detector's input size and tiling rule, owned here because the plan has to model them. yunet.ts imports
+ *  these rather than declaring its own, so the model and the plan cannot disagree. */
 export const FACE_INPUT_SIDE = 640
 export const FACE_TILE_ABOVE = 3
 export const FACE_TILE_ASPECT = 6
@@ -157,10 +157,10 @@ export function fitToCanvas(dims: Dims, budgetPixels: number, stride: number): {
 /**
  * How much of the frame the face detector sees.
  *
- * It tiles once a frame is longer than `tileAbove`, so the scale is set by the TILE and not by the
- * whole frame. Modelling it as one pass over the whole frame understated the scale on every long
- * frame, and because the stored size is derived from the weakest detector that understating crushed
- * the artifact: an 8000x60 banner planned a 1px-tall image where the real geometry supports
+ * It tiles once a frame is longer than `tileAbove`, so the scale is set by
+ * the TILE and not by the whole frame. Modelling it as a single pass understated the scale on
+ * every long frame, and because the stored size is derived from the weakest detector that understating
+ * crushed the artifact: an 8000x60 banner planned a 1px-tall image where the real geometry supports
  * nineteen, for a guarantee that never asked for it.
  */
 export function faceInputScale(dims: Dims, side: number, tileAbove: number, tileAspect: number): number {
