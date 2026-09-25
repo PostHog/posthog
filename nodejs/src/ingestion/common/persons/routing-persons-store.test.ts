@@ -706,6 +706,55 @@ describe('RoutingPersonsStore', () => {
             expect(stores.personhogMock.createPerson.mock.calls[0][7]).toBe('caller-supplied-uuid')
         })
 
+        it.each([
+            ['found', false, 1],
+            ['created', true, 0],
+        ])(
+            'shadow createPerson re-applies the creation properties only when personhog %s the person pg created',
+            async (_case, shadowCreated, applied) => {
+                const stores = makeStores()
+                const shadowPerson = person(1, '99')
+                stores.pg.createPerson.mockResolvedValue({
+                    success: true,
+                    person: person(1, '7'),
+                    messages: [],
+                    created: true,
+                } as never)
+                stores.personhogMock.createPerson.mockResolvedValue({
+                    success: true,
+                    person: shadowPerson,
+                    messages: [],
+                    created: shadowCreated,
+                } as never)
+                const store = makeStore(stores, 'shadow')
+
+                await store.createPerson(
+                    DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+                    { plan: 'pro' },
+                    {},
+                    {},
+                    1,
+                    null,
+                    false,
+                    'caller-supplied-uuid',
+                    { distinctId: 'd1' },
+                    undefined,
+                    undefined,
+                    0
+                )
+
+                expect(stores.personhogMock.applyEventOps).toHaveBeenCalledTimes(applied)
+                if (applied) {
+                    expect(stores.personhogMock.applyEventOps).toHaveBeenCalledWith(
+                        shadowPerson,
+                        expect.objectContaining({ setOnce: { plan: 'pro' }, shouldForceUpdate: true }),
+                        'd1',
+                        0
+                    )
+                }
+            }
+        )
+
         it('mergePersons replays the same request against the personhog backend, pg staying authoritative', async () => {
             const stores = makeStores()
             const pgResult = { survivor: person(1, '7'), results: [] }
@@ -750,6 +799,36 @@ describe('RoutingPersonsStore', () => {
             expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
             const counted = (personhogStoreShadowErrorsCounter.labels as jest.Mock).mock.calls.map(([labels]) => labels)
             expect(counted).toEqual(countedAs === null ? [] : [{ verb: 'mergePersons', error: countedAs }])
+        })
+
+        it.each([
+            ['settles on a retry', 1, 2, 'merged'],
+            ['stays unsettled through every attempt', 3, 3, 'skipped_conflict'],
+        ])('shadow merge that %s', async (_name, unsettledAttempts, expectedCalls, finalOutcome) => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            for (let i = 0; i < unsettledAttempts; i++) {
+                stores.personhogMock.mergePersons.mockResolvedValueOnce({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
+                })
+            }
+            stores.personhogMock.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons(mergeRequest() as never, 0)
+
+            expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+            // The outcome the comparator saw: settled after a retry, or the last unsettled verdict.
+            const divergences = (personhogStoreShadowDivergenceCounter.labels as jest.Mock).mock.calls.map(([l]) => l)
+            expect(divergences.some((d) => d.field === 'outcome')).toBe(finalOutcome !== 'merged')
+            expect(personhogStoreShadowErrorsCounter.labels).not.toHaveBeenCalled()
         })
 
         it('prefetch warms both worlds', async () => {
