@@ -12,7 +12,12 @@ let pendingRefresh: { identity: string; promise: Promise<string> } | null =
 
 // One refresh at a time, so parallel 401s do not race each other's tokens.
 export function refreshAccessTokenOnce(): Promise<string> {
-  const identity = sessionIdentity();
+  const session = requireSession();
+  const identity = JSON.stringify([
+    session.host,
+    session.userId,
+    session.refreshToken,
+  ]);
   if (!pendingRefresh || pendingRefresh.identity !== identity) {
     const promise = useAuth
       .getState()
