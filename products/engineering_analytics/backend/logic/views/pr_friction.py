@@ -213,6 +213,8 @@ master AS (
         FROM {workflow_jobs_table}
         WHERE created_at >= {_raw_floor(run_days)}
             AND head_branch IN (SELECT default_branch FROM pr WHERE default_branch != '')
+            -- The timeline counts failures of default-branch runs that started in its window, gate runs excluded.
+            AND run_id IN (SELECT id FROM ({runs}) AS mr WHERE NOT mr.is_merge_queue AND mr.run_started_at >= {run_from})
             AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
             AND completed_at IS NOT NULL
     )
