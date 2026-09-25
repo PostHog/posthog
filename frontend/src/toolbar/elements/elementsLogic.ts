@@ -21,6 +21,8 @@ export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
 const VIEWPORT_BUFFER_PX = 200
+const INSPECT_RESCAN_DEBOUNCE_MS = 500
+const INSPECT_RESCAN_MAX_WAIT_MS = 2000
 
 function getElementMetaWithSelectorQuality(
     element: HTMLElement | null,
@@ -115,6 +117,7 @@ export interface elementsLogicValues {
               selectorQuality: FragileSelectorResult | null
           })
         | null
+    inspectDomCounter: number
     inspectElements: ElementWithMetadata[]
     inspectEnabled: boolean
     inspectEnabledRaw: boolean
@@ -161,6 +164,9 @@ export interface elementsLogicActions {
     setSelectedElement: (element: HTMLElement | null) => {
         element: HTMLElement | null
     }
+    rescanInspectElements: () => {
+        value: true
+    }
     updateRects: () => {
         value: true
     }
@@ -193,7 +199,7 @@ export interface elementsLogicMeta {
             rectUpdateCounter: number,
             buttonVisible: boolean
         ) => ElementWithMetadata[]
-        allInspectElements: (inspectEnabled: boolean, href: string) => HTMLElement[]
+        allInspectElements: (inspectEnabled: boolean, href: string, inspectDomCounter: number) => HTMLElement[]
         inspectElements: (
             allInspectElements: HTMLElement[],
             rectUpdateCounter: number,
@@ -307,6 +313,7 @@ export const elementsLogic = kea<elementsLogicType>([
         createAction: (element: HTMLElement) => ({ element }),
 
         updateRects: true,
+        rescanInspectElements: true,
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         setHighlightElement: (element: HTMLElement | null) => ({ element }),
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
@@ -325,6 +332,12 @@ export const elementsLogic = kea<elementsLogicType>([
             0,
             {
                 updateRects: (state) => state + 1,
+            },
+        ],
+        inspectDomCounter: [
+            0,
+            {
+                rescanInspectElements: (state) => state + 1,
             },
         ],
         hoverElement: [
@@ -446,7 +459,7 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         allInspectElements: [
-            (s) => [s.inspectEnabled, s.href],
+            (s) => [s.inspectEnabled, s.href, s.inspectDomCounter],
             (inspectEnabled: boolean) => {
                 if (!inspectEnabled) {
                     return []
@@ -865,6 +878,47 @@ export const elementsLogic = kea<elementsLogicType>([
                 window.addEventListener('keydown', onKeyDown)
                 return () => window.removeEventListener('keydown', onKeyDown)
             }, 'keydownListener')
+
+            cache.disposables.add(() => {
+                let debounceTimer: ReturnType<typeof setTimeout> | undefined
+                let maxWaitTimer: ReturnType<typeof setTimeout> | undefined
+
+                const rescan = (): void => {
+                    clearTimeout(debounceTimer)
+                    clearTimeout(maxWaitTimer)
+                    maxWaitTimer = undefined
+                    actions.rescanInspectElements()
+                }
+
+                // the element list is a snapshot taken when the picker starts, so anything the
+                // page reveals later (a menu, a dropdown, a modal) needs a rescan to get an overlay
+                const mutationObserver = new MutationObserver(() => {
+                    if (!values.inspectEnabled) {
+                        return
+                    }
+                    clearTimeout(debounceTimer)
+                    debounceTimer = setTimeout(rescan, INSPECT_RESCAN_DEBOUNCE_MS)
+                    // a page that changes without pausing keeps restarting the debounce, so cap
+                    // how long the picker can go without a rescan while the changes continue
+                    if (maxWaitTimer === undefined) {
+                        maxWaitTimer = setTimeout(rescan, INSPECT_RESCAN_MAX_WAIT_MS)
+                    }
+                })
+
+                mutationObserver.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    // a menu often keeps its contents mounted and toggles an attribute to show them
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'hidden', 'open'],
+                })
+
+                return () => {
+                    clearTimeout(debounceTimer)
+                    clearTimeout(maxWaitTimer)
+                    mutationObserver.disconnect()
+                }
+            }, 'inspectMutationObserver')
 
             cache.disposables.add(() => {
                 window.document.addEventListener('scroll', onScrollResize, { capture: true, passive: true })

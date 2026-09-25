@@ -12,6 +12,7 @@ import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
+import { ShiftToInteractTip } from '~/toolbar/elements/ShiftToInteractTip'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
@@ -105,6 +106,8 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                             {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
                                         </LemonButton>
                                     </div>
+
+                                    {inspectingElement === index && <ShiftToInteractTip />}
 
                                     {step?.event === '$autocapture' || inspectingElement === index ? (
                                         <>
