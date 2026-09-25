@@ -12,6 +12,7 @@ _TOOL_MODULES: dict[str, str] = {
     "CreateInsightTool": ".create_insight",
     "CreateNotebookTool": ".create_notebook",
     "ExecuteSQLMCPTool": ".execute_sql.mcp_tool",
+    "ExplainSQLMCPTool": ".explain_sql.mcp_tool",
     "ExecuteSQLTool": ".execute_sql.tool",
     "ListDataTool": ".list_data",
     "ListFeatureFlagsTool": ".list_feature_flags",
@@ -71,6 +72,7 @@ if TYPE_CHECKING:
     from .create_notebook import CreateNotebookTool as CreateNotebookTool
     from .execute_sql.mcp_tool import ExecuteSQLMCPTool as ExecuteSQLMCPTool
     from .execute_sql.tool import ExecuteSQLTool as ExecuteSQLTool
+    from .explain_sql.mcp_tool import ExplainSQLMCPTool as ExplainSQLMCPTool
     from .list_data import ListDataTool as ListDataTool
     from .list_feature_flags import ListFeatureFlagsTool as ListFeatureFlagsTool
     from .manage_memories import ManageMemoriesTool as ManageMemoriesTool

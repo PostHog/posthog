@@ -417,6 +417,50 @@ class SnowflakeImplementation(
 
         return result
 
+    def get_row_estimates(
+        self,
+        conn: snowflake.connector.SnowflakeConnection,
+        config: SnowflakeSourceConfig,
+        tables: list[str],
+    ) -> dict[str, int]:
+        """``ROW_COUNT`` per table in one query. Snowflake keeps it in metadata, so this never scans.
+
+        Best-effort like the clustering key lookup: a role that cannot read ``INFORMATION_SCHEMA.TABLES``
+        still gets its tables, only without a size.
+        """
+        if not tables:
+            return {}
+        display_by_pair = _display_by_pair(tables, normalize_namespace(config.schema))
+        if not display_by_pair:
+            return {}
+        pairs = sorted(display_by_pair)
+
+        estimates: dict[str, int] = {}
+        try:
+            with conn.cursor() as cursor:
+                if cursor is None:
+                    raise Exception("Can't create cursor to Snowflake")
+
+                pair_predicate = " OR ".join(["(TABLE_SCHEMA = %s AND TABLE_NAME = %s)"] * len(pairs))
+                cursor.execute(
+                    f"""
+                    SELECT TABLE_SCHEMA, TABLE_NAME, ROW_COUNT
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_CATALOG = %s
+                      AND ({pair_predicate})
+                    """,
+                    (config.database, *(value for pair in pairs for value in pair)),
+                )
+                for table_schema, table_name, row_count in cursor:
+                    display_name = display_by_pair.get((table_schema, table_name))
+                    if display_name is None or row_count is None:
+                        continue
+                    estimates[display_name] = int(row_count)
+        except Exception as e:
+            structlog.get_logger().warning("Failed to read row estimates for Snowflake schemas", exc_info=e)
+            return {}
+        return estimates
+
     def get_leading_index_columns(
         self,
         conn: snowflake.connector.SnowflakeConnection,

@@ -36,7 +36,9 @@ import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
     EXECUTE_SQL_TOOL_NAME,
+    EXPLAIN_SQL_TOOL_NAME,
     executeSql,
+    explainSql,
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
     externalDataSourcesPreview,
@@ -130,6 +132,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
+    [EXPLAIN_SQL_TOOL_NAME]: explainSql,
     'read-data-schema': readDataSchema,
 
     // Replay

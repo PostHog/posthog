@@ -17600,6 +17600,44 @@
             ],
             "type": "string"
         },
+        "CostPlanStep": {
+            "additionalProperties": false,
+            "description": "One line of the plan that explains the scan estimate: a table scan, a filter on it, or the join.",
+            "properties": {
+                "ai_fix_prompt": {
+                    "description": "Instruction for the editor's \"Fix with AI\" action, set only where rewriting the query helps.",
+                    "type": "string"
+                },
+                "detail": {
+                    "description": "The rest of the story for a reader who expands the line.",
+                    "type": "string"
+                },
+                "fix": {
+                    "description": "Prose advice for a reader. Not replacement text.",
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/CostPlanStepKind"
+                },
+                "message": {
+                    "description": "One line, the way an EXPLAIN prints it.",
+                    "type": "string"
+                },
+                "rows": {
+                    "$ref": "#/definitions/integer"
+                },
+                "table": {
+                    "description": "The table the step reads or filters, as the query names it.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "message"],
+            "type": "object"
+        },
+        "CostPlanStepKind": {
+            "enum": ["scan", "filter", "join"],
+            "type": "string"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -28779,6 +28817,13 @@
                 "ch_table_names": {
                     "items": {
                         "type": "string"
+                    },
+                    "type": "array"
+                },
+                "cost_plan": {
+                    "description": "The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is.",
+                    "items": {
+                        "$ref": "#/definitions/CostPlanStep"
                     },
                     "type": "array"
                 },
@@ -40761,6 +40806,13 @@
                         "ch_table_names": {
                             "items": {
                                 "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "cost_plan": {
+                            "description": "The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is.",
+                            "items": {
+                                "$ref": "#/definitions/CostPlanStep"
                             },
                             "type": "array"
                         },

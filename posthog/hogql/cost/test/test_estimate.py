@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 from typing import Literal, cast
 
@@ -26,6 +27,10 @@ from products.data_warehouse.backend.facade.sources import (
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
     DIRECT_POSTGRES_URL_PATTERN,
+    DIRECT_SNOWFLAKE_CATALOG_OPTION,
+    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+    DIRECT_SNOWFLAKE_TABLE_OPTION,
+    DIRECT_SNOWFLAKE_URL_PATTERN,
 )
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -105,7 +110,8 @@ class TestEstimateEventsScan(BaseTest):
         assert estimate is not None
         [table] = estimate.tables
         assert table.rows == estimate.rows
-        return table
+        # The per-filter shares are the explain's concern; these cases assert the rows they produce.
+        return dataclasses.replace(table, filters=())
 
     @parameterized.expand(
         [
@@ -387,6 +393,17 @@ class TestEstimateEventsScan(BaseTest):
                 DIRECT_MYSQL_URL_PATTERN,
                 {DIRECT_MYSQL_SCHEMA_OPTION: "app", DIRECT_MYSQL_TABLE_OPTION: "orders"},
             ),
+            (
+                "snowflake",
+                "Snowflake",
+                {"account_id": "acct", "database": "DB", "schema": "PUBLIC", "warehouse": "WH"},
+                DIRECT_SNOWFLAKE_URL_PATTERN,
+                {
+                    DIRECT_SNOWFLAKE_CATALOG_OPTION: "DB",
+                    DIRECT_SNOWFLAKE_SCHEMA_OPTION: "PUBLIC",
+                    DIRECT_SNOWFLAKE_TABLE_OPTION: "orders",
+                },
+            ),
         ]
     )
     def test_a_direct_table_lists_the_catalog_estimate_as_size_only(
@@ -490,6 +507,8 @@ class TestEstimateEventsScan(BaseTest):
         assert response.scan_estimate.rows == 14_600_000
         assert [table.name for table in response.scan_estimate.tables] == expected_tables
         assert response.scan_estimate.tables[0].events == ["signup"]
+        assert response.cost_plan is not None
+        assert [step.table for step in response.cost_plan if step.kind == "scan"] == expected_tables
 
     def test_metadata_omits_the_estimate_when_the_flag_is_off(self):
         with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=False):

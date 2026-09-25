@@ -498,6 +498,25 @@ class TestGetPrimaryKeys:
         assert cursor.execute.call_count == 2
 
 
+class TestGetRowEstimates:
+    def test_maps_row_counts_to_display_names_and_skips_tables_without_one(self, impl, cursor):
+        cursor.__iter__.return_value = iter([("PUBLIC", "users", 812000), ("PUBLIC", "orders", None)])
+        conn = _conn_with_cursor(cursor)
+
+        out = impl.get_row_estimates(conn, _make_config(), tables=["users", "orders"])
+
+        assert out == {"users": 812000}
+        sql, params = cursor.execute.call_args.args
+        assert "INFORMATION_SCHEMA.TABLES" in sql and "ROW_COUNT" in sql
+        assert params == ("DB", "PUBLIC", "orders", "PUBLIC", "users")
+
+    def test_is_empty_when_the_catalog_is_not_readable(self, impl, cursor):
+        cursor.execute.side_effect = Exception("perm")
+        conn = _conn_with_cursor(cursor)
+
+        assert impl.get_row_estimates(conn, _make_config(), tables=["t"]) == {}
+
+
 class TestGetLeadingIndexColumns:
     def test_returns_leading_column_set_per_table(self, impl, cursor):
         cursor.__iter__.return_value = iter([("PUBLIC", "users", "LINEAR(created_at)"), ("PUBLIC", "orders", None)])
