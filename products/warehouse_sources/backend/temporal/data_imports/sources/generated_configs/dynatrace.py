@@ -8,3 +8,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class DynatraceSourceConfig(config.Config):
     environment_url: str
     api_token: str
+    metric_selector: str | None = None
