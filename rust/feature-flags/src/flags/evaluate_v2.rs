@@ -11,6 +11,7 @@ use super::config_v2::{Config, Outcome, RolloutMiss, Rule};
 use super::flag_matching_utils::calculate_hash;
 use super::flag_request::MAX_DISTINCT_ID_LEN;
 use super::v1_bucketing::is_in_rollout;
+use crate::api::errors::FlagError;
 use crate::handler::canonical_log::truncate_chars;
 use crate::properties::property_matching::{
     match_property_input, FlagMatchingError, PropertyMatchInput, PropertyMatchingContext,
@@ -51,6 +52,12 @@ pub enum EvaluationError {
     InvalidProperty,
     InvalidRegex,
     Hash,
+}
+
+impl From<EvaluationError> for FlagError {
+    fn from(error: EvaluationError) -> Self {
+        FlagError::flag_evaluation(error)
+    }
 }
 
 #[derive(Clone, Copy)]
