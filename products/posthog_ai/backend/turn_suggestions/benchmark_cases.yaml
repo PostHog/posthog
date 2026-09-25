@@ -80,7 +80,7 @@
 # Investigations
 - name: checkout-drop-cause-found
   category: diagnostic
-  acceptable: [notebook, scout]
+  acceptable: [notebook]
   question: Why did checkout conversion drop on Tuesday?
   tools: [query-funnel, query-session-recordings-list, query-trends]
   answer: Checkout conversion fell from 34% to 21% on Tuesday starting at 14:10 UTC. The drop lines up with the 14:05 release, which broke the payment form on Safari. Recordings show users stuck on the card step. Conversion recovered after the 17:30 rollback.
@@ -454,7 +454,7 @@
 # Costs and data quality
 - name: llm-bill-up-usage-down
   category: diagnostic
-  acceptable: [notebook, scout]
+  acceptable: [notebook]
   question: Why did our LLM bill go up last week when usage went down?
   tools: [execute-sql, query-trends]
   answer: Generations fell 9%, but the average cost per generation doubled after the default model switched to a larger one on Tuesday. That switch explains about 85% of the increase.
@@ -488,7 +488,7 @@
 
 - name: not-found-spike
   category: diagnostic
-  acceptable: [notebook, scout]
+  acceptable: [notebook]
   question: Which pages are causing the spike in 404s since yesterday?
   tools: [query-trends, execute-sql]
   answer: Most new 404s come from /docs/v1/ links, which stopped resolving after yesterday's docs migration at 16:00 UTC. They account for 82% of the spike.

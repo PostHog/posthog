@@ -53,7 +53,7 @@ http[s]://[username:password@]host[:port][/path][#model]
 - Percent-encode a `:`, `@`, or `#` inside a username or password, for example `%40` for `@`.
 
 ```sh
-TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS=https://user:secret@judge.example.com#candidate-1, https://user:secret@judge.example.com#candidate-2
+TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS="https://user:secret@judge.example.com#candidate-1, https://user:secret@judge.example.com#candidate-2"
 ```
 
 `.env.local` is gitignored, so it is the right place for credentials.

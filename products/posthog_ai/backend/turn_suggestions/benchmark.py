@@ -325,13 +325,22 @@ def score(results: Iterable[CaseResult], threshold: float) -> ThresholdScore:
         for result, outcome in zip(judged, outcomes)
         if outcome == Outcome.CORRECT and result.case.expectation == Expectation.OFFER
     )
+    # A wrong kind on an either-is-fine case counts against precision, so an acceptable card there counts for it.
+    acceptable_optional_offers = sum(
+        1
+        for result, outcome in zip(judged, outcomes)
+        if outcome == Outcome.EITHER and result.picked(threshold) != OfferKind.NONE
+    )
     false_offers = outcomes.count(Outcome.FALSE_OFFER)
     wrong_kind = outcomes.count(Outcome.WRONG_KIND)
     expecting_offer = sum(1 for result in judged if result.case.expectation == Expectation.OFFER)
     return ThresholdScore(
         threshold=threshold,
         offer_rate=_ratio(offered, len(judged)) or 0.0,
-        precision=_ratio(correct_offers, correct_offers + false_offers + wrong_kind),
+        precision=_ratio(
+            correct_offers + acceptable_optional_offers,
+            correct_offers + acceptable_optional_offers + false_offers + wrong_kind,
+        ),
         recall=_ratio(correct_offers, expecting_offer),
         false_offers=false_offers,
         missed=outcomes.count(Outcome.MISSED),
@@ -341,6 +350,22 @@ def score(results: Iterable[CaseResult], threshold: float) -> ThresholdScore:
 
 def sweep(results: Sequence[CaseResult], thresholds: Iterable[float] = DEFAULT_THRESHOLDS) -> list[ThresholdScore]:
     return [score(results, threshold) for threshold in thresholds]
+
+
+def sweep_thresholds(current: float) -> list[float]:
+    """The default sweep plus ``current``, so the threshold under test always has its own row."""
+    return sorted({*DEFAULT_THRESHOLDS, current})
+
+
+def on_shared_cases(runs: Sequence[JudgeRun]) -> list[JudgeRun]:
+    """Each run cut down to the cases every run answered, so no judge is scored on an easier set
+    because it failed the hard cases."""
+    answered = [{result.case.name for result in run.results if result.judgment is not None} for run in runs]
+    shared = set.intersection(*answered) if answered else set()
+    return [
+        JudgeRun(label=run.label, results=tuple(result for result in run.results if result.case.name in shared))
+        for run in runs
+    ]
 
 
 def best_threshold(scores: Sequence[ThresholdScore]) -> ThresholdScore | None:

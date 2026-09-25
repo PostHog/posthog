@@ -20,10 +20,12 @@ from products.posthog_ai.backend.tasks import generate_turn_suggestion_task
 from products.posthog_ai.backend.turn_suggestions.benchmark import (
     BenchmarkCase,
     CaseResult,
+    JudgeRun,
     SystemOneEndpoint,
     best_threshold,
     closest_to_offer_rate,
     load_cases,
+    on_shared_cases,
     parse_endpoints,
     run_cases,
     score,
@@ -674,7 +676,7 @@ class TestBenchmark(SimpleTestCase):
         for case in cases:
             assert case.acceptable - {OfferKind.NONE} <= case.available, case.name
 
-    def test_scores_count_false_offers_misses_and_ignore_borderline_cases(self):
+    def test_scores_count_false_offers_misses_and_acceptable_borderline_offers(self):
         transcript = build_turn_transcript(_metric_turn())
 
         def result(acceptable: set[OfferKind], show: float) -> CaseResult:
@@ -699,13 +701,26 @@ class TestBenchmark(SimpleTestCase):
         low = score(results, 0.5)
         high = score(results, 0.7)
 
-        assert (low.offer_rate, low.precision, low.recall) == (5 / 6, 0.5, 1.0)
+        assert (low.offer_rate, low.precision, low.recall) == (5 / 6, 0.6, 1.0)
         assert (low.false_offers, low.wrong_kind) == (1, 1)
-        assert (high.offer_rate, high.precision, high.recall, high.missed) == (0.5, 0.5, 0.5, 1)
+        assert (high.offer_rate, high.precision, high.recall, high.missed) == (0.5, 2 / 3, 0.5, 1)
         assert best_threshold([low, high]) == low
         # Every threshold from 0.61 to 0.90 offers on half the cases, and the tie goes to the highest.
         closest = closest_to_offer_rate(results, 0.5)
         assert closest is not None and (closest.threshold, closest.offer_rate) == (0.9, 0.5)
+
+    def test_judges_are_compared_on_the_cases_every_judge_answered(self):
+        cases = load_cases()[:3]
+        answered = [CaseResult(case=case, judgment=_judgment(show_probability=0.9), seconds=0.1) for case in cases]
+        one_failure = [*answered[:2], CaseResult(case=cases[2], judgment=None, seconds=60.0, error="Timeout")]
+
+        scored = on_shared_cases(
+            [JudgeRun(label="a", results=tuple(answered)), JudgeRun(label="b", results=tuple(one_failure))]
+        )
+
+        assert [[result.case.name for result in run.results] for run in scored] == [
+            [case.name for case in cases[:2]]
+        ] * 2
 
     def test_endpoints_keep_credentials_out_of_the_url_and_label(self):
         endpoints = parse_endpoints(
