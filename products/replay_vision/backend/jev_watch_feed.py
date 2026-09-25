@@ -20,9 +20,10 @@ one component of it.
 import json
 import math
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from time import perf_counter
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 
@@ -47,15 +48,29 @@ RankerMode = Literal["weighted-score", "jev-shadow", "jev"]
 # is customer data, so never point this at a vendor model id.
 JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 JEV_INPUT_USD_PER_MILLION = 0.042
-JEV_TIMEOUT_SECONDS = 3.0
+# A chunk request carries up to WINDOW_CHUNK_SIZE questions over a multi-observation state, so it
+# runs far longer than the single-question decisions Signals times out at 3s. Matches the gateway
+# client's own default; the sweep is background work, so latency is cheap and a timeout loses a
+# whole chunk's judgments.
+JEV_TIMEOUT_SECONDS = 30.0
 # How far a viewed row drops on the 0-1 probability scale, the same intent as WATCH_SEEN_PENALTY in
 # the weighted ranker: an unviewed peer with comparable evidence comes first, and a very strong seen
 # row still holds its place above weak unseen rows.
 JEV_SEEN_PENALTY = 0.3
+# Below this probability a judged row carries no evidence: it falls to the same recency filler tier
+# as an unjudged row, so its card never claims the model judged it worth watching, and a judged-low
+# row cannot outrank a fresh observation the sweep has not seen yet. Tier membership uses the raw
+# probability; the seen penalty only orders rows inside the evidence tier.
+JEV_WATCHABLE_MIN = 0.5
 # Observations per Jev request: the request carries the chunk as shared state and one question per
 # observation, and a request takes at most MAX_QUESTIONS_PER_REQUEST (32) questions. A judgment is
 # therefore relative to its chunk, not to the whole window at once.
 WINDOW_CHUNK_SIZE = 24
+# Per-entry prose caps, so a 24-entry chunk state stays small and per-chunk latency predictable
+# whatever the scanner's configured summary length.
+_MAX_TITLE_CHARS = 300
+_MAX_PROSE_CHARS = 1500
+_MAX_TAGS = 20
 _WATCH_RANK_REDIS_PREFIX = "replay-vision:jev-watch-rank:"
 # Three sweep intervals: the cache survives one failed hourly sweep, and goes cold (the feed falls
 # back to the recency filler tier) rather than stale when the sweep stays down.
@@ -81,7 +96,7 @@ _CALLS = Counter(
 _LATENCY = Histogram(
     "replay_vision_jev_watch_rank_latency_seconds",
     "Jev watch rank chunk request wall-clock latency.",
-    buckets=(0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4),
+    buckets=(0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0),
 )
 _INPUT_TOKENS = Counter(
     "replay_vision_jev_watch_rank_input_tokens",
@@ -130,19 +145,23 @@ def _window_entry(row: dict[str, Any]) -> dict[str, Any] | None:
         return None
     raw_tags = output.get("tags")
     raw_freeform = output.get("tags_freeform")
+
+    def clipped(value: Any, limit: int) -> Any:
+        return value[:limit] if isinstance(value, str) else value
+
     entry = {
         key: value
         for key, value in {
             "scanner_type": output.get("scanner_type"),
-            "title": output.get("title"),
-            "summary": output.get("summary"),
-            "reasoning": output.get("reasoning"),
+            "title": clipped(output.get("title"), _MAX_TITLE_CHARS),
+            "summary": clipped(output.get("summary"), _MAX_PROSE_CHARS),
+            "reasoning": clipped(output.get("reasoning"), _MAX_PROSE_CHARS),
             "verdict": output.get("verdict"),
             "score": output.get("score"),
             "tags": [
                 *(raw_tags if isinstance(raw_tags, list) else []),
                 *(raw_freeform if isinstance(raw_freeform, list) else []),
-            ],
+            ][:_MAX_TAGS],
             "notability": output.get("notability"),
             "signals_count": result.get("signals_count") if isinstance(result, dict) else None,
         }.items()
@@ -194,6 +213,8 @@ def judge_scanner_window(team_id: int, scanner_id: UUID, rows: list[dict[str, An
     """
     entries = [(str(row["id"]), entry) for row in rows if (entry := _window_entry(row)) is not None]
     chunks = [entries[start : start + WINDOW_CHUNK_SIZE] for start in range(0, len(entries), WINDOW_CHUNK_SIZE)]
+    # One trace per window run, so a window's chunks group in AI observability without merging runs.
+    trace_id = str(uuid4())
     probabilities: dict[str, float] = {}
     model: str | None = None
     failed_chunks = 0
@@ -202,7 +223,7 @@ def judge_scanner_window(team_id: int, scanner_id: UUID, rows: list[dict[str, An
     for chunk in chunks:
         started = perf_counter()
         try:
-            chunk_probabilities, result = _judge_chunk(team_id, f"{scanner_id}", chunk)
+            chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk)
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
             _CALLS.labels(type(error).__name__).inc()
@@ -239,7 +260,28 @@ def _watch_rank_key(team_id: int, scanner_id: UUID | str) -> str:
     return f"{_WATCH_RANK_REDIS_PREFIX}{team_id}:{scanner_id}"
 
 
-def store_watch_ranks(team_id: int, scanner_id: UUID, judgment: WindowJudgment) -> None:
+def window_fingerprint(rows: list[dict[str, Any]]) -> str:
+    """Identity of a window's membership and order, so the sweep can skip a scanner whose window
+    did not change since the last run instead of re-buying the same judgments every hour."""
+    return sha256("\n".join(str(row["id"]) for row in rows).encode()).hexdigest()[:16]
+
+
+def stored_watch_rank_fingerprint(team_id: int, scanner_id: UUID) -> str | None:
+    try:
+        value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_watch_rank_key(team_id, scanner_id))
+        if not value:
+            return None
+        fingerprint = json.loads(value).get("fingerprint")
+        return fingerprint if isinstance(fingerprint, str) else None
+    except Exception:
+        return None
+
+
+def refresh_watch_ranks_ttl(team_id: int, scanner_id: UUID) -> None:
+    get_client(settings.REPLAY_VISION_REDIS_URL).expire(_watch_rank_key(team_id, scanner_id), WATCH_RANK_TTL)
+
+
+def store_watch_ranks(team_id: int, scanner_id: UUID, judgment: WindowJudgment, fingerprint: str) -> None:
     get_client(settings.REPLAY_VISION_REDIS_URL).setex(
         _watch_rank_key(team_id, scanner_id),
         WATCH_RANK_TTL,
@@ -247,6 +289,7 @@ def store_watch_ranks(team_id: int, scanner_id: UUID, judgment: WindowJudgment) 
             {
                 "model": judgment.model,
                 "judged_at": datetime.now(UTC).isoformat(),
+                "fingerprint": fingerprint,
                 "probabilities": judgment.probabilities,
             }
         ),
@@ -285,23 +328,24 @@ def rank_watch_feed_by_jev(rows: list[dict[str, Any]], probabilities: dict[str, 
     highest probability first, viewed rows docked, newest as the tiebreak.
 
     Independent of `rank_watch_feed_candidates` on purpose: the flag picks a whole ranker, so this
-    arm measures Jev's judgment without any component of the weighted score mixed in. A row without
-    a cached probability (not yet swept, or the cache went cold) sorts below every judged row by
-    recency and carries the same filler reasons the weighted ranker uses for no-evidence rows.
+    arm measures Jev's judgment without any component of the weighted score mixed in. Rows without
+    evidence sort below every watchable row by recency, with the same filler reasons the weighted
+    ranker uses: rows the model rated below `JEV_WATCHABLE_MIN`, rows without a cached probability
+    (not yet swept, or the cache went cold), and rows outside the sweep's window.
     """
-    judged: list[tuple[float, Any, WatchFeedEntry]] = []
-    unjudged: list[tuple[bool, Any, WatchFeedEntry]] = []
+    watchable: list[tuple[float, Any, WatchFeedEntry]] = []
+    filler: list[tuple[bool, Any, WatchFeedEntry]] = []
     for row in rows:
         probability = probabilities.get(str(row["id"]))
         viewed = bool(row.get("feed_viewed"))
-        if probability is not None:
+        if probability is not None and probability >= JEV_WATCHABLE_MIN:
             entry = WatchFeedEntry(
                 observation_id=row["id"], reason={"kind": "jev_watchable", "jev_probability": probability}
             )
-            judged.append((probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], entry))
+            watchable.append((probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], entry))
         else:
             entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
-            unjudged.append((not viewed, row["created_at"], entry))
-    judged.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    unjudged.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [entry for *_, entry in judged] + [entry for *_, entry in unjudged]
+            filler.append((not viewed, row["created_at"], entry))
+    watchable.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [entry for *_, entry in watchable] + [entry for *_, entry in filler]

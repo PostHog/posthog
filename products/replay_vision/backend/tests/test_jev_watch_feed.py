@@ -24,6 +24,7 @@ from products.replay_vision.backend.jev_watch_feed import (
     load_watch_ranks,
     rank_watch_feed_by_jev,
     store_watch_ranks,
+    stored_watch_rank_fingerprint,
     watch_feed_ranker,
 )
 from products.replay_vision.backend.models.replay_observation import (
@@ -133,6 +134,14 @@ class TestJudgeScannerWindow(SimpleTestCase):
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert len(judgment.probabilities) == 1
 
+    def test_long_prose_is_clipped_before_it_enters_the_request(self) -> None:
+        rows = [_prose_row(uuid4(), "x" * 100_000)]
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = _answer_every_question(0.5)
+            judge_scanner_window(1, uuid4(), rows)
+        request = api.decide_when_available.call_args.args[0]
+        assert len(request.state["observations"]["0"]["summary"]) == 1500
+
     def test_an_empty_window_makes_no_request(self) -> None:
         with patch(_API) as api:
             judgment = judge_scanner_window(1, uuid4(), [])
@@ -149,75 +158,79 @@ def _feed_row(observation_id: str, minutes_ago: int, *, viewed: bool = False) ->
 
 
 class TestRankWatchFeedByJev(SimpleTestCase):
-    def test_judged_rows_rank_by_probability_and_unjudged_rows_follow_by_recency(self) -> None:
+    def test_watchable_rows_rank_by_probability_and_the_rest_follow_by_recency(self) -> None:
+        # A judged-low row falls to the same recency filler tier as an unjudged one, so a stale low
+        # judgment never outranks a fresh observation the sweep has not seen yet, and its card never
+        # claims the model judged it worth watching.
         ranked = rank_watch_feed_by_jev(
             [
                 _feed_row("old-unjudged", 50),
-                _feed_row("low", 40),
+                _feed_row("judged-low", 40),
                 _feed_row("high", 30),
+                _feed_row("higher", 20),
                 _feed_row("new-unjudged", 10),
             ],
-            {"low": 0.2, "high": 0.9},
+            {"judged-low": 0.2, "high": 0.7, "higher": 0.9},
         )
-        assert [entry.observation_id for entry in ranked] == ["high", "low", "new-unjudged", "old-unjudged"]
+        assert [entry.observation_id for entry in ranked] == [
+            "higher",
+            "high",
+            "new-unjudged",
+            "judged-low",
+            "old-unjudged",
+        ]
         assert ranked[0].reason == {"kind": "jev_watchable", "jev_probability": 0.9}
         assert ranked[2].reason == {"kind": "unviewed_recent"}
+        assert ranked[3].reason == {"kind": "unviewed_recent"}
 
-    def test_a_viewed_row_is_docked_but_a_strong_one_still_ranks(self) -> None:
+    def test_a_viewed_row_is_docked_inside_the_watchable_tier_only(self) -> None:
         ranked = rank_watch_feed_by_jev(
             [
                 _feed_row("viewed-strong", 30, viewed=True),
                 _feed_row("unviewed-mid", 20),
-                _feed_row("unviewed-weak", 10),
+                # Raw probability decides the tier, so the dock cannot push a watchable row into filler.
+                _feed_row("viewed-borderline", 15, viewed=True),
                 _feed_row("viewed-filler", 5, viewed=True),
                 _feed_row("unviewed-filler", 1),
             ],
-            {"viewed-strong": 0.95, "unviewed-mid": 0.5, "unviewed-weak": 0.3},
+            {"viewed-strong": 0.95, "unviewed-mid": 0.6, "viewed-borderline": 0.55},
         )
-        # 0.95 - 0.3 dock = 0.65 still beats 0.5; the weak 0.3 row does not overtake either.
+        # 0.95 - 0.3 dock = 0.65 still beats 0.6; 0.55 - 0.3 = 0.25 stays watchable, ordered last.
         assert [entry.observation_id for entry in ranked] == [
             "viewed-strong",
             "unviewed-mid",
-            "unviewed-weak",
+            "viewed-borderline",
             "unviewed-filler",
             "viewed-filler",
         ]
+        assert ranked[2].reason == {"kind": "jev_watchable", "jev_probability": 0.55}
         assert ranked[3].reason == {"kind": "unviewed_recent"}
         assert ranked[4].reason == {"kind": "recent"}
+
+
+def _judgment(probabilities: dict[str, float]) -> WindowJudgment:
+    return WindowJudgment(
+        probabilities=probabilities,
+        model="jevk5-fp8-0.2",
+        chunks=1,
+        failed_chunks=0,
+        input_tokens=10,
+        estimated_cost_usd=0.0,
+    )
 
 
 class TestWatchRankCache(SimpleTestCase):
     def test_stored_ranks_round_trip_and_malformed_values_are_dropped_or_clamped(self) -> None:
         team_id = 990_001
         scanner_id, other_scanner_id, missing_scanner_id = uuid4(), uuid4(), uuid4()
-        store_watch_ranks(
-            team_id,
-            scanner_id,
-            WindowJudgment(
-                probabilities={"obs-a": 0.9, "obs-b": 7.0},
-                model="jevk5-fp8-0.2",
-                chunks=1,
-                failed_chunks=0,
-                input_tokens=10,
-                estimated_cost_usd=0.0,
-            ),
-        )
-        store_watch_ranks(
-            team_id,
-            other_scanner_id,
-            WindowJudgment(
-                probabilities={"obs-c": 0.4},
-                model="jevk5-fp8-0.2",
-                chunks=1,
-                failed_chunks=0,
-                input_tokens=10,
-                estimated_cost_usd=0.0,
-            ),
-        )
+        store_watch_ranks(team_id, scanner_id, _judgment({"obs-a": 0.9, "obs-b": 7.0}), "fp-a")
+        store_watch_ranks(team_id, other_scanner_id, _judgment({"obs-c": 0.4}), "fp-b")
         loaded = load_watch_ranks(team_id, [scanner_id, other_scanner_id, missing_scanner_id])
         assert loaded == {"obs-a": 0.9, "obs-b": 1.0, "obs-c": 0.4}
         # Another team's cache never leaks in.
         assert load_watch_ranks(team_id + 1, [scanner_id]) == {}
+        assert stored_watch_rank_fingerprint(team_id, scanner_id) == "fp-a"
+        assert stored_watch_rank_fingerprint(team_id, missing_scanner_id) is None
 
 
 class TestJevWatchRankSweep(BaseTest):
@@ -235,7 +248,9 @@ class TestJevWatchRankSweep(BaseTest):
             },
         )
 
-    def test_the_sweep_judges_enrolled_teams_and_fills_the_cache(self) -> None:
+    def test_the_sweep_gates_judges_and_skips_unchanged_windows(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         scanner = ReplayScanner.objects.create(
             team=self.team,
             name="s",
@@ -246,18 +261,49 @@ class TestJevWatchRankSweep(BaseTest):
         first = self._succeeded_observation(scanner, "s1", "The user hit an error at checkout.")
         second = self._succeeded_observation(scanner, "s2", "The user skimmed the pricing page.")
 
-        flag = "products.replay_vision.backend.temporal.jev_watch_rank.activities.watch_feed_ranker"
-        with patch(flag, return_value="weighted-score"), patch(_API) as api:
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        flag = f"{activities}.watch_feed_ranker"
+        region = f"{activities}.decision_api.decisions_available_here"
+
+        with patch(flag, return_value="weighted-score"), patch(region, return_value=True), patch(_API) as api:
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
         # A team on the default arm costs no Jev calls and gets no cache entry.
         api.decide_when_available.assert_not_called()
         assert result.teams_enrolled == 0
         assert load_watch_ranks(self.team.id, [scanner.id]) == {}
 
-        with patch(flag, return_value="jev-shadow"), patch(_API) as api, patch("posthoganalytics.capture"):
+        with patch(flag, return_value="jev-shadow"), patch(region, return_value=False), patch(_API) as api:
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        # A region without the decision service does no work at all.
+        api.decide_when_available.assert_not_called()
+        assert result.decisions_unavailable
+
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        with patch(flag, return_value="jev-shadow"), patch(region, return_value=True), patch(_API) as api:
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        # An enrolled team without AI data-processing consent sends nothing to the model.
+        api.decide_when_available.assert_not_called()
+        assert result.teams_without_consent == 1
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with (
+            patch(flag, return_value="jev-shadow"),
+            patch(region, return_value=True),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
             api.decide_when_available.side_effect = _answer_every_question(0.7)
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
         assert result.teams_enrolled == 1
         assert result.scanners_judged == 1
         assert result.observations_judged == 2
+        assert load_watch_ranks(self.team.id, [scanner.id]) == {str(first.id): 0.7, str(second.id): 0.7}
+
+        with patch(flag, return_value="jev-shadow"), patch(region, return_value=True), patch(_API) as api:
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        # The window did not change, so the second run keeps the cache without a Jev call.
+        api.decide_when_available.assert_not_called()
+        assert result.scanners_skipped_unchanged == 1
         assert load_watch_ranks(self.team.id, [scanner.id]) == {str(first.id): 0.7, str(second.id): 0.7}
