@@ -26,6 +26,7 @@ import base64
 import random
 import tarfile
 import threading
+import contextvars
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
@@ -464,7 +465,9 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
                 with timer.step(name):
                     return fetch(*args, **kwargs)
 
-            return executor.submit(timed_fetch)
+            # A pool thread does not inherit Temporal's activity context, and activity.logger raises
+            # without it. Each read gets its own copy, because one context cannot run in two threads.
+            return executor.submit(contextvars.copy_context().run, timed_fetch)
 
         pr_future = submit("pr", client.get_pr, repo, number)
         files_future = submit("files", client.get_pr_files, repo, number)

@@ -374,7 +374,8 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
 class RepoPathEntry:
     """One path at a ref, as the contents API reports it."""
 
-    # The contents API's own type: "file", "symlink", "dir" or "submodule".
+    # The contents API's own type ("file", "symlink", "dir", "submodule"), or "unreadable" for a
+    # file the API returned without its content.
     kind: str
     # The file's text. Empty for anything but a file.
     text: str
@@ -1201,8 +1202,11 @@ class StamphogGitHubClient:
         if not isinstance(data, dict):
             return RepoPathEntry(kind="dir", text="")
         kind = str(data.get("type") or "unknown")
-        if kind != "file" or data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
+        if kind != "file":
             return RepoPathEntry(kind=kind, text="")
+        # A file over the API's inline limit comes back with encoding "none" and no content.
+        if data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
+            return RepoPathEntry(kind="unreadable", text="")
         try:
             return RepoPathEntry(kind=kind, text=base64.b64decode(data["content"]).decode("utf-8"))
         except (binascii.Error, UnicodeDecodeError) as exc:
