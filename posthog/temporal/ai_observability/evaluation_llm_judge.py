@@ -451,14 +451,10 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
-    if provider == "typesafe":
+    if provider == "system_one":
         if output_type != "boolean":
             raise ApplicationError("This System One evaluation output type is not supported.", non_retryable=True)
-        base_url = (
-            provider_key.encrypted_config.get("base_url", SystemOneClient.BASE_URL)
-            if provider_key
-            else SystemOneClient.BASE_URL
-        )
+        base_url = provider_key.encrypted_config.get("base_url", "") if provider_key else ""
         if not system_one_evaluations_enabled(team_id, base_url=base_url):
             raise ApplicationError("System One evaluations are not available for this project.", non_retryable=True)
 
@@ -476,7 +472,7 @@ def call_llm_judge(
     probability: float | None = None
     system_one_result = None
     try:
-        if provider == "typesafe":
+        if provider == "system_one":
             if provider_key is not None and provider_key.provider != provider:
                 raise ProviderMismatchError(provider_key.provider, provider)
             prompt = evaluation["evaluation_config"]["prompt"]

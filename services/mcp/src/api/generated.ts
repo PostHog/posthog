@@ -38455,7 +38455,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
-     * * `typesafe` - System One (Jev)
+     * * `system_one` - System One
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -38470,7 +38470,7 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
       Zeabur: 'zeabur',
-      Typesafe: 'typesafe',
+      SystemOne: 'system_one',
     } as const;
 
     /**
@@ -38681,10 +38681,10 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
-      /** System One API base URL, including /v1. Defaults to TypeSafe. */
+      /** System One API base URL, including /v1. */
       base_url?: string;
       /**
-         * Model ID served by the System One endpoint. Defaults to jev-1.13.0.
+         * Model ID served by the System One endpoint.
          * @maxLength 100
          */
       system_one_model?: string;
@@ -74028,10 +74028,10 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
-      /** System One API base URL, including /v1. Defaults to TypeSafe. */
+      /** System One API base URL, including /v1. */
       base_url?: string;
       /**
-         * Model ID served by the System One endpoint. Defaults to jev-1.13.0.
+         * Model ID served by the System One endpoint.
          * @maxLength 100
          */
       system_one_model?: string;
@@ -112669,8 +112669,8 @@ export namespace Schemas {
       Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
+      SystemOne: 'system_one',
       TogetherAi: 'together_ai',
-      Typesafe: 'typesafe',
       Zeabur: 'zeabur',
     } as const;
 

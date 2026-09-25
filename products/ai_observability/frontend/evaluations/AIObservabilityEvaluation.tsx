@@ -136,7 +136,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const openInPlaygroundUrl =
         evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
         evaluation.id &&
-        evaluation.model_configuration?.provider !== 'typesafe'
+        evaluation.model_configuration?.provider !== 'system_one'
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -930,7 +930,7 @@ function EvaluationModelPicker(): JSX.Element {
     // Evals always run on the team's own provider key, so only BYOK models are offered.
     const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
     const groups = evaluationProviderModelGroups.filter(
-        (group) => evaluation?.output_type === 'boolean' || group.provider !== 'typesafe'
+        (group) => evaluation?.output_type === 'boolean' || group.provider !== 'system_one'
     )
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -957,7 +957,7 @@ function EvaluationModelPicker(): JSX.Element {
                             data-attr="evaluation-model-selector"
                         />
                         <ByokModelPickerNotice forEvaluation />
-                        {evaluation?.model_configuration?.provider === 'typesafe' && (
+                        {evaluation?.model_configuration?.provider === 'system_one' && (
                             <p className="text-sm text-muted mt-2">
                                 This judge returns a probability without written reasoning. A probability of 50% or
                                 higher produces a true result.

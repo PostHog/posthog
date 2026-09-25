@@ -75,7 +75,7 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
-    it.each([0, 0.49, 1])('preserves a Jev probability of %s without inventing reasoning', (probability) => {
+    it.each([0, 0.49, 1])('preserves a System One probability of %s without inventing reasoning', (probability) => {
         const row = makeEvaluationRunRow()
         row[7] = ''
         row[18] = probability

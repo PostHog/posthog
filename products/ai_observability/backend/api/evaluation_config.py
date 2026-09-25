@@ -109,7 +109,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if key.provider == LLMProvider.TYPESAFE:
+        if key.provider == LLMProvider.SYSTEM_ONE:
             return Response(
                 {"detail": "Select the System One connection on an evaluation instead."},
                 status=status.HTTP_400_BAD_REQUEST,

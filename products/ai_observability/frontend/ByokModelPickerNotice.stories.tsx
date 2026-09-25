@@ -11,14 +11,14 @@ import { LLMProviderKey, LLMProviderKeyState } from './settings/llmProviderKeysL
 interface StoryArgs {
     keyState: LLMProviderKeyState | null
     modelsFail: boolean
-    typesafe?: boolean
+    systemOne?: boolean
 }
 
 function providerKey(state: LLMProviderKeyState): Partial<LLMProviderKey> {
     return { id: 'key-1', provider: 'openai', name: 'Production', state }
 }
 
-function PickerWithNotice({ typesafe = false }: { typesafe?: boolean }): JSX.Element {
+function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.Element {
     const { providerModelGroups, evaluationProviderModelGroups, hasByokKeys, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
 
@@ -29,20 +29,20 @@ function PickerWithNotice({ typesafe = false }: { typesafe?: boolean }): JSX.Ele
                 model=""
                 selectedProviderKeyId={null}
                 onSelect={() => {}}
-                groups={typesafe ? evaluationProviderModelGroups : providerModelGroups}
+                groups={systemOne ? evaluationProviderModelGroups : providerModelGroups}
                 loading={byokModelsLoading || providerKeysLoading}
                 footerLink={getModelPickerFooterLink(
-                    typesafe ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys
+                    systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys
                 )}
             />
-            <ByokModelPickerNotice forEvaluation={typesafe} />
+            <ByokModelPickerNotice forEvaluation={systemOne} />
         </div>
     )
 }
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-App/AI observability/BYOK model picker notice',
-    render: ({ keyState, modelsFail, typesafe }) => {
+    render: ({ keyState, modelsFail, systemOne }) => {
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/llm_analytics/provider_keys/': {
@@ -50,7 +50,7 @@ const meta: Meta<StoryArgs> = {
                         ? [
                               {
                                   ...providerKey(keyState),
-                                  ...(typesafe ? { provider: 'typesafe', name: 'TypeSafe' } : {}),
+                                  ...(systemOne ? { provider: 'system_one', name: 'System One' } : {}),
                               },
                           ]
                         : [],
@@ -62,13 +62,13 @@ const meta: Meta<StoryArgs> = {
                         ? [500, { error: 'Internal error' }]
                         : [
                               200,
-                              typesafe
+                              systemOne
                                   ? [
                                         {
-                                            id: 'jev-1.13.0',
-                                            name: 'jev-1.13.0',
-                                            provider: 'TypeSafe',
-                                            is_recommended: true,
+                                            id: 'example-judge-v1',
+                                            name: 'example-judge-v1',
+                                            provider: 'System One',
+                                            is_recommended: false,
                                         },
                                     ]
                                   : [],
@@ -76,7 +76,7 @@ const meta: Meta<StoryArgs> = {
             },
         })
 
-        return <PickerWithNotice typesafe={typesafe} />
+        return <PickerWithNotice systemOne={systemOne} />
     },
 }
 export default meta
@@ -93,6 +93,6 @@ export const ModelsFailedToLoad: StoryObj<StoryArgs> = {
     args: { keyState: 'ok', modelsFail: true },
 }
 
-export const Jev: StoryObj<StoryArgs> = {
-    args: { keyState: 'ok', modelsFail: false, typesafe: true },
+export const SystemOne: StoryObj<StoryArgs> = {
+    args: { keyState: 'ok', modelsFail: false, systemOne: true },
 }

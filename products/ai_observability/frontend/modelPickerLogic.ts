@@ -347,13 +347,13 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         hasByokKeys: [
             (s) => [s.providerKeys],
             (providerKeys: LLMProviderKey[]): boolean =>
-                providerKeys.some((k) => k.state === 'ok' && k.provider !== 'typesafe'),
+                providerKeys.some((k) => k.state === 'ok' && k.provider !== 'system_one'),
         ],
         generativeByokModels: [
             (s) => [s.byokModels, s.providerKeys],
             (models: ModelOption[], keys: LLMProviderKey[]): ModelOption[] =>
                 models.filter(
-                    (model) => !keys.some((key) => key.id === model.providerKeyId && key.provider === 'typesafe')
+                    (model) => !keys.some((key) => key.id === model.providerKeyId && key.provider === 'system_one')
                 ),
         ],
         playgroundProviderModelGroups: [
@@ -421,7 +421,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         providerModelGroups: [
             (s) => [s.evaluationProviderModelGroups],
             (groups: ProviderModelGroup[]): ProviderModelGroup[] =>
-                groups.filter((group) => group.provider !== 'typesafe'),
+                groups.filter((group) => group.provider !== 'system_one'),
         ],
         evaluationModelNotice: [
             (s) => [
@@ -462,7 +462,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 providerModelGroups: ProviderModelGroup[]
             ): ByokModelNotice | null => {
                 return getByokModelNotice(
-                    providerKeys.filter((key) => key.provider !== 'typesafe'),
+                    providerKeys.filter((key) => key.provider !== 'system_one'),
                     providerKeysLoading,
                     byokModelsLoading,
                     failedByokProviderKeyIds,

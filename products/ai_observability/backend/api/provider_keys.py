@@ -71,8 +71,8 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
 
 def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    if provider == LLMProvider.TYPESAFE and not system_one_evaluations_enabled(
-        team_id, base_url=kwargs.get("base_url", SystemOneClient.BASE_URL)
+    if provider == LLMProvider.SYSTEM_ONE and not system_one_evaluations_enabled(
+        team_id, base_url=kwargs.get("base_url", "")
     ):
         raise exceptions.PermissionDenied("System One evaluations are not available for this project.")
     try:
@@ -97,13 +97,13 @@ def _validation_error_field(provider: str, error_message: str | None) -> str:
 class LLMProviderKeySerializer(serializers.ModelSerializer):
     api_key = serializers.CharField(write_only=True, required=False, allow_blank=True)
     base_url = serializers.URLField(
-        write_only=True, required=False, help_text="System One API base URL, including /v1. Defaults to TypeSafe."
+        write_only=True, required=False, help_text="System One API base URL, including /v1."
     )
     system_one_model = serializers.CharField(
         write_only=True,
         required=False,
         max_length=100,
-        help_text="Model ID served by the System One endpoint. Defaults to jev-1.13.0.",
+        help_text="Model ID served by the System One endpoint.",
     )
     base_url_display = serializers.SerializerMethodField(help_text="Configured System One base URL.")
     system_one_model_display = serializers.SerializerMethodField(help_text="Configured System One model ID.")
@@ -146,16 +146,10 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return mask_key_value(obj.encrypted_config.get("api_key", ""))
 
     def get_base_url_display(self, obj: LLMProviderKey) -> str | None:
-        return (
-            obj.encrypted_config.get("base_url", SystemOneClient.BASE_URL)
-            if obj.provider == LLMProvider.TYPESAFE
-            else None
-        )
+        return obj.encrypted_config.get("base_url") if obj.provider == LLMProvider.SYSTEM_ONE else None
 
     def get_system_one_model_display(self, obj: LLMProviderKey) -> str | None:
-        return (
-            obj.encrypted_config.get("model", SystemOneClient.MODEL) if obj.provider == LLMProvider.TYPESAFE else None
-        )
+        return obj.encrypted_config.get("model") if obj.provider == LLMProvider.SYSTEM_ONE else None
 
     def validate_base_url(self, value: str) -> str:
         try:
@@ -197,7 +191,11 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"api_key": "API key is required when creating a new provider key."})
 
         provider = data.get("provider", getattr(self.instance, "provider", None))
-        if provider != LLMProvider.TYPESAFE:
+        if provider == LLMProvider.SYSTEM_ONE and self.instance is None:
+            for field in ("base_url", "system_one_model"):
+                if not data.get(field):
+                    raise serializers.ValidationError({field: "This field is required for System One connections."})
+        if provider != LLMProvider.SYSTEM_ONE:
             if "base_url" in data or "system_one_model" in data:
                 raise serializers.ValidationError(
                     {"base_url": "These settings are only available for System One connections."}
@@ -205,14 +203,14 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             if data.get("api_key") == "":
                 raise serializers.ValidationError({"api_key": "An API key is required."})
         elif self.instance is not None and "base_url" in data:
-            current_url = self.instance.encrypted_config.get("base_url", SystemOneClient.BASE_URL)
+            current_url = self.instance.encrypted_config.get("base_url")
             if data["base_url"] != current_url and "api_key" not in data:
                 raise serializers.ValidationError(
                     {"api_key": "Enter the credential for the new endpoint, or an empty value for no authentication."}
                 )
         if self.instance is not None and provider != self.instance.provider:
             raise serializers.ValidationError({"provider": "A key's provider cannot change. Create a new key instead."})
-        if provider == LLMProvider.TYPESAFE and data.get("set_as_active"):
+        if provider == LLMProvider.SYSTEM_ONE and data.get("set_as_active"):
             raise serializers.ValidationError(
                 {"set_as_active": "Select the System One connection on an evaluation instead."}
             )
@@ -231,8 +229,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
     def _system_one_config(self, validated_data: dict, current: dict | None = None) -> dict:
         config = dict(current or {})
-        config["base_url"] = validated_data.pop("base_url", config.get("base_url", SystemOneClient.BASE_URL))
-        config["model"] = validated_data.pop("system_one_model", config.get("model", SystemOneClient.MODEL))
+        config["base_url"] = validated_data.pop("base_url", config.get("base_url"))
+        config["model"] = validated_data.pop("system_one_model", config.get("model"))
         return config
 
     def _pop_azure_kwargs(self, validated_data: dict) -> dict:
@@ -276,7 +274,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
         azure_kwargs = self._normalize_azure_config(provider, azure_kwargs)
 
-        if provider == LLMProvider.TYPESAFE:
+        if provider == LLMProvider.SYSTEM_ONE:
             connection_config = self._system_one_config(validated_data)
             state, error_message = validate_provider_key(provider, api_key or "", team_id=team.id, **connection_config)
             if state != LLMProviderKey.State.OK:
@@ -305,7 +303,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance, validated_data):
-        if instance.provider == LLMProvider.TYPESAFE:
+        if instance.provider == LLMProvider.SYSTEM_ONE:
             if any(field in validated_data for field in ("api_key", "base_url", "system_one_model")):
                 config = self._system_one_config(validated_data, instance.encrypted_config)
                 config["api_key"] = validated_data.pop("api_key", config.get("api_key", ""))
@@ -442,7 +440,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         instance = self.get_object()
         api_key = instance.encrypted_config.get("api_key")
 
-        if not api_key and instance.provider != LLMProvider.TYPESAFE:
+        if not api_key and instance.provider != LLMProvider.SYSTEM_ONE:
             return Response(
                 {"detail": "No API key configured for this provider key."},
                 status=status.HTTP_400_BAD_REQUEST,

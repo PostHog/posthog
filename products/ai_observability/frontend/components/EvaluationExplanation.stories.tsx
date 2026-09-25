@@ -12,10 +12,10 @@ export const Reasoning: StoryObj<typeof EvaluationExplanation> = {
     args: { reasoning: 'The response answers the question and includes a polite greeting.' },
 }
 
-export const Jev: StoryObj<typeof EvaluationExplanation> = {
+export const SystemOne: StoryObj<typeof EvaluationExplanation> = {
     args: { probability: 0.84 },
 }
 
-export const JevZeroProbability: StoryObj<typeof EvaluationExplanation> = {
+export const SystemOneZeroProbability: StoryObj<typeof EvaluationExplanation> = {
     args: { probability: 0 },
 }

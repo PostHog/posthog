@@ -12,8 +12,8 @@ export type LLMProvider = LLMProviderEnumApi
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
-export const DEFAULT_SYSTEM_ONE_BASE_URL: string = 'https://api.typesafe.ai/v1'
-export const DEFAULT_SYSTEM_ONE_MODEL: string = 'jev-1.13.0'
+export const DEFAULT_SYSTEM_ONE_BASE_URL: string = ''
+export const DEFAULT_SYSTEM_ONE_MODEL: string = ''
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
@@ -25,7 +25,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     together_ai: 'Together AI',
     minimax: 'MiniMax',
     zeabur: 'Zeabur AI Hub',
-    typesafe: 'System One (Jev)',
+    system_one: 'System One',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -59,8 +59,8 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
 
     const normalized = provider.trim().toLowerCase()
-    if (normalized === 'system one' || normalized === 'system one (jev)') {
-        return 'typesafe'
+    if (normalized === 'system one') {
+        return 'system_one'
     }
     if (normalized === 'google' || normalized === 'google-ai-studio') {
         return 'gemini'

@@ -45,13 +45,15 @@ describe('modelPickerLogic', () => {
     })
 
     describe('loadByokModels', () => {
-        it.each(['jev-1.13.0', 'custom-model'])(
+        it.each(['example-judge-v1', 'custom-model'])(
             'offers System One model %s only to evaluation model pickers',
             async (model) => {
                 useMocks({
                     get: {
                         '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                            results: [{ id: 'key-typesafe', provider: 'typesafe', name: 'TypeSafe', state: 'ok' }],
+                            results: [
+                                { id: 'key-system-one', provider: 'system_one', name: 'System One', state: 'ok' },
+                            ],
                         },
                         '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
                         '/api/llm_proxy/models/': ({ request }) =>
@@ -62,7 +64,7 @@ describe('modelPickerLogic', () => {
                                           {
                                               id: model,
                                               name: model,
-                                              provider: 'System One (Jev)',
+                                              provider: 'System One',
                                               is_recommended: true,
                                           },
                                       ],

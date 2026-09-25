@@ -20,7 +20,6 @@ from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerial
 from products.ai_observability.backend.api.taggers import TaggerModelConfigurationWriteSerializer
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
-from products.ai_observability.backend.llm.system_one import SystemOneClient
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
@@ -30,11 +29,11 @@ from products.ai_observability.backend.models.taggers import Tagger
 
 class TestProviderKeySerializer(SimpleTestCase):
     @parameterized.expand([(LLMProxyCompletionSerializer,), (TaggerModelConfigurationWriteSerializer,)])
-    def test_typesafe_is_not_a_completion_provider(self, serializer_class: type[serializers.Serializer]) -> None:
+    def test_system_one_is_not_a_completion_provider(self, serializer_class: type[serializers.Serializer]) -> None:
         serializer = serializer_class(
             data={
-                "provider": "typesafe",
-                "model": "jev-1.13.0",
+                "provider": "system_one",
+                "model": "example-judge-v1",
                 "provider_key_id": str(uuid4()),
                 "system": "Reply politely.",
                 "messages": [{"role": "user", "content": "Hello!"}],
@@ -43,23 +42,60 @@ class TestProviderKeySerializer(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("provider", serializer.errors)
 
-    @parameterized.expand([("openai", "typesafe"), ("typesafe", "openai")])
+    @parameterized.expand([("openai", "system_one"), ("system_one", "openai")])
     def test_cannot_change_provider_of_an_existing_key(self, current: str, requested: str) -> None:
         key = LLMProviderKey(provider=current, state="ok", encrypted_config={"api_key": "test-key"})
         serializer = LLMProviderKeySerializer(key, data={"provider": requested}, partial=True)
         self.assertFalse(serializer.is_valid())
         self.assertIn("provider", serializer.errors)
 
-    def test_typesafe_cannot_be_created_as_the_shared_key(self) -> None:
+    def test_system_one_cannot_be_created_as_the_shared_key(self) -> None:
         serializer = LLMProviderKeySerializer(
-            data={"provider": "typesafe", "name": "TypeSafe", "api_key": "test-key", "set_as_active": True}
+            data={
+                "provider": "system_one",
+                "name": "Example connection",
+                "api_key": "example-token",
+                "base_url": "https://decisions.example.com/v1",
+                "system_one_model": "custom-model",
+                "set_as_active": True,
+            }
         )
         self.assertFalse(serializer.is_valid())
         self.assertIn("set_as_active", serializer.errors)
 
-    @parameterized.expand([("https://decisions.example.com/v1", False), (SystemOneClient.BASE_URL, True)])
+    @parameterized.expand([("base_url",), ("system_one_model",)])
+    def test_system_one_connection_requires_endpoint_and_model(self, missing_field: str) -> None:
+        data = {
+            "provider": "system_one",
+            "name": "Example connection",
+            "api_key": "",
+            "base_url": "https://decisions.example.com/v1",
+            "system_one_model": "custom-model",
+        }
+        del data[missing_field]
+        serializer = LLMProviderKeySerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(missing_field, serializer.errors)
+
+    def test_system_one_connection_rejects_hosted_typesafe_endpoint(self) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={
+                "provider": "system_one",
+                "name": "Example connection",
+                "api_key": "example-token",
+                "base_url": "https://api.typesafe.ai/v1",
+                "system_one_model": "example-judge-v1",
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("base_url", serializer.errors)
+
+    @parameterized.expand([("https://other.example.com/v1", False), ("https://decisions.example.com/v1", True)])
     def test_endpoint_change_requires_explicit_credentials(self, base_url: str, valid: bool) -> None:
-        key = LLMProviderKey(provider="typesafe", encrypted_config={"api_key": "example-token"})
+        key = LLMProviderKey(
+            provider="system_one",
+            encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+        )
         serializer = LLMProviderKeySerializer(key, data={"base_url": base_url}, partial=True)
         self.assertEqual(serializer.is_valid(), valid, serializer.errors)
 
@@ -127,7 +163,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         gateway_url = "https://ai-gateway.us.posthog.com/v1"
         key = LLMProviderKey.objects.create(
             team=self.team,
-            provider="typesafe",
+            provider="system_one",
             name="Example connection",
             encrypted_config={"api_key": "example-token", "base_url": gateway_url},
             created_by=self.user,
@@ -145,10 +181,11 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 response = self.client.post(
                     f"{base_url}provider_keys/",
                     {
-                        "provider": "typesafe",
+                        "provider": "system_one",
                         "name": "Example connection",
                         "api_key": "example-token",
                         "base_url": gateway_url,
+                        "system_one_model": "custom-model",
                     },
                 )
             elif operation == "update":
@@ -157,7 +194,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 response = self.client.post(f"{base_url}provider_keys/{key.id}/validate/")
             else:
                 response = self.client.post(
-                    f"{base_url}provider_key_validations/", {"provider": "typesafe", "api_key": "example-token"}
+                    f"{base_url}provider_key_validations/", {"provider": "system_one", "api_key": "example-token"}
                 )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
         request.assert_not_called()
@@ -169,14 +206,23 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @parameterized.expand([("openai",), ("typesafe",)])
+    @parameterized.expand([("openai",), ("system_one",)])
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key(self, provider: str, mock_validate: Mock) -> None:
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
-            {"provider": provider, "name": "My Key", "api_key": "sk-test-key-12345"},
+            {
+                "provider": provider,
+                "name": "My Key",
+                "api_key": "sk-test-key-12345",
+                **(
+                    {"base_url": "https://decisions.example.com/v1", "system_one_model": "custom-model"}
+                    if provider == "system_one"
+                    else {}
+                ),
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(LLMProviderKey.objects.count(), 1)
@@ -192,7 +238,9 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
         self.assertNotIn("api_key", response.data)
         expected_config = (
-            {"base_url": SystemOneClient.BASE_URL, "model": SystemOneClient.MODEL} if provider == "typesafe" else {}
+            {"base_url": "https://decisions.example.com/v1", "model": "custom-model"}
+            if provider == "system_one"
+            else {}
         )
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
 
@@ -213,7 +261,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.post(
             url,
             {
-                "provider": "typesafe",
+                "provider": "system_one",
                 "name": "Custom",
                 "api_key": "",
                 "base_url": "https://decisions.example.com/v1/",
@@ -223,8 +271,8 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["base_url_display"], "https://decisions.example.com/v1")
         key = LLMProviderKey.objects.get(id=response.data["id"])
-        self.assertEqual(Client.list_models("typesafe", **key.provider_extra_kwargs()), ["custom-model"])
-        model_config = LLMModelConfiguration(provider="typesafe", model="custom-model", provider_key=key)
+        self.assertEqual(Client.list_models("system_one", **key.provider_extra_kwargs()), ["custom-model"])
+        model_config = LLMModelConfiguration(provider="system_one", model="custom-model", provider_key=key)
         self.assertEqual(model_config.get_available_models(), ["custom-model"])
         self.assertNotIn("Authorization", request.call_args.kwargs["headers"])
         request.reset_mock()

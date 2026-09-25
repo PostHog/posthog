@@ -67,7 +67,7 @@ def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
 
 
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
-    "typesafe": "System One (Jev)",
+    "system_one": "System One",
     "openai": "OpenAI",
     "anthropic": "Anthropic",
     "gemini": "Gemini",
@@ -194,7 +194,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             raise ValueError("Provider key not found")
 
         api_key = key.encrypted_config.get("api_key")
-        if not api_key and key.provider != LLMProvider.TYPESAFE:
+        if not api_key and key.provider != LLMProvider.SYSTEM_ONE:
             raise ValueError("No API key configured for this provider key")
 
         if touch_last_used:

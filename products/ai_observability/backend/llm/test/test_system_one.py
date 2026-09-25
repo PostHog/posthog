@@ -38,10 +38,11 @@ def isolated_egress_budget() -> Iterator[None]:
 @pytest.mark.parametrize(
     "base_url,internal,flag,enabled",
     [
-        (SystemOneClient.BASE_URL, False, True, True),
+        ("https://api.typesafe.ai/v1", False, True, False),
+        ("", False, True, False),
         ("https://decisions.example.com/v1", False, True, True),
         ("https://decisions.example.com/v1", False, False, False),
-        (SystemOneClient.BASE_URL, False, None, False),
+        ("https://api.typesafe.ai/v1", False, None, False),
         ("https://ai-gateway.us.posthog.com/v1", False, True, False),
         ("https://ai-gateway.eu.posthog.com/v1", False, True, False),
         ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", False, True, False),
@@ -64,27 +65,29 @@ def test_system_one_connections_require_flag_and_reserve_posthog_gateway_for_int
 
 
 @pytest.mark.parametrize("status, expected_state", [(200, "ok"), (401, "invalid"), (403, "invalid"), (500, "error")])
-def test_typesafe_key_validation(status: int, expected_state: str) -> None:
+def test_system_one_key_validation(status: int, expected_state: str) -> None:
     response = Mock(status_code=status)
     response.json.return_value = {
-        "model": "jev-1.13.0",
+        "model": "example-judge-v1",
         "answers": {"verdict": {"type": "noul", "noul": 0.9}, "applicable": {"type": "noul", "noul": 0.9}},
         "usage": {"input_tokens": 12, "output_tokens": 0},
     }
     with patch("requests.Session.request", return_value=response) as request:
-        state, message = Client.validate_key("typesafe", "test-typesafe-key")
+        state, message = Client.validate_key(
+            "system_one", "example-token", base_url="https://decisions.example.com/v1", model="custom-model"
+        )
 
     assert state == expected_state
     assert (message is None) == (expected_state == "ok")
-    assert request.call_args.args == ("POST", "https://api.typesafe.ai/v1/systemone")
-    assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer test-typesafe-key"
+    assert request.call_args.args == ("POST", "https://decisions.example.com/v1/systemone")
+    assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer example-token"
 
 
 @pytest.mark.parametrize("probability", [-0.1, 1.1, float("nan"), float("inf"), "0.8", True, None])
-def test_typesafe_rejects_invalid_probabilities(probability: object) -> None:
+def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
     response = Mock(status_code=200)
     response.json.return_value = {
-        "model": "jev-1.13.0",
+        "model": "example-judge-v1",
         "answers": {"verdict": {"type": "noul", "noul": probability}},
         "usage": {"input_tokens": 120, "output_tokens": 10},
     }
@@ -93,23 +96,25 @@ def test_typesafe_rejects_invalid_probabilities(probability: object) -> None:
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
-            api_key="test-typesafe-key",
-            model="jev-1.13.0",
+            api_key="example-token",
+            base_url="https://decisions.example.com/v1",
+            model="example-judge-v1",
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Is the response polite?")},
         )
 
 
 @pytest.mark.parametrize("status", [429, 503, 529])
-def test_typesafe_rate_limits_are_retryable(status: int) -> None:
+def test_system_one_rate_limits_are_retryable(status: int) -> None:
     response = Mock(status_code=status, headers={"Retry-After": "15"})
     with (
         patch("requests.Session.request", return_value=response),
         pytest.raises(SystemOneRateLimitError) as error,
     ):
         SystemOneClient.evaluate(
-            api_key="test-typesafe-key",
-            model="jev-1.13.0",
+            api_key="example-token",
+            base_url="https://decisions.example.com/v1",
+            model="example-judge-v1",
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Is the response polite?")},
         )
@@ -129,14 +134,15 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
 ) -> None:
     response = Mock(status_code=200)
     response.json.return_value = {
-        "model": "jev-1.13.0",
+        "model": "example-judge-v1",
         "answers": {"verdict": {"type": "noul", "noul": 0.9}},
         "usage": usage,
     }
     with patch("requests.Session.request", return_value=response):
         result = SystemOneClient.evaluate(
             api_key="example-token",
-            model="jev-1.13.0",
+            base_url="https://decisions.example.com/v1",
+            model="example-judge-v1",
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Polite?")},
         )
@@ -145,23 +151,30 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
     assert result.output_tokens == expected_output
 
 
-@override_settings(TYPESAFE_API_KEY="example-instance-key")
-def test_typesafe_requires_a_key() -> None:
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://api.typesafe.ai/v1", "https://API.TYPESAFE.AI.:443/v1", "https://ａｐｉ.typesafe.ai/v1"],
+)
+def test_official_endpoint_is_blocked(base_url: str) -> None:
     with (
         patch("requests.Session.request") as request,
-        pytest.raises(AuthenticationError),
+        pytest.raises(ValueError, match="hosted endpoint is not available"),
     ):
         SystemOneClient.evaluate(
-            api_key="", model="jev-1.13.0", state="Hello!", questions={"verdict": NoulQuestion(instructions="Polite?")}
+            api_key="example-token",
+            base_url=base_url,
+            model="example-judge-v1",
+            state="Hello!",
+            questions={"verdict": NoulQuestion(instructions="Polite?")},
         )
     request.assert_not_called()
 
 
 @pytest.mark.parametrize("answers", [{}, {"verdict": {"type": "noul", "noul": 0.9}}])
-def test_typesafe_requires_every_requested_answer(answers: dict[str, object]) -> None:
+def test_system_one_requires_every_requested_answer(answers: dict[str, object]) -> None:
     response = Mock(status_code=200)
     response.json.return_value = {
-        "model": "jev-1.13.0",
+        "model": "example-judge-v1",
         "answers": answers,
         "usage": {"input_tokens": 12, "output_tokens": 2},
     }
@@ -170,8 +183,9 @@ def test_typesafe_requires_every_requested_answer(answers: dict[str, object]) ->
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
-            api_key="test-typesafe-key",
-            model="jev-1.13.0",
+            api_key="example-token",
+            base_url="https://decisions.example.com/v1",
+            model="example-judge-v1",
             state="Hello!",
             questions={
                 "verdict": NoulQuestion(instructions="Polite?"),
@@ -191,15 +205,16 @@ def test_typesafe_requires_every_requested_answer(answers: dict[str, object]) ->
         (422, "Invalid question", SystemOneRequestRejectedError),
     ],
 )
-def test_typesafe_preserves_error_categories(status: int, message: str, error_type: type[Exception]) -> None:
+def test_system_one_preserves_error_categories(status: int, message: str, error_type: type[Exception]) -> None:
     response = Mock(status_code=status, text=message)
     with (
         patch("requests.Session.request", return_value=response),
         pytest.raises(error_type),
     ):
         SystemOneClient.evaluate(
-            api_key="test-typesafe-key",
-            model="jev-1.13.0",
+            api_key="example-token",
+            base_url="https://decisions.example.com/v1",
+            model="example-judge-v1",
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Polite?")},
         )
@@ -252,7 +267,7 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
 )
 def test_invalid_endpoint_is_rejected_before_sending_credentials(base_url: str) -> None:
     with patch("requests.Session.request") as request:
-        state, _ = SystemOneClient.validate_key("example-token", base_url=base_url)
+        state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"
     request.assert_not_called()
 
@@ -263,6 +278,6 @@ def test_private_endpoint_is_blocked() -> None:
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("127.0.0.1")}),
         patch("requests.Session.request") as request,
     ):
-        state, _ = SystemOneClient.validate_key("example-token", base_url="https://127.0.0.1/v1")
+        state, _ = SystemOneClient.validate_key("example-token", base_url="https://127.0.0.1/v1", model="custom-model")
     assert state == "error"
     request.assert_not_called()

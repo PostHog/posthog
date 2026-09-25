@@ -98,9 +98,9 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
     "connection_config,base_url,model,usage",
     [
         (
-            {"api_key": "test-typesafe-key"},
-            "https://api.typesafe.ai/v1",
-            "jev-1.13.0",
+            {"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+            "https://decisions.example.com/v1",
+            "example-judge-v1",
             {"input_tokens": 120, "output_tokens": 10},
         ),
         (
@@ -109,14 +109,19 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
             "custom-model",
             {"input_tokens": 120},
         ),
-        ({"api_key": "example-token"}, "https://api.typesafe.ai/v1", "jev-1.13.0", {}),
+        (
+            {"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+            "https://decisions.example.com/v1",
+            "example-judge-v1",
+            {},
+        ),
     ],
 )
 @pytest.mark.parametrize(
     "probability,applicability,allows_na,verdict",
     [(0.49, 1.0, False, False), (0.5, 1.0, False, True), (0.9, 0.1, True, None), (0.0, 0.9, True, False)],
 )
-def test_typesafe_judge_emits_boolean_probability_without_reasoning(
+def test_system_one_judge_emits_boolean_probability_without_reasoning(
     probability: float,
     applicability: float,
     allows_na: bool,
@@ -126,11 +131,11 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     model: str,
     usage: dict[str, int],
 ) -> None:
-    key = MagicMock(provider="typesafe", encrypted_config=connection_config)
-    resolved = MagicMock(provider="typesafe", model=model, provider_key=key, is_byok=True)
+    key = MagicMock(provider="system_one", encrypted_config=connection_config)
+    resolved = MagicMock(provider="system_one", model=model, provider_key=key, is_byok=True)
     response = MagicMock(status_code=200)
     response.json.return_value = {
-        "model": "jev-1.13.0",
+        "model": "example-judge-v1",
         "answers": {
             "verdict": {"type": "noul", "noul": probability},
             "applicable": {"type": "noul", "noul": applicability},
@@ -172,7 +177,7 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     assert properties["$ai_input_tokens"] == usage.get("input_tokens")
     assert properties["$ai_output_tokens"] == usage.get("output_tokens")
     assert properties["$ai_evaluation_probability"] == probability
-    assert properties["$ai_model"] == "jev-1.13.0"
+    assert properties["$ai_model"] == "example-judge-v1"
     assert properties["$ai_evaluation_key_type"] == "byok"
 
 
@@ -187,7 +192,7 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
         patch("requests.Session.request") as request,
         pytest.raises(ApplicationError) as error,
     ):
-        spec.return_value.resolve.return_value = MagicMock(provider="typesafe")
+        spec.return_value.resolve.return_value = MagicMock(provider="system_one")
         call_llm_judge(
             evaluation={"team_id": 1, "output_type": "numeric"},
             system_prompt="",
@@ -213,10 +218,10 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
     ):
         teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = MagicMock(
-            provider="typesafe",
+            provider="system_one",
             model="custom-model",
             provider_key=MagicMock(
-                provider="typesafe", encrypted_config={"base_url": base_url, "api_key": "example-token"}
+                provider="system_one", encrypted_config={"base_url": base_url, "api_key": "example-token"}
             ),
             is_byok=True,
         )
@@ -232,7 +237,10 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
 
 @pytest.mark.parametrize("status", [301, 400, 422])
 def test_system_one_rejected_requests_disable_without_model_cost_attribution(status: int) -> None:
-    key = MagicMock(provider="typesafe", encrypted_config={"api_key": "example-token"})
+    key = MagicMock(
+        provider="system_one",
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
@@ -246,7 +254,7 @@ def test_system_one_rejected_requests_disable_without_model_cost_attribution(sta
         ),
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider="typesafe", model="jev-1.13.0", provider_key=key, is_byok=True
+            provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
         )
         result = call_llm_judge(
             evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
@@ -263,8 +271,11 @@ def test_system_one_rejected_requests_disable_without_model_cost_attribution(sta
 
 
 @pytest.mark.parametrize("budget_granted", [True, False])
-def test_typesafe_rate_limit_retries_without_disabling_the_evaluation(budget_granted: bool) -> None:
-    key = MagicMock(provider="typesafe", encrypted_config={"api_key": "test-typesafe-key"})
+def test_system_one_rate_limit_retries_without_disabling_the_evaluation(budget_granted: bool) -> None:
+    key = MagicMock(
+        provider="system_one",
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=budget_granted),
@@ -279,7 +290,7 @@ def test_typesafe_rate_limit_retries_without_disabling_the_evaluation(budget_gra
         pytest.raises(ApplicationError) as error,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider="typesafe", model="jev-1.13.0", provider_key=key, is_byok=True
+            provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
         )
         call_llm_judge(
             evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},

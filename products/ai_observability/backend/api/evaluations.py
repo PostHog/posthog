@@ -316,7 +316,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
         errors = {field: "This field is required." for field in ("provider", "model") if field not in data}
         if errors:
             raise serializers.ValidationError(errors, code="required")
-        if data["provider"] == LLMProvider.TYPESAFE:
+        if data["provider"] == LLMProvider.SYSTEM_ONE:
             if not data.get("provider_key_id"):
                 raise serializers.ValidationError(
                     {"provider_key_id": "Select a System One connection for this evaluation."}
@@ -516,7 +516,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if isinstance(model_configuration, dict)
             else getattr(model_configuration, "provider", None)
         )
-        if model_provider == LLMProvider.TYPESAFE and output_type != "boolean":
+        if model_provider == LLMProvider.SYSTEM_ONE and output_type != "boolean":
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
             )

@@ -1,4 +1,7 @@
-import { LLM_PROVIDER_SELECT_OPTIONS } from './LLMProviderIcon'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from './LLMProviderIcon'
 import { LLM_PROVIDER_LABELS } from './settings/llmProviderKeysLogic'
 
 describe('LLM_PROVIDER_SELECT_OPTIONS', () => {
@@ -9,5 +12,10 @@ describe('LLM_PROVIDER_SELECT_OPTIONS', () => {
             expect(option.label).toBe(LLM_PROVIDER_LABELS[option.value])
             expect(option.icon).toBeTruthy()
         }
+    })
+
+    it('shows a generic icon for System One', () => {
+        expect(LLM_PROVIDER_LABELS.system_one).toBe('System One')
+        expect(renderToStaticMarkup(createElement(LLMProviderIcon, { provider: 'system_one' }))).toContain('<svg')
     })
 })

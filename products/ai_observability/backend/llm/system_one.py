@@ -9,7 +9,7 @@ from django.conf import settings
 import requests
 
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe.client import TYPESAFE_API_BASE, TypeSafeNotConfigured, TypeSafeRequestFailed
+from posthog.egress.typesafe.client import TypeSafeRequestFailed
 from posthog.egress.typesafe.transport import TypeSafeEgressBudgetExhausted
 from posthog.llm.system_one import JsonValue, NoulQuestion, Question, SystemOneResult
 from posthog.llm.system_one_client import TypeSafeSystemOneClient
@@ -34,7 +34,9 @@ from products.ai_observability.backend.llm.errors import (
 def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
     try:
         host = (urlsplit(base_url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
-    except ValueError:
+    except (ValueError, UnicodeError):
+        return False
+    if not host or host == "typesafe.ai" or host.endswith(".typesafe.ai"):
         return False
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     # Customer connections use their own provider account or deployment, never PostHog's gateway.
@@ -75,9 +77,6 @@ class SystemOneRateLimitError(RateLimitError):
 
 
 class SystemOneClient:
-    MODEL = "jev-1.13.0"
-    BASE_URL = f"{TYPESAFE_API_BASE}/v1"
-
     @staticmethod
     def normalize_base_url(base_url: str) -> str:
         parsed = urlsplit(base_url)
@@ -91,6 +90,12 @@ class SystemOneClient:
             or parsed.fragment
         ):
             raise ValueError("Use an HTTPS base URL without credentials, a query, or a fragment.")
+        try:
+            host = parsed.hostname.encode("idna").decode("ascii").lower().rstrip(".")
+        except UnicodeError as error:
+            raise ValueError("Use a valid HTTPS hostname.") from error
+        if host == "typesafe.ai" or host.endswith(".typesafe.ai"):
+            raise ValueError("This hosted endpoint is not available for evaluations.")
         return base_url.rstrip("/")
 
     @staticmethod
@@ -100,7 +105,7 @@ class SystemOneClient:
         model: str,
         state: JsonValue,
         questions: Mapping[str, Question],
-        base_url: str = BASE_URL,
+        base_url: str,
         priority: Priority = Priority.BATCH,
     ) -> SystemOneResult:
         base_url = SystemOneClient.normalize_base_url(base_url)
@@ -113,8 +118,6 @@ class SystemOneClient:
                 priority=priority,
                 timeout=60,
             ).decide(state=state, questions=questions)
-        except TypeSafeNotConfigured as error:
-            raise AuthenticationError("A TypeSafe API key is required.") from error
         except TypeSafeEgressBudgetExhausted as error:
             raise SystemOneRateLimitError(None) from error
         except SSRFBlockedError as error:
@@ -153,7 +156,7 @@ class SystemOneClient:
             ) from error
 
     @staticmethod
-    def validate_key(api_key: str, *, base_url: str = BASE_URL, model: str = MODEL) -> tuple[str, str | None]:
+    def validate_key(api_key: str, *, base_url: str, model: str) -> tuple[str, str | None]:
         try:
             SystemOneClient.evaluate(
                 api_key=api_key,

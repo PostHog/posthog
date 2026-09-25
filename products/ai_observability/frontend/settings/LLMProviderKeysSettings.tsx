@@ -106,7 +106,7 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'Enter your MiniMax API key'
         case 'zeabur':
             return 'sk-...'
-        case 'typesafe':
+        case 'system_one':
             return 'Enter your endpoint’s bearer token'
     }
 }
@@ -139,7 +139,7 @@ function KeyValidationStatus({
         <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
             <li>Your key will be encrypted and stored securely</li>
             <li>
-                {provider === 'typesafe'
+                {provider === 'system_one'
                     ? 'Model usage is billed by your endpoint provider'
                     : `You pay ${LLM_PROVIDER_LABELS[provider]} directly for model usage`}
             </li>
@@ -182,14 +182,10 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
 
     const isAzure = provider === 'azure_openai'
     const keyValidated = preValidationResult?.state === 'ok'
-    const isSystemOne = provider === 'typesafe'
+    const isSystemOne = provider === 'system_one'
     const isValid =
         name.length > 0 &&
-        (isSystemOne
-            ? systemOneBaseUrl.length > 0 &&
-              systemOneModel.length > 0 &&
-              (apiKey.length > 0 || systemOneBaseUrl !== DEFAULT_SYSTEM_ONE_BASE_URL)
-            : apiKey.length > 0) &&
+        (isSystemOne ? systemOneBaseUrl.length > 0 && systemOneModel.length > 0 : apiKey.length > 0) &&
         (!isAzure || azureEndpoint.length > 0)
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const azureErrorField = isAzure && validationFailed ? azureErrorFieldFromResult(preValidationResult) : null
@@ -215,7 +211,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     provider,
                     name,
                     api_key: apiKey,
-                    set_as_active: provider !== 'typesafe' && !evaluationConfig?.active_provider_key,
+                    set_as_active: provider !== 'system_one' && !evaluationConfig?.active_provider_key,
                 }
                 if (isAzure) {
                     payload.azure_endpoint = azureEndpoint
@@ -337,7 +333,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         onChange={handleProviderChange}
                         options={LLM_PROVIDER_SELECT_OPTIONS.filter(
                             ({ value }) =>
-                                value !== 'typesafe' ||
+                                value !== 'system_one' ||
                                 featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] === true
                         )}
                         className="mt-1"
@@ -435,7 +431,7 @@ function EditKeyModal({
     const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
     const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation } = useActions(llmProviderKeysLogic)
     const isAzureEdit = keyToEdit.provider === 'azure_openai'
-    const isSystemOne = keyToEdit.provider === 'typesafe'
+    const isSystemOne = keyToEdit.provider === 'system_one'
     const endpointChanged = systemOneBaseUrl !== (keyToEdit.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL)
 
     const [name, setName] = useState(keyToEdit.name)

@@ -117,18 +117,18 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True)
         with self.assertRaisesMessage(ValidationError, "Select a model that supports this evaluation output type"):
-            serializer.validate({"model_configuration": {"provider": "typesafe", "model": "custom-model"}})
+            serializer.validate({"model_configuration": {"provider": "system_one", "model": "custom-model"}})
 
     @parameterized.expand(
         [
-            ("missing_key", "jev-1.13.0", None, False),
+            ("missing_key", "example-judge-v1", None, False),
             ("custom_model", "other-model", str(uuid4()), True),
-            ("configured", "jev-1.13.0", str(uuid4()), True),
+            ("configured", "example-judge-v1", str(uuid4()), True),
         ]
     )
     def test_system_one_requires_explicit_key(self, _name: str, model: str, key_id: str | None, valid: bool) -> None:
         serializer = ModelConfigurationSerializer(
-            data={"provider": "typesafe", "model": model, "provider_key_id": key_id}
+            data={"provider": "system_one", "model": model, "provider_key_id": key_id}
         )
         self.assertEqual(serializer.is_valid(), valid, serializer.errors)
 
@@ -300,7 +300,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @parameterized.expand([("openai", "gpt-5-mini"), ("typesafe", "jev-1.13.0")])
+    @parameterized.expand([("openai", "gpt-5-mini"), ("system_one", "example-judge-v1")])
     def test_can_create_evaluation_config(self, provider: str, model: str) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -320,7 +320,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "enabled": True,
                 "evaluation_type": "llm_judge",
                 "model_configuration": {"provider": provider, "model": model, "provider_key_id": str(key.id)}
-                if provider == "typesafe"
+                if provider == "system_one"
                 else _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",

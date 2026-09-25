@@ -44,17 +44,17 @@ Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_
 System One-compatible models are available under the existing LLM judge option.
 The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
 Deploy the ingestion and evaluation worker changes before enabling the flag.
-Customers configure their own TypeSafe key or a compatible deployment with its own authentication.
-Evaluation connections never fall back to an instance TypeSafe key or gateway credential.
+Projects configure a System One-compatible deployment and its authentication.
+Evaluation connections never fall back to an instance credential or gateway configuration.
 PostHog's regional AI gateway endpoints additionally require an organization in `POSTHOG_INTERNAL_ORG_IDS`; customer projects cannot use those endpoints.
 Connection validation and every evaluation check these gates; an absent flag or failed flag lookup blocks the call.
 Turning the flag off stops subsequent runs, including queued work, without disabling the saved evaluation.
-Keep the experimental flag limited to staff projects until customer rollout meets the [TypeSafe usage policy](../../posthog/egress/typesafe/README.md#usage-policy).
-Add a connection under **System One (Jev)** in provider key settings.
-The default endpoint is TypeSafe's `https://api.typesafe.ai/v1`, with model `jev-1.13.0` and a TypeSafe API key.
-Advanced configuration accepts a different public HTTPS base URL and model ID for compatible services.
+Keep the experimental flag limited to staff projects during rollout.
+Add a connection under **System One** in provider key settings.
+Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
+TypeSafe's hosted endpoint is not supported by this integration.
 The client appends `/systemone` to the base URL and sends the API key as a bearer token.
-An empty key selects no authentication for a custom endpoint; TypeSafe requires a key.
+An empty key selects no authentication.
 Changing the endpoint requires entering its credential again, or explicitly choosing no authentication, so an existing key is not forwarded to a new host.
 Private network destinations and redirects are blocked by the shared DNS-pinned HTTP transport.
 Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data.
@@ -73,7 +73,7 @@ For boolean evaluations, the prompt becomes a [Noul question](https://docs.types
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
 The raw probability is stored in `$ai_evaluation_probability`, with available token usage and the resolved model version.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
-Ingestion estimates cost from the reported model and token usage using the existing pricing catalog, including Jev 1.13.0.
+Ingestion estimates cost from the reported model and token usage when the model appears in the existing pricing catalog.
 Models without a catalog match retain their usage with cost left unknown.
 A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.
 
@@ -88,7 +88,7 @@ If retries fail, the run fails and the evaluation stays enabled.
 Blocked endpoints and rejected requests disable the evaluation and mark the connection for revalidation, without recording model usage.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
-See TypeSafe's [API reference](https://docs.typesafe.ai/api) and [model limits and pricing](https://docs.typesafe.ai/models).
+See TypeSafe's [API reference](https://docs.typesafe.ai/api) for the System One protocol.
 
 ## Model output limits
 

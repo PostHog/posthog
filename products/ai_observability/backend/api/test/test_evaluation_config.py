@@ -36,13 +36,13 @@ def _setup_team():
 
 
 class TestEvaluationConfigViewSet(APIBaseTest):
-    def test_typesafe_cannot_become_the_shared_active_key(self) -> None:
+    def test_system_one_cannot_become_the_shared_active_key(self) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
-            provider="typesafe",
-            name="TypeSafe",
+            provider="system_one",
+            name="System One",
             state="ok",
-            encrypted_config={"api_key": "test-typesafe-key"},
+            encrypted_config={"api_key": "example-token"},
         )
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/set_active_key/", {"key_id": str(key.id)}
