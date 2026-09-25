@@ -15,7 +15,7 @@ export function approximateNextAlertRun(
     timezone: string,
     scheduleStartTime: string | null | undefined = null,
     now: Dayjs = dayjs()
-): Dayjs {
+): { earliest: Dayjs; latest: Dayjs } {
     let localNow: Dayjs
     try {
         localNow = now.tz(timezone)
@@ -42,22 +42,38 @@ export function approximateNextAlertRun(
         return candidate
     }
 
+    if (interval === AlertCalculationInterval.REAL_TIME) {
+        const nextRun = localNow.add(2, 'minutes')
+        return { earliest: nextRun, latest: nextRun }
+    }
+    if (interval === AlertCalculationInterval.EVERY_15_MINUTES || interval === AlertCalculationInterval.HOURLY) {
+        const cadence = interval === AlertCalculationInterval.EVERY_15_MINUTES ? 15 : 60
+        const customRun = nextRunFromScheduleStartMinute(cadence)
+        if (customRun) {
+            return { earliest: customRun, latest: customRun }
+        }
+        const anchor = localNow.startOf('minute').add(cadence - (localNow.minute() % cadence), 'minutes')
+        return {
+            earliest: anchor.add(cadence === 15 ? 1 : 2, 'minutes'),
+            latest: anchor.add(cadence === 15 ? 3 : 13, 'minutes'),
+        }
+    }
+
+    let anchor: Dayjs
     switch (interval) {
-        case AlertCalculationInterval.REAL_TIME:
-            return localNow.add(2, 'minutes')
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return nextRunFromScheduleStartMinute(15) ?? localNow.add(15, 'minutes')
-        case AlertCalculationInterval.HOURLY:
-            return nextRunFromScheduleStartMinute(60) ?? localNow.add(1, 'hour')
         case AlertCalculationInterval.DAILY:
-            return calendarAnchor(localNow.add(1, 'day'), 1, timezone)
+            anchor = calendarAnchor(localNow.add(1, 'day'), 1, timezone)
+            break
         case AlertCalculationInterval.WEEKLY: {
             const daysUntilMonday = localNow.day() === 0 ? 1 : 8 - localNow.day()
-            return calendarAnchor(localNow.add(daysUntilMonday, 'days'), 3, timezone)
+            anchor = calendarAnchor(localNow.add(daysUntilMonday, 'days'), 3, timezone)
+            break
         }
         case AlertCalculationInterval.MONTHLY:
-            return calendarAnchor(localNow.add(1, 'month').startOf('month'), 4, timezone)
+            anchor = calendarAnchor(localNow.add(1, 'month').startOf('month'), 4, timezone)
+            break
     }
+    return { earliest: anchor.add(2, 'minutes'), latest: anchor.add(59, 'minutes') }
 }
 
 export function normalizeScheduleRestrictionForCompare(

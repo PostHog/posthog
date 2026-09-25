@@ -123,18 +123,21 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
         now=datetime.now(pytz.UTC),
         tz_name=alert.team.timezone,
         next_check_at=alert.next_check_at,
+        alert_id=alert.id,
         schedule_start_time=alert.schedule_start_time,
     )
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:
     """
-    Rule by calculation interval
+    Rule by calculation interval. Each alert keeps a stable offset after the interval boundary
+    (alert_check_offset), so alerts that share an interval do not all run at its start.
 
-    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
-    daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
-    weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
-    monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
+    every 15 minutes alerts -> 1 to 3 minutes after each quarter hour
+    hourly alerts -> 2 to 13 minutes after each hour
+    daily alerts -> in the 1am hour of the team's timezone
+    weekly alerts -> in the 3am hour on Monday, in the team's timezone
+    monthly alerts -> in the 4am hour on the first day of the month, in the team's timezone
     """
     candidate = _next_check_time_core(alert)
     return snap_candidate_utc_to_schedule_restriction(alert, candidate)
