@@ -150,18 +150,26 @@ class TestOpenAIAdapterErrorMapping:
             provider="openai",
         )
 
-    def test_402_is_mapped_to_quota_exceeded(self, request_no_structured_output: CompletionRequest):
+    @parameterized.expand(
+        [
+            ("openrouter_out_of_credits", 402, "This request requires more credits, or fewer max_tokens."),
+            ("fireworks_account_suspended", 412, "Account example-account is suspended."),
+        ]
+    )
+    def test_billing_status_errors_map_to_quota_exceeded(self, _name: str, status_code: int, message: str):
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = _make_api_status_error(
-            402, "This request requires more credits, or fewer max_tokens."
+        mock_client.chat.completions.create.side_effect = _make_api_status_error(status_code, message)
+        request = CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
         )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
-            with pytest.raises(QuotaExceededError, match="credits"):
-                adapter.complete(
-                    request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
-                )
+            with pytest.raises(QuotaExceededError, match=message):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
     def test_non_402_status_error_is_not_swallowed(self, request_no_structured_output: CompletionRequest):
         adapter = OpenAIAdapter()

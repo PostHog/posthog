@@ -239,9 +239,10 @@ class OpenAIAdapter:
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
             # OpenRouter returns 402 when the key can't afford the requested
-            # max_tokens (or is out of credits). Retrying never helps — mirror
+            # max_tokens (or is out of credits), and Fireworks returns 412 when
+            # the account is suspended for billing. Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
-            if getattr(error, "status_code", None) == 402:
+            if getattr(error, "status_code", None) in (402, 412):
                 return QuotaExceededError(str(error))
         return None
 
