@@ -16,6 +16,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
+    truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     extract_event_io,
@@ -42,13 +43,18 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderBadRequestError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
-from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    add_line_numbers,
+    reduce_by_uniform_sampling,
+    sanitize_surrogates,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -251,16 +257,22 @@ def _build_errored_trace_result(allows_na: bool, *, output_type: str = "boolean"
     return result
 
 
-def _build_context_window_skip_result(
-    allows_na: bool, *, is_byok: bool, key_id: str | None, output_type: str = "boolean"
+def _build_judge_skip_result(
+    allows_na: bool,
+    *,
+    is_byok: bool,
+    key_id: str | None,
+    skip_reason: str,
+    reasoning: str,
+    output_type: str = "boolean",
 ) -> EvaluationActivityResult:
     """Per-item skip, not a terminal user error that disables the eval."""
     result: EvaluationActivityResult = {
         **build_skipped_evaluation_result(
             output_type=output_type,
             allows_na=allows_na,
-            reasoning="Evaluation input exceeded the model's context window; evaluation skipped.",
-            skip_reason="context_window_exceeded",
+            reasoning=reasoning,
+            skip_reason=skip_reason,
         ),
         "input_tokens": 0,
         "output_tokens": 0,
@@ -442,6 +454,10 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
+    # Content reaches the judge as ingested, so an unpaired surrogate makes the body unencodable.
+    system_prompt = sanitize_surrogates(system_prompt)
+    user_prompt = sanitize_surrogates(user_prompt)
+
     type_config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     response_format = type_config.response_format
 
@@ -566,7 +582,40 @@ def call_llm_judge(
     except ContextWindowExceededError:
         # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
         increment_errors("context_window_exceeded", provider=provider)
-        return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id, output_type=output_type)
+        return _build_judge_skip_result(
+            allows_na,
+            is_byok=is_byok,
+            key_id=key_id,
+            skip_reason="context_window_exceeded",
+            reasoning="Evaluation input exceeded the model's context window; evaluation skipped.",
+            output_type=output_type,
+        )
+
+    except ProviderBadRequestError as e:
+        # Every retry collects the same refusal, and one refusal cannot say whether the model is
+        # wrong for every unit or only for this unit's content. Disabling the evaluation over one
+        # bad unit costs every verdict after it, so watch the metric for the systemic case.
+        increment_errors("provider_bad_request", provider=provider)
+        detail = truncate_error_detail(e.detail)
+        logger.warning(
+            "Model provider rejected the judge request",
+            evaluation_id=evaluation["id"],
+            team_id=team_id,
+            provider=provider,
+            model=model,
+            detail=detail,
+        )
+        reasoning = "The model provider rejected this evaluation request; evaluation skipped."
+        if detail:
+            reasoning = f"{reasoning} {detail}"
+        return _build_judge_skip_result(
+            allows_na,
+            is_byok=is_byok,
+            key_id=key_id,
+            skip_reason="provider_bad_request",
+            reasoning=reasoning,
+            output_type=output_type,
+        )
 
     except OutputTokenLimitError as e:
         # Avoid automatic retries of a billed generation; a later backfill can retry it.

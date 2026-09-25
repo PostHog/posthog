@@ -10,6 +10,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderBadRequestError,
 )
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
@@ -204,7 +205,7 @@ class TestAnthropicErrorMapping:
             (
                 "invalid_token_limit",
                 "max_tokens: 8192 > 4096, which is the maximum allowed number of output tokens for this model",
-                anthropic.BadRequestError,
+                ProviderBadRequestError,
                 "The model provider rejected this request: max_tokens: 8192 > 4096, "
                 "which is the maximum allowed number of output tokens for this model",
             ),

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
+    ProviderBadRequestError,
     QuotaExceededError,
     StructuredOutputParseError,
 )
@@ -305,12 +306,16 @@ class TestAnthropicAdapterErrorMapping:
             adapter.complete(self._make_request(), api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
 
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
-    def test_other_bad_request_is_not_swallowed(self, mock_anthropic_cls):
+    def test_other_bad_request_is_mapped_to_provider_bad_request(self, mock_anthropic_cls):
+        # The provider's sentence must survive the mapping without the SDK's `Error code: 400`
+        # wrapper around it, because it is the only description of what was wrong.
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = _make_anthropic_bad_request("Request payload is invalid.")
         mock_anthropic_cls.return_value = mock_client
 
         adapter = AnthropicAdapter()
 
-        with pytest.raises(anthropic.BadRequestError, match="Request payload is invalid"):
+        with pytest.raises(ProviderBadRequestError) as excinfo:
             adapter.complete(self._make_request(), api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+
+        assert str(excinfo.value) == "Request payload is invalid."

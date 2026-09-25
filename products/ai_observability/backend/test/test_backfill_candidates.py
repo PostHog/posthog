@@ -234,8 +234,10 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             # A judge response nobody could read may parse on a later run, so the unit is still owed a verdict.
             ("unparsable_response", 4),
             ("output_limit_exceeded", 4),
-            # These two skip the same way every run, so re-offering them would never produce a verdict.
+            # These three skip the same way every run, so re-offering them would never produce a
+            # verdict. A team that changes the model after a refusal reruns with `rerun_existing`.
             ("context_window_exceeded", 3),
+            ("provider_bad_request", 3),
             ("trace_errored", 3),
         ]
     )

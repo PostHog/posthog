@@ -21,12 +21,14 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderBadRequestError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
     is_output_limit_error_message,
+    provider_error_detail,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -221,7 +223,8 @@ class AnthropicAdapter:
                 return ContextWindowExceededError(str(error))
             if is_output_limit_error_message(str(error)):
                 return OutputTokenLimitError(str(error))
-            return None
+            # Unmapped, a caller spends its whole retry budget re-sending a refused request.
+            return ProviderBadRequestError(provider_error_detail(error))
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):
                 return QuotaExceededError(str(error))

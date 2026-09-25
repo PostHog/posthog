@@ -29,6 +29,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderBadRequestError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -430,9 +431,36 @@ class TestRunEvaluationWorkflow:
             pytest.param({"allows_na": True}, None, False, id="with_na"),
         ],
     )
+    @pytest.mark.parametrize(
+        "error,expected_skip_reason,expected_reasoning_fragment",
+        [
+            pytest.param(
+                ContextWindowExceededError("prompt is too long: 300000 tokens > 272000 maximum"),
+                "context_window_exceeded",
+                "exceeded the model's context window",
+                id="context_window",
+            ),
+            pytest.param(
+                ProviderBadRequestError("This model cannot be used with the chat completions endpoint."),
+                "provider_bad_request",
+                "This model cannot be used with the chat completions endpoint.",
+                id="provider_bad_request",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_skips_on_context_window_exceeded(
-        self, output_config, expected_verdict, expected_applicable, setup_data, active_key_config
+    def test_execute_llm_judge_activity_skips_instead_of_retrying_a_refused_request(
+        self,
+        error,
+        expected_skip_reason,
+        expected_reasoning_fragment,
+        output_config,
+        expected_verdict,
+        expected_applicable,
+        output_type,
+        setup_data,
+        active_key_config,
     ):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
@@ -442,7 +470,7 @@ class TestRunEvaluationWorkflow:
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
-            "output_type": "boolean",
+            "output_type": output_type,
             "output_config": output_config,
             "team_id": team.id,
         }
@@ -457,15 +485,18 @@ class TestRunEvaluationWorkflow:
         with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
-            mock_client.complete.side_effect = ContextWindowExceededError(
-                "prompt is too long: 300000 tokens > 272000 maximum"
-            )
+            mock_client.complete.side_effect = error
 
             result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         assert result["skipped"] is True
-        assert result["skip_reason"] == "context_window_exceeded"
-        assert result["verdict"] is expected_verdict
+        assert result["skip_reason"] == expected_skip_reason
+        assert expected_reasoning_fragment in result["reasoning"]
+        assert result["result_type"] == output_type
+        if output_type == "numeric":
+            assert "verdict" not in result
+        else:
+            assert result["verdict"] is expected_verdict
         assert result.get("applicable") is expected_applicable
         assert result.get("terminal_user_error") is not True
         assert "model" not in result
@@ -520,6 +551,43 @@ class TestRunEvaluationWorkflow:
         assert result["model"]
         assert result["provider"]
         mock_client.complete.assert_called_once()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_sends_an_encodable_prompt(self, setup_data, active_key_config):
+        # An unpaired surrogate makes the body unencodable, so every attempt fails unrepaired.
+        team = setup_data["team"]
+        evaluation_obj = setup_data["evaluation"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2? \ud83c"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+            mock_response.usage = MagicMock(input_tokens=1, output_tokens=1, total_tokens=1)
+            mock_client.complete.return_value = mock_response
+
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        sent_request = mock_client.complete.call_args.args[0]
+        sent_request.system.encode("utf-8")
+        sent_request.messages[0]["content"].encode("utf-8")
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

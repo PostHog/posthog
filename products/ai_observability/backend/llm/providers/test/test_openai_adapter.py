@@ -15,6 +15,7 @@ from pydantic import BaseModel, ValidationError, model_validator
 from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     OutputTokenLimitError,
+    ProviderBadRequestError,
     QuotaExceededError,
     StructuredOutputParseError,
 )
@@ -107,10 +108,14 @@ def _make_api_status_error(status_code: int, message: str) -> openai.APIStatusEr
     return openai.APIStatusError(message, response=response, body={"error": {"message": message, "code": status_code}})
 
 
-def _make_bad_request_error(message: str) -> openai.BadRequestError:
+def _make_bad_request_error(message: str, detail: str | None = None) -> openai.BadRequestError:
+    # The SDK unwraps the response envelope before it builds the exception, so `body` holds the
+    # inner error object while `str(error)` keeps the `Error code: 400 - {...}` wrapper around it.
+    # Copy that split, otherwise a test can assert a clean detail the adapter never sees.
+    inner = {"message": detail if detail is not None else message}
     request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
-    response = httpx.Response(status_code=400, request=request, json={"error": {"message": message}})
-    return openai.BadRequestError(message, response=response, body={"error": {"message": message}})
+    response = httpx.Response(status_code=400, request=request, json={"error": inner})
+    return openai.BadRequestError(message, response=response, body=inner)
 
 
 class _Verdict(BaseModel):
@@ -222,21 +227,39 @@ class TestOpenAIAdapterErrorMapping:
 
     @parameterized.expand(
         [
-            ("length_finish_reason", _length_finish_reason_error),
+            ("length_finish_reason", _length_finish_reason_error, OutputTokenLimitError, None),
             (
                 "output_limit_400",
                 lambda: _make_bad_request_error(
                     "Error code: 400 - {'error': {'message': 'Could not finish the message because max_tokens "
                     "or model output limit was reached. Please try again with higher max_tokens.'}}"
                 ),
+                OutputTokenLimitError,
+                None,
+            ),
+            (
+                "unsupported_parameter_400",
+                lambda: _make_bad_request_error(
+                    "Error code: 400 - {'error': {'message': 'Unsupported value: temperature does not "
+                    "support 0.7 with this model.'}}",
+                    detail="Unsupported value: temperature does not support 0.7 with this model.",
+                ),
+                ProviderBadRequestError,
+                "Unsupported value: temperature does not support 0.7 with this model.",
             ),
         ]
     )
-    def test_output_limit_failures_map_to_output_token_limit(
-        self, _name: str, make_error: Callable[[], Exception]
+    def test_provider_failures_map_to_the_narrowest_matching_error(
+        self,
+        _name: str,
+        make_error: Callable[[], Exception],
+        expected_error: type[Exception],
+        expected_detail: str | None,
     ) -> None:
-        # Both shapes are one condition — the reply did not fit. One error type keeps them in one
-        # error tracking issue instead of one per provider wording.
+        # The two output-limit shapes are one condition, because the reply did not fit. One error
+        # type keeps them in one error tracking issue instead of one per provider wording. Every
+        # other 400 falls to the residual bucket, which has to stay terminal and carry the
+        # provider's own sentence, because each retry re-sends the request the provider refused.
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = make_error()
@@ -249,8 +272,12 @@ class TestOpenAIAdapterErrorMapping:
         )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
-            with pytest.raises(OutputTokenLimitError):
+            with pytest.raises(expected_error) as excinfo:
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        if expected_detail is not None:
+            assert isinstance(excinfo.value, ProviderBadRequestError)
+            assert excinfo.value.detail == expected_detail
 
 
 class TestOpenAIStreamErrorSurfacing:
@@ -287,12 +314,12 @@ class TestOpenAIStreamErrorSurfacing:
             ("higher_token_setting", "This model does not support higher max_tokens values. Reduce max_tokens."),
         ]
     )
-    def test_unmapped_400_keeps_the_providers_reason_instead_of_telling_the_user_to_retry(
+    def test_refused_400_keeps_the_providers_reason_instead_of_telling_the_user_to_retry(
         self, _name: str, detail: str
     ) -> None:
-        # An unsupported parameter is the most common way a playground run fails, and it has no
-        # branch in the taxonomy. "Try again" would be advice that cannot work, so the provider's
-        # sentence has to come through — without the SDK's `Error code: 400 - {...}` wrapper.
+        # An unsupported parameter is the most common way a playground run fails, and no narrower
+        # branch matches it. "Try again" would be advice that cannot work, so the provider's own
+        # sentence has to come through without the SDK's `Error code: 400 - {...}` wrapper.
         request = CompletionRequest(
             model="gpt-5",
             system="s",
@@ -300,12 +327,9 @@ class TestOpenAIStreamErrorSurfacing:
             provider="openai",
         )
         body = {"error": {"message": detail}}
-        http_request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = openai.BadRequestError(
-            f"Error code: 400 - {body}",
-            response=httpx.Response(status_code=400, request=http_request, json=body),
-            body=body,
+        mock_client.chat.completions.create.side_effect = _make_bad_request_error(
+            f"Error code: 400 - {body}", detail=detail
         )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):

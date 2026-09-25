@@ -25,12 +25,14 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderBadRequestError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
     is_output_limit_error_message,
+    provider_error_detail,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -238,6 +240,10 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
+                # Unmapped, a caller spends its whole retry budget re-sending a refused request.
+                # The SDK raises BadRequestError only for a 400, so the 402 branch below still
+                # sees every OpenRouter credit failure.
+                return ProviderBadRequestError(provider_error_detail(error))
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
