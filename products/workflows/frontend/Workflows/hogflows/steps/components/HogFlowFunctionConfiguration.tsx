@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { EmailTemplaterLogicProps } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -209,7 +210,7 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
     warnings?: Record<string, string>
     emailFieldErrors?: EmailFieldErrors
-    onEmailTemplateApplied?: (templateId: string) => void
+    onEmailTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
 }): JSX.Element {
     const { workflow, logicProps, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     // The test panel loads a recent matching event; reuse it so autocomplete offers the property

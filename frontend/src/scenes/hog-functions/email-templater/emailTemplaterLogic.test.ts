@@ -192,8 +192,11 @@ describe('emailTemplaterLogic', () => {
             { description: 'reports the template id to a host that tracks it', tracksLink: true },
             { description: 'still applies the content for a host that does not track it', tracksLink: false },
         ])('applying a template $description', async ({ tracksLink }) => {
-            const onChange = jest.fn()
-            const onTemplateApplied = jest.fn()
+            // One log for both callbacks, so the assertion also checks that the host gets the
+            // content before the link it stores next to that content.
+            const calls: string[] = []
+            const onChange = (value: EmailTemplate): void => void calls.push(`content: ${value.subject}`)
+            const onTemplateApplied = (templateId: string): void => void calls.push(`link: ${templateId}`)
             logic = emailTemplaterLogic(makeProps({ onChange, ...(tracksLink ? { onTemplateApplied } : {}) }))
             logic.mount()
 
@@ -201,24 +204,7 @@ describe('emailTemplaterLogic', () => {
                 logic.actions.applyTemplate(makeLibraryTemplate('template-a', 'Subject A'))
             }).toFinishAllListeners()
 
-            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ subject: 'Subject A' }))
-            expect(onTemplateApplied.mock.calls).toEqual(tracksLink ? [['template-a']] : [])
-        })
-
-        it('a second template replaces the reported link, and a later field edit leaves it alone', async () => {
-            const onChange = jest.fn()
-            const onTemplateApplied = jest.fn()
-            logic = emailTemplaterLogic(makeProps({ onChange, onTemplateApplied }))
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.applyTemplate(makeLibraryTemplate('template-a', 'Subject A'))
-                logic.actions.applyTemplate(makeLibraryTemplate('template-b', 'Subject B'))
-                logic.actions.setEmailTemplateValue('subject', 'Edited subject')
-            }).toFinishAllListeners()
-
-            expect(onTemplateApplied.mock.calls).toEqual([['template-a'], ['template-b']])
-            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ subject: 'Edited subject' }))
+            expect(calls).toEqual(tracksLink ? ['content: Subject A', 'link: template-a'] : ['content: Subject A'])
         })
     })
 

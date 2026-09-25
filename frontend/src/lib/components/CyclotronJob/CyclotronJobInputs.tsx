@@ -42,6 +42,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
+import { EmailTemplaterLogicProps } from '../../../scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { EmailFieldErrors } from '../../../scenes/hog-functions/email-templater/types'
 import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
@@ -131,7 +132,7 @@ export type CyclotronJobInputsProps = {
     emailSaveIndicator?: ReactNode
     // Called with the Library template's id when one is inserted into an email input, for a host
     // that stores which template the email is based on. Only the email input types read this.
-    onEmailTemplateApplied?: (templateId: string) => void
+    onEmailTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     // Classes for the column the inputs are laid out in, so a host with height to spare can let
@@ -309,7 +310,7 @@ function EmailTemplateField({
     fieldErrors?: EmailFieldErrors
     liveChanges?: boolean
     saveIndicator?: ReactNode
-    onTemplateApplied?: (templateId: string) => void
+    onTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
 }): JSX.Element {
     return (
         <EmailTemplater
@@ -595,7 +596,7 @@ type CyclotronJobInputProps = {
     emailFieldErrors?: EmailFieldErrors
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
-    onEmailTemplateApplied?: (templateId: string) => void
+    onEmailTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
 }
 
 function NonFailureStatusCodesField({
