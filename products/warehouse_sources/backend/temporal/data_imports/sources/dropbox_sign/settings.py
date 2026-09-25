@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class DropboxSignEndpointConfig:
     name: str
     # Path under the v3 base URL (https://api.hellosign.com/v3).
@@ -18,8 +20,9 @@ class DropboxSignEndpointConfig:
     is_single_object: bool = False
     # When True the path carries a `{team_id}` placeholder resolved from /team/info at sync time.
     requires_team_id: bool = False
-    # Team-scoped endpoints 404 when the connected account belongs to no team. That is a valid
-    # empty answer rather than a sync failure.
+    # When True a 404 from this endpoint means the table is empty rather than the sync failed.
+    # Only /team/info qualifies: it 404s when the connected account belongs to no team. A 404 from
+    # a paginated endpoint would truncate the table silently, so those must keep failing.
     empty_on_404: bool = False
     # Stable creation timestamp used for datetime partitioning. Dropbox Sign returns these as Unix
     # timestamps (ints), which the pipeline's datetime partitioner handles natively. None disables
@@ -96,7 +99,6 @@ DROPBOX_SIGN_ENDPOINTS: dict[str, DropboxSignEndpointConfig] = {
         data_key="team_members",
         primary_keys=["account_id"],
         requires_team_id=True,
-        empty_on_404=True,
     ),
 }
 

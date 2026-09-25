@@ -178,6 +178,14 @@ class TestGetRows:
         assert captured == [{}]
 
 
+class TestEndpointSettings:
+    def test_only_single_object_endpoints_treat_404_as_empty(self) -> None:
+        # A 404 part way through pagination would end the walk and publish a truncated table, so
+        # only an endpoint that fetches one object may read a 404 as an empty result.
+        paginated = [c.name for c in DROPBOX_SIGN_ENDPOINTS.values() if c.empty_on_404 and not c.is_single_object]
+        assert paginated == []
+
+
 class TestTeamEndpoints:
     @staticmethod
     def _run(endpoint: str, monkeypatch: Any, bodies: dict[str, Any]) -> tuple[list[dict], list[str]]:
