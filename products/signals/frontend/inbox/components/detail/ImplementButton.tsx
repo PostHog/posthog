@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { IconCopy, IconLogomark, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
-
 import {
     buildClaudeCodeDeepLink,
     buildCodexDeepLink,
@@ -124,93 +123,93 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
         )
     }
 
-    return (
-        <LemonButton
-            type="primary"
-            size="small"
-            className="[--lemon-button-hover-depth:0px]"
-            icon={<IconPullRequest />}
-            onClick={() => submit('')}
-            loading={isCreatingPr}
-            disabledReason={disabledReason}
-            tooltip="Implement this report with PostHog"
-            data-attr="inbox-report-create-pr"
-            sideAction={{
-                tooltip: 'More implementation options',
-                'aria-label': 'More implementation options',
-                'data-attr': 'inbox-report-create-pr-steer',
-                dropdown: {
-                    placement: 'bottom-end',
-                    closeOnClickInside: false,
-                    overlay: (
-                        <div className="flex w-128 flex-col gap-2 p-2">
-                            <span className="text-xs font-semibold text-tertiary">
-                                Add instructions for the PostHog agent
-                            </span>
-                            <LemonTextArea
-                                value={instructions}
-                                onChange={setInstructions}
-                                onPressEnter={submit}
-                                placeholder="Add instructions for the PostHog agent (optional)"
-                                maxLength={4000}
-                                rows={4}
-                                autoFocus
-                                actions={[
-                                    <span key="shortcut" className="text-xs text-tertiary">
-                                        Enter to implement, Shift + Enter for a new line
-                                    </span>,
-                                ]}
-                            />
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconCopy />}
-                                    onClick={() =>
-                                        runImplementationPrompt('clipboard', (prompt) => {
-                                            void copyToClipboard(prompt, 'prompt for your agent')
-                                        })
-                                    }
-                                    data-attr="inbox-report-copy-implementation-prompt"
-                                    sideAction={{
-                                        tooltip: 'Open prompt in an agent',
-                                        'aria-label': 'Open prompt in an agent',
-                                        dropdown: {
-                                            placement: 'bottom-start',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={IMPLEMENTATION_AGENTS.map((agent) => ({
-                                                        key: agent.key,
-                                                        label: agent.name,
-                                                        icon: agent.icon,
-                                                        onClick: () =>
-                                                            runImplementationPrompt(agent.key, (prompt) => {
-                                                                window.open(agent.buildDeepLink(prompt), '_blank')
-                                                            }),
-                                                    }))}
-                                                />
-                                            ),
-                                        },
-                                    }}
-                                >
-                                    Copy prompt for your agent
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPullRequest />}
-                                    onClick={() => submit(instructions)}
-                                    loading={isCreatingPr}
-                                    disabledReason={disabledReason}
-                                    data-attr="inbox-report-create-pr-submit"
-                                >
-                                    Implement with PostHog
-                                </LemonButton>
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                className="[--lemon-button-hover-depth:0px]"
+                icon={<IconPullRequest />}
+                onClick={() => submit('')}
+                loading={isCreatingPr}
+                disabledReason={disabledReason}
+                tooltip="Implement this report with PostHog"
+                data-attr="inbox-report-create-pr"
+                sideAction={{
+                    tooltip: 'More implementation options',
+                    'aria-label': 'More implementation options',
+                    'data-attr': 'inbox-report-create-pr-steer',
+                    dropdown: {
+                        placement: 'bottom-end',
+                        closeOnClickInside: false,
+                        overlay: (
+                            <div className="flex w-128 flex-col gap-2 p-2">
+                                <span className="text-xs font-semibold text-tertiary">
+                                    Add instructions for the PostHog agent
+                                </span>
+                                <LemonTextArea
+                                    value={instructions}
+                                    onChange={setInstructions}
+                                    onPressEnter={submit}
+                                    placeholder="Add instructions for the PostHog agent (optional)"
+                                    maxLength={4000}
+                                    rows={4}
+                                    autoFocus
+                                    actions={[
+                                        <span key="shortcut" className="text-xs text-tertiary">
+                                            Enter to implement, Shift + Enter for a new line
+                                        </span>,
+                                    ]}
+                                />
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconCopy />}
+                                        onClick={() =>
+                                            runImplementationPrompt('clipboard', (prompt) => {
+                                                void copyToClipboard(prompt, 'prompt for your agent')
+                                            })
+                                        }
+                                        data-attr="inbox-report-copy-implementation-prompt"
+                                        sideAction={{
+                                            tooltip: 'Open prompt in an agent',
+                                            'aria-label': 'Open prompt in an agent',
+                                            dropdown: {
+                                                placement: 'bottom-start',
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={IMPLEMENTATION_AGENTS.map((agent) => ({
+                                                            key: agent.key,
+                                                            label: agent.name,
+                                                            icon: agent.icon,
+                                                            onClick: () =>
+                                                                runImplementationPrompt(agent.key, (prompt) => {
+                                                                    window.open(agent.buildDeepLink(prompt), '_blank')
+                                                                }),
+                                                        }))}
+                                                    />
+                                                ),
+                                            },
+                                        }}
+                                    >
+                                        Copy prompt for your agent
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPullRequest />}
+                                        onClick={() => submit(instructions)}
+                                        loading={isCreatingPr}
+                                        disabledReason={disabledReason}
+                                        data-attr="inbox-report-create-pr-submit"
+                                    >
+                                        Implement with PostHog
+                                    </LemonButton>
+                                </div>
                             </div>
-                        </div>
-                    ),
-                },
-            }}
-        >
-            Implement
-        </LemonButton>
-    )
-}
+                        ),
+                    },
+                }}
+            >
+                Implement
+            </LemonButton>
+        )
+    }
